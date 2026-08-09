@@ -1,0 +1,97 @@
+#!/usr/bin/env node
+// Keeps generated mirrors in sync — see CLAUDE.md's Locked decisions table.
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, join, relative } from 'node:path'
+
+const FILE_MIRRORS = [{ source: 'CLAUDE.md', target: 'AGENTS.md' }]
+const DIR_MIRRORS = [{ source: '.claude/skills', target: '.agents/skills' }]
+
+function gitStagedBlob(path) {
+  return execFileSync('git', ['show', `:${path}`])
+}
+
+function gitTrackedFiles(path) {
+  return execFileSync('git', ['ls-files', '--cached', '--', path], { encoding: 'utf8' })
+    .split('\n')
+    .filter(Boolean)
+}
+
+function mirroredPath(sourceFile, source, target) {
+  return join(target, relative(source, sourceFile))
+}
+
+function checkInSync() {
+  const problems = []
+
+  for (const { source, target } of FILE_MIRRORS) {
+    const inSync = existsSync(target) && readFileSync(source).equals(readFileSync(target))
+    if (!inSync) problems.push(`${target} is out of sync with ${source}`)
+  }
+
+  for (const { source, target } of DIR_MIRRORS) {
+    const sourceFiles = gitTrackedFiles(source)
+    const expectedTargets = new Set()
+    for (const sourceFile of sourceFiles) {
+      const targetFile = mirroredPath(sourceFile, source, target)
+      expectedTargets.add(targetFile)
+      const inSync = existsSync(targetFile) && readFileSync(sourceFile).equals(readFileSync(targetFile))
+      if (!inSync) problems.push(`${targetFile} is out of sync with ${sourceFile}`)
+    }
+    for (const targetFile of gitTrackedFiles(target)) {
+      if (!expectedTargets.has(targetFile)) {
+        problems.push(`${targetFile} is an orphan with no ${source} counterpart`)
+      }
+    }
+  }
+
+  if (problems.length > 0) {
+    console.error(problems.join('\n'))
+    console.error('Run: node .githooks/pre-commit to regenerate')
+    process.exit(1)
+  }
+}
+
+function regenerateFileMirror(source, target) {
+  let staged
+  try {
+    staged = gitStagedBlob(source)
+  } catch {
+    // Source isn't in the index (e.g. mid-merge) — don't block the commit.
+    return
+  }
+  writeFileSync(target, staged)
+  execFileSync('git', ['add', target])
+}
+
+function regenerateDirMirror(source, target) {
+  let sourceFiles
+  try {
+    sourceFiles = gitTrackedFiles(source)
+  } catch {
+    return
+  }
+
+  const expectedTargets = new Set()
+  for (const sourceFile of sourceFiles) {
+    const targetFile = mirroredPath(sourceFile, source, target)
+    expectedTargets.add(targetFile)
+    mkdirSync(dirname(targetFile), { recursive: true })
+    writeFileSync(targetFile, gitStagedBlob(sourceFile))
+  }
+
+  for (const targetFile of gitTrackedFiles(target)) {
+    if (!expectedTargets.has(targetFile) && existsSync(targetFile)) {
+      rmSync(targetFile)
+    }
+  }
+
+  execFileSync('git', ['add', '-A', target])
+}
+
+if (process.argv.includes('--check')) {
+  checkInSync()
+} else {
+  for (const { source, target } of FILE_MIRRORS) regenerateFileMirror(source, target)
+  for (const { source, target } of DIR_MIRRORS) regenerateDirMirror(source, target)
+}

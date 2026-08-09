@@ -19,6 +19,7 @@
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "electron-builder install-app-deps",
+    "prepare": "git config core.hooksPath .githooks",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:mac": "npm run build && electron-builder --mac"
   },
