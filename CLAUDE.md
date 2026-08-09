@@ -10,19 +10,20 @@ Electron + React + TypeScript, scaffolded with `electron-vite`. npm (no workspac
 
 ## Layout
 
-```
+```text
 src/main/          # app lifecycle, ipc handlers, db, permissions
 src/preload/       # narrow typed bridge (contextBridge + ipcRenderer.invoke)
 src/renderer/src/  # React app; components/ui/ is shadcn-vendored, don't hand-edit
 src/shared/        # types/constants shared between main and preload (e.g. IPC channel names)
 ```
 
+```text
 Path alias `@/*` → `src/renderer/src/*`, declared in **both** `tsconfig.json` (root, so the `shadcn` CLI can resolve it) and `tsconfig.web.json` (so the renderer project actually compiles with it).
 
 ## Locked decisions
 
 | Area | Decision | Why |
-|---|---|---|
+| --- | --- | --- |
 | Skill sources | Three tiers: global (`~/.claude/skills`), project (`<repo>/.claude/skills`), plugin (`~/.claude/plugins/installed_plugins.json` → each entry's `installPath/skills`) | Plugin skills are read-only — silently overwritten on update |
 | `.agents/skills/` | **Never** scanned — permanently out of scope, not a v1 cut | It's a Codex convention, not a Claude Code artifact. Megatron is a Claude Code tool; this isn't "deferred," it's out of scope by definition. Don't add it as an opt-in source without an explicit, separate decision to do so |
 | SQLite driver | `better-sqlite3`, not `node:sqlite` | `node:sqlite` is still experimental/evolving; wrong risk for the core data layer. `better-sqlite3` v13 ships N-API prebuilds (`prebuilds/darwin-arm64.node` etc.) — no native rebuild needed on install for this platform |
