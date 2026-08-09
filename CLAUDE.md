@@ -1,6 +1,22 @@
 # Megatron
 
-Local-first macOS desktop app that inventories, lints, and tracks usage of every Claude Code skill a user has (global, project, and plugin-installed). Read-only in v1.
+Local-first desktop app that inventories, lints, and tracks usage of every Claude Code skill a user has (global, project, and plugin-installed). Read-only in v1.
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | electron-vite dev — run the app in development |
+| `npm run start` | electron-vite preview |
+| `npm run build` | typecheck, then electron-vite build |
+| `npm run typecheck` | typecheck:node + typecheck:web (tsc --noEmit, split by project) |
+| `npm run lint` | eslint --cache . |
+| `npm run format` | prettier --write . |
+| `npm run test` | vitest run |
+| `npm run build:unpack` | build, then electron-builder --dir (unpacked, no DMG) |
+| `npm run build:mac` | build, then electron-builder --mac (the actual DMG) |
+
+`postinstall` (`electron-builder install-app-deps`) runs automatically on `npm install` — don't invoke it by hand.
 
 ## Stack
 
@@ -38,6 +54,12 @@ Path alias `@/*` → `src/renderer/src/*`, declared in **both** `tsconfig.json` 
 | Distribution | Direct notarized DMG, indefinitely — no Mac App Store | App Store mandates App Sandbox, which the permission model above deliberately skips |
 | Module system | ESM only (`package.json` `"type": "module"`) — no `require`/`module.exports`/`__dirname`/`__filename` anywhere | Enforced by ESLint (`no-require-imports`, `no-restricted-globals` in `eslint.config.mjs`). Preload builds to `out/preload/index.mjs` and must stay unsandboxed for that to load. Use `import.meta.dirname`, not electron-vite's CJS `__dirname` shim — that shim itself injects `createRequire`, which is CommonJS |
 
+## Exploration budget
+
+Bound exploration by default: read the requested file plus a small number of directly related files. No blind repo-wide search unless blocked.
+
+Carve-out: any change touching `src/main/`, `src/preload/`, or `src/shared/` must read the relevant IPC channel definitions and `isPathAllowed()` (`src/main/permissions.ts`) first, regardless of the general cap — these are the cross-process contract seams where a locally-correct change can silently break another process.
+
 ## Testing
 
 TDD is required for new code in `src/main/`, `src/preload/`, and `src/shared/` — permissions, scanners, linters, db queries, IPC handlers, anything with a branch, loop, or transform. Before writing implementation code in that scope, invoke the `test-driven-development` skill (vendored at `.claude/skills/test-driven-development/`, sourced from `obra/superpowers`).
@@ -45,6 +67,14 @@ TDD is required for new code in `src/main/`, `src/preload/`, and `src/shared/` �
 Exceptions (no test-first required): pure type definitions, constants, thin IPC pass-through wiring. `src/renderer/` is excluded entirely — UI changes are verified by running the app, not by component tests (vitest.config.ts doesn't wire up `.tsx`/jsdom, and that's intentional for now).
 
 This applies going forward; existing untested code isn't retroactively in scope.
+
+Verification is two-tier: Vitest covers main-process/IPC-layer logic, wired up above. Renderer/E2E verification is Playwright-Electron — not installed yet (see "Deliberately not built yet"). Until it lands, renderer changes are verified by manually running the app via `npm run dev`, not by claiming an automated gate that doesn't exist.
+
+## Lint hygiene
+
+A pre-existing lint error surfaced during verification gets fixed in the same session, not stepped around — the lint gate stays green. Generated output (`out/`, `dist/`, etc.) is excluded from ESLint config, never left to error.
+
+This isn't cosmetic here: ESLint enforces the ESM-only Locked decision (`no-require-imports`, `no-restricted-globals`) — a stray lint error can be masking a real architectural violation, not just style noise.
 
 ## Real `~/.claude` data used to validate the above
 
@@ -59,6 +89,10 @@ Checked against this machine's actual `~/.claude` (131 transcripts, 34 recorded 
 - **If you ever see `Error: Electron uninstall` when running `npm run dev`**: even after the above approval, `node_modules/electron`'s `extract-zip`-based install script silently no-op'd once in this environment (exits 0, extracts nothing, no error) despite the artifact downloading fine to the local Electron cache. Root cause wasn't pinned down — check first whether `node_modules/electron/dist/` actually contains an `Electron.app` (mac) / `electron.exe` (Windows). If it's missing, extract the cached zip manually: the cache lives at `~/Library/Caches/electron/<hash>/electron-v<version>-<platform>-<arch>.zip` on macOS (use `unzip`) or `%LOCALAPPDATA%\electron\Cache` on Windows (use `tar -xf` or PowerShell's `Expand-Archive`), into `node_modules/electron/dist/`, then write `node_modules/electron/path.txt` with the platform-relative exe path (`Electron.app/Contents/MacOS/Electron` on macOS, `electron.exe` on Windows). CI now runs on `windows-latest` too (see below) — if this is a real cross-platform issue rather than a one-off local quirk, CI should catch it on a clean install before anyone hits it manually.
 - CI runs the full `typecheck`/`lint`/`test` suite on both `macos-latest` and `windows-latest` (packaging/DMG build stays macOS-only, unrelated to catching dev-environment breakage). This exists specifically because the team develops across both platforms — it's the safety net for anything platform-specific slipping through.
 
+## Docs fan-out trigger
+
+No `docs/` files exist yet — consistent with nothing being stubbed ahead of its milestone. A subsystem earns its own `docs/<name>.md` (plus a CLAUDE.md routing-table row) once its implementation detail no longer fits gracefully in the Locked-decisions table. Likely first trigger: M1's scanner — the "Real `~/.claude` data used to validate the above" section above is the flagged first candidate for this split, deferred until `skills-scanner.ts` actually exists, not before.
+
 ## Deliberately not built yet
 
-No stub files for M1+ modules (`skills-scanner.ts`, linter rule files, `SkillInventory.tsx`, `schema.sql`, `builtin-skills.json`, …). They land with their milestone. Pricing, onboarding visual design, and beta distribution mechanism are explicitly deferred — not blockers for build work.
+No stub files for M1+ modules (`skills-scanner.ts`, linter rule files, `SkillInventory.tsx`, `schema.sql`, `builtin-skills.json`, …). They land with their milestone. Playwright-Electron (renderer/E2E verification harness) is also not installed yet — see Testing for the manual fallback until it lands. Pricing, onboarding visual design, and beta distribution mechanism are explicitly deferred — not blockers for build work.
