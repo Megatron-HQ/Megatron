@@ -38,6 +38,14 @@ Path alias `@/*` → `src/renderer/src/*`, declared in **both** `tsconfig.json` 
 | Distribution | Direct notarized DMG, indefinitely — no Mac App Store | App Store mandates App Sandbox, which the permission model above deliberately skips |
 | Module system | ESM only (`package.json` `"type": "module"`) — no `require`/`module.exports`/`__dirname`/`__filename` anywhere | Enforced by ESLint (`no-require-imports`, `no-restricted-globals` in `eslint.config.mjs`). Preload builds to `out/preload/index.mjs` and must stay unsandboxed for that to load. Use `import.meta.dirname`, not electron-vite's CJS `__dirname` shim — that shim itself injects `createRequire`, which is CommonJS |
 
+## Testing
+
+TDD is required for new code in `src/main/`, `src/preload/`, and `src/shared/` — permissions, scanners, linters, db queries, IPC handlers, anything with a branch, loop, or transform. Before writing implementation code in that scope, invoke the `test-driven-development` skill (vendored at `.claude/skills/test-driven-development/`, sourced from `obra/superpowers`).
+
+Exceptions (no test-first required): pure type definitions, constants, thin IPC pass-through wiring. `src/renderer/` is excluded entirely — UI changes are verified by running the app, not by component tests (vitest.config.ts doesn't wire up `.tsx`/jsdom, and that's intentional for now).
+
+This applies going forward; existing untested code isn't retroactively in scope.
+
 ## Real `~/.claude` data used to validate the above
 
 Checked against this machine's actual `~/.claude` (131 transcripts, 34 recorded Skill invocations, live `installed_plugins.json`) before scaffolding. Two things worth knowing if you're extending the scanners:
