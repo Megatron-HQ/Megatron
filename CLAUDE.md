@@ -36,6 +36,7 @@ Path alias `@/*` → `src/renderer/src/*`, declared in **both** `tsconfig.json` 
 | Permission chokepoint | Every filesystem read routes through `isPathAllowed()` (`src/main/permissions.ts`) | Tier 1 (`~/.claude/{skills,plugins,projects}`) is hardcoded-allowed; Tier 2 (repo folders) via `grantPath()`, wired to the onboarding picker in M6 |
 | Renderer state | TanStack Query for IPC data, plain `useState`/Context for local UI state | No Redux/Zustand — not enough state complexity to justify it |
 | Distribution | Direct notarized DMG, indefinitely — no Mac App Store | App Store mandates App Sandbox, which the permission model above deliberately skips |
+| Module system | ESM only (`package.json` `"type": "module"`) — no `require`/`module.exports`/`__dirname`/`__filename` anywhere | Enforced by ESLint (`no-require-imports`, `no-restricted-globals` in `eslint.config.mjs`). Preload builds to `out/preload/index.mjs` and must stay unsandboxed for that to load. Use `import.meta.dirname`, not electron-vite's CJS `__dirname` shim — that shim itself injects `createRequire`, which is CommonJS |
 
 ## Real `~/.claude` data used to validate the above
 

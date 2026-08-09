@@ -37,5 +37,20 @@ export default defineConfig(
       'react-refresh/only-export-components': 'off'
     }
   },
+  {
+    // ESM only, everywhere — see "Module system" in CLAUDE.md's locked decisions.
+    files: ['**/*.{ts,tsx,mjs}'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'error',
+      'no-restricted-globals': [
+        'error',
+        { name: 'require', message: 'ESM only — use import.' },
+        { name: 'module', message: 'ESM only — use export.' },
+        { name: 'exports', message: 'ESM only — use export.' },
+        { name: '__dirname', message: 'ESM only — use import.meta.dirname.' },
+        { name: '__filename', message: 'ESM only — use import.meta.filename.' }
+      ]
+    }
+  },
   eslintConfigPrettier
 )

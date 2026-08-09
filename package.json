@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Inventories, lints, and tracks usage of Claude Code skills.",
   "main": "./out/main/index.js",
+  "type": "module",
   "author": "Megatron-HQ",
   "engines": {
     "node": "^22.0.0"
