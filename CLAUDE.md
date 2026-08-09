@@ -30,7 +30,7 @@ Path alias `@/*` → `src/renderer/src/*`, declared in **both** `tsconfig.json` 
 | `skill_invocations` join | Text `skill_name`, **no FK** to `skills.id` | Invocations can reference skills no scan will ever find (built-ins, deleted skills, ungranted repos) — join is best-effort at query time, not enforced |
 | Built-in skills | Bundled static `builtin-skills.json` (names/descriptions from Anthropic docs), tagged `source: builtin` — **no live introspection** of the CC install path | Install path is version-dependent/undocumented; a stale bundled list degrades gracefully, a broken introspection doesn't. Lands with M1, not M0 |
 | Plugin identity | Key on the composite `name@marketplace`, not bare name | `installed_plugins.json` keys this way; also handles `"version": "unknown"` (non-semver) |
-| Plugin → install | One-to-**many** (array), with a `scope` field (`user`/`project`) | `installed_plugins.json` values are arrays, not single objects |
+| Plugin → install | One-to-**many** (array), with a `scope` field (`user`/project`) | `installed_plugins.json` values are arrays, not single objects |
 | Marketplace repo | Read from `known_marketplaces.json` (separate file), not `installed_plugins.json` | This is what makes the M5 "Report" deep-link to the marketplace's GitHub repo resolvable |
 | Transcript double-count | Filter `isSidechain === false` when counting invocations | Field exists on every transcript line; subagent transcripts must not double-count usage stats |
 | Permission chokepoint | Every filesystem read routes through `isPathAllowed()` (`src/main/permissions.ts`) | Tier 1 (`~/.claude/{skills,plugins,projects}`) is hardcoded-allowed; Tier 2 (repo folders) via `grantPath()`, wired to the onboarding picker in M6 |

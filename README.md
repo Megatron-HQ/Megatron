@@ -4,10 +4,10 @@
 
 ## Founders
 
-| Name | Role |
-| --- | --- |
+| Name                    | Role       |
+| ----------------------- | ---------- |
 | Vijay Sai Chigullapally | Co-founder |
-| Sairithik Komuravelly | Co-founder |
+| Sairithik Komuravelly   | Co-founder |
 
 ## Ambition
 
