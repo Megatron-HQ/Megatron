@@ -2,7 +2,7 @@
 // Keeps generated mirrors in sync — see CLAUDE.md's Locked decisions table.
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative } from 'node:path'
+import { dirname, join, relative } from 'node:path/posix'
 
 const FILE_MIRRORS = [{ source: 'CLAUDE.md', target: 'AGENTS.md' }]
 const DIR_MIRRORS = [{ source: '.claude/skills', target: '.agents/skills' }]
