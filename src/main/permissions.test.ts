@@ -1,7 +1,7 @@
 import { homedir } from 'os'
 import { resolve } from 'path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { grantPath, isPathAllowed, resetGrantedPaths } from './permissions'
+import { getGrantedPaths, grantPath, isPathAllowed, resetGrantedPaths } from './permissions'
 
 beforeEach(() => {
   resetGrantedPaths()
@@ -38,5 +38,42 @@ describe('isPathAllowed', () => {
     expect(isPathAllowed(repo)).toBe(true)
     expect(isPathAllowed(resolve(repo, '.claude/skills'))).toBe(true)
     expect(isPathAllowed(resolve(homedir(), 'Desktop/some-project-2'))).toBe(false)
+  })
+})
+
+describe('getGrantedPaths', () => {
+  it('returns an empty array when nothing is granted', () => {
+    expect(getGrantedPaths()).toEqual([])
+  })
+
+  it('returns a granted path after grantPath', () => {
+    const repo = resolve(homedir(), 'Desktop/some-project')
+    grantPath(repo)
+    expect(getGrantedPaths()).toEqual([repo])
+  })
+
+  it('returns the resolved form of a granted path', () => {
+    grantPath(resolve(homedir(), 'Desktop/some-project/../some-project'))
+    expect(getGrantedPaths()).toEqual([resolve(homedir(), 'Desktop/some-project')])
+  })
+
+  it('deduplicates when the same path is granted twice', () => {
+    const repo = resolve(homedir(), 'Desktop/some-project')
+    grantPath(repo)
+    grantPath(repo)
+    expect(getGrantedPaths()).toEqual([repo])
+  })
+
+  it('does not include the Tier-1 roots', () => {
+    const paths = getGrantedPaths()
+    expect(paths).not.toContain(resolve(homedir(), '.claude/skills'))
+    expect(paths).not.toContain(resolve(homedir(), '.claude/plugins'))
+    expect(paths).not.toContain(resolve(homedir(), '.claude/projects'))
+  })
+
+  it('empties after resetGrantedPaths', () => {
+    grantPath(resolve(homedir(), 'Desktop/some-project'))
+    resetGrantedPaths()
+    expect(getGrantedPaths()).toEqual([])
   })
 })

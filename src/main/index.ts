@@ -3,6 +3,9 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { getDb } from './db'
+import { scanSkills } from './ingest/skills-scanner'
+import { scanPluginRegistry } from './ingest/plugin-registry'
+import { scanTranscripts } from './ingest/transcript-scanner'
 import { IPC_CHANNELS } from '../shared/ipc'
 
 function createWindow(): void {
@@ -59,6 +62,17 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+
+  setImmediate(() => {
+    const db = getDb()
+    for (const scan of [scanSkills, scanPluginRegistry, scanTranscripts]) {
+      try {
+        scan(db)
+      } catch (err) {
+        console.error('[ingest] scan failed', err)
+      }
+    }
+  })
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the

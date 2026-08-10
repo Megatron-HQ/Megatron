@@ -4,17 +4,17 @@ Local-first desktop app that inventories, lints, and tracks usage of every Claud
 
 ## Commands
 
-| Command | What it does |
-| --- | --- |
-| `npm run dev` | electron-vite dev — run the app in development |
-| `npm run start` | electron-vite preview |
-| `npm run build` | typecheck, then electron-vite build |
-| `npm run typecheck` | typecheck:node + typecheck:web (tsc --noEmit, split by project) |
-| `npm run lint` | eslint --cache . |
-| `npm run format` | prettier --write . |
-| `npm run test` | vitest run |
-| `npm run build:unpack` | build, then electron-builder --dir (unpacked, no DMG) |
-| `npm run build:mac` | build, then electron-builder --mac (the actual DMG) |
+| Command                | What it does                                                    |
+| ---------------------- | --------------------------------------------------------------- |
+| `npm run dev`          | electron-vite dev — run the app in development                  |
+| `npm run start`        | electron-vite preview                                           |
+| `npm run build`        | typecheck, then electron-vite build                             |
+| `npm run typecheck`    | typecheck:node + typecheck:web (tsc --noEmit, split by project) |
+| `npm run lint`         | eslint --cache .                                                |
+| `npm run format`       | prettier --write .                                              |
+| `npm run test`         | vitest run                                                      |
+| `npm run build:unpack` | build, then electron-builder --dir (unpacked, no DMG)           |
+| `npm run build:mac`    | build, then electron-builder --mac (the actual DMG)             |
 
 `postinstall` (`electron-builder install-app-deps`) runs automatically on `npm install` — don't invoke it by hand. `prepare` (`git config core.hooksPath .githooks`) also runs on `npm install` — see the `AGENTS.md` row in Locked decisions.
 
@@ -44,12 +44,12 @@ Path alias `@/*` → `src/renderer/src/*`, declared in **both** `tsconfig.json` 
 | `.agents/skills/` | **Never** scanned — permanently out of scope, not a v1 cut | It's a Codex convention, not a Claude Code artifact. Megatron is a Claude Code tool; this isn't "deferred," it's out of scope by definition. Don't add it as an opt-in source without an explicit, separate decision to do so. (This repo's own `.agents/skills/` is still kept in sync as a generated mirror — see the row below. That's repo housekeeping, unrelated to what the scanner reads.) |
 | SQLite driver | `better-sqlite3`, not `node:sqlite` | `node:sqlite` is still experimental/evolving; wrong risk for the core data layer. `better-sqlite3` v13 ships N-API prebuilds (`prebuilds/darwin-arm64.node` etc.) — no native rebuild needed on install for this platform |
 | `skill_invocations` join | Text `skill_name`, **no FK** to `skills.id` | Invocations can reference skills no scan will ever find (built-ins, deleted skills, ungranted repos) — join is best-effort at query time, not enforced |
-| Built-in skills | Bundled static `builtin-skills.json` (names/descriptions from Anthropic docs), tagged `source: builtin` — **no live introspection** of the CC install path | Install path is version-dependent/undocumented; a stale bundled list degrades gracefully, a broken introspection doesn't. Lands with M1, not M0 |
+| Built-in skills | **Not a skill source, permanently.** No `builtin-skills.json`, no `source: builtin` tag | Not user-managed state — no file to point at, nothing to lint, no path to go stale, no version to track. `source_type` is a 3-way enum: `global` \| `project` \| `plugin`. Cut, not deferred — see `docs/mvp-build-spec.md` |
 | Plugin identity | Key on the composite `name@marketplace`, not bare name | `installed_plugins.json` keys this way; also handles `"version": "unknown"` (non-semver) |
 | Plugin → install | One-to-**many** (array), with a `scope` field (`user`/project`) | `installed_plugins.json` values are arrays, not single objects |
-| Marketplace repo | Read from `known_marketplaces.json` (separate file), not `installed_plugins.json` | This is what makes the M5 "Report" deep-link to the marketplace's GitHub repo resolvable |
+| Marketplace repo | Read from `known_marketplaces.json` (separate file), not `installed_plugins.json` | This is what makes the plugin-remediation milestone's "Report" deep-link to the marketplace's GitHub repo resolvable — see `docs/mvp-build-spec.md` for milestone numbering |
 | Transcript double-count | Filter `isSidechain === false` when counting invocations | Field exists on every transcript line; subagent transcripts must not double-count usage stats |
-| Permission chokepoint | Every filesystem read routes through `isPathAllowed()` (`src/main/permissions.ts`) | Tier 1 (`~/.claude/{skills,plugins,projects}`) is hardcoded-allowed; Tier 2 (repo folders) via `grantPath()`, wired to the onboarding picker in M6 |
+| Permission chokepoint | Every filesystem read routes through `isPathAllowed()` (`src/main/permissions.ts`) | Tier 1 (`~/.claude/{skills,plugins,projects}`) is hardcoded-allowed; Tier 2 (repo folders) via `grantPath()`, wired to the onboarding picker — see `docs/mvp-build-spec.md` for milestone numbering |
 | Renderer state | TanStack Query for IPC data, plain `useState`/Context for local UI state | No Redux/Zustand — not enough state complexity to justify it |
 | Distribution | Direct notarized DMG, indefinitely — no Mac App Store | App Store mandates App Sandbox, which the permission model above deliberately skips |
 | Module system | ESM only (`package.json` `"type": "module"`) — no `require`/`module.exports`/`__dirname`/`__filename` anywhere | Enforced by ESLint (`no-require-imports`, `no-restricted-globals` in `eslint.config.mjs`). Preload builds to `out/preload/index.mjs` and must stay unsandboxed for that to load. Use `import.meta.dirname`, not electron-vite's CJS `__dirname` shim — that shim itself injects `createRequire`, which is CommonJS |
@@ -92,8 +92,11 @@ Checked against this machine's actual `~/.claude` (131 transcripts, 34 recorded 
 
 ## Docs fan-out trigger
 
-No `docs/` files exist yet — consistent with nothing being stubbed ahead of its milestone. A subsystem earns its own `docs/<name>.md` (plus a CLAUDE.md routing-table row) once its implementation detail no longer fits gracefully in the Locked-decisions table. Likely first trigger: M1's scanner — the "Real `~/.claude` data used to validate the above" section above is the flagged first candidate for this split, deferred until `skills-scanner.ts` actually exists, not before.
+`docs/mvp-build-spec.md` exists — the living build spec (supersedes the original from-zero MVP PDF), kept current as milestone/schema/architecture decisions get made. Consult it for milestone numbering and anything marked "still open" there before assuming a decision hasn't been made yet.
+
+That file is a project-wide planning doc, a different category from the per-subsystem docs described below, which still don't exist yet. A subsystem earns its own `docs/<name>.md` (plus a CLAUDE.md routing-table row) once its implementation detail no longer fits gracefully in the Locked-decisions table. Likely first trigger: M1's scanner — the "Real `~/.claude` data used to validate the above" section above is the flagged first candidate for this split, deferred until `skills-scanner.ts` actually exists, not before.
 
 ## Deliberately not built yet
 
-No stub files for M1+ modules (`skills-scanner.ts`, linter rule files, `SkillInventory.tsx`, `schema.sql`, `builtin-skills.json`, …). They land with their milestone. Playwright-Electron (renderer/E2E verification harness) is also not installed yet — see Testing for the manual fallback until it lands. Pricing, onboarding visual design, and beta distribution mechanism are explicitly deferred — not blockers for build work.
+No stub files for M1+ modules (`skills-scanner.ts`, linter rule files, `SkillInventory.tsx`, `schema.sql`, …). They land with their milestone. Playwright-Electron (renderer/E2E verification harness) is also not installed yet — see Testing for the manual fallback until it lands. Pricing, onboarding visual design, and beta distribution mechanism are explicitly deferred — not blockers for build work.
+```

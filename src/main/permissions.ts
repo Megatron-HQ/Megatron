@@ -15,6 +15,10 @@ export function resetGrantedPaths(): void {
   grantedPaths.clear()
 }
 
+export function getGrantedPaths(): string[] {
+  return [...grantedPaths]
+}
+
 export function isPathAllowed(path: string): boolean {
   const resolved = resolve(path)
   for (const root of [...TIER_1_ROOTS, ...grantedPaths]) {
