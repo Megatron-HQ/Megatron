@@ -1,80 +1,175 @@
 @import 'tailwindcss';
 
-@custom-variant dark (&:is(.dark *));
+@theme {
+  --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Syne', ui-sans-serif, system-ui, sans-serif;
+  --font-serif: 'Instrument Serif', ui-serif, Georgia, serif;
 
-:root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --radius: 0.625rem;
-}
-
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --color-canvas: #111111;
+  --color-cream: #f4efe6;
+  --color-navy: #0c3854;
+  --color-ink: #113247;
+  --color-orange: #f7a034;
+  --color-teal: #0b4f6c;
+  --color-blush: #f6d5c8;
+  --color-charcoal: #1a1a1a;
+  --color-coral: #e23d28;
 }
 
 @layer base {
-  * {
-    @apply border-border outline-ring/50;
+  html,
+  body,
+  #root {
+    height: 100%;
   }
+
   body {
-    @apply bg-background text-foreground;
+    background-color: var(--color-canvas);
+    color: #f8fafc;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-orange) 40%, transparent);
+  }
+}
+
+@layer components {
+  .bento-grid {
+    display: grid;
+    width: 100%;
+    min-height: 0;
+    flex: 1 1 auto;
+    gap: 14px;
+    grid-template-columns: 1.18fr 1.18fr 0.92fr 0.88fr 1.02fr;
+    grid-template-rows: 44px minmax(0, 1.15fr) minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr) 96px;
+    grid-template-areas:
+      'hero hero stories stories stories'
+      'hero hero wordmark mcp agents'
+      'hero hero linter mcp agents'
+      'pulse pulse sources skills skills'
+      'pulse pulse topology skills skills'
+      'partners partners partners partners partners';
+  }
+
+  .area-hero {
+    grid-area: hero;
+  }
+  .area-stories {
+    grid-area: stories;
+  }
+  .area-wordmark {
+    grid-area: wordmark;
+  }
+  .area-linter {
+    grid-area: linter;
+  }
+  .area-mcp {
+    grid-area: mcp;
+  }
+  .area-agents {
+    grid-area: agents;
+  }
+  .area-pulse {
+    grid-area: pulse;
+  }
+  .area-sources {
+    grid-area: sources;
+  }
+  .area-topology {
+    grid-area: topology;
+  }
+  .area-skills {
+    grid-area: skills;
+  }
+  .area-partners {
+    grid-area: partners;
+  }
+
+  .bento-card {
+    min-height: 0;
+    min-width: 0;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    border-radius: 28px;
+    cursor: pointer;
+    text-align: left;
+    transition:
+      box-shadow 200ms ease,
+      filter 200ms ease;
+  }
+
+  .bento-card:hover {
+    filter: brightness(1.04);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  }
+
+  .bento-card:focus-visible {
+    outline: 2px solid var(--color-orange);
+    outline-offset: 3px;
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  .font-serif {
+    font-family: var(--font-serif);
+  }
+
+  .grain {
+    background-image: url("data:image/svg+xml;utf8,<svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #d6d0c6;
+    border-radius: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #c4bdb2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:focus-within {
+    scroll-behavior: auto;
+  }
+
+  .bento-card {
+    transition: none;
+  }
+}
+
+@media (max-width: 1024px) {
+  body {
+    overflow: auto;
+  }
+
+  .bento-grid {
+    height: auto;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: none;
+    grid-auto-rows: minmax(160px, auto);
+    grid-template-areas:
+      'hero hero'
+      'stories stories'
+      'wordmark linter'
+      'mcp agents'
+      'pulse pulse'
+      'sources topology'
+      'skills skills'
+      'partners partners';
   }
 }
