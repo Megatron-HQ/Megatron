@@ -1,10 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import { IPC_CHANNELS } from '../shared/ipc'
+import type { Skill, Invocation, Plugin, Session } from '../shared/types'
 
 // Custom APIs for renderer
 const api = {
-  getSqliteVersion: (): Promise<string> => ipcRenderer.invoke(IPC_CHANNELS.getSqliteVersion)
+  getSqliteVersion: (): Promise<string> => ipcRenderer.invoke(IPC_CHANNELS.getSqliteVersion),
+  getSkills: (): Promise<Skill[]> => ipcRenderer.invoke(IPC_CHANNELS.getSkills),
+  getInvocations: (): Promise<Invocation[]> => ipcRenderer.invoke(IPC_CHANNELS.getInvocations),
+  getPlugins: (): Promise<Plugin[]> => ipcRenderer.invoke(IPC_CHANNELS.getPlugins),
+  getSessions: (): Promise<Session[]> => ipcRenderer.invoke(IPC_CHANNELS.getSessions)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

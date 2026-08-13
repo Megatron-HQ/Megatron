@@ -11,8 +11,12 @@ import { IPC_CHANNELS } from '../shared/ipc'
 function createWindow(): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+    width: 1440,
+    height: 920,
+    minWidth: 1100,
+    minHeight: 760,
+    backgroundColor: '#111111',
+    title: 'Megatron',
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
@@ -61,18 +65,34 @@ app.whenReady().then(() => {
     return row.version
   })
 
-  createWindow()
-
-  setImmediate(() => {
-    const db = getDb()
-    for (const scan of [scanSkills, scanPluginRegistry, scanTranscripts]) {
-      try {
-        scan(db)
-      } catch (err) {
-        console.error('[ingest] scan failed', err)
-      }
-    }
+  ipcMain.handle(IPC_CHANNELS.getSkills, () => {
+    return getDb().prepare('SELECT * FROM skills ORDER BY last_scanned_at DESC').all()
   })
+
+  ipcMain.handle(IPC_CHANNELS.getInvocations, () => {
+    return getDb()
+      .prepare('SELECT * FROM skill_invocations ORDER BY invoked_at DESC LIMIT 50')
+      .all()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.getPlugins, () => {
+    return getDb().prepare('SELECT * FROM plugin_registry ORDER BY last_scanned_at DESC').all()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.getSessions, () => {
+    return getDb().prepare('SELECT * FROM sessions_meta ORDER BY started_at DESC LIMIT 20').all()
+  })
+
+  const db = getDb()
+  for (const scan of [scanSkills, scanPluginRegistry, scanTranscripts]) {
+    try {
+      scan(db)
+    } catch (err) {
+      console.error('[ingest] scan failed', err)
+    }
+  }
+
+  createWindow()
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the
