@@ -21,7 +21,7 @@ export function LinterWidget(props: WidgetProps): React.JSX.Element {
     return () => window.clearInterval(timer)
   }, [lintIssues.length, reduceMotion])
 
-  const activeIssue = lintIssues[slide]
+  const activeIssue = lintIssues.length === 0 ? undefined : lintIssues[slide % lintIssues.length]
 
   return (
     <BentoBlock

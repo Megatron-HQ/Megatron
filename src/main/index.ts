@@ -83,18 +83,16 @@ app.whenReady().then(() => {
     return getDb().prepare('SELECT * FROM sessions_meta ORDER BY started_at DESC LIMIT 20').all()
   })
 
-  createWindow()
-
-  setImmediate(() => {
-    const db = getDb()
-    for (const scan of [scanSkills, scanPluginRegistry, scanTranscripts]) {
-      try {
-        scan(db)
-      } catch (err) {
-        console.error('[ingest] scan failed', err)
-      }
+  const db = getDb()
+  for (const scan of [scanSkills, scanPluginRegistry, scanTranscripts]) {
+    try {
+      scan(db)
+    } catch (err) {
+      console.error('[ingest] scan failed', err)
     }
-  })
+  }
+
+  createWindow()
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the
