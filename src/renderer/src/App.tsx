@@ -1,27 +1,68 @@
-import { useQuery } from '@tanstack/react-query'
-import { Button } from '@/components/ui/button'
+import { useEffect, useMemo, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Sidebar, type SourceFilter } from '@/components/Sidebar'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { SkillInventory } from './views/SkillInventory'
+import { SkillDetail } from './views/SkillDetail'
+import type { Theme } from '../../shared/ipc'
 
 function App(): React.JSX.Element {
-  const {
-    data: sqliteVersion,
-    isFetching,
-    refetch
-  } = useQuery({
-    queryKey: ['sqlite-version'],
-    queryFn: () => window.api.getSqliteVersion()
+  const queryClient = useQueryClient()
+  const [theme, setTheme] = useState<Theme>(() =>
+    document.documentElement.classList.contains('dark') ? 'dark' : 'light'
+  )
+  const [filter, setFilter] = useState<SourceFilter>('all')
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+
+  const { data } = useQuery({
+    queryKey: ['skills'],
+    queryFn: () => window.api.listSkills()
   })
 
+  useEffect(
+    () => window.api.onScanComplete(() => queryClient.invalidateQueries({ queryKey: ['skills'] })),
+    [queryClient]
+  )
+
+  const skills = useMemo(() => data?.skills ?? [], [data])
+  const scanComplete = data?.scanComplete ?? false
+
+  const filteredSkills = useMemo(
+    () => (filter === 'all' ? skills : skills.filter((skill) => skill.source_type === filter)),
+    [skills, filter]
+  )
+
+  const selectedSkill = useMemo(
+    () => skills.find((skill) => skill.id === selectedId) ?? null,
+    [skills, selectedId]
+  )
+
+  function toggleTheme(): void {
+    const next: Theme = theme === 'dark' ? 'light' : 'dark'
+    setTheme(next)
+    document.documentElement.classList.toggle('dark', next === 'dark')
+    void window.api.setTheme(next)
+  }
+
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-4">
-      <h1 className="text-lg font-semibold">Megatron</h1>
-      <p className="text-muted-foreground text-sm">
-        better-sqlite3 &rarr; ipcMain &rarr; preload &rarr; TanStack Query
-      </p>
-      <p className="font-mono text-2xl">{isFetching ? '...' : sqliteVersion}</p>
-      <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
-        Refetch
-      </Button>
-    </div>
+    <TooltipProvider>
+      <div className="flex h-screen">
+        <Sidebar
+          filter={filter}
+          onFilterChange={setFilter}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+        />
+        <SkillInventory
+          skills={filteredSkills}
+          loading={!skills.length && !scanComplete}
+          filter={filter}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+        />
+        <SkillDetail skill={selectedSkill} onClose={() => setSelectedId(null)} />
+      </div>
+    </TooltipProvider>
   )
 }
 

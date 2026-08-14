@@ -69,7 +69,7 @@ Exceptions (no test-first required): pure type definitions, constants, thin IPC 
 
 This applies going forward; existing untested code isn't retroactively in scope.
 
-Verification is two-tier: Vitest covers main-process/IPC-layer logic, wired up above. Renderer/E2E verification is Playwright-Electron — not installed yet (see "Deliberately not built yet"). Until it lands, renderer changes are verified by manually running the app via `npm run dev`, not by claiming an automated gate that doesn't exist.
+Verification is two-tier: Vitest covers main-process/IPC-layer logic, wired up above. Renderer changes are verified by manually running the app via `npm run dev`, or via the `visual-verify` skill (`.claude/skills/visual-verify/`) — Playwright-Electron (`playwright-core`'s `_electron`) drives the packaged app in an isolated profile and screenshots the real screens for an agent to Read back. That's a rendering/regression smoke check, not an assertion suite: it isn't wired into `npm test` or `ci.yml`, and behavioral E2E assertions are still not built (see "Deliberately not built yet") — don't claim an automated gate that doesn't exist.
 
 ## Lint hygiene
 
@@ -94,9 +94,15 @@ Checked against this machine's actual `~/.claude` (131 transcripts, 34 recorded 
 
 `docs/mvp-build-spec.md` exists — the living build spec (supersedes the original from-zero MVP PDF), kept current as milestone/schema/architecture decisions get made. Consult it for milestone numbering and anything marked "still open" there before assuming a decision hasn't been made yet.
 
-That file is a project-wide planning doc, a different category from the per-subsystem docs described below, which still don't exist yet. A subsystem earns its own `docs/<name>.md` (plus a CLAUDE.md routing-table row) once its implementation detail no longer fits gracefully in the Locked-decisions table. Likely first trigger: M1's scanner — the "Real `~/.claude` data used to validate the above" section above is the flagged first candidate for this split, deferred until `skills-scanner.ts` actually exists, not before.
+That file is a project-wide planning doc, a different category from the per-subsystem docs below. A subsystem earns its own `docs/<name>.md` (plus this routing-table row) once its implementation detail no longer fits gracefully in the Locked-decisions table.
+
+| Doc | Covers | Consult before |
+| --- | --- | --- |
+| `docs/design-system.md` | Color, typography, icons, motion, state-management scope, data-table/component-vendoring strategy, empty/loading/error states — decided before any renderer screen existed | Any `src/renderer/` UI work, starting with M2's `SkillInventory.tsx` |
+
+Still-flagged, not yet split out: M1's scanner — the "Real `~/.claude` data used to validate the above" section above is still the candidate for its own doc now that `skills-scanner.ts` actually exists (M1 shipped), just not done yet.
 
 ## Deliberately not built yet
 
-No stub files for M1+ modules (`skills-scanner.ts`, linter rule files, `SkillInventory.tsx`, `schema.sql`, …). They land with their milestone. Playwright-Electron (renderer/E2E verification harness) is also not installed yet — see Testing for the manual fallback until it lands. Pricing, onboarding visual design, and beta distribution mechanism are explicitly deferred — not blockers for build work.
+No stub files for M1+ modules (`skills-scanner.ts`, linter rule files, `SkillInventory.tsx`, `schema.sql`, …). They land with their milestone. A behavioral, assertion-based E2E harness is still not installed — the `visual-verify` skill (see Testing) covers the rendering-smoke-check gap, but nothing asserts on interaction outcomes or gates CI. Pricing, onboarding visual design, and beta distribution mechanism are explicitly deferred — not blockers for build work.
 ```

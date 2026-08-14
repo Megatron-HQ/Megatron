@@ -38,6 +38,14 @@ export default defineConfig(
     }
   },
   {
+    // Skill scripts are plain ESM, not part of the src/ TS project — .mjs can't
+    // express TS return-type syntax, so this rule is structurally inapplicable.
+    files: ['.claude/skills/**/*.mjs'],
+    rules: {
+      '@typescript-eslint/explicit-function-return-type': 'off'
+    }
+  },
+  {
     // ESM only, everywhere — see "Module system" in CLAUDE.md's locked decisions.
     files: ['**/*.{ts,tsx,mjs}'],
     rules: {

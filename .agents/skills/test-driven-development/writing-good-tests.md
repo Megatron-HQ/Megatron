@@ -171,7 +171,7 @@ test as tautological.
 ## Quick Reference
 
 | When you... | Do |
-|-------------|-----|
+| ------------- | ----- |
 | Write any test | Name the break it catches — a bug, not a decision |
 | Build an expected value | Derive it by hand; never with the code under test |
 | Test a script or document | Run it / pressure-test its consumer; never grep its text |
