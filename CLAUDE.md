@@ -33,14 +33,13 @@ src/renderer/src/  # React app; components/ui/ is shadcn-vendored, don't hand-ed
 src/shared/        # types/constants shared between main and preload (e.g. IPC channel names)
 ```
 
-```text
 Path alias `@/*` → `src/renderer/src/*`, declared in **both** `tsconfig.json` (root, so the `shadcn` CLI can resolve it) and `tsconfig.web.json` (so the renderer project actually compiles with it).
 
 ## Locked decisions
 
 | Area | Decision | Why |
 | --- | --- | --- |
-| Skill sources | Three tiers: global (`~/.claude/skills`), project (`<repo>/.claude/skills`), plugin (`~/.claude/plugins/installed_plugins.json` → each entry's `installPath/skills`) | Plugin skills are read-only — silently overwritten on update |
+| Skill sources | Three sources: global (`~/.claude/skills`), project (`<repo>/.claude/skills`), plugin (`~/.claude/plugins/installed_plugins.json` → each entry's `installPath/skills`) | Plugin skills are read-only — silently overwritten on update |
 | `.agents/skills/` | **Never** scanned — permanently out of scope, not a v1 cut | It's a Codex convention, not a Claude Code artifact. Megatron is a Claude Code tool; this isn't "deferred," it's out of scope by definition. Don't add it as an opt-in source without an explicit, separate decision to do so. (This repo's own `.agents/skills/` is still kept in sync as a generated mirror — see the row below. That's repo housekeeping, unrelated to what the scanner reads.) |
 | Tool scope | Claude Code only, permanently — not "not built yet" | Megatron's identity is a Claude Code tool, same footing as the `.agents/skills/` row above. Competing apps (e.g. `references/skills-manager`) support dozens of agent tools via a per-tool adapter layer (`tool_adapters.rs`) — that's the reference shape if multi-tool support is ever pursued, but adding it needs an explicit, separate decision, not a quiet scope creep |
 | Symlinked skill dirs | Followed, not rejected — `isPathAllowed()` checks the symlink's own path, never resolves or validates its target | This is how symlink-sync tools (e.g. `references/skills-manager`, whose default sync mode is symlink) lay skills out under `~/.claude/skills/`; the scanner's flat, non-recursive walk (`skills-scanner.ts`) means `existsSync` transparently follows the link. Rejecting escaped targets would blind Megatron to every symlink-installed skill, not harden anything — see the symlink tests in `skills-scanner.test.ts` before ever "hardening" this |
@@ -79,19 +78,6 @@ A pre-existing lint error surfaced during verification gets fixed in the same se
 
 This isn't cosmetic here: ESLint enforces the ESM-only Locked decision (`no-require-imports`, `no-restricted-globals`) — a stray lint error can be masking a real architectural violation, not just style noise.
 
-## Real `~/.claude` data used to validate the above
-
-Checked against this machine's actual `~/.claude` (131 transcripts, 34 recorded Skill invocations, live `installed_plugins.json`) before scaffolding. Two things worth knowing if you're extending the scanners:
-
-- **A 4th skill source exists in the wild, and it's not ours**: `Portfolio/.claude/skills/` and `Portfolio/.agents/skills/` both exist with 11 same-named-but-diverged skills. The `.agents/` copies are Codex's, not Claude Code's — permanently out of scope (see table above). If you're debugging "why didn't Megatron find this skill," check whether it's actually the `.agents/skills` variant before assuming the scanner is broken.
-- **Skills dirs contain non-skill files** (e.g. a stray `summary.md` next to skill folders) — the scanner must key on `<dir>/SKILL.md` existing, not on every direntry.
-
-## Environment quirks hit during M0 setup (not project bugs)
-
-- This machine's npm (11.x) has an install-script allowlist (`npm approve-scripts`, writes an `allowScripts` block into `package.json`). It silently blocked Electron's own postinstall (which downloads the Electron binary) on first `npm install` — `npm run dev` failed with `Error: Electron uninstall`. Fixed via `npm approve-scripts electron`, which wrote a version-pinned `"allowScripts": {"electron@<version>": true}` into `package.json` (now tracked). Because `package-lock.json` is committed, everyone resolves the exact same Electron version, so this approval should just work for a fresh clone — nobody else should need to re-run `npm approve-scripts` unless the Electron version in `package.json` actually changes (e.g. a deliberate upgrade), in which case re-approve for the new pinned version. Don't blindly approve every flagged package — only ones you actually need (we skipped `electron-winstaller`, which is Windows-only and irrelevant to a macOS-only build target).
-- **If you ever see `Error: Electron uninstall` when running `npm run dev`**: even after the above approval, `node_modules/electron`'s `extract-zip`-based install script silently no-op'd once in this environment (exits 0, extracts nothing, no error) despite the artifact downloading fine to the local Electron cache. Root cause wasn't pinned down — check first whether `node_modules/electron/dist/` actually contains an `Electron.app` (mac) / `electron.exe` (Windows). If it's missing, extract the cached zip manually: the cache lives at `~/Library/Caches/electron/<hash>/electron-v<version>-<platform>-<arch>.zip` on macOS (use `unzip`) or `%LOCALAPPDATA%\electron\Cache` on Windows (use `tar -xf` or PowerShell's `Expand-Archive`), into `node_modules/electron/dist/`, then write `node_modules/electron/path.txt` with the platform-relative exe path (`Electron.app/Contents/MacOS/Electron` on macOS, `electron.exe` on Windows). CI now runs on `windows-latest` too (see below) — if this is a real cross-platform issue rather than a one-off local quirk, CI should catch it on a clean install before anyone hits it manually.
-- CI runs the full `typecheck`/`lint`/`test` suite on both `macos-latest` and `windows-latest` (packaging/DMG build stays macOS-only, unrelated to catching dev-environment breakage). This exists specifically because the team develops across both platforms — it's the safety net for anything platform-specific slipping through.
-
 ## Docs fan-out trigger
 
 `docs/mvp-build-spec.md` exists — the living build spec (supersedes the original from-zero MVP PDF), kept current as milestone/schema/architecture decisions get made. Consult it for milestone numbering and anything marked "still open" there before assuming a decision hasn't been made yet.
@@ -101,10 +87,9 @@ That file is a project-wide planning doc, a different category from the per-subs
 | Doc | Covers | Consult before |
 | --- | --- | --- |
 | `docs/design-system.md` | Color, typography, icons, motion, state-management scope, data-table/component-vendoring strategy, empty/loading/error states — decided before any renderer screen existed | Any `src/renderer/` UI work, starting with M2's `SkillInventory.tsx` |
-
-Still-flagged, not yet split out: M1's scanner — the "Real `~/.claude` data used to validate the above" section above is still the candidate for its own doc now that `skills-scanner.ts` actually exists (M1 shipped), just not done yet.
+| `docs/skill-scanner.md` | Real `~/.claude` data findings from M1: the Codex `.agents/skills/` look-alike, non-skill files inside skills dirs | Debugging why the scanner didn't find a skill you expected |
+| `docs/environment-setup.md` | M0 environment quirks: npm's install-script allowlist blocking Electron's postinstall, a silent `extract-zip` no-op | `npm run dev` failing with `Error: Electron uninstall` |
 
 ## Deliberately not built yet
 
 No stub files for M1+ modules (`skills-scanner.ts`, linter rule files, `SkillInventory.tsx`, `schema.sql`, …). They land with their milestone. A behavioral, assertion-based E2E harness is still not installed — the `visual-verify` skill (see Testing) covers the rendering-smoke-check gap, but nothing asserts on interaction outcomes or gates CI. Pricing, onboarding visual design, and beta distribution mechanism are explicitly deferred — not blockers for build work.
-```
