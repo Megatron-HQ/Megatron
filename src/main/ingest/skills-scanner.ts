@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3'
 import { existsSync, readdirSync } from 'fs'
 import { homedir } from 'os'
 import { dirname, join, resolve } from 'path'
-import { getGrantedPaths, isPathAllowed } from '../permissions'
+import { allowedExistsSync, getGrantedPaths } from '../permissions'
 import { parseSkillDirectory } from './skill-parser'
 
 export interface SkillRoot {
@@ -49,8 +49,7 @@ export function scanSkills(db: Database.Database, roots: SkillRoot[] = defaultSk
       for (const entryName of entries) {
         const dirPath = join(root.dir, entryName)
         const skillMdPath = join(dirPath, 'SKILL.md')
-        if (!existsSync(skillMdPath)) continue
-        if (!isPathAllowed(dirPath)) continue
+        if (!allowedExistsSync(skillMdPath)) continue
 
         const parsed = parseSkillDirectory(dirPath)
         seenPaths.add(dirPath)

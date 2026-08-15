@@ -1,7 +1,15 @@
-import { homedir } from 'os'
-import { resolve } from 'path'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { getGrantedPaths, grantPath, isPathAllowed, resetGrantedPaths } from './permissions'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { homedir, tmpdir } from 'os'
+import { join, resolve } from 'path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import {
+  allowedExistsSync,
+  allowedReaddirSync,
+  getGrantedPaths,
+  grantPath,
+  isPathAllowed,
+  resetGrantedPaths
+} from './permissions'
 
 beforeEach(() => {
   resetGrantedPaths()
@@ -75,5 +83,69 @@ describe('getGrantedPaths', () => {
     grantPath(resolve(homedir(), 'Desktop/some-project'))
     resetGrantedPaths()
     expect(getGrantedPaths()).toEqual([])
+  })
+})
+
+describe('allowedReaddirSync', () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'megatron-perm-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('returns real entries for an allowed directory', () => {
+    grantPath(tmpDir)
+    mkdirSync(join(tmpDir, 'child-a'))
+    mkdirSync(join(tmpDir, 'child-b'))
+
+    expect(allowedReaddirSync(tmpDir).sort()).toEqual(['child-a', 'child-b'])
+  })
+
+  it('returns an empty array for a disallowed directory even when it has real entries on disk', () => {
+    mkdirSync(join(tmpDir, 'child-a'))
+
+    expect(allowedReaddirSync(tmpDir)).toEqual([])
+  })
+
+  it('returns an empty array without throwing when the directory does not exist', () => {
+    grantPath(tmpDir)
+    expect(() => allowedReaddirSync(join(tmpDir, 'missing'))).not.toThrow()
+    expect(allowedReaddirSync(join(tmpDir, 'missing'))).toEqual([])
+  })
+})
+
+describe('allowedExistsSync', () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'megatron-perm-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('returns true for an allowed path that exists', () => {
+    grantPath(tmpDir)
+    const filePath = join(tmpDir, 'file.txt')
+    writeFileSync(filePath, 'content')
+
+    expect(allowedExistsSync(filePath)).toBe(true)
+  })
+
+  it('returns false for a disallowed path even when it exists on disk', () => {
+    const filePath = join(tmpDir, 'file.txt')
+    writeFileSync(filePath, 'content')
+
+    expect(allowedExistsSync(filePath)).toBe(false)
+  })
+
+  it('returns false for an allowed path that does not exist', () => {
+    grantPath(tmpDir)
+    expect(allowedExistsSync(join(tmpDir, 'missing.txt'))).toBe(false)
   })
 })

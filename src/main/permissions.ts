@@ -1,3 +1,4 @@
+import { existsSync, readdirSync } from 'fs'
 import { homedir } from 'os'
 import { resolve, sep } from 'path'
 
@@ -25,4 +26,21 @@ export function isPathAllowed(path: string): boolean {
     if (resolved === root || resolved.startsWith(root + sep)) return true
   }
   return false
+}
+
+// Every other fs read must go through one of these rather than calling
+// node:fs directly — isPathAllowed() is only a real chokepoint if callers
+// can't reach the filesystem without passing it.
+
+export function allowedReaddirSync(dirPath: string): string[] {
+  if (!isPathAllowed(dirPath)) return []
+  try {
+    return readdirSync(dirPath)
+  } catch {
+    return []
+  }
+}
+
+export function allowedExistsSync(path: string): boolean {
+  return isPathAllowed(path) && existsSync(path)
 }

@@ -273,6 +273,30 @@ describe('scanPluginRegistry', () => {
     expect(pluginSkills()).toHaveLength(1)
   })
 
+  it('records the registry row but reads no skills for an installPath outside any granted or Tier-1 root', () => {
+    const evilInstallPath = mkdtempSync(join(tmpdir(), 'megatron-evil-install-'))
+    writePluginSkill(
+      evilInstallPath,
+      'sub-skill',
+      '---\nname: sub-skill\ndescription: Should not be read\n---\nBody'
+    )
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath: evilInstallPath, version: '1.0.0' }]
+      }
+    })
+
+    try {
+      scanPluginRegistry(db, pluginsDir)
+
+      expect(allRegistry()).toHaveLength(1)
+      expect(pluginSkills()).toHaveLength(0)
+    } finally {
+      rmSync(evilInstallPath, { recursive: true, force: true })
+    }
+  })
+
   it('removes the registry row and plugin-tagged skills rows when a plugin is removed', () => {
     const installPath = join(tmpDir, 'install-a')
     writePluginSkill(
