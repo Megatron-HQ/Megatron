@@ -1,4 +1,4 @@
-import { Blocks, FolderGit2, Globe } from 'lucide-react'
+import { SOURCE_ICON } from '@/lib/source-icon'
 import {
   CommandDialog,
   CommandEmpty,
@@ -7,13 +7,7 @@ import {
   CommandItem,
   CommandList
 } from '@/components/ui/command'
-import type { SkillRow, SourceType } from '../../../shared/ipc'
-
-const SOURCE_ICON: Record<SourceType, typeof Globe> = {
-  global: Globe,
-  project: FolderGit2,
-  plugin: Blocks
-}
+import type { SkillRow } from '../../../shared/ipc'
 
 interface CommandPaletteProps {
   open: boolean

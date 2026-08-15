@@ -1,14 +1,8 @@
 import { useEffect } from 'react'
-import { Blocks, FolderGit2, Globe, X } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
+import { X } from 'lucide-react'
+import { SourceBadge } from '@/components/SourceBadge'
 import { cn } from '@/lib/utils'
-import type { SkillRow, SourceType } from '../../../shared/ipc'
-
-const SOURCE_ICON: Record<SourceType, typeof Globe> = {
-  global: Globe,
-  project: FolderGit2,
-  plugin: Blocks
-}
+import type { SkillRow } from '../../../shared/ipc'
 
 interface SkillDetailProps {
   skill: SkillRow | null
@@ -24,8 +18,6 @@ export function SkillDetail({ skill, onClose }: SkillDetailProps): React.JSX.Ele
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [skill, onClose])
-
-  const Icon = skill ? SOURCE_ICON[skill.source_type] : null
 
   return (
     <div
@@ -51,12 +43,7 @@ export function SkillDetail({ skill, onClose }: SkillDetailProps): React.JSX.Ele
 
           <div className="flex flex-col gap-4 overflow-auto px-4 py-4 text-sm">
             <Field label="Source">
-              {Icon && (
-                <Badge variant="outline" className="gap-1 font-normal capitalize">
-                  <Icon className="size-3" />
-                  {skill.source_type}
-                </Badge>
-              )}
+              <SourceBadge type={skill.source_type} />
             </Field>
 
             {skill.plugin_name && (

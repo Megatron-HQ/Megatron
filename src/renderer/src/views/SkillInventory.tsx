@@ -8,8 +8,8 @@ import {
   useTable
 } from '@tanstack/react-table'
 import type { SortingState } from '@tanstack/react-table'
-import { Blocks, FolderGit2, FolderOpen, Globe, Lock } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
+import { FolderOpen, Lock } from 'lucide-react'
+import { SourceBadge } from '@/components/SourceBadge'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
@@ -21,14 +21,8 @@ import {
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import type { SkillRow, SourceType } from '../../../shared/ipc'
+import type { SkillRow } from '../../../shared/ipc'
 import type { SourceFilter } from '@/components/Sidebar'
-
-const SOURCE_ICON: Record<SourceType, typeof Globe> = {
-  global: Globe,
-  project: FolderGit2,
-  plugin: Blocks
-}
 
 const features = tableFeatures({
   rowSortingFeature,
@@ -65,16 +59,7 @@ const columns = columnHelper.columns([
     id: 'source',
     header: 'Source',
     sortFn: 'text',
-    cell: (info) => {
-      const type = info.getValue()
-      const Icon = SOURCE_ICON[type]
-      return (
-        <Badge variant="outline" className="gap-1 font-normal capitalize">
-          <Icon className="size-3" />
-          {type}
-        </Badge>
-      )
-    }
+    cell: (info) => <SourceBadge type={info.getValue()} />
   }),
   columnHelper.accessor('description', {
     header: 'Description',
