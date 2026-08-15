@@ -1,7 +1,8 @@
 import type Database from 'better-sqlite3'
 import { existsSync, readdirSync } from 'fs'
 import { homedir } from 'os'
-import { dirname, join, resolve } from 'path'
+import { join, resolve } from 'path'
+import { writeSkillScan, type SkillScanRow } from '../db/queries'
 import { allowedExistsSync, getGrantedPaths } from '../permissions'
 import { parseSkillDirectory } from './skill-parser'
 
@@ -22,61 +23,46 @@ export function defaultSkillRoots(): SkillRoot[] {
   return [globalRoot, ...projectRoots]
 }
 
+// ponytail: a source_type whose root is dropped from `roots` entirely (e.g. a revoked
+// project grant) never gets its rows deleted — writeSkillScan is only called for source
+// types with at least one root this pass, so an absent root's rows are simply never
+// considered. Add eager cleanup-on-revoke if M3's picker needs it.
 export function scanSkills(db: Database.Database, roots: SkillRoot[] = defaultSkillRoots()): void {
-  const upsert = db.prepare(`
-    INSERT INTO skills (name, source_type, source_path, plugin_name, description, last_scanned_at)
-    VALUES (@name, @source_type, @source_path, NULL, @description, @last_scanned_at)
-    ON CONFLICT(source_path) DO UPDATE SET
-      name = excluded.name,
-      source_type = excluded.source_type,
-      description = excluded.description,
-      last_scanned_at = excluded.last_scanned_at
-  `)
+  const rowsBySourceType = new Map<SkillRoot['sourceType'], SkillScanRow[]>()
+  const rootDirsBySourceType = new Map<SkillRoot['sourceType'], string[]>()
 
-  const runScan = db.transaction(() => {
-    const seenPaths = new Set<string>()
+  for (const root of roots) {
+    const rows = rowsBySourceType.get(root.sourceType) ?? []
+    rowsBySourceType.set(root.sourceType, rows)
+    const rootDirs = rootDirsBySourceType.get(root.sourceType) ?? []
+    rootDirs.push(root.dir)
+    rootDirsBySourceType.set(root.sourceType, rootDirs)
 
-    for (const root of roots) {
-      if (!existsSync(root.dir)) continue
+    if (!existsSync(root.dir)) continue
 
-      let entries: string[]
-      try {
-        entries = readdirSync(root.dir)
-      } catch {
-        continue
-      }
-
-      for (const entryName of entries) {
-        const dirPath = join(root.dir, entryName)
-        const skillMdPath = join(dirPath, 'SKILL.md')
-        if (!allowedExistsSync(skillMdPath)) continue
-
-        const parsed = parseSkillDirectory(dirPath)
-        seenPaths.add(dirPath)
-        upsert.run({
-          name: parsed.name,
-          source_type: root.sourceType,
-          source_path: dirPath,
-          description: parsed.description,
-          last_scanned_at: new Date().toISOString()
-        })
-      }
+    let entries: string[]
+    try {
+      entries = readdirSync(root.dir)
+    } catch {
+      continue
     }
 
-    // ponytail: rows survive if their root is dropped from `roots` entirely (e.g. a revoked
-    // project grant) — cleanup only happens on a scan that still includes that root and finds
-    // it empty. Add eager cleanup-on-revoke if M3's picker needs it.
-    const scannedRootDirs = new Set(roots.map((root) => root.dir))
-    const existing = db.prepare('SELECT source_path FROM skills').all() as { source_path: string }[]
-    const staleRootPaths = existing
-      .map((row) => row.source_path)
-      .filter((path) => scannedRootDirs.has(dirname(path)) && !seenPaths.has(path))
+    for (const entryName of entries) {
+      const dirPath = join(root.dir, entryName)
+      const skillMdPath = join(dirPath, 'SKILL.md')
+      if (!allowedExistsSync(skillMdPath)) continue
 
-    if (staleRootPaths.length > 0) {
-      const placeholders = staleRootPaths.map(() => '?').join(', ')
-      db.prepare(`DELETE FROM skills WHERE source_path IN (${placeholders})`).run(...staleRootPaths)
+      const parsed = parseSkillDirectory(dirPath)
+      rows.push({
+        name: parsed.name,
+        source_path: dirPath,
+        plugin_name: null,
+        description: parsed.description
+      })
     }
-  })
+  }
 
-  runScan()
+  for (const [sourceType, rootDirs] of rootDirsBySourceType) {
+    writeSkillScan(db, sourceType, rowsBySourceType.get(sourceType) ?? [], rootDirs)
+  }
 }
