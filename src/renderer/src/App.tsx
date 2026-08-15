@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { CommandPalette } from '@/components/CommandPalette'
 import { Sidebar, type SourceFilter } from '@/components/Sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { SkillInventory } from './views/SkillInventory'
@@ -13,6 +14,7 @@ function App(): React.JSX.Element {
   )
   const [filter, setFilter] = useState<SourceFilter>('all')
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [paletteOpen, setPaletteOpen] = useState(false)
 
   const { data } = useQuery({
     queryKey: ['skills'],
@@ -23,6 +25,17 @@ function App(): React.JSX.Element {
     () => window.api.onScanComplete(() => queryClient.invalidateQueries({ queryKey: ['skills'] })),
     [queryClient]
   )
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent): void {
+      if (event.key === 'k' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault()
+        setPaletteOpen((open) => !open)
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   const skills = useMemo(() => data?.skills ?? [], [data])
   const scanComplete = data?.scanComplete ?? false
@@ -62,6 +75,12 @@ function App(): React.JSX.Element {
         />
         <SkillDetail skill={selectedSkill} onClose={() => setSelectedId(null)} />
       </div>
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        skills={skills}
+        onSelect={setSelectedId}
+      />
     </TooltipProvider>
   )
 }

@@ -37,5 +37,12 @@ export const scenarios = [
     async run(window) {
       await window.getByRole('button', { name: 'Project' }).click()
     }
+  },
+  {
+    name: 'command-palette-open',
+    async run(window) {
+      await window.keyboard.press('Meta+k')
+      await window.getByPlaceholder(/search skills/i).waitFor()
+    }
   }
 ]

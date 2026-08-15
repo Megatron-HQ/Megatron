@@ -12,7 +12,7 @@ export interface TranscriptSession {
   message_count: number
 }
 
-export type TriggerType = 'harness_command' | 'text_mention' | 'autonomous'
+export type TriggerType = 'user_invoked' | 'autonomous'
 
 export interface TranscriptInvocation {
   source_uuid: string
@@ -80,15 +80,8 @@ function escapeRegExp(value: string): string {
 function classifyTrigger(precedingMessage: string | null, skillName: string): TriggerType {
   if (precedingMessage === null) return 'autonomous'
 
-  const escapedSkillName = escapeRegExp(skillName)
-
-  const harnessCommandPattern = new RegExp(`<command-name>/${escapedSkillName}</command-name>`)
-  if (harnessCommandPattern.test(precedingMessage)) return 'harness_command'
-
-  const textMentionPattern = new RegExp(`/${escapedSkillName}\\b`)
-  if (textMentionPattern.test(precedingMessage)) return 'text_mention'
-
-  return 'autonomous'
+  const mentionPattern = new RegExp(`/${escapeRegExp(skillName)}\\b`)
+  return mentionPattern.test(precedingMessage) ? 'user_invoked' : 'autonomous'
 }
 
 function extractInvocations(records: Record<string, unknown>[]): TranscriptInvocation[] {

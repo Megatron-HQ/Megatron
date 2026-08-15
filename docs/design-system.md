@@ -20,10 +20,19 @@ No command-palette-primary navigation, no marketing-page patterns — Megatron i
 utility app (CLAUDE.md's scope is deliberately "skills only, no sessions/repo UI"), not a
 multi-section product with enough distinct surfaces to justify heavier navigation chrome.
 
-Command palette (`cmdk`, matching shadcn's `Command` component): **deferred, not in M2.** Not a
-requirement of M2's actual scope (`docs/mvp-build-spec.md`: "list every skill... tagged by
-origin"). Cheap to add later — pairs natively with shadcn — revisit once there's a real search/
-jump-to need once the table has enough rows to make browsing alone insufficient.
+Command palette (`cmdk`, matching shadcn's `Command` component): **built, post-M2.** Was deferred
+during M2 itself (not a requirement of M2's actual scope — `docs/mvp-build-spec.md`: "list every
+skill... tagged by origin"), with an explicit revisit trigger: "once the table has enough rows to
+make browsing alone insufficient." That trigger fired — 31 real skills on the dev machine (25
+global + 6 plugin) is past one screenful — surfaced while comparing Megatron against
+`references/skills-manager`. `⌘K`/`Ctrl+K` opens a `CommandDialog` searching all skills by name and
+description regardless of the active sidebar filter; selecting one opens its detail panel. Uses
+cmdk's built-in filtering, no custom matcher.
+
+This does **not** reopen the sidebar's "no search box" lock below — that line rules out inline
+search chrome living in the sidebar itself; the palette is a modal dialog, a different surface, and
+the row-count reasoning behind both was always "add when the data justifies it," not "search is
+wrong."
 
 ### Window chrome
 
