@@ -1,14 +1,18 @@
 import { Blocks, FolderGit2, Globe, List, Moon, Sun } from 'lucide-react'
+import { motion } from 'motion/react'
+import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
-import type { SourceType, Theme } from '../../../shared/ipc'
+import { FILTER_LABEL, type SourceFilter } from '@/lib/source-filter'
+import type { Theme } from '../../../shared/ipc'
 
-export type SourceFilter = 'all' | SourceType
+const NAV_ITEM_HEIGHT = 32
+const NAV_ITEM_GAP = 2
 
-const FILTERS: { value: SourceFilter; label: string; icon: typeof List }[] = [
-  { value: 'all', label: 'All Skills', icon: List },
-  { value: 'global', label: 'Global', icon: Globe },
-  { value: 'project', label: 'Project', icon: FolderGit2 },
-  { value: 'plugin', label: 'Plugin', icon: Blocks }
+const FILTERS: { value: SourceFilter; icon: typeof List }[] = [
+  { value: 'all', icon: List },
+  { value: 'global', icon: Globe },
+  { value: 'project', icon: FolderGit2 },
+  { value: 'plugin', icon: Blocks }
 ]
 
 interface SidebarProps {
@@ -24,27 +28,42 @@ export function Sidebar({
   theme,
   onToggleTheme
 }: SidebarProps): React.JSX.Element {
+  const { hoveredId, setHoveredId, onMouseLeave, transition } = useGlideHighlight<SourceFilter>()
+  const highlightIndex = FILTERS.findIndex(({ value }) => value === hoveredId)
+
   return (
-    <div className="flex w-[220px] shrink-0 flex-col border-r border-border pt-7">
-      <div className="px-4 pb-4">
+    <div className="flex w-[220px] shrink-0 flex-col border-r border-border">
+      <div className="flex h-10 shrink-0 items-center px-4">
         <span className="text-sm font-semibold">Megatron</span>
       </div>
 
-      <nav className="flex flex-col gap-0.5 px-2">
-        {FILTERS.map(({ value, label, icon: Icon }) => (
+      <nav className="relative flex flex-col gap-0.5 px-2" onMouseLeave={onMouseLeave}>
+        {highlightIndex >= 0 && (
+          <motion.div
+            className="pointer-events-none absolute inset-x-2 z-0 rounded-md bg-accent"
+            initial={false}
+            animate={{
+              top: highlightIndex * (NAV_ITEM_HEIGHT + NAV_ITEM_GAP),
+              height: NAV_ITEM_HEIGHT
+            }}
+            transition={transition}
+          />
+        )}
+        {FILTERS.map(({ value, icon: Icon }) => (
           <button
             key={value}
             type="button"
             onClick={() => onFilterChange(value)}
+            onMouseEnter={() => setHoveredId(value)}
             className={cn(
-              'flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+              'relative z-10 flex h-8 items-center gap-2 rounded-md px-2 text-left text-sm transition-colors',
               filter === value
                 ? 'bg-accent-lime text-accent-lime-foreground'
-                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                : 'text-muted-foreground hover:text-accent-foreground'
             )}
           >
             <Icon className="size-4" />
-            {label}
+            {FILTER_LABEL[value]}
           </button>
         ))}
       </nav>

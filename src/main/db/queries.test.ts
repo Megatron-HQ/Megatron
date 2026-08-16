@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { applySchema } from './schema'
-import { listSkills, writeSkillScan, writeSkillScanAuthoritative } from './queries'
+import { getSkillById, listSkills, writeSkillScan, writeSkillScanAuthoritative } from './queries'
 
 let db: Database.Database
 
@@ -59,6 +59,26 @@ describe('listSkills', () => {
           description: null
         })
       ])
+    )
+  })
+})
+
+describe('getSkillById', () => {
+  it('returns null when no skill has that id', () => {
+    expect(getSkillById(db, 1)).toBeNull()
+  })
+
+  it('returns the matching skill row', () => {
+    db.prepare(
+      `INSERT INTO skills (name, source_type, source_path, plugin_name, description, last_scanned_at)
+       VALUES ('grill-me', 'global', '/global/grill-me', NULL, 'Interview the user', '2026-08-14T00:00:00.000Z')`
+    ).run()
+    const { id } = db.prepare('SELECT id FROM skills WHERE name = ?').get('grill-me') as {
+      id: number
+    }
+
+    expect(getSkillById(db, id)).toEqual(
+      expect.objectContaining({ id, name: 'grill-me', source_path: '/global/grill-me' })
     )
   })
 })

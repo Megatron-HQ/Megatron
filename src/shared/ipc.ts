@@ -1,5 +1,6 @@
 export const IPC_CHANNELS = {
   listSkills: 'skills:list',
+  openSkill: 'skills:open',
   getInitialTheme: 'theme:getInitial',
   setTheme: 'theme:set',
   scanComplete: 'scan:complete'
@@ -20,6 +21,19 @@ export interface SkillRow {
 export interface SkillsListResult {
   skills: SkillRow[]
   scanComplete: boolean
+}
+
+export type FileStatus = 'ok' | 'too_large' | 'unreadable'
+
+export interface SkillFile {
+  relativePath: string
+  content: string | null
+  status: FileStatus
+}
+
+export interface OpenSkillResult {
+  skill: SkillRow
+  files: SkillFile[]
 }
 
 export type Theme = 'light' | 'dark'

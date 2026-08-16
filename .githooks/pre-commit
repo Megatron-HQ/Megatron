@@ -35,7 +35,8 @@ function checkInSync() {
     for (const sourceFile of sourceFiles) {
       const targetFile = mirroredPath(sourceFile, source, target)
       expectedTargets.add(targetFile)
-      const inSync = existsSync(targetFile) && readFileSync(sourceFile).equals(readFileSync(targetFile))
+      const inSync =
+        existsSync(targetFile) && readFileSync(sourceFile).equals(readFileSync(targetFile))
       if (!inSync) problems.push(`${targetFile} is out of sync with ${sourceFile}`)
     }
     for (const targetFile of gitTrackedFiles(target)) {

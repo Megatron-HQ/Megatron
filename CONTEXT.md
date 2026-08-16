@@ -53,7 +53,7 @@ _Avoid_: Manual/automatic, explicit/implicit
 ### Plugins
 
 **Plugin**:
-A Skill Source bundled and versioned by a Marketplace, installed read-only. Identified by the pair of its name *and* its Marketplace — the same plugin name can be published by more than one Marketplace, and those are different Plugins.
+A Skill Source bundled and versioned by a Marketplace, installed read-only. Identified by the pair of its name _and_ its Marketplace — the same plugin name can be published by more than one Marketplace, and those are different Plugins.
 _Avoid_: Extension, package
 
 **Marketplace**:

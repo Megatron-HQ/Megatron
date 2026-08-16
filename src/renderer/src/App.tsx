@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { CommandPalette } from '@/components/CommandPalette'
-import { Sidebar, type SourceFilter } from '@/components/Sidebar'
+import { Sidebar } from '@/components/Sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { TREE_WIDTH_DEFAULT } from '@/lib/file-tree'
+import type { SourceFilter } from '@/lib/source-filter'
 import { SkillInventory } from './views/SkillInventory'
-import { SkillDetail } from './views/SkillDetail'
+import { SkillFileViewer } from './views/SkillFileViewer'
 import type { Theme } from '../../shared/ipc'
 
 function App(): React.JSX.Element {
@@ -15,6 +17,7 @@ function App(): React.JSX.Element {
   const [filter, setFilter] = useState<SourceFilter>('all')
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [treeWidth, setTreeWidth] = useState(TREE_WIDTH_DEFAULT)
 
   const { data } = useQuery({
     queryKey: ['skills'],
@@ -45,10 +48,10 @@ function App(): React.JSX.Element {
     [skills, filter]
   )
 
-  const selectedSkill = useMemo(
-    () => skills.find((skill) => skill.id === selectedId) ?? null,
-    [skills, selectedId]
-  )
+  function handleFilterChange(next: SourceFilter): void {
+    setSelectedId(null)
+    setFilter(next)
+  }
 
   function toggleTheme(): void {
     const next: Theme = theme === 'dark' ? 'light' : 'dark'
@@ -59,21 +62,35 @@ function App(): React.JSX.Element {
 
   return (
     <TooltipProvider>
-      <div className="flex h-screen">
-        <Sidebar
-          filter={filter}
-          onFilterChange={setFilter}
-          theme={theme}
-          onToggleTheme={toggleTheme}
-        />
-        <SkillInventory
-          skills={filteredSkills}
-          loading={!skills.length && !scanComplete}
-          filter={filter}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-        />
-        <SkillDetail skill={selectedSkill} onClose={() => setSelectedId(null)} />
+      <div className="flex h-screen flex-col">
+        <div className="relative h-8 shrink-0 drag-region">
+          <div className="drag-region absolute inset-x-1.5 top-1.5 bottom-0 rounded-xl bg-muted shadow" />
+        </div>
+        <div className="flex min-h-0 flex-1">
+          <Sidebar
+            filter={filter}
+            onFilterChange={handleFilterChange}
+            theme={theme}
+            onToggleTheme={toggleTheme}
+          />
+          {selectedId !== null ? (
+            <SkillFileViewer
+              key={selectedId}
+              skillId={selectedId}
+              treeWidth={treeWidth}
+              onTreeWidthChange={setTreeWidth}
+              onClose={() => setSelectedId(null)}
+            />
+          ) : (
+            <SkillInventory
+              skills={filteredSkills}
+              loading={!skills.length && !scanComplete}
+              filter={filter}
+              onSelect={setSelectedId}
+              onOpenSearch={() => setPaletteOpen(true)}
+            />
+          )}
+        </div>
       </div>
       <CommandPalette
         open={paletteOpen}

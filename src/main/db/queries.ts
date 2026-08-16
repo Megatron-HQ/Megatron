@@ -11,6 +11,16 @@ export function listSkills(db: Database.Database): SkillRow[] {
     .all() as SkillRow[]
 }
 
+export function getSkillById(db: Database.Database, id: number): SkillRow | null {
+  const row = db
+    .prepare(
+      `SELECT id, name, source_type, source_path, plugin_name, description, last_scanned_at
+       FROM skills WHERE id = ?`
+    )
+    .get(id) as SkillRow | undefined
+  return row ?? null
+}
+
 export interface SkillScanRow {
   name: string
   source_path: string

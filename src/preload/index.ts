@@ -1,10 +1,17 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import { IPC_CHANNELS, type SkillsListResult, type Theme } from '../shared/ipc'
+import {
+  IPC_CHANNELS,
+  type OpenSkillResult,
+  type SkillsListResult,
+  type Theme
+} from '../shared/ipc'
 
 // Custom APIs for renderer
 const api = {
   listSkills: (): Promise<SkillsListResult> => ipcRenderer.invoke(IPC_CHANNELS.listSkills),
+  openSkill: (id: number): Promise<OpenSkillResult | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.openSkill, id),
   getInitialTheme: (): Theme => ipcRenderer.sendSync(IPC_CHANNELS.getInitialTheme),
   setTheme: (theme: Theme): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.setTheme, theme),
   onScanComplete: (callback: () => void): (() => void) => {

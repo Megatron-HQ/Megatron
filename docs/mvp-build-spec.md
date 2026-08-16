@@ -340,12 +340,12 @@ wrong. The actual cause: a genuine harness-native `/skill-name <args>` invocatio
 own slash-command syntax, typed as the entire prompt) **never produces a `Skill` tool_use
 block at all.** Concretely: the transcript instead shows a `user`-role record with string
 content `<command-message>...</command-message><command-name>/skill-name</command-name>
-<command-args>...</command-args>`, immediately followed by a *separate* `isMeta: true`
+<command-args>...</command-args>`, immediately followed by a _separate_ `isMeta: true`
 user-role record whose array content is the skill's injected system prompt — no `tool_use`
 step in between. Confirmed against six independent real transcripts, including one in this
 repo's own history. So `harness_command` wasn't a rare-but-real bucket waiting to be observed
 — it was structurally unreachable by this detection method from the start, because the two
-things `classifyTrigger` needs (a `<command-name>` tag *and* a `Skill` tool_use to attach it
+things `classifyTrigger` needs (a `<command-name>` tag _and_ a `Skill` tool_use to attach it
 to) never co-occur for a true harness command. What _was_ actually being recorded as
 `text_mention` with `args_text: null` in every real case checked (10/10 for one recurring
 plugin skill) was the model itself, on seeing a bare `/skill-name` mention typed mid-message,

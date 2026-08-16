@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   allowedExistsSync,
   allowedReaddirSync,
+  allowedReadFileSync,
+  allowedStatSync,
   getGrantedPaths,
   grantPath,
   isPathAllowed,
@@ -147,5 +149,69 @@ describe('allowedExistsSync', () => {
   it('returns false for an allowed path that does not exist', () => {
     grantPath(tmpDir)
     expect(allowedExistsSync(join(tmpDir, 'missing.txt'))).toBe(false)
+  })
+})
+
+describe('allowedStatSync', () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'megatron-perm-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('returns stats for an allowed path that exists', () => {
+    grantPath(tmpDir)
+    const filePath = join(tmpDir, 'file.txt')
+    writeFileSync(filePath, 'content')
+
+    expect(allowedStatSync(filePath)?.isFile()).toBe(true)
+  })
+
+  it('returns null for a disallowed path even when it exists on disk', () => {
+    const filePath = join(tmpDir, 'file.txt')
+    writeFileSync(filePath, 'content')
+
+    expect(allowedStatSync(filePath)).toBeNull()
+  })
+
+  it('returns null for an allowed path that does not exist', () => {
+    grantPath(tmpDir)
+    expect(allowedStatSync(join(tmpDir, 'missing.txt'))).toBeNull()
+  })
+})
+
+describe('allowedReadFileSync', () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'megatron-perm-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('returns file contents as a Buffer for an allowed path', () => {
+    grantPath(tmpDir)
+    const filePath = join(tmpDir, 'file.txt')
+    writeFileSync(filePath, 'content')
+
+    expect(allowedReadFileSync(filePath)?.toString('utf8')).toBe('content')
+  })
+
+  it('returns null for a disallowed path even when it exists on disk', () => {
+    const filePath = join(tmpDir, 'file.txt')
+    writeFileSync(filePath, 'content')
+
+    expect(allowedReadFileSync(filePath)).toBeNull()
+  })
+
+  it('returns null for an allowed path that does not exist', () => {
+    grantPath(tmpDir)
+    expect(allowedReadFileSync(join(tmpDir, 'missing.txt'))).toBeNull()
   })
 })

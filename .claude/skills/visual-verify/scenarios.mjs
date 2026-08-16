@@ -26,10 +26,10 @@ export const scenarios = [
     }
   },
   {
-    name: 'detail-panel-open',
+    name: 'file-viewer-open',
     async run(window) {
       await window.locator('tbody tr').first().click()
-      await window.getByRole('button', { name: 'Close detail panel' }).waitFor()
+      await window.getByRole('button', { name: 'Back to skills' }).waitFor()
     }
   },
   {
@@ -39,10 +39,70 @@ export const scenarios = [
     }
   },
   {
+    name: 'sidebar-filter-closes-open-viewer',
+    async run(window) {
+      await window.locator('tbody tr').first().click()
+      await window.getByRole('button', { name: 'Back to skills' }).waitFor()
+      await window.getByRole('button', { name: 'Global' }).click()
+    }
+  },
+  {
     name: 'command-palette-open',
     async run(window) {
       await window.keyboard.press('Meta+k')
       await window.getByPlaceholder(/search skills/i).waitFor()
+    }
+  },
+  {
+    // Keyboard path is covered by command-palette-open above — this covers the
+    // visible header button separately, since it's a distinct entry point.
+    name: 'command-palette-via-header-button',
+    async run(window) {
+      await window.getByRole('button', { name: /search skills/i }).click()
+      await window.getByPlaceholder(/search skills/i).waitFor()
+    }
+  },
+  {
+    // file-viewer-open above already captures the tree's default (all-collapsed)
+    // state — this one exercises expand, the direct fix for the crowded-tree bug.
+    name: 'file-viewer-tree-expanded',
+    async run(window) {
+      await window.locator('tbody tr').first().click()
+      await window.getByRole('button', { name: 'Back to skills' }).waitFor()
+      await window.locator('[role="treeitem"][aria-expanded]').first().click()
+      await window.locator('[role="treeitem"][aria-expanded="true"]').first().waitFor()
+      // The tree's expand/collapse and row-entrance effects are motion (JS-driven)
+      // springs/fades, not CSS transitions Playwright can auto-wait on — settle
+      // before capturing so the screenshot shows the resolved state, not a frame
+      // mid-animation.
+      await window.waitForTimeout(300)
+    }
+  },
+  {
+    name: 'file-viewer-tree-search',
+    async run(window) {
+      await window.locator('tbody tr').first().click()
+      await window.getByRole('button', { name: 'Back to skills' }).waitFor()
+      // Every skill has a SKILL.md, so this is guaranteed to match regardless
+      // of which skill the first table row happens to be.
+      await window.getByPlaceholder(/filter files/i).fill('skill')
+    }
+  },
+  {
+    // The sidebar nav's hover-glide pill (motion, mirrors the file tree's).
+    name: 'sidebar-nav-hover',
+    async run(window) {
+      await window.getByRole('button', { name: 'Global' }).hover()
+      // JS-driven spring, not a CSS transition Playwright can auto-wait on.
+      await window.waitForTimeout(300)
+    }
+  },
+  {
+    // The skills table's hover-glide pill (motion, mirrors the file tree's).
+    name: 'table-row-hover',
+    async run(window) {
+      await window.locator('tbody tr').nth(1).hover()
+      await window.waitForTimeout(300)
     }
   }
 ]

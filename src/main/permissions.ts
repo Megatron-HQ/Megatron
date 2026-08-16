@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'fs'
+import { existsSync, readdirSync, readFileSync, statSync, type Stats } from 'fs'
 import { homedir } from 'os'
 import { resolve, sep } from 'path'
 
@@ -43,4 +43,22 @@ export function allowedReaddirSync(dirPath: string): string[] {
 
 export function allowedExistsSync(path: string): boolean {
   return isPathAllowed(path) && existsSync(path)
+}
+
+export function allowedStatSync(path: string): Stats | null {
+  if (!isPathAllowed(path)) return null
+  try {
+    return statSync(path)
+  } catch {
+    return null
+  }
+}
+
+export function allowedReadFileSync(path: string): Buffer | null {
+  if (!isPathAllowed(path)) return null
+  try {
+    return readFileSync(path)
+  } catch {
+    return null
+  }
 }

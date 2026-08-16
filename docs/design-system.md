@@ -15,8 +15,9 @@ before the read-only marker). Resolved in that order below.
 ## Shell / information architecture
 
 **Sidebar + list/detail, Linear-style.** Persistent left sidebar, main pane is the dense skills
-table, clicking a row opens a right-side detail panel (lint findings, usage stats, source tier).
-No command-palette-primary navigation, no marketing-page patterns — Megatron is a single-domain
+table; clicking a row replaces the table with a fullscreen file viewer for that skill (see Skill
+file viewer below — this superseded an earlier right-side detail panel design once the app was
+actually used). No command-palette-primary navigation, no marketing-page patterns — Megatron is a single-domain
 utility app (CLAUDE.md's scope is deliberately "skills only, no sessions/repo UI"), not a
 multi-section product with enough distinct surfaces to justify heavier navigation chrome.
 
@@ -26,8 +27,8 @@ skill... tagged by origin"), with an explicit revisit trigger: "once the table h
 make browsing alone insufficient." That trigger fired — 31 real skills on the dev machine (25
 global + 6 plugin) is past one screenful — surfaced while comparing Megatron against
 `references/skills-manager`. `⌘K`/`Ctrl+K` opens a `CommandDialog` searching all skills by name and
-description regardless of the active sidebar filter; selecting one opens its detail panel. Uses
-cmdk's built-in filtering, no custom matcher.
+description regardless of the active sidebar filter; selecting one opens its fullscreen file
+viewer. Uses cmdk's built-in filtering, no custom matcher.
 
 This does **not** reopen the sidebar's "no search box" lock below — that line rules out inline
 search chrome living in the sidebar itself; the palette is a modal dialog, a different surface, and
@@ -44,6 +45,13 @@ reason the sidebar needs its top nav item padded below macOS's traffic-light hit
 rather than starting flush at the top edge. Nothing here justifies going further into a fully
 custom frameless window with hand-drawn window controls — `hiddenInset` alone gets the effect.
 
+`hiddenInset` on its own only removes the OS titlebar — it doesn't make the window draggable.
+That needed a second piece: a 40px `-webkit-app-region: drag` strip spanning the full window
+width, above both sidebar and table (a Tailwind `@utility drag-region` in `main.css`). The strip
+is empty chrome, no content — the "Megatron" wordmark stays in the sidebar below it. The
+sidebar's old top padding (clearing the traffic lights before this strip existed) moved out of
+the sidebar and became the strip's height instead.
+
 ### Sidebar composition
 
 Not specified before this pass beyond "persistent left sidebar." Locked contents, top to bottom:
@@ -58,28 +66,60 @@ The nav's active-state indicator is the lime accent — this is the "one selecte
 indicator" use case the Color section below already reserved lime for, now assigned concretely
 instead of left abstract.
 
-### Detail panel
+### Skill file viewer
 
-Docked, not floating — opening a row's detail panel narrows the table pane rather than
-overlaying it with a scrim (see Elevation: a docked panel separates with a border, not a shadow).
-Fixed width, **360px**, not resizable — no drag-handle complexity earns its keep in a v1
-read-only app. Closes via **Esc or an explicit `×` button** in the panel header; clicking
-elsewhere does _not_ dismiss it — clicking a different table row swaps the panel's content
-instead of losing your place to a stray click that missed a row by a couple pixels.
+Superseded the original docked 360px metadata panel — revisited once the app was actually
+clicked around in, not on paper. A panel that only echoed columns already visible in the table
+(source, description) never earned the click; what a user wants on opening a skill is the skill
+itself. **Fullscreen, replacing the table pane, not layered over it** — the sidebar stays visible
+and usable (filters, theme toggle) but the table is gone until you close back out, same
+mechanism as swapping table for panel content used to be, just at full width instead of 360px.
+
+Layout: a compact header (name, source badge, resolved directory path — `last_scanned_at` is
+dropped, it's scan bookkeeping nobody opens a file to check), a file tree on the left covering the
+skill's whole directory (not just `SKILL.md`), and a content pane on the right showing the
+selected file as raw monospace text — no markdown rendering, no syntax highlighting, matching the
+existing Geist Mono convention for code-like data rather than adding a rendering dependency for a
+read-only v1. `SKILL.md` is selected by default. Files skip dotfiles, cap preview content at
+256KB, and mark binary/undecodable content as unreadable rather than showing mojibake.
+
+**File tree, revised**: real skill directories turned out to have high sibling counts within a
+directory (a `references/` folder with 15+ flat files, several `scripts/<name>/` subtrees) — a
+flat, always-expanded, indentation-only render crowded out at that shape even though its own
+"never nests past 3 levels" bet on depth held. Now: collapsible (all directories start collapsed,
+root-level files visible — the direct fix for the crowding), per-extension file icons, a filter
+input above the tree that narrows to matching files and auto-reveals their ancestor directories
+regardless of manual expand state, and virtualized rendering (`@tanstack/react-virtual`) so a
+large directory doesn't mount hundreds of DOM rows at once. See Motion above for what animates
+here and why the reference implementation's whole-subtree slide-open animation couldn't survive
+virtualization.
+
+The tree pane is **user-resizable by dragging** (200–480px range, 240px default) rather than a
+wider fixed width, so long filenames aren't a layout decision made once for every skill — the
+dragged width lives in `App.tsx` state and survives switching between skills within a session,
+resetting to 240px on app restart (not persisted to disk; nothing here currently justifies the
+IPC surface `electron-store` persistence would need — see Theme default & persistence below for
+the pattern this would follow if that changes).
+
+Closes via **Esc or an explicit `×` button** in the header — same convention the panel used,
+kept because it still holds: there's no "outside" to click once the view covers the table anyway.
+**Revised for the tree's filter input**: Esc is now layered — it clears a non-empty filter first,
+and only closes the viewer when the filter is already empty. Two presses always gets you out.
 
 ## Layout & density
 
 No spacing/sizing scale existed before this pass. Locked, calibrated for a dense Linear-style
 table rather than a spacious admin dashboard:
 
-| Element            | Value                                                                       |
-| ------------------ | --------------------------------------------------------------------------- |
-| Base spacing unit  | Tailwind's default 4px scale, unchanged — nothing here needs a custom scale |
-| Sidebar width      | 220px, fixed                                                                |
-| Table row height   | 36px                                                                        |
-| Table cell padding | 8px / 12px                                                                  |
-| Detail panel width | 360px, fixed (see Shell above)                                              |
-| Content max-width  | None — fluid, fills the window                                              |
+| Element                | Value                                                                       |
+| ---------------------- | --------------------------------------------------------------------------- |
+| Base spacing unit      | Tailwind's default 4px scale, unchanged — nothing here needs a custom scale |
+| Sidebar width          | 220px, fixed                                                                |
+| Drag strip height      | 40px, fixed — full window width, empty chrome above sidebar + table         |
+| Table row height       | 40px (was 36px — revised for more breathing room once Path was cut)         |
+| Table cell padding     | 8px / 12px                                                                  |
+| File viewer tree width | 240px default, resizable 200–480px (see Skill file viewer above)           |
+| Content max-width      | None — fluid, fills the window                                              |
 
 ## Color
 
@@ -163,21 +203,50 @@ Accessibility below):
 ## Elevation
 
 Not addressed at all before this pass. Locked: **border-first, shadow reserved for floating
-layers.** The detail panel separates from the table with a 1px `--border`, not a drop shadow —
-it's docked, not floating (see Shell above). Shadows are for genuinely transient/floating
-elements only: dropdowns, popovers, tooltips, using shadcn's existing default shadow scale,
-unchanged. Matches Linear's actual UI (bordered panels, shadow only on overlays) and keeps the
-flat minimalism the rest of this doc calibrates toward — a shadowed, "lifted" detail panel would
-read as conventional-dashboard, not deliberate.
+layers.** The skill file viewer's header and file tree separate with a 1px `--border`, not a
+drop shadow — it replaces the table pane in place rather than floating over it (see Skill file
+viewer above). Shadows are for genuinely transient/floating elements only: dropdowns, popovers,
+tooltips, using shadcn's existing default shadow scale, unchanged. Matches Linear's actual UI
+(bordered panels, shadow only on overlays) and keeps the flat minimalism the rest of this doc
+calibrates toward — a shadowed, "lifted" panel would read as conventional-dashboard, not
+deliberate.
 
 ## Motion
 
-**CSS transitions only** — Tailwind's built-in utilities, 150–250ms, ease-out, for hover/active/
-focus states, row-select highlight, and the detail-panel slide-in. No animation library (no
-Framer/Motion). This isn't a blanket anti-dependency stance — see State management below for the
-explicit correction on that — it's that nothing in a dashboard's motion vocabulary here
-("state changes feel smooth") needs more than CSS provides. `prefers-reduced-motion` is
-respected for free since these are plain CSS transitions, not JS-driven.
+**CSS transitions are still the default** — Tailwind's built-in utilities, 150–250ms, ease-out,
+for hover/active/focus states and simple color/opacity changes. `prefers-reduced-motion` is
+respected for free wherever these are used, since they're plain CSS, not JS-driven.
+
+**Revised: `motion` (the Framer Motion successor) is permitted**, narrowly, for state-change
+feedback CSS transitions can't express — a shared highlight box gliding between positions, or a
+newly-revealed row fading/sliding in on mount. First landed on the skill file viewer's tree (see
+Skill file viewer below): virtualizing that tree for scale meant abandoning the earlier
+recursive-DOM approach where a whole collapsed subtree could animate open via `height: auto` —
+under virtualization, collapsed children simply aren't mounted, so there's no container left to
+animate a height on. What survives is per-row animation (icon rotation, highlight glide, row
+fade-in), which is exactly what `motion` is scoped to here. Because this animation is JS-driven,
+`prefers-reduced-motion` is **not** free anymore where `motion` is used — every surface using it
+checks `useReducedMotion()` explicitly and disables its animations when set.
+
+**Extended to the skills table and the sidebar's filter nav**, for the same shared-glide pattern:
+both now track pointer hover and animate a `motion` element to the hovered row/item's position
+instead of each row/item toggling its own background independently. Shared tracking logic
+(hovered-id state, the reduced-motion-aware spring transition) lives in one hook
+(`lib/use-glide-highlight.ts`) rather than being copied three times; position math, shape, and
+whether an entrance fade applies stay owned by each surface, since row height and layout genuinely
+differ (the table also gained FileTree's row fade-in-on-mount, for filter-switch/sort; the nav
+did not — it's a static 4-item list that never reorders or remounts). The table's glide stayed
+full-bleed/unrounded rather than adopting the tree's inset rounded-pill shape — Elevation's
+border-first stance below rejects a "lifted panel" look, which an inset rounded highlight over a
+bordered grid would read as. Both surfaces track hover only, not keyboard focus — the table's
+existing focus-visible ring (see Keyboard navigation below) stays as the sole focus indicator.
+
+This is a reversal of this doc's earlier "no animation library" stance, made deliberately rather
+than silently — CLAUDE.md's "no silent regressions" applies to locked doc decisions too. It does
+not reopen the door to a general-purpose animation library across the app: CSS transitions remain
+the default everywhere else (including the sidebar's theme toggle, untouched by the above), and
+`motion` is reached for only where a shared/persistent element needs to animate across a state
+change that CSS alone can't express — now three known call sites, not an open-ended policy.
 
 ## State management
 
@@ -219,27 +288,34 @@ touch filesystem permissions itself, since it's still a new cross-process contra
 **TanStack Table**, not yet a dependency — add when M2 actually builds the table. shadcn's own
 data-table recipe is built on it, so no separate design decision needed there.
 
-**No virtualization yet.** Real `~/.claude` data on the dev machine is tens of skills, not
-thousands — virtualizing now would be solving a problem that doesn't exist. Add
-`@tanstack/react-virtual` if a real user's skill count ever makes the plain table measurably
-slow, not preemptively.
+**No virtualization yet for the skills table itself.** Real `~/.claude` data on the dev machine is
+tens of skills, not thousands — virtualizing now would be solving a problem that doesn't exist.
+Add `@tanstack/react-virtual` here too if a real user's skill count ever makes the plain table
+measurably slow, not preemptively.
 
-### Column overflow
+`@tanstack/react-virtual` **is** now a dependency — it landed for the skill file viewer's file
+tree (see Skill file viewer below), where a single skill directory's file count, not the skills
+table's row count, was the actual scaling concern.
 
-Mono columns (skill paths, `name@marketplace` plugin IDs) can run long; the fixed 36px row
-height (see Layout & density above) rules out wrapping. Locked: **truncate with CSS
-`text-overflow: ellipsis`, full value in a tooltip on hover** — reuses the same tooltip
-convention as the plugin read-only marker rather than inventing a second hover pattern. No
-horizontal scrollbar, no variable row height.
+### Columns
+
+Three columns: Name, Source, Description. **Path was cut** — a truncated absolute path needing
+a tooltip to be legible at all was spending the table's widest column on data nobody read from
+the table itself; it now lives in the file viewer's header instead (see Skill file viewer above),
+reachable once you've actually committed to a skill. Name and Source are fixed-width
+(`table-fixed` layout, 220px / 120px); Description fills the remaining space. Locked: **truncate
+with CSS `text-overflow: ellipsis`** on Description and (if a name is unusually long) Name — no
+horizontal scrollbar, no variable row height. The Path column's tooltip-on-hover convention is
+gone with it; nothing in the current column set needs a tooltip.
 
 ### Keyboard navigation
 
 Table rows are focusable and arrow-key navigable: `↓`/`↑` moves selection, `Enter`/`Space` opens
-the detail panel, `Esc` closes it (consistent with the Detail panel dismiss behavior above). Uses
-the existing `--ring` token for the focus-visible ring — no new color introduced. Not optional
-polish: `CLAUDE.md`'s "never simplify away... accessibility basics" rule applies directly to the
-app's primary interactive surface, and shadcn/Radix's `Table` + focus-visible primitives get most
-of this for free.
+the fullscreen file viewer, `Esc` closes it (consistent with the file viewer's dismiss behavior
+above). Uses the existing `--ring` token for the focus-visible ring — no new color introduced.
+Not optional polish: `CLAUDE.md`'s "never simplify away... accessibility basics" rule applies
+directly to the app's primary interactive surface, and shadcn/Radix's `Table` + focus-visible
+primitives get most of this for free.
 
 ## Component vendoring strategy
 
@@ -248,10 +324,15 @@ matches the project's existing "land with the milestone" philosophy for scanner/
 (`CLAUDE.md`, "Deliberately not built yet"). Do not batch-vendor a speculative set of components
 now. `Button` is the only one vendored so far (from M0).
 
-M2's actual minimum, now that the detail panel, badges, and truncated columns are locked: a table
-primitive, `Badge` (source-tier and lint-severity tags), a sheet/dialog for the detail panel, and
-**`Tooltip`** (read-only marker, truncated-column overflow — both landed as real requirements
-during this pass). Pull those when M2 actually starts, not before.
+M2's actual minimum, now that badges and truncated columns are locked: a table primitive, `Badge`
+(source-tier and lint-severity tags), and **`Tooltip`** (read-only marker, truncated-column
+overflow). The skill file viewer itself (see above) needed no new vendored component beyond
+`Input` (the tree's filter box) — it's a plain conditional swap for the table pane, not a
+`Dialog`/sheet overlay, since it's meant to replace the table rather than float over it. The file
+tree component itself is **not** a shadcn vendor pull — it's hand-owned at
+`components/FileTree.tsx`, one tier up from `components/ui/`, alongside `CommandPalette.tsx`,
+because it's built from a heavily-adapted third-party reference rather than an untouched CLI pull
+(see Motion above).
 
 **Sonner/toast is explicitly not on that list** — see Empty / loading / error states below for
 why.
@@ -284,6 +365,11 @@ digging through Icons/Data table/Elevation individually:
 - Focus states use the existing `--ring` token everywhere; no separate focus-color system.
 - The table is fully keyboard-navigable (arrow keys, Enter/Space, Esc — see Data table above),
   not mouse/trackpad-only.
+- The skill file viewer's file tree follows the standard `role="tree"`/`treeitem` keyboard
+  pattern (↑/↓ moves, →/← expands/collapses or steps to a child/parent, Home/End jumps to the
+  first/last visible row, Enter/Space activates) with roving `tabIndex`, and disables its
+  `motion` animations under `prefers-reduced-motion` (see Motion above — not free here, since this
+  animation is JS-driven, unlike the table's CSS transitions).
 
 ## Design QA tooling
 
