@@ -279,7 +279,7 @@ function TableHeader({
         <Search className="size-3.5" />
         Search skills
         <kbd className="rounded border border-border bg-background px-1 font-mono text-[11px]">
-          ⌘K
+          {window.electron?.process?.platform === 'darwin' ? '⌘K' : 'Ctrl+K'}
         </kbd>
       </button>
     </div>

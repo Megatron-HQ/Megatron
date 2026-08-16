@@ -63,9 +63,11 @@ function App(): React.JSX.Element {
   return (
     <TooltipProvider>
       <div className="flex h-screen flex-col">
-        <div className="relative h-8 shrink-0 drag-region">
-          <div className="drag-region absolute inset-x-1.5 top-1.5 bottom-0 rounded-xl bg-muted shadow" />
-        </div>
+        {window.electron?.process?.platform === 'darwin' && (
+          <div className="relative h-8 shrink-0 drag-region">
+            <div className="drag-region absolute inset-x-1.5 top-1.5 bottom-0 rounded-xl bg-muted shadow" />
+          </div>
+        )}
         <div className="flex min-h-0 flex-1">
           <Sidebar
             filter={filter}

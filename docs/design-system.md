@@ -118,7 +118,7 @@ table rather than a spacious admin dashboard:
 | Drag strip height      | 40px, fixed — full window width, empty chrome above sidebar + table         |
 | Table row height       | 40px (was 36px — revised for more breathing room once Path was cut)         |
 | Table cell padding     | 8px / 12px                                                                  |
-| File viewer tree width | 240px default, resizable 200–480px (see Skill file viewer above)           |
+| File viewer tree width | 240px default, resizable 200–480px (see Skill file viewer above)            |
 | Content max-width      | None — fluid, fills the window                                              |
 
 ## Color

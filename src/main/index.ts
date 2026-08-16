@@ -24,7 +24,7 @@ function createWindow(): void {
     minHeight: 500,
     show: false,
     autoHideMenuBar: true,
-    titleBarStyle: 'hiddenInset',
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : {}),
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.mjs'),
