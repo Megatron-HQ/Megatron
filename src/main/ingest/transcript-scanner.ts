@@ -1,8 +1,8 @@
 import type Database from 'better-sqlite3'
 import { existsSync, readFileSync, readdirSync, statSync } from 'fs'
 import { homedir } from 'os'
-import { join, resolve } from 'path'
-import { isPathAllowed } from '../permissions'
+import { basename, join, resolve } from 'path'
+import { allowedReaddirSync, allowedStatSync, isPathAllowed } from '../permissions'
 
 export interface TranscriptSession {
   session_id: string
@@ -12,7 +12,7 @@ export interface TranscriptSession {
   message_count: number
 }
 
-export type TriggerType = 'user_invoked' | 'autonomous'
+export type TriggerType = 'user_invoked' | 'autonomous' | 'subagent'
 
 export interface TranscriptInvocation {
   source_uuid: string
@@ -21,6 +21,7 @@ export interface TranscriptInvocation {
   args_text: string | null
   invoked_at: string
   trigger_type: TriggerType
+  agent_id: string | null
 }
 
 export interface TranscriptParse {
@@ -84,17 +85,89 @@ function classifyTrigger(precedingMessage: string | null, skillName: string): Tr
   return mentionPattern.test(precedingMessage) ? 'user_invoked' : 'autonomous'
 }
 
-function extractInvocations(records: Record<string, unknown>[]): TranscriptInvocation[] {
+const COMMAND_NAME_PATTERN = /<command-name>\/([^<\s]+)<\/command-name>/
+const COMMAND_ARGS_PATTERN = /<command-args>([^<]*)<\/command-args>/
+const BASE_DIRECTORY_MARKER = 'Base directory for this skill:'
+
+// A slash-command line only proves a real skill ran (vs. a built-in like /clear or /model) if its
+// own DIRECT child record carries this marker — confirmed against real transcript data: every
+// genuine skill invocation has one, no built-in ever does, and a 3-record lookahead instead of the
+// parentUuid link misclassifies /clear when an unrelated record sits between it and the next
+// command. See docs/mvp-build-spec.md's "Still-open gap" note.
+function hasBaseDirectoryMarker(record: Record<string, unknown> | undefined): boolean {
+  if (record === undefined) return false
+  const message = record.message
+  if (!isRecord(message)) return false
+  const content = message.content
+  if (typeof content === 'string') return content.includes(BASE_DIRECTORY_MARKER)
+  if (!Array.isArray(content)) return false
+  return content.some(
+    (block) =>
+      isRecord(block) &&
+      typeof block.text === 'string' &&
+      block.text.includes(BASE_DIRECTORY_MARKER)
+  )
+}
+
+function buildChildrenByParentUuid(
+  records: Record<string, unknown>[]
+): Map<string, Record<string, unknown>[]> {
+  const childrenByParentUuid = new Map<string, Record<string, unknown>[]>()
+  for (const record of records) {
+    const parentUuid = record.parentUuid
+    if (typeof parentUuid !== 'string') continue
+    const children = childrenByParentUuid.get(parentUuid) ?? []
+    children.push(record)
+    childrenByParentUuid.set(parentUuid, children)
+  }
+  return childrenByParentUuid
+}
+
+function extractInvocations(
+  records: Record<string, unknown>[],
+  agentId: string | null = null
+): TranscriptInvocation[] {
   const invocations: TranscriptInvocation[] = []
   let precedingMessage: string | null = null
+  const childrenByParentUuid = buildChildrenByParentUuid(records)
 
   for (const record of records) {
-    if (record.isSidechain !== false) continue
+    // Records from a dedicated subagent file (agentId !== null) are all real conversation turns
+    // in their own right — there's no inline main-chain content in that file to avoid double
+    // counting, unlike a main transcript's interleaved sidechain records.
+    if (agentId === null && record.isSidechain !== false) continue
 
     if (record.type === 'user') {
       const message = record.message
       if (isRecord(message) && typeof message.content === 'string') {
-        precedingMessage = message.content
+        const content = message.content
+        precedingMessage = content
+
+        const commandMatch = COMMAND_NAME_PATTERN.exec(content)
+        const sourceUuid = record.uuid
+        const sessionId = record.sessionId
+        const invokedAt = record.timestamp
+
+        if (
+          commandMatch !== null &&
+          typeof sourceUuid === 'string' &&
+          typeof sessionId === 'string' &&
+          typeof invokedAt === 'string' &&
+          (childrenByParentUuid.get(sourceUuid) ?? []).some(hasBaseDirectoryMarker)
+        ) {
+          const argsMatch = COMMAND_ARGS_PATTERN.exec(content)
+          const argsText = argsMatch !== null && argsMatch[1] !== '' ? argsMatch[1] : null
+
+          invocations.push({
+            source_uuid: sourceUuid,
+            session_id: sessionId,
+            skill_name: commandMatch[1],
+            args_text: argsText,
+            invoked_at: invokedAt,
+            trigger_type: agentId !== null ? 'subagent' : 'user_invoked',
+            agent_id: agentId
+          })
+        }
       }
       continue
     }
@@ -134,7 +207,8 @@ function extractInvocations(records: Record<string, unknown>[]): TranscriptInvoc
         // message's classification, even several turns later — accepted heuristic
         // limitation, not a bug. See docs/mvp-build-spec.md, Invocation trigger
         // classification.
-        trigger_type: classifyTrigger(precedingMessage, skillName)
+        trigger_type: agentId !== null ? 'subagent' : classifyTrigger(precedingMessage, skillName),
+        agent_id: agentId
       })
     }
   }
@@ -149,6 +223,16 @@ export function parseTranscript(filePath: string): TranscriptParse {
 
   const records = parseLines(filePath)
   return { session: extractSession(records), invocations: extractInvocations(records) }
+}
+
+// Deliberately never calls extractSession: every record in a subagent file carries the parent
+// session's own sessionId and cwd, so upserting a "session" from this file would overwrite the
+// parent's real sessions_meta row with the subagent's own started_at/message_count.
+export function parseSubagentInvocations(filePath: string): TranscriptInvocation[] {
+  if (!isPathAllowed(filePath) || !existsSync(filePath)) return []
+
+  const agentId = basename(filePath, '.jsonl')
+  return extractInvocations(parseLines(filePath), agentId)
 }
 
 export function scanTranscripts(
@@ -168,8 +252,8 @@ export function scanTranscripts(
 
   const insertInvocation = db.prepare(`
     INSERT OR IGNORE INTO skill_invocations
-      (source_uuid, session_id, skill_name, args_text, invoked_at, trigger_type)
-    VALUES (@source_uuid, @session_id, @skill_name, @args_text, @invoked_at, @trigger_type)
+      (source_uuid, session_id, skill_name, args_text, invoked_at, trigger_type, agent_id)
+    VALUES (@source_uuid, @session_id, @skill_name, @args_text, @invoked_at, @trigger_type, @agent_id)
   `)
 
   const getStoredMtime = db.prepare(
@@ -217,8 +301,20 @@ export function scanTranscripts(
         } catch {
           continue
         }
-        const mtimeMs = Math.round(fileStat.mtimeMs)
         const basenameSessionId = fileName.slice(0, -'.jsonl'.length)
+
+        // A subagent transcript can be written after its parent's mtime was last cached, so
+        // freshness is the max of the parent and every one of its subagent files — any of them
+        // changing forces a rescan of this session.
+        const subagentsDir = join(projectDirPath, basenameSessionId, 'subagents')
+        const subagentFilePaths = allowedReaddirSync(subagentsDir)
+          .filter((name) => name.endsWith('.jsonl'))
+          .map((name) => join(subagentsDir, name))
+        const subagentMtimes = subagentFilePaths
+          .map((path) => allowedStatSync(path)?.mtimeMs)
+          .filter((mtime): mtime is number => typeof mtime === 'number')
+
+        const mtimeMs = Math.round(Math.max(fileStat.mtimeMs, ...subagentMtimes))
 
         const stored = getStoredMtime.get(basenameSessionId) as
           { source_mtime_ms: number } | undefined
@@ -234,6 +330,11 @@ export function scanTranscripts(
         upsertSession.run({ ...parsed.session, source_mtime_ms: mtimeMs })
         for (const invocation of parsed.invocations) {
           insertInvocation.run(invocation)
+        }
+        for (const subagentFilePath of subagentFilePaths) {
+          for (const invocation of parseSubagentInvocations(subagentFilePath)) {
+            insertInvocation.run(invocation)
+          }
         }
       }
     }

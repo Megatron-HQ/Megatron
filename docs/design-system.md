@@ -2,9 +2,17 @@
 
 Reference for UI work. Captures the design decisions made before any renderer screen existed,
 so `SkillInventory.tsx` and everything after it has a concrete system to build from instead of
-improvised per-component choices. `CLAUDE.md`'s Locked-decisions table remains authoritative for
-architecture; this doc is the UI-specific layer underneath it, same relationship
-`docs/mvp-build-spec.md` has to `CLAUDE.md`.
+improvised per-component choices. `CLAUDE.md` remains authoritative for repo-wide architecture
+decisions; this doc is authoritative for the renderer, and owns the locked decisions listed
+below.
+
+## Locked decisions
+
+| Area           | Decision                                                                        | Why                                                          |
+| -------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Renderer state | TanStack Query for IPC-backed data, plain `useState`/Context for local UI state | No Redux/Zustand — not enough state complexity to justify it |
+
+See State management below for how the split is applied in practice.
 
 This revision closes the branches the first draft left open — window chrome, density, type
 scale, elevation, badge iconography, and accessibility — via a dependency-ordered interview
@@ -56,8 +64,8 @@ the sidebar and became the strip's height instead.
 
 Not specified before this pass beyond "persistent left sidebar." Locked contents, top to bottom:
 app wordmark ("Megatron"), a static filter nav (`All Skills` / `Global` / `Project` / `Plugin` —
-filtering the table by `source_type`, the one dimension CLAUDE.md's locked-decisions table
-already treats as structural), a flex spacer, and a light/dark toggle pinned at the bottom. No
+filtering the table by `source_type`, the one dimension `docs/data-model.md` already treats as
+structural), a flex spacer, and a light/dark toggle pinned at the bottom. No
 search box (table doesn't need one yet at current row counts — same reasoning as "no
 virtualization yet" under Data table below), no settings gear (nothing to configure in a
 read-only v1).
@@ -250,7 +258,7 @@ change that CSS alone can't express — now three known call sites, not an open-
 
 ## State management
 
-**TanStack Query for all IPC-backed state** (already locked in `CLAUDE.md`). Local/transient UI
+**TanStack Query for all IPC-backed state** (locked in Locked decisions above). Local/transient UI
 state (detail-panel open/closed, selected row, command-palette open/closed once it exists) uses
 plain `useState`/Context. **No Redux/Zustand for now** — re-examined this mid-session rather than
 deferring to the fact that it was already written down (the original `CLAUDE.md` line predates
@@ -321,7 +329,7 @@ primitives get most of this for free.
 
 Pull shadcn components **per-milestone, as needed** (`npx shadcn@latest add <component>`) —
 matches the project's existing "land with the milestone" philosophy for scanner/UI files
-(`CLAUDE.md`, "Deliberately not built yet"). Do not batch-vendor a speculative set of components
+(`docs/mvp-build-spec.md`, "Deferred, on purpose"). Do not batch-vendor a speculative set of components
 now. `Button` is the only one vendored so far (from M0).
 
 M2's actual minimum, now that badges and truncated columns are locked: a table primitive, `Badge`

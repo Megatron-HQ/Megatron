@@ -2,9 +2,10 @@
 
 Supersedes the original `Megatron_ MVP Build.pdf` (compiled 2026-08-08, from-zero, no
 repository existed yet). This version reflects decisions made after M0 landed and real
-`~/.claude` data was available to check assumptions against. **`CLAUDE.md` is the
-authoritative source of truth for locked decisions; this doc is the fuller narrative/reference
-around them** — where the two conflict, `CLAUDE.md` wins.
+`~/.claude` data was available to check assumptions against. **Locked decisions live in
+`CLAUDE.md` (repo-wide) and in the subsystem docs it routes to; this doc is planning —
+milestones, linter rules, parsing, and what's still open.** Where this doc conflicts with a
+locked decision, the locked decision wins.
 
 A local-first desktop app that inventories, lints, and tracks usage of every skill a Claude
 Code user has — global, project, and plugin-installed — starting from a read-only,
@@ -22,14 +23,14 @@ deterministic, single-purpose v1.
 ## Revisions from the original PDF (this session)
 
 - **SQLite driver**: PDF said "prefer `node:sqlite`, fall back to `better-sqlite3`." That's
-  superseded — `CLAUDE.md` locks `better-sqlite3` outright (`node:sqlite` rejected as still
-  experimental). No `node:sqlite` code path, ever.
+  superseded — `docs/data-model.md` locks `better-sqlite3` outright (`node:sqlite` rejected as
+  still experimental). No `node:sqlite` code path, ever.
 - **Built-in skills: cut entirely.** The PDF and an earlier `CLAUDE.md` pass assumed a 4th
   `builtin` skill source (bundled `builtin-skills.json`, names/descriptions from Anthropic
   docs). Reversed: built-in skills aren't user-managed state — no file to point at, nothing to
   lint, no path to go stale, no version to track. Including them is pure maintenance liability
   for a source that doesn't serve "inventory what's mine." `source_type` is a 3-way enum:
-  `global` | `project` | `plugin`. (Struck from `CLAUDE.md`'s locked-decisions table already.)
+  `global` | `project` | `plugin`. (Locked in `docs/data-model.md`.)
 - **Schema created per-milestone, not upfront.** The PDF's full 6-table sketch (`skills`,
   `lint_findings`, `sessions_meta`, `skill_invocations`, `plugin_registry`, `allowed_paths`)
   is vague on the two tables nothing writes to yet (`lint_findings`'s `detail` field — what
@@ -61,7 +62,8 @@ deterministic, single-purpose v1.
   trust boundary as the source transcripts) — it's the copy **outliving** a deleted source
   transcript. Mitigated by extending the same upsert/scoped-delete reconciliation `skills`
   already uses to `sessions_meta` / `skill_invocations`: delete the source transcript, the
-  next scan removes the corresponding rows (`args_text` included) too. See Index schema.
+  next scan removes the corresponding rows (`args_text` included) too. See the index schema in
+  `docs/data-model.md`.
 - **Correction to the "not recoverable" call on explicit-vs-autonomous invocation** (this was
   in the Deferred table below, marked "not recoverable from transcript data at all"). Found
   during a post-M1 investigation of real `NULL`-`args_text` rows: it's not recoverable from
@@ -70,14 +72,14 @@ deterministic, single-purpose v1.
   Two real, distinguishable shapes were found in actual transcripts: a mention of
   `/skill-name` in the nearest preceding user text (whether a harness-parsed
   `<command-name>/skill-name</command-name>` tag or a bare `/skill-name` sitting inside
-  otherwise free-form prose — see the simplification note in Invocation trigger
-  classification for why these two collapsed into one category); and no mention at all (the
+  otherwise free-form prose — see the simplification note in `docs/transcript-ingest.md`
+  for why these two collapsed into one category); and no mention at all (the
   assistant invoked the skill on its own, matching context to the skill's own `description`,
   confirmed against a real `Portfolio/CLAUDE.md` rule mandating `visual-verify` after CSS
   changes). `skill_invocations.trigger_type` (added below) encodes this as
   `'user_invoked' | 'autonomous'`, derived deterministically via string/regex matching — no
-  LLM call, consistent with the rest of this app's no-API-key posture. See the new Invocation
-  trigger classification section.
+  LLM call, consistent with the rest of this app's no-API-key posture. See
+  `docs/transcript-ingest.md`.
 
 ## Why skills-first
 
@@ -89,11 +91,15 @@ surfaces it. That feasibility is what the rest of this spec is built on.
 
 ## Locked decisions
 
-See `CLAUDE.md`'s "Locked decisions" table for the canonical list — this doc doesn't
-duplicate it. The one addition from this session not yet folded back into that table:
-`permissions.ts` gains an exported `getGrantedPaths(): string[]` (currently `grantPath` /
-`isPathAllowed` only support write and membership-check, not enumeration — the skills-scanner
-needs to know _which_ project roots to walk).
+This doc doesn't hold locked decisions — each is locked in the doc that owns the subsystem:
+`CLAUDE.md` (repo-wide), `docs/skill-scanner.md` (sources, symlinks),
+`docs/transcript-ingest.md` (ingest, trigger classification), `docs/data-model.md` (driver,
+schema, plugin identity), `docs/design-system.md` (renderer state).
+
+The one addition from this session not yet folded into any of them: `permissions.ts` gains an
+exported `getGrantedPaths(): string[]` (currently `grantPath` / `isPathAllowed` only support
+write and membership-check, not enumeration — the skills-scanner needs to know _which_ project
+roots to walk).
 
 ## Architecture
 
@@ -204,88 +210,7 @@ actually being built, not treated as locked implementation.
 | Referenced MCP server not present in user's MCP config        | Global, project, plugin | Regex-scan the skill body for `mcp__([a-zA-Z0-9_-]+)__` (Claude Code's actual MCP tool-naming convention), extract the server name, check it against the user's MCP server config                                                                                   | Heuristic on the "find the reference" side; the pattern itself is well-defined. **Where the user's MCP config actually lives is not yet verified against real data** — see Still Open |
 | Exact-name collision across sources                           | Global, project, plugin | No file parsing at all — pure query over the already-scanned `skills` table: `GROUP BY name HAVING COUNT(*) > 1`                                                                                                                                                    | Deterministic, cheapest rule by far                                                                                                                                                   |
 
-## Index schema
-
-No upfront sketch — each table lands with the milestone that knows its real shape.
-`lint_findings` (needs the linter to exist first to know what a finding looks like) and
-`allowed_paths` (needs the picker to need restart-persistence) are deliberately not declared
-yet. M1's four tables, DDL settled this session:
-
-```sql
-CREATE TABLE IF NOT EXISTS skills (
-  id INTEGER PRIMARY KEY,
-  name TEXT NOT NULL,
-  source_type TEXT NOT NULL CHECK (source_type IN ('global', 'project', 'plugin')),
-  source_path TEXT NOT NULL UNIQUE,   -- discovered path, not realpath (see symlinks note above)
-  plugin_name TEXT,                   -- 'name@marketplace' composite, plugin-tier only
-  description TEXT,                   -- NULL/empty is a valid, lint-worthy state
-  last_scanned_at TEXT NOT NULL       -- ISO8601
-);
-
-CREATE TABLE IF NOT EXISTS sessions_meta (
-  session_id TEXT PRIMARY KEY,        -- transcript's `sessionId` (camelCase)
-  cwd TEXT NOT NULL,
-  git_branch TEXT,                    -- NULL when cwd isn't a git repo
-  started_at TEXT NOT NULL,           -- timestamp of the first line carrying a `cwd` field (not
-                                       -- literally line 0 — see Real data section below)
-  message_count INTEGER NOT NULL,     -- count of lines where type IN ('user','assistant')
-  source_mtime_ms INTEGER NOT NULL    -- transcript file's mtime at last scan — see Scan cadence
-);
-
-CREATE TABLE IF NOT EXISTS skill_invocations (
-  id INTEGER PRIMARY KEY,
-  source_uuid TEXT NOT NULL UNIQUE,   -- the transcript line's own `uuid` — natural dedup key
-  session_id TEXT NOT NULL REFERENCES sessions_meta(session_id),
-  skill_name TEXT NOT NULL,           -- no FK to skills.id — locked decision
-  args_text TEXT,                     -- kept, not cut — see Revisions above for the reasoning
-  invoked_at TEXT NOT NULL,
-  trigger_type TEXT NOT NULL CHECK (   -- added post-M1, see Invocation trigger classification
-    trigger_type IN ('user_invoked', 'autonomous')
-  )
-);
-
-CREATE TABLE IF NOT EXISTS plugin_registry (
-  name TEXT NOT NULL,
-  marketplace TEXT NOT NULL,
-  marketplace_repo TEXT,              -- resolved from known_marketplaces.json; NULL if absent
-  installed_version TEXT NOT NULL,    -- can literally be the string "unknown"
-  scope TEXT NOT NULL CHECK (scope IN ('user', 'project')),
-  install_path TEXT NOT NULL,
-  last_scanned_at TEXT NOT NULL,
-  PRIMARY KEY (name, marketplace)
-);
-```
-
-**Idempotency / re-scan strategy** — the natural unique key per table _is_ the strategy:
-
-- `skills` / `sessions_meta` reflect current disk state, which can change (a skill deleted, a
-  session file grows) — `source_path` / `session_id` are natural keys; scan writes via
-  `INSERT ... ON CONFLICT DO UPDATE`. **Correction, found during M1 implementation**: a
-  scoped delete keyed on `source_type IN (<tiers scanned>) AND source_path NOT IN (<seen>)`
-  (the original plan here) doesn't actually satisfy "rescanning one repo shouldn't delete
-  another repo's skills it didn't touch" — two project roots share the same `source_type`, so
-  a `source_type`-broad delete sweeps both. Implemented instead as a per-root path-prefix
-  match: only rows whose parent directory is one of the roots _actually passed to this scan
-  call_ are eligible for deletion, and only if not seen this pass. `plugin-registry.ts` uses
-  the equivalent scoping via its own seen-set for plugin-tagged skills and registry rows. This
-  same reconciliation, extended to `sessions_meta`/`skill_invocations`, is also the fix for the
-  `args_text`-outliving-its-source risk: delete the transcript, the next scan removes the
-  corresponding rows. Known remaining ceiling: rows survive if their root is dropped from the
-  scan entirely (e.g. a revoked Tier-2 grant) — cleanup only happens on a scan that still
-  includes that root and finds it empty; revisit if M3's picker needs eager cleanup-on-revoke.
-- `skill_invocations` are immutable historical events (a past Skill call never changes) —
-  `source_uuid` from the transcript line itself is the dedup key, so the transcript-scanner
-  just does `INSERT OR IGNORE`. No update/delete reconciliation needed for this table beyond
-  the cascade-on-vanished-session case above.
-- `plugin_registry` upserts on `(name, marketplace)`, same pattern as `skills`.
-
-**Forward-looking gap, not blocking M1**: "no migrations, just `CREATE TABLE IF NOT EXISTS`"
-works for _new tables_ landing per-milestone, but won't retrofit a new _column_ onto an
-existing table once real users have a `megatron.db` on disk (e.g. M6 wanting to add
-`latest_known_version` to `plugin_registry`). Needs a guarded `ALTER TABLE ... ADD COLUMN` at
-that point — revisit before M7 ships, not now (no shipped `megatron.db` exists yet).
-
-### Scan cadence
+## Scan cadence
 
 Measured on this machine before deciding: 81MB across 146 transcript files, 17,411 total
 lines, only 41 are Skill `tool_use` calls (0.24% signal) — a full read-through was 0.066s of
@@ -298,97 +223,6 @@ cursor (no seek logic, no truncation/rotation edge cases) while capturing the wi
 actually accumulates. Paired with running the scan after the window is shown, not blocking
 `app.whenReady()` — free regardless of caching strategy. No new IPC channel for triggering or
 querying scans in M1 — nothing in the renderer consumes one until M2.
-
-### Invocation trigger classification (added post-M1, simplified post-M2)
-
-M1 shipped, then a real-data investigation of `NULL` `args_text` rows (see Revisions above)
-found that invocation _origin_ is recoverable from the **nearest preceding user-role message
-with string content**, even though it isn't recoverable from the `Skill` tool_use block
-itself. Algorithm:
-
-1. Preceding message contains `/<skill-name>` as a substring, word-boundary-checked (so
-   `/grill-mean` doesn't false-match `/grill-me`) → `user_invoked`.
-2. Else → `autonomous`.
-
-"Preceding" means most-recently-seen `type: 'user'` record with **string** content while
-walking a transcript's records in order — not literally the previous line. A triggering
-message can be several assistant/tool-result turns before the actual `Skill` call (observed
-directly: `visual-verify` fired several lines after the relevant user turn). User-role records
-whose `message.content` is an **array** (tool-result-carrying "user" lines, not actual typed
-text) are correctly skipped by this check — they don't overwrite the last real message seen.
-
-Implementation lives in `transcript-scanner.ts` as a small pure function, not a new shared
-file — unlike `skill-parser.ts`, this has exactly one consumer, so no shared-helper file is
-warranted. `extractInvocations` changes from a stateless per-record loop into a stateful
-forward scan tracking the last seen string-content user message.
-
-**Known, accepted heuristic limitation**: this is "most recent user text before this
-invocation," not proven causality. If one message triggers a cascade of several skill calls
-across many turns, a later call in that cascade is still attributed to the same original
-message even if it's arguably less directly caused by it. Same category of limitation as the
-linter's file-path/MCP-reference heuristics — not something to engineer around.
-
-**Correction (post-M2): the original three-way split (`harness_command` | `text_mention` |
-`autonomous`) collapsed to two (`user_invoked` | `autonomous`).** The original design treated
-a harness-parsed `<command-name>/skill-name</command-name>` tag and a bare `/skill-name`
-mid-prose as separately meaningful categories. A fresh real-data sweep (broader than the
-original — every transcript across every project on this machine, not just the ones scanned
-at the time, 54 real invocations total) found **zero** `harness_command` rows, same as the
-original spot check (0 out of 43 then). The original doc entry attributed this to `harness_command`
-being "legitimately unobserved so far" — rare, but real and reachable. That attribution was
-wrong. The actual cause: a genuine harness-native `/skill-name <args>` invocation (the CLI's
-own slash-command syntax, typed as the entire prompt) **never produces a `Skill` tool_use
-block at all.** Concretely: the transcript instead shows a `user`-role record with string
-content `<command-message>...</command-message><command-name>/skill-name</command-name>
-<command-args>...</command-args>`, immediately followed by a _separate_ `isMeta: true`
-user-role record whose array content is the skill's injected system prompt — no `tool_use`
-step in between. Confirmed against six independent real transcripts, including one in this
-repo's own history. So `harness_command` wasn't a rare-but-real bucket waiting to be observed
-— it was structurally unreachable by this detection method from the start, because the two
-things `classifyTrigger` needs (a `<command-name>` tag _and_ a `Skill` tool_use to attach it
-to) never co-occur for a true harness command. What _was_ actually being recorded as
-`text_mention` with `args_text: null` in every real case checked (10/10 for one recurring
-plugin skill) was the model itself, on seeing a bare `/skill-name` mention typed mid-message,
-choosing to call the `Skill` tool with no `args` field — a real, distinct mechanism from the
-harness's own command routing, correctly flagged as user-triggered either way. Given
-`harness_command` could never fire, keeping a three-way enum around it was unrequested
-complexity; collapsing the two user-triggered shapes into one `user_invoked` value is a
-straight simplification, not a loss of real signal — `args_text` still carries whatever the
-model chose to pass along.
-
-**Still-open gap (not fixed by the above, distinct problem)**: true harness-native command
-invocations remain **completely invisible to the scanner** — no `skill_invocations` row is
-created for them at all, because `extractInvocations` only looks for `Skill` tool_use blocks.
-The `<command-name>`/`<command-args>` + `isMeta` shape described above carries real
-skill-name and args data that today goes unindexed entirely. Fixing this needs a second
-detection path in `extractInvocations` (reading `<command-name>`/`<command-args>` off the
-harness-command `user` record directly, independent of any `Skill` tool_use) — not attempted
-here; flagged for a deliberate follow-up, not a silent gap.
-
-**Implemented and verified.** Full lint/typecheck/test gate green after the collapse.
-
-**Schema mechanics**: `skill_invocations` was designed immutable/append-only
-(`INSERT OR IGNORE`, no update path — see Idempotency below) specifically because its original
-columns are true, unchanging facts about what happened. `trigger_type` stayed consistent with
-that design rather than becoming a carved-out exception: rather than back-filling the 42
-already-indexed rows via a guarded `ALTER TABLE` + forced full rescan (seriously considered,
-including the exact SQL), the simpler and equally valid move — given this is pre-ship, no real
-user has a `megatron.db` yet — was deleting the local dev database and letting a fresh scan
-repopulate everything with `trigger_type` computed from the start. This is the literal
-"delete my local index is a `rm`" principle already stated below, applied to a real case
-instead of just the local dev database's own accidental drift. The `ALTER TABLE`-on-existing-
-tables gap flagged in the Idempotency section below is _still_ real and _still_ deferred to
-M7 — this was a case where deleting was legitimately simpler, not a precedent that migrations
-are never needed.
-
-## Why SQLite
-
-The data is relational, not key-value — a skill has many invocations, an invocation belongs
-to a session — so joins beat a document or KV store. Embedded and single-file fits
-local-first (no server process) and makes "delete my local index" a literal `rm`.
-`better-sqlite3` specifically (not `node:sqlite` — see Revisions above): ships N-API
-prebuilds, no native rebuild needed on install. Postgres/MySQL are the wrong shape (need a
-daemon); DuckDB solves a columnar-analytics scale problem this app doesn't have.
 
 ## Repo layout (actual, not the PDF's `electron/` sketch)
 
@@ -450,7 +284,7 @@ Tier-2 consent moved from last to right after the inventory UI — see Revisions
 | Windows / Linux builds                                                                                              | No audience OS data yet                                                                                                                                                                                                                                                                                                                                                                                                       | Target-user OS split justifies it — Electron keeps this a CI change, not a rewrite                                                                                                                                          |
 | Cost analytics, MCP dashboard, knowledge graph, journal, coach, marketplace                                         | Out of scope for this MVP entirely                                                                                                                                                                                                                                                                                                                                                                                            | Per original roadmap's Phase 2+                                                                                                                                                                                             |
 | **Built-in skills as a 4th source** _(new this session)_                                                            | Not user-managed state — no file, nothing to lint, no version to track. Pure maintenance liability                                                                                                                                                                                                                                                                                                                            | Not expected to be revisited — cut, not deferred                                                                                                                                                                            |
-| ~~Distinguishing explicit vs. auto-triggered (self-invoked) skill calls~~ **— corrected, no longer deferred**       | Originally: "not recoverable from transcript data at all," based on `caller.type` never varying. That part still holds. But a later investigation found the _preceding user message_ (not the `Skill` block itself) does carry a recoverable signal — see the Invocation trigger classification section. `skill_invocations.trigger_type` implements this post-M1                                                             | Done, not deferred — kept here for the historical record of the original (too pessimistic) conclusion                                                                                                                       |
+| ~~Distinguishing explicit vs. auto-triggered (self-invoked) skill calls~~ **— corrected, no longer deferred**       | Originally: "not recoverable from transcript data at all," based on `caller.type` never varying. That part still holds. But a later investigation found the _preceding user message_ (not the `Skill` block itself) does carry a recoverable signal — see `docs/transcript-ingest.md`. `skill_invocations.trigger_type` implements this post-M1                                                                               | Done, not deferred — kept here for the historical record of the original (too pessimistic) conclusion                                                                                                                       |
 | **Full user-prompt / session-content analytics** ("how sessions are going, how to improve") _(raised this session)_ | Materially bigger than `skill_invocations.args_text` (which is already in scope) — this means indexing conversational content across every message in every session. Already covered by the existing "Full session content indexing" and "Cost analytics... journal..." rows above; restated here because it came up in the context of this session's `args_text` discussion and shouldn't be read as quietly approved for M1 | Same trigger as those rows: a specific feature needs it, with its own privacy pass, Phase 2+                                                                                                                                |
 
 ## Still open

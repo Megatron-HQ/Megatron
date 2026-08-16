@@ -103,4 +103,27 @@ describe('applySchema', () => {
         .run(new Date().toISOString())
     ).toThrow()
   })
+
+  it('accepts subagent as a valid skill_invocations.trigger_type, with a nullable agent_id', () => {
+    applySchema(db)
+    db.prepare(
+      `INSERT INTO sessions_meta (session_id, cwd, git_branch, started_at, message_count, source_mtime_ms)
+       VALUES ('session-1', '/cwd', NULL, ?, 0, 0)`
+    ).run(new Date().toISOString())
+
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO skill_invocations
+             (source_uuid, session_id, skill_name, args_text, invoked_at, trigger_type, agent_id)
+           VALUES ('uuid-1', 'session-1', 'some-skill', NULL, ?, 'subagent', 'agent-abc123')`
+        )
+        .run(new Date().toISOString())
+    ).not.toThrow()
+
+    const row = db
+      .prepare('SELECT agent_id FROM skill_invocations WHERE source_uuid = ?')
+      .get('uuid-1') as { agent_id: string }
+    expect(row.agent_id).toBe('agent-abc123')
+  })
 })

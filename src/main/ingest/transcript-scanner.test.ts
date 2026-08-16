@@ -5,7 +5,7 @@ import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applySchema } from '../db/schema'
 import { grantPath, resetGrantedPaths } from '../permissions'
-import { parseTranscript, scanTranscripts } from './transcript-scanner'
+import { parseSubagentInvocations, parseTranscript, scanTranscripts } from './transcript-scanner'
 
 let tmpDir: string
 
@@ -26,6 +26,19 @@ function linesToJsonl(lines: unknown[]): string {
 function writeTranscriptFile(dirPath: string, sessionId: string, lines: unknown[]): string {
   mkdirSync(dirPath, { recursive: true })
   const filePath = join(dirPath, `${sessionId}.jsonl`)
+  writeFileSync(filePath, linesToJsonl(lines))
+  return filePath
+}
+
+function writeSubagentTranscriptFile(
+  projectDir: string,
+  parentSessionId: string,
+  agentFileStem: string,
+  lines: unknown[]
+): string {
+  const subagentsDir = join(projectDir, parentSessionId, 'subagents')
+  mkdirSync(subagentsDir, { recursive: true })
+  const filePath = join(subagentsDir, `${agentFileStem}.jsonl`)
   writeFileSync(filePath, linesToJsonl(lines))
   return filePath
 }
@@ -117,7 +130,8 @@ describe('parseTranscript', () => {
         skill_name: 'my-skill',
         args_text: 'do it',
         invoked_at: '2024-01-01T00:01:00.000Z',
-        trigger_type: 'autonomous'
+        trigger_type: 'autonomous',
+        agent_id: null
       }
     ])
   })
@@ -355,6 +369,221 @@ describe('parseTranscript', () => {
       expect(parseTranscript(filePath).invocations[0].trigger_type).toBe('autonomous')
     })
   })
+
+  describe('harness slash-command invocations', () => {
+    function commandLine(
+      skillName: string,
+      overrides: Record<string, unknown> = {}
+    ): Record<string, unknown> {
+      return {
+        type: 'user',
+        sessionId: 'sess-1',
+        isSidechain: false,
+        uuid: 'uuid-command',
+        timestamp: '2024-01-01T00:01:00.000Z',
+        message: {
+          content: `<command-message>${skillName}</command-message>\n<command-name>/${skillName}</command-name>`
+        },
+        ...overrides
+      }
+    }
+
+    function markerLine(
+      parentUuid: string,
+      overrides: Record<string, unknown> = {}
+    ): Record<string, unknown> {
+      return {
+        type: 'user',
+        sessionId: 'sess-1',
+        isSidechain: false,
+        isMeta: true,
+        parentUuid,
+        message: {
+          content: [
+            { type: 'text', text: 'Base directory for this skill: /Users/x/.claude/skills/foo' }
+          ]
+        },
+        ...overrides
+      }
+    }
+
+    it('records an invocation for a slash command followed by its skill base-directory marker', () => {
+      const command = commandLine('domain-modeling')
+      const marker = markerLine('uuid-command')
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [metaLine(), command, marker])
+
+      const result = parseTranscript(filePath)
+
+      expect(result.invocations).toEqual([
+        {
+          source_uuid: 'uuid-command',
+          session_id: 'sess-1',
+          skill_name: 'domain-modeling',
+          args_text: null,
+          invoked_at: '2024-01-01T00:01:00.000Z',
+          trigger_type: 'user_invoked',
+          agent_id: null
+        }
+      ])
+    })
+
+    it('captures non-empty command-args as args_text', () => {
+      const command = commandLine('domain-modeling', {
+        message: {
+          content:
+            '<command-message>domain-modeling</command-message>\n<command-name>/domain-modeling</command-name>\n<command-args>focus on billing</command-args>'
+        }
+      })
+      const marker = markerLine('uuid-command')
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [metaLine(), command, marker])
+
+      expect(parseTranscript(filePath).invocations[0].args_text).toBe('focus on billing')
+    })
+
+    it('normalizes an empty command-args tag to a NULL args_text', () => {
+      const command = commandLine('domain-modeling', {
+        message: {
+          content:
+            '<command-message>domain-modeling</command-message>\n<command-name>/domain-modeling</command-name>\n<command-args></command-args>'
+        }
+      })
+      const marker = markerLine('uuid-command')
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [metaLine(), command, marker])
+
+      expect(parseTranscript(filePath).invocations[0].args_text).toBeNull()
+    })
+
+    it('does not record an invocation for a slash command with no base-directory marker child', () => {
+      const command = commandLine('clear')
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [metaLine(), command])
+
+      expect(parseTranscript(filePath).invocations).toEqual([])
+    })
+
+    it('does not attribute a real skill marker to an unrelated earlier built-in command', () => {
+      const clearCommand = commandLine('clear', { uuid: 'uuid-clear' })
+      const systemRecord = {
+        type: 'system',
+        sessionId: 'sess-1',
+        isSidechain: false,
+        uuid: 'uuid-system',
+        parentUuid: 'uuid-clear'
+      }
+      const realCommand = commandLine('improve-codebase-architecture', {
+        uuid: 'uuid-real',
+        parentUuid: 'uuid-system'
+      })
+      const marker = markerLine('uuid-real')
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [
+        metaLine(),
+        clearCommand,
+        systemRecord,
+        realCommand,
+        marker
+      ])
+
+      const invocations = parseTranscript(filePath).invocations
+      expect(invocations).toHaveLength(1)
+      expect(invocations[0].skill_name).toBe('improve-codebase-architecture')
+    })
+
+    it('preserves the plugin:skill colon in a plugin-scoped slash command name', () => {
+      const command = commandLine('ponytail:ponytail-review')
+      const marker = markerLine('uuid-command')
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [metaLine(), command, marker])
+
+      expect(parseTranscript(filePath).invocations[0].skill_name).toBe('ponytail:ponytail-review')
+    })
+
+    it('excludes a slash-command invocation from an isSidechain: true line', () => {
+      const command = commandLine('domain-modeling', { isSidechain: true })
+      const marker = markerLine('uuid-command', { isSidechain: true })
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [metaLine(), command, marker])
+
+      expect(parseTranscript(filePath).invocations).toEqual([])
+    })
+
+    it('does not create a duplicate invocation when a command-name trigger is followed by a Skill tool_use instead of its own marker', () => {
+      const trigger = metaLine({
+        message: { content: '<command-name>/my-skill</command-name><command-args></command-args>' }
+      })
+      const skillToolUse = skillInvocationLine({
+        message: {
+          content: [
+            { type: 'tool_use', id: 'block-id', name: 'Skill', input: { skill: 'my-skill' } }
+          ]
+        }
+      })
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [trigger, skillToolUse])
+
+      expect(parseTranscript(filePath).invocations).toHaveLength(1)
+    })
+  })
+
+  it('sets agent_id to null on an ordinary main-session invocation', () => {
+    const filePath = writeTranscriptFile(tmpDir, 'sess-1', [metaLine(), skillInvocationLine()])
+
+    expect(parseTranscript(filePath).invocations[0].agent_id).toBeNull()
+  })
+})
+
+describe('parseSubagentInvocations', () => {
+  it('extracts a Skill tool_use from an isSidechain:true record, tagged subagent with agent_id from the filename', () => {
+    const filePath = writeSubagentTranscriptFile(tmpDir, 'sess-1', 'agent-abc123', [
+      skillInvocationLine({ sessionId: 'sess-1', isSidechain: true })
+    ])
+
+    const invocations = parseSubagentInvocations(filePath)
+
+    expect(invocations).toEqual([
+      expect.objectContaining({
+        session_id: 'sess-1',
+        skill_name: 'my-skill',
+        trigger_type: 'subagent',
+        agent_id: 'agent-abc123'
+      })
+    ])
+  })
+
+  it('tags a slash-command invocation inside a subagent file as subagent, not user_invoked', () => {
+    const command = {
+      type: 'user',
+      sessionId: 'sess-1',
+      isSidechain: true,
+      uuid: 'uuid-command',
+      timestamp: '2024-01-01T00:01:00.000Z',
+      message: {
+        content:
+          '<command-message>domain-modeling</command-message>\n<command-name>/domain-modeling</command-name>'
+      }
+    }
+    const marker = {
+      type: 'user',
+      sessionId: 'sess-1',
+      isSidechain: true,
+      isMeta: true,
+      parentUuid: 'uuid-command',
+      message: {
+        content: [
+          { type: 'text', text: 'Base directory for this skill: /Users/x/.claude/skills/foo' }
+        ]
+      }
+    }
+    const filePath = writeSubagentTranscriptFile(tmpDir, 'sess-1', 'agent-abc123', [
+      command,
+      marker
+    ])
+
+    const invocations = parseSubagentInvocations(filePath)
+
+    expect(invocations).toEqual([
+      expect.objectContaining({
+        skill_name: 'domain-modeling',
+        trigger_type: 'subagent',
+        agent_id: 'agent-abc123'
+      })
+    ])
+  })
 })
 
 describe('scanTranscripts', () => {
@@ -514,5 +743,61 @@ describe('scanTranscripts', () => {
     scanTranscripts(db, projectsDir)
 
     expect(allInvocations()).toHaveLength(1)
+  })
+
+  it('inserts a subagent invocation under the parent session_id, tagged trigger_type subagent', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    writeTranscriptFile(projectDir, 'sess-1', [metaLine()])
+    writeSubagentTranscriptFile(projectDir, 'sess-1', 'agent-abc123', [
+      skillInvocationLine({ sessionId: 'sess-1', isSidechain: true })
+    ])
+
+    scanTranscripts(db, projectsDir)
+
+    const invocations = allInvocations() as Array<{
+      session_id: string
+      trigger_type: string
+      agent_id: string | null
+    }>
+    expect(invocations).toEqual([
+      expect.objectContaining({
+        session_id: 'sess-1',
+        trigger_type: 'subagent',
+        agent_id: 'agent-abc123'
+      })
+    ])
+  })
+
+  it('picks up a subagent invocation added after the parent transcript was already scanned, with the parent file untouched', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    writeTranscriptFile(projectDir, 'sess-1', [metaLine()])
+    scanTranscripts(db, projectsDir)
+    expect(allInvocations()).toHaveLength(0)
+
+    const subagentFilePath = writeSubagentTranscriptFile(projectDir, 'sess-1', 'agent-abc123', [
+      skillInvocationLine({ sessionId: 'sess-1', isSidechain: true })
+    ])
+    const future = new Date(Date.now() + 60000)
+    utimesSync(subagentFilePath, future, future)
+
+    scanTranscripts(db, projectsDir)
+
+    expect(allInvocations()).toHaveLength(1)
+  })
+
+  it('removes subagent invocation rows when the parent transcript is deleted', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    writeTranscriptFile(projectDir, 'sess-1', [metaLine()])
+    writeSubagentTranscriptFile(projectDir, 'sess-1', 'agent-abc123', [
+      skillInvocationLine({ sessionId: 'sess-1', isSidechain: true })
+    ])
+    scanTranscripts(db, projectsDir)
+    expect(allInvocations()).toHaveLength(1)
+
+    rmSync(projectDir, { recursive: true, force: true })
+    scanTranscripts(db, projectsDir)
+
+    expect(getSession('sess-1')).toBeUndefined()
+    expect(allInvocations()).toHaveLength(0)
   })
 })
