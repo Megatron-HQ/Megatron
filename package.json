@@ -5,6 +5,7 @@
   "main": "./out/main/index.js",
   "type": "module",
   "author": "Megatron-HQ",
+  "license": "MIT",
   "engines": {
     "node": "^22.0.0"
   },
