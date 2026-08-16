@@ -1,7 +1,17 @@
 import Database from 'better-sqlite3'
+import { resolve } from 'path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { applySchema } from './schema'
-import { getSkillById, listSkills, writeSkillScan, writeSkillScanAuthoritative } from './queries'
+import {
+  addAllowedPath,
+  deleteSkillsForProjectRoot,
+  getSkillById,
+  listAllowedPaths,
+  listSkills,
+  removeAllowedPath,
+  writeSkillScan,
+  writeSkillScanAuthoritative
+} from './queries'
 
 let db: Database.Database
 
@@ -235,5 +245,113 @@ describe('writeSkillScan', () => {
     writeSkillScan(db, 'global', [], ['/roots/global'])
 
     expect(allSkills()).toHaveLength(0)
+  })
+})
+
+describe('listAllowedPaths', () => {
+  it('returns an empty array when no paths are allowed', () => {
+    expect(listAllowedPaths(db)).toEqual([])
+  })
+
+  it('returns allowed paths with path and granted_at', () => {
+    const now = new Date().toISOString()
+    const p = resolve('/path/to/repo')
+    db.prepare('INSERT INTO allowed_paths (path, granted_at) VALUES (?, ?)').run(p, now)
+
+    const rows = listAllowedPaths(db)
+    expect(rows).toEqual([{ path: p, granted_at: now }])
+  })
+})
+
+describe('addAllowedPath', () => {
+  it('inserts a new path with an ISO8601 timestamp', () => {
+    const p = resolve('/path/to/repo')
+    addAllowedPath(db, p)
+    const rows = listAllowedPaths(db)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].path).toBe(p)
+    expect(new Date(rows[0].granted_at).toISOString()).toBe(rows[0].granted_at)
+  })
+
+  it('is idempotent on conflict', () => {
+    const p = resolve('/path/to/repo')
+    addAllowedPath(db, p)
+    expect(() => addAllowedPath(db, p)).not.toThrow()
+    expect(listAllowedPaths(db)).toHaveLength(1)
+  })
+})
+
+describe('removeAllowedPath', () => {
+  it('deletes a path from allowed_paths', () => {
+    const pA = resolve('/path/to/repo-a')
+    const pB = resolve('/path/to/repo-b')
+    addAllowedPath(db, pA)
+    addAllowedPath(db, pB)
+
+    removeAllowedPath(db, pA)
+    const paths = listAllowedPaths(db).map((r) => r.path)
+    expect(paths).toEqual([pB])
+  })
+
+  it('no-ops when removing a path not in allowed_paths', () => {
+    const pA = resolve('/path/to/repo-a')
+    const pB = resolve('/path/to/repo-b')
+    addAllowedPath(db, pA)
+    expect(() => removeAllowedPath(db, pB)).not.toThrow()
+    expect(listAllowedPaths(db)).toHaveLength(1)
+  })
+})
+
+describe('deleteSkillsForProjectRoot', () => {
+  it('deletes project skills originating from that project root', () => {
+    const rootA = '/repos/project-a'
+    writeSkillScan(
+      db,
+      'project',
+      [
+        {
+          name: 'skill-a',
+          source_path: '/repos/project-a/.claude/skills/skill-a',
+          plugin_name: null,
+          description: null
+        }
+      ],
+      ['/repos/project-a/.claude/skills']
+    )
+    writeSkillScan(
+      db,
+      'project',
+      [
+        {
+          name: 'skill-b',
+          source_path: '/repos/project-b/.claude/skills/skill-b',
+          plugin_name: null,
+          description: null
+        }
+      ],
+      ['/repos/project-b/.claude/skills']
+    )
+
+    deleteSkillsForProjectRoot(db, rootA)
+
+    const remaining = allSkills()
+    expect(remaining).toHaveLength(1)
+    expect(remaining[0].name).toBe('skill-b')
+  })
+
+  it('does not touch global or plugin skills even if paths collide', () => {
+    writeSkillScanAuthoritative(db, 'global', [
+      {
+        name: 'global-skill',
+        source_path: '/repos/project-a/.claude/skills/global-skill',
+        plugin_name: null,
+        description: null
+      }
+    ])
+
+    deleteSkillsForProjectRoot(db, '/repos/project-a')
+
+    expect(allSkills()).toHaveLength(1)
+    expect(allSkills()[0].name).toBe('global-skill')
   })
 })

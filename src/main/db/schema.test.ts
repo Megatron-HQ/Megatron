@@ -9,15 +9,29 @@ beforeEach(() => {
 })
 
 describe('applySchema', () => {
-  it('creates all four tables', () => {
+  it('creates all five tables', () => {
     applySchema(db)
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
       .all()
       .map((row) => (row as { name: string }).name)
     expect(tables).toEqual(
-      expect.arrayContaining(['skills', 'sessions_meta', 'skill_invocations', 'plugin_registry'])
+      expect.arrayContaining([
+        'skills',
+        'sessions_meta',
+        'skill_invocations',
+        'plugin_registry',
+        'allowed_paths'
+      ])
     )
+  })
+
+  it('rejects a duplicate allowed_paths.path', () => {
+    applySchema(db)
+    const insert = db.prepare(`INSERT INTO allowed_paths (path, granted_at) VALUES (?, ?)`)
+    const now = new Date().toISOString()
+    insert.run('/path/to/repo', now)
+    expect(() => insert.run('/path/to/repo', now)).toThrow()
   })
 
   it('is idempotent — running twice does not throw', () => {
@@ -125,5 +139,22 @@ describe('applySchema', () => {
       .prepare('SELECT agent_id FROM skill_invocations WHERE source_uuid = ?')
       .get('uuid-1') as { agent_id: string }
     expect(row.agent_id).toBe('agent-abc123')
+  })
+
+  it('adds agent_id column if skill_invocations was created from an older schema', () => {
+    db.exec(`
+      CREATE TABLE skill_invocations (
+        id INTEGER PRIMARY KEY,
+        source_uuid TEXT NOT NULL UNIQUE,
+        session_id TEXT NOT NULL,
+        skill_name TEXT NOT NULL,
+        args_text TEXT,
+        invoked_at TEXT NOT NULL,
+        trigger_type TEXT NOT NULL
+      );
+    `)
+    applySchema(db)
+    const cols = db.prepare("PRAGMA table_info('skill_invocations')").all() as { name: string }[]
+    expect(cols.some((c) => c.name === 'agent_id')).toBe(true)
   })
 })

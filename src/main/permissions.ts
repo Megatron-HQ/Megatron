@@ -12,6 +12,10 @@ export function grantPath(path: string): void {
   grantedPaths.add(resolve(path))
 }
 
+export function revokePath(path: string): void {
+  grantedPaths.delete(resolve(path))
+}
+
 export function resetGrantedPaths(): void {
   grantedPaths.clear()
 }

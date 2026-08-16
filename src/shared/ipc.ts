@@ -3,8 +3,16 @@ export const IPC_CHANNELS = {
   openSkill: 'skills:open',
   getInitialTheme: 'theme:getInitial',
   setTheme: 'theme:set',
-  scanComplete: 'scan:complete'
+  scanComplete: 'scan:complete',
+  listAllowedPaths: 'folders:list',
+  pickAndAddFolders: 'folders:pickAndAdd',
+  revokeAllowedPath: 'folders:revoke'
 } as const
+
+export interface AllowedPathRow {
+  path: string
+  granted_at: string
+}
 
 export type SourceType = 'global' | 'project' | 'plugin'
 

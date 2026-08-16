@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import {
   IPC_CHANNELS,
+  type AllowedPathRow,
   type OpenSkillResult,
   type SkillsListResult,
   type Theme
@@ -14,6 +15,12 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.openSkill, id),
   getInitialTheme: (): Theme => ipcRenderer.sendSync(IPC_CHANNELS.getInitialTheme),
   setTheme: (theme: Theme): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.setTheme, theme),
+  listAllowedPaths: (): Promise<AllowedPathRow[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.listAllowedPaths),
+  pickAndAddFolders: (): Promise<AllowedPathRow[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.pickAndAddFolders),
+  revokeAllowedPath: (path: string): Promise<AllowedPathRow[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.revokeAllowedPath, path),
   onScanComplete: (callback: () => void): (() => void) => {
     const listener = (): void => callback()
     ipcRenderer.on(IPC_CHANNELS.scanComplete, listener)

@@ -40,3 +40,9 @@ CREATE TABLE IF NOT EXISTS plugin_registry (
   last_scanned_at TEXT NOT NULL,
   PRIMARY KEY (name, marketplace)
 );
+
+CREATE TABLE IF NOT EXISTS allowed_paths (
+  path TEXT PRIMARY KEY,              -- resolved repository root
+  granted_at TEXT NOT NULL            -- ISO8601
+);
+

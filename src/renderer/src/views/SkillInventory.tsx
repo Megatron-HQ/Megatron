@@ -88,6 +88,8 @@ interface SkillInventoryProps {
   filter: SourceFilter
   onSelect: (id: number) => void
   onOpenSearch: () => void
+  onManageFolders?: () => void
+  onGrantFolder?: () => void
 }
 
 export function SkillInventory({
@@ -95,7 +97,9 @@ export function SkillInventory({
   loading,
   filter,
   onSelect,
-  onOpenSearch
+  onOpenSearch,
+  onManageFolders,
+  onGrantFolder
 }: SkillInventoryProps): React.JSX.Element {
   const [sorting, setSorting] = useState<SortingState>([])
   const [focusedIndex, setFocusedIndex] = useState(0)
@@ -154,7 +158,7 @@ export function SkillInventory({
       </div>
     )
   } else if (rows.length === 0) {
-    body = <EmptyState filter={filter} />
+    body = <EmptyState filter={filter} onGrantFolder={onGrantFolder} />
   } else {
     body = (
       <div ref={containerRef} className="relative flex-1 overflow-auto" onMouseLeave={onMouseLeave}>
@@ -242,7 +246,9 @@ export function SkillInventory({
       <TableHeader
         title={FILTER_LABEL[filter]}
         count={loading ? null : rows.length}
+        filter={filter}
         onOpenSearch={onOpenSearch}
+        onManageFolders={onManageFolders}
       />
       {body}
     </div>
@@ -252,11 +258,15 @@ export function SkillInventory({
 function TableHeader({
   title,
   count,
-  onOpenSearch
+  filter,
+  onOpenSearch,
+  onManageFolders
 }: {
   title: string
   count: number | null
+  filter: SourceFilter
   onOpenSearch: () => void
+  onManageFolders?: () => void
 }): React.JSX.Element {
   return (
     <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-4">
@@ -271,22 +281,40 @@ function TableHeader({
           {count !== null && <span className="font-normal text-muted-foreground"> · {count}</span>}
         </h2>
       </div>
-      <button
-        type="button"
-        onClick={onOpenSearch}
-        className="flex shrink-0 items-center gap-2 rounded-md border border-border bg-muted px-2.5 py-1 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <Search className="size-3.5" />
-        Search skills
-        <kbd className="rounded border border-border bg-background px-1 font-mono text-[11px]">
-          {window.electron?.process?.platform === 'darwin' ? '⌘K' : 'Ctrl+K'}
-        </kbd>
-      </button>
+      <div className="flex items-center gap-2">
+        {filter === 'project' && onManageFolders && (
+          <button
+            type="button"
+            onClick={onManageFolders}
+            className="flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-muted px-2.5 py-1 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <FolderOpen className="size-3.5" />
+            Manage Folders
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onOpenSearch}
+          className="flex shrink-0 items-center gap-2 rounded-md border border-border bg-muted px-2.5 py-1 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Search className="size-3.5" />
+          Search skills
+          <kbd className="rounded border border-border bg-background px-1 font-mono text-[11px]">
+            {window.electron?.process?.platform === 'darwin' ? '⌘K' : 'Ctrl+K'}
+          </kbd>
+        </button>
+      </div>
     </div>
   )
 }
 
-function EmptyState({ filter }: { filter: SourceFilter }): React.JSX.Element {
+function EmptyState({
+  filter,
+  onGrantFolder
+}: {
+  filter: SourceFilter
+  onGrantFolder?: () => void
+}): React.JSX.Element {
   const isProject = filter === 'project'
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
@@ -300,18 +328,13 @@ function EmptyState({ filter }: { filter: SourceFilter }): React.JSX.Element {
           : 'Nothing was found for this filter.'}
       </p>
       {isProject && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              disabled
-              className="mt-2 rounded-md bg-accent-lime px-3 py-1.5 text-sm text-accent-lime-foreground opacity-50"
-            >
-              Grant a folder to scan for skills
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Coming soon — folder access is not wired up yet.</TooltipContent>
-        </Tooltip>
+        <button
+          type="button"
+          onClick={onGrantFolder}
+          className="mt-2 rounded-md bg-accent-lime px-3 py-1.5 text-sm font-medium text-accent-lime-foreground transition-opacity hover:opacity-90 active:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          Grant a folder to scan for skills
+        </button>
       )}
     </div>
   )

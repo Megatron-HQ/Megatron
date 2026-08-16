@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { CommandPalette } from '@/components/CommandPalette'
+import { ManageFoldersDialog } from '@/components/ManageFoldersDialog'
 import { Sidebar } from '@/components/Sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { TREE_WIDTH_DEFAULT } from '@/lib/file-tree'
@@ -17,6 +18,7 @@ function App(): React.JSX.Element {
   const [filter, setFilter] = useState<SourceFilter>('all')
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [foldersDialogOpen, setFoldersDialogOpen] = useState(false)
   const [treeWidth, setTreeWidth] = useState(TREE_WIDTH_DEFAULT)
 
   const { data } = useQuery({
@@ -24,8 +26,17 @@ function App(): React.JSX.Element {
     queryFn: () => window.api.listSkills()
   })
 
+  const { data: foldersData } = useQuery({
+    queryKey: ['folders'],
+    queryFn: () => window.api.listAllowedPaths()
+  })
+
   useEffect(
-    () => window.api.onScanComplete(() => queryClient.invalidateQueries({ queryKey: ['skills'] })),
+    () =>
+      window.api.onScanComplete(() => {
+        void queryClient.invalidateQueries({ queryKey: ['skills'] })
+        void queryClient.invalidateQueries({ queryKey: ['folders'] })
+      }),
     [queryClient]
   )
 
@@ -41,6 +52,7 @@ function App(): React.JSX.Element {
   }, [])
 
   const skills = useMemo(() => data?.skills ?? [], [data])
+  const folders = useMemo(() => foldersData ?? [], [foldersData])
   const scanComplete = data?.scanComplete ?? false
 
   const filteredSkills = useMemo(
@@ -58,6 +70,22 @@ function App(): React.JSX.Element {
     setTheme(next)
     document.documentElement.classList.toggle('dark', next === 'dark')
     void window.api.setTheme(next)
+  }
+
+  async function handleAddFolders(): Promise<void> {
+    await window.api.pickAndAddFolders()
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['skills'] }),
+      queryClient.invalidateQueries({ queryKey: ['folders'] })
+    ])
+  }
+
+  async function handleRevokeFolder(path: string): Promise<void> {
+    await window.api.revokeAllowedPath(path)
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['skills'] }),
+      queryClient.invalidateQueries({ queryKey: ['folders'] })
+    ])
   }
 
   return (
@@ -90,6 +118,8 @@ function App(): React.JSX.Element {
               filter={filter}
               onSelect={setSelectedId}
               onOpenSearch={() => setPaletteOpen(true)}
+              onManageFolders={() => setFoldersDialogOpen(true)}
+              onGrantFolder={handleAddFolders}
             />
           )}
         </div>
@@ -99,6 +129,13 @@ function App(): React.JSX.Element {
         onOpenChange={setPaletteOpen}
         skills={skills}
         onSelect={setSelectedId}
+      />
+      <ManageFoldersDialog
+        open={foldersDialogOpen}
+        onOpenChange={setFoldersDialogOpen}
+        folders={folders}
+        onAddFolders={handleAddFolders}
+        onRevokeFolder={handleRevokeFolder}
       />
     </TooltipProvider>
   )

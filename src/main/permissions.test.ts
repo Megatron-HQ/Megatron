@@ -10,7 +10,8 @@ import {
   getGrantedPaths,
   grantPath,
   isPathAllowed,
-  resetGrantedPaths
+  resetGrantedPaths,
+  revokePath
 } from './permissions'
 
 beforeEach(() => {
@@ -85,6 +86,35 @@ describe('getGrantedPaths', () => {
     grantPath(resolve(homedir(), 'Desktop/some-project'))
     resetGrantedPaths()
     expect(getGrantedPaths()).toEqual([])
+  })
+})
+
+describe('revokePath', () => {
+  it('removes a granted path from granted paths', () => {
+    const repo = resolve(homedir(), 'Desktop/some-project')
+    grantPath(repo)
+    expect(getGrantedPaths()).toEqual([repo])
+    expect(isPathAllowed(repo)).toBe(true)
+
+    revokePath(repo)
+    expect(getGrantedPaths()).toEqual([])
+    expect(isPathAllowed(repo)).toBe(false)
+  })
+
+  it('removes the resolved form of a path', () => {
+    const repo = resolve(homedir(), 'Desktop/some-project')
+    grantPath(repo)
+    revokePath(resolve(homedir(), 'Desktop/some-project/../some-project'))
+    expect(getGrantedPaths()).toEqual([])
+    expect(isPathAllowed(repo)).toBe(false)
+  })
+
+  it('no-ops when revoking a path that was not granted', () => {
+    const repo1 = resolve(homedir(), 'Desktop/repo-1')
+    const repo2 = resolve(homedir(), 'Desktop/repo-2')
+    grantPath(repo1)
+    expect(() => revokePath(repo2)).not.toThrow()
+    expect(getGrantedPaths()).toEqual([repo1])
   })
 })
 

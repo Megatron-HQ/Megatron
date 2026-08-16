@@ -1,10 +1,18 @@
-import { app, shell, BrowserWindow, ipcMain, nativeTheme } from 'electron'
+import { app, shell, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron'
 import { join } from 'path'
 import Store from 'electron-store'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { getDb } from './db'
-import { getSkillById, listSkills } from './db/queries'
+import {
+  addAllowedPath,
+  deleteSkillsForProjectRoot,
+  getSkillById,
+  listAllowedPaths,
+  listSkills,
+  removeAllowedPath
+} from './db/queries'
+import { grantPath, revokePath } from './permissions'
 import { resolveInitialTheme, setStoredTheme, type ThemeStore } from './theme'
 import { scanSkills } from './ingest/skills-scanner'
 import { scanPluginRegistry } from './ingest/plugin-registry'
@@ -83,10 +91,57 @@ app.whenReady().then(() => {
     setStoredTheme(themeStore, theme)
   })
 
+  ipcMain.handle(IPC_CHANNELS.listAllowedPaths, () => {
+    return listAllowedPaths(getDb())
+  })
+
+  ipcMain.handle(IPC_CHANNELS.pickAndAddFolders, async (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const options: Electron.OpenDialogOptions = {
+      title: 'Grant Repository Folder',
+      properties: ['openDirectory', 'multiSelections']
+    }
+    const result = window
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options)
+    if (result.canceled || result.filePaths.length === 0) {
+      return listAllowedPaths(getDb())
+    }
+    const db = getDb()
+    for (const filePath of result.filePaths) {
+      grantPath(filePath)
+      addAllowedPath(db, filePath)
+    }
+    try {
+      scanSkills(db)
+    } catch (err) {
+      console.error('[ingest] scanSkills failed after grant', err)
+    }
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send(IPC_CHANNELS.scanComplete)
+    }
+    return listAllowedPaths(db)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.revokeAllowedPath, (_event, path: string) => {
+    const db = getDb()
+    revokePath(path)
+    removeAllowedPath(db, path)
+    deleteSkillsForProjectRoot(db, path)
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send(IPC_CHANNELS.scanComplete)
+    }
+    return listAllowedPaths(db)
+  })
+
   createWindow()
 
   setImmediate(() => {
     const db = getDb()
+    const allowed = listAllowedPaths(db)
+    for (const row of allowed) {
+      grantPath(row.path)
+    }
     for (const scan of [scanSkills, scanPluginRegistry, scanTranscripts]) {
       try {
         scan(db)
