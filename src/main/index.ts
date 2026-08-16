@@ -1,20 +1,30 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { join } from 'path'
+import Store from 'electron-store'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { getDb } from './db'
+import { getSkillById, listSkills } from './db/queries'
+import { resolveInitialTheme, setStoredTheme, type ThemeStore } from './theme'
 import { scanSkills } from './ingest/skills-scanner'
 import { scanPluginRegistry } from './ingest/plugin-registry'
 import { scanTranscripts } from './ingest/transcript-scanner'
-import { IPC_CHANNELS } from '../shared/ipc'
+import { readSkillFiles } from './skill-files'
+import { IPC_CHANNELS, type OpenSkillResult, type Theme } from '../shared/ipc'
+
+const themeStore: ThemeStore = new Store({ name: 'preferences' })
+let scanComplete = false
 
 function createWindow(): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+    width: 1200,
+    height: 720,
+    minWidth: 860,
+    minHeight: 500,
     show: false,
     autoHideMenuBar: true,
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : {}),
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.mjs'),
@@ -54,11 +64,23 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  ipcMain.handle(IPC_CHANNELS.getSqliteVersion, () => {
-    const row = getDb().prepare('SELECT sqlite_version() AS version').get() as {
-      version: string
-    }
-    return row.version
+  ipcMain.handle(IPC_CHANNELS.listSkills, () => ({
+    skills: listSkills(getDb()),
+    scanComplete
+  }))
+
+  ipcMain.handle(IPC_CHANNELS.openSkill, (_event, id: number): OpenSkillResult | null => {
+    const skill = getSkillById(getDb(), id)
+    if (!skill) return null
+    return { skill, files: readSkillFiles(skill.source_path) }
+  })
+
+  ipcMain.on(IPC_CHANNELS.getInitialTheme, (event) => {
+    event.returnValue = resolveInitialTheme(themeStore, nativeTheme.shouldUseDarkColors)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.setTheme, (_event, theme: Theme) => {
+    setStoredTheme(themeStore, theme)
   })
 
   createWindow()
@@ -71,6 +93,10 @@ app.whenReady().then(() => {
       } catch (err) {
         console.error('[ingest] scan failed', err)
       }
+    }
+    scanComplete = true
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send(IPC_CHANNELS.scanComplete)
     }
   })
 

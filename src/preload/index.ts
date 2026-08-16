@@ -1,10 +1,24 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import { IPC_CHANNELS } from '../shared/ipc'
+import {
+  IPC_CHANNELS,
+  type OpenSkillResult,
+  type SkillsListResult,
+  type Theme
+} from '../shared/ipc'
 
 // Custom APIs for renderer
 const api = {
-  getSqliteVersion: (): Promise<string> => ipcRenderer.invoke(IPC_CHANNELS.getSqliteVersion)
+  listSkills: (): Promise<SkillsListResult> => ipcRenderer.invoke(IPC_CHANNELS.listSkills),
+  openSkill: (id: number): Promise<OpenSkillResult | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.openSkill, id),
+  getInitialTheme: (): Theme => ipcRenderer.sendSync(IPC_CHANNELS.getInitialTheme),
+  setTheme: (theme: Theme): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.setTheme, theme),
+  onScanComplete: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on(IPC_CHANNELS.scanComplete, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.scanComplete, listener)
+  }
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

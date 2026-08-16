@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS skill_invocations (
   args_text TEXT,                     -- kept, not cut — see Revisions above for the reasoning
   invoked_at TEXT NOT NULL,
   trigger_type TEXT NOT NULL CHECK (   -- added post-M1, see Invocation trigger classification
-    trigger_type IN ('harness_command', 'text_mention', 'autonomous')
+    trigger_type IN ('user_invoked', 'autonomous')
   )
 );
 

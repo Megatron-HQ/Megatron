@@ -6,7 +6,7 @@ import eslintPluginReactHooks from 'eslint-plugin-react-hooks'
 import eslintPluginReactRefresh from 'eslint-plugin-react-refresh'
 
 export default defineConfig(
-  { ignores: ['**/node_modules', '**/dist', '**/out'] },
+  { ignores: ['**/node_modules', '**/dist', '**/out', 'references/**', '.claude/worktrees/**'] },
   tseslint.configs.recommended,
   eslintPluginReact.configs.flat.recommended,
   eslintPluginReact.configs.flat['jsx-runtime'],
@@ -35,6 +35,16 @@ export default defineConfig(
     rules: {
       '@typescript-eslint/explicit-function-return-type': 'off',
       'react-refresh/only-export-components': 'off'
+    }
+  },
+  {
+    // Skill scripts are plain ESM, not part of the src/ TS project — .mjs can't
+    // express TS return-type syntax, so this rule is structurally inapplicable.
+    // Covers .agents/skills/ too — a generated mirror of .claude/skills/ (see
+    // "Generated mirrors" in CLAUDE.md's locked decisions), same files, same rule.
+    files: ['.claude/skills/**/*.mjs', '.agents/skills/**/*.mjs'],
+    rules: {
+      '@typescript-eslint/explicit-function-return-type': 'off'
     }
   },
   {

@@ -1,9 +1,17 @@
 @import 'tailwindcss';
+@import '@fontsource/geist-sans/400.css';
+@import '@fontsource/geist-sans/500.css';
+@import '@fontsource/geist-sans/600.css';
+@import '@fontsource/geist-mono/400.css';
 
 @custom-variant dark (&:is(.dark *));
 
+@utility drag-region {
+  -webkit-app-region: drag;
+}
+
 :root {
-  --background: oklch(1 0 0);
+  --background: oklch(0.99 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -18,10 +26,15 @@
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
+  --warning: oklch(0.769 0.188 70.08);
+  --success: oklch(0.723 0.219 149.579);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
   --radius: 0.625rem;
+  /* Acid lime brand accent — same literal value in both themes, per docs/design-system.md */
+  --accent-lime: #e4f222;
+  --accent-lime-foreground: oklch(0.145 0 0);
 }
 
 .dark {
@@ -40,6 +53,8 @@
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
+  --warning: oklch(0.828 0.189 84.429);
+  --success: oklch(0.792 0.209 151.711);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
@@ -61,6 +76,10 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+  --color-accent-lime: var(--accent-lime);
+  --color-accent-lime-foreground: var(--accent-lime-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -68,6 +87,8 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: 'Geist Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, monospace;
 }
 
 @layer base {
@@ -75,6 +96,22 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    background-clip: padding-box;
+    border: 3px solid transparent;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
   }
 }

@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applySchema } from '../db/schema'
 import { grantPath, resetGrantedPaths } from '../permissions'
@@ -273,6 +273,30 @@ describe('scanPluginRegistry', () => {
     expect(pluginSkills()).toHaveLength(1)
   })
 
+  it('records the registry row but reads no skills for an installPath outside any granted or Tier-1 root', () => {
+    const evilInstallPath = mkdtempSync(join(tmpdir(), 'megatron-evil-install-'))
+    writePluginSkill(
+      evilInstallPath,
+      'sub-skill',
+      '---\nname: sub-skill\ndescription: Should not be read\n---\nBody'
+    )
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath: evilInstallPath, version: '1.0.0' }]
+      }
+    })
+
+    try {
+      scanPluginRegistry(db, pluginsDir)
+
+      expect(allRegistry()).toHaveLength(1)
+      expect(pluginSkills()).toHaveLength(0)
+    } finally {
+      rmSync(evilInstallPath, { recursive: true, force: true })
+    }
+  })
+
   it('removes the registry row and plugin-tagged skills rows when a plugin is removed', () => {
     const installPath = join(tmpDir, 'install-a')
     writePluginSkill(
@@ -296,5 +320,44 @@ describe('scanPluginRegistry', () => {
 
     expect(allRegistry()).toHaveLength(0)
     expect(pluginSkills()).toHaveLength(0)
+  })
+
+  it('correctly tracks and prunes multiple plugins including scoped names across marketplaces', () => {
+    const installPathA = join(tmpDir, 'install-a')
+    const installPathB = join(tmpDir, 'install-b')
+    const installPathC = join(tmpDir, 'install-c')
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        '@scope/pkg@market-1': [{ scope: 'user', installPath: installPathA, version: '1.0.0' }],
+        '@scope/pkg@market-2': [{ scope: 'user', installPath: installPathB, version: '1.0.0' }],
+        'pkg@market-1': [{ scope: 'user', installPath: installPathC, version: '1.0.0' }]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir)
+    expect(allRegistry()).toHaveLength(3)
+
+    // Remove one scoped package in market-1
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        '@scope/pkg@market-2': [{ scope: 'user', installPath: installPathB, version: '1.0.0' }],
+        'pkg@market-1': [{ scope: 'user', installPath: installPathC, version: '1.0.0' }]
+      }
+    })
+    scanPluginRegistry(db, pluginsDir)
+
+    const remaining = allRegistry()
+    expect(remaining).toHaveLength(2)
+    expect(remaining.map((r) => `${r.name}@${r.marketplace}`)).toEqual([
+      '@scope/pkg@market-2',
+      'pkg@market-1'
+    ])
+  })
+
+  it('does not contain NUL bytes in plugin-registry.ts source code', () => {
+    const source = readFileSync(resolve(import.meta.dirname, 'plugin-registry.ts'))
+    expect(source.includes(0)).toBe(false)
   })
 })

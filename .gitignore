@@ -1,6 +1,7 @@
 node_modules
 dist
 out
+.visual-verify
 .DS_Store
 .eslintcache
 *.log*
@@ -8,3 +9,4 @@ out
 .env
 .env.*
 .vscode
+references

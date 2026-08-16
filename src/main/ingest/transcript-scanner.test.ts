@@ -210,20 +210,20 @@ describe('parseTranscript', () => {
       })
     }
 
-    it('classifies a harness slash-command as harness_command', () => {
+    it('classifies a harness slash-command tag as user_invoked', () => {
       const trigger = metaLine({
         message: { content: '<command-name>/my-skill</command-name><command-args></command-args>' }
       })
       const filePath = writeTranscriptFile(tmpDir, 'sess-1', [trigger, skillLine('my-skill')])
 
-      expect(parseTranscript(filePath).invocations[0].trigger_type).toBe('harness_command')
+      expect(parseTranscript(filePath).invocations[0].trigger_type).toBe('user_invoked')
     })
 
-    it('classifies a bare slash-mention in free text as text_mention', () => {
+    it('classifies a bare slash-mention in free text as user_invoked', () => {
       const trigger = metaLine({ message: { content: 'please run /my-skill for me' } })
       const filePath = writeTranscriptFile(tmpDir, 'sess-1', [trigger, skillLine('my-skill')])
 
-      expect(parseTranscript(filePath).invocations[0].trigger_type).toBe('text_mention')
+      expect(parseTranscript(filePath).invocations[0].trigger_type).toBe('user_invoked')
     })
 
     it('classifies as autonomous when neither pattern matches', () => {
@@ -261,7 +261,7 @@ describe('parseTranscript', () => {
         skillLine('my-skill')
       ])
 
-      expect(parseTranscript(filePath).invocations[0].trigger_type).toBe('text_mention')
+      expect(parseTranscript(filePath).invocations[0].trigger_type).toBe('user_invoked')
     })
 
     it('skips a tool-result-carrying array-content user line rather than treating it as the trigger', () => {
@@ -318,8 +318,8 @@ describe('parseTranscript', () => {
 
       const invocations = parseTranscript(filePath).invocations
       expect(invocations).toHaveLength(2)
-      expect(invocations[0].trigger_type).toBe('text_mention')
-      expect(invocations[1].trigger_type).toBe('text_mention')
+      expect(invocations[0].trigger_type).toBe('user_invoked')
+      expect(invocations[1].trigger_type).toBe('user_invoked')
     })
 
     it('classifies two different skills independently, without one mention bleeding into the other', () => {
@@ -339,10 +339,10 @@ describe('parseTranscript', () => {
 
       const invocations = parseTranscript(filePath).invocations
       expect(invocations.find((inv) => inv.skill_name === 'skill-a')?.trigger_type).toBe(
-        'text_mention'
+        'user_invoked'
       )
       expect(invocations.find((inv) => inv.skill_name === 'skill-b')?.trigger_type).toBe(
-        'text_mention'
+        'user_invoked'
       )
     })
 
