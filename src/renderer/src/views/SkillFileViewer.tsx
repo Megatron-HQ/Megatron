@@ -133,7 +133,11 @@ export function SkillFileViewer({
         </button>
         <div className="flex min-w-0 items-center gap-3">
           <h2 className="truncate text-base font-semibold">{skill.name}</h2>
-          <SourceBadge type={skill.source_type} />
+          <SourceBadge
+            type={skill.source_type}
+            sourcePath={skill.source_path}
+            pluginName={skill.plugin_name}
+          />
           <span className="truncate font-mono text-xs text-muted-foreground">
             {skill.source_path}
           </span>

@@ -24,6 +24,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
+import { getSourceSortKey } from '@/lib/source-name'
 import { FILTER_LABEL, type SourceFilter } from '@/lib/source-filter'
 import type { SkillRow } from '../../../shared/ipc'
 
@@ -40,7 +41,7 @@ const columnHelper = createColumnHelper<typeof features, SkillRow>()
 
 const COLUMN_WIDTH: Record<string, string> = {
   name: 'w-[220px]',
-  source: 'w-[120px]'
+  source: 'w-[160px]'
 }
 
 const columns = columnHelper.columns([
@@ -66,12 +67,24 @@ const columns = columnHelper.columns([
       )
     }
   }),
-  columnHelper.accessor('source_type', {
-    id: 'source',
-    header: 'Source',
-    sortFn: 'text',
-    cell: (info) => <SourceBadge type={info.getValue()} />
-  }),
+  columnHelper.accessor(
+    (row) => getSourceSortKey(row.source_type, row.source_path, row.plugin_name),
+    {
+      id: 'source',
+      header: 'Source',
+      sortFn: 'text',
+      cell: (info) => {
+        const row = info.row.original
+        return (
+          <SourceBadge
+            type={row.source_type}
+            sourcePath={row.source_path}
+            pluginName={row.plugin_name}
+          />
+        )
+      }
+    }
+  ),
   columnHelper.accessor('description', {
     header: 'Description',
     sortFn: 'text',
@@ -135,7 +148,7 @@ export function SkillInventory({
           <TableHeadGroup>
             <TableRow className="h-10">
               <TableHead className="w-[220px] px-3 py-2">Name</TableHead>
-              <TableHead className="w-[120px] px-3 py-2">Source</TableHead>
+              <TableHead className="w-[160px] px-3 py-2">Source</TableHead>
               <TableHead className="px-3 py-2">Description</TableHead>
             </TableRow>
           </TableHeadGroup>
