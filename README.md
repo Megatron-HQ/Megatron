@@ -25,7 +25,7 @@ When using **Claude Code**, capabilities expand rapidly across multiple environm
 - **Project Skills** scoped inside your git repositories (`<repo>/.claude/skills/`)
 - **Plugin Skills** installed through Claude marketplaces (`~/.claude/plugins/`)
 
-**Megatron** gives developers complete visibility and confidence over their agent capabilities. It scans your skill ecosystem in milliseconds, indexes metadata in a local SQLite database, allows instant code exploration, and classifies how your skills are triggered during real coding sessions.
+**Megatron** gives developers complete visibility and confidence over their agent capabilities. It scans your skill ecosystem in milliseconds, indexes metadata in a local SQLite database, lints skill definitions against 5 deterministic rules, allows instant code exploration, and classifies how your skills are triggered during real coding sessions.
 
 Megatron is strictly **read-only in v1**—it discovers and analyzes disk state without mutating your `~/.claude` directory.
 
@@ -37,8 +37,26 @@ Megatron is strictly **read-only in v1**—it discovers and analyzes disk state 
 
 - Real-time catalog of all skills across **Global**, **Project**, and **Plugin** sources.
 - Displays dynamic source badges with project repository names and plugin packages.
+- Status badges (`Valid`, `Warnings`, `Errors`) highlighting skill health at a glance.
 - Fluid active-state animations and keyboard navigation (Arrow keys, Enter, Esc).
-- Instant multi-column sorting (by name, source category, and description).
+- Instant multi-column sorting (by name, status, tokens, usage, source category, and description).
+
+### 🛠️ Deterministic Skill Linter
+
+- Runs synchronously on startup, folder grant, and folder revocation with zero external network requests.
+- Validates skill health against 5 deterministic rules:
+  1. **YAML Frontmatter (`yaml-frontmatter`)**: Detects missing or malformed YAML frontmatter blocks in `SKILL.md`.
+  2. **Missing Description (`missing-description`)**: Flags empty or absent descriptions required for Claude Code auto-trigger matching.
+  3. **Broken File Paths (`broken-file-paths`)**: Validates markdown link targets and bundled script/reference asset paths on disk.
+  4. **Missing MCP Servers (`missing-mcp-server`)**: Cross-references referenced MCP tools (`mcp__<server>__*`) against `~/.claude.json` and project `.mcp.json` configurations.
+  5. **Name Collision & Shadowing (`name-collision`)**: Warns when project skills shadow global skills or share conflicting names.
+- Interactive `LintFindingsPanel` in both Skill Detail and File Viewer views with precise line numbers and explanations.
+
+### 📋 Skill Detail & Token Cost Estimator
+
+- Master-detail view with rich Markdown previewing, copyable commands, and formatted metadata.
+- **Token Budget Metrics**: Calculates estimated listing tokens (frontmatter description loaded into Claude system prompt) and estimated body tokens.
+- **Invocation Analytics**: Real-time breakdown of total uses, autonomous vs. user-prompted invocations, and per-project usage distribution.
 
 ### 🛡️ Tier-2 Repo Folder Management
 
@@ -54,7 +72,7 @@ Megatron is strictly **read-only in v1**—it discovers and analyzes disk state 
 ### ⚡ Spotlight Command Palette (`⌘K` / `Ctrl+K`)
 
 - Instant fuzzy search across skill names, descriptions, project names, and plugin marketplaces.
-- Jump directly into any skill file from anywhere in the app.
+- Jump directly into any skill detail or file from anywhere in the app.
 
 ### 📊 Transcript Ingestion & Trigger Classification
 
@@ -75,28 +93,30 @@ Megatron is strictly **read-only in v1**—it discovers and analyzes disk state 
 Megatron follows a secure multi-process Electron architecture:
 
 ```text
-┌────────────────────────────────────────────────────────────────────────┐
-│                              RENDERER                                  │
-│   React 19  •  TanStack Query / Table / Virtual  •  Tailwind CSS v4    │
-│   Views: SkillInventory  •  SkillFileViewer  •  ManageFoldersDialog    │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ (Typed IPC via contextBridge)
-┌───────────────────────────────────▼────────────────────────────────────┐
-│                              PRELOAD                                   │
-│   Narrow secure bridge exposing window.api (src/preload/index.ts)      │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │
-┌───────────────────────────────────▼────────────────────────────────────┐
-│                            MAIN PROCESS                                │
-│  ┌────────────────────────┐  ┌──────────────────────────────────────┐  │
-│  │ Permission Chokepoint  │  │ SQLite Database (better-sqlite3)     │  │
-│  │ isPathAllowed()        │  │ skills, sessions_meta, invocations   │  │
-│  └───────────┬────────────┘  └──────────────────┬───────────────────┘  │
-│              │                                  │                      │
-│  ┌───────────▼──────────────────────────────────▼───────────────────┐  │
-│  │ Ingestion Engine (skills-scanner, plugin-registry, transcripts)  │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                                       RENDERER                                         │
+│   React 19  •  TanStack Query / Table / Virtual  •  Tailwind CSS v4                    │
+│   Views: SkillInventory  •  SkillDetail  •  SkillFileViewer  •  ManageFoldersDialog    │
+└───────────────────────────────────────────┬────────────────────────────────────────────┘
+                                            │ (Typed IPC via contextBridge)
+┌───────────────────────────────────────────▼────────────────────────────────────────────┐
+│                                       PRELOAD                                          │
+│   Narrow secure bridge exposing window.api (src/preload/index.ts)                      │
+└───────────────────────────────────────────┬────────────────────────────────────────────┘
+                                            │
+┌───────────────────────────────────────────▼────────────────────────────────────────────┐
+│                                     MAIN PROCESS                                       │
+│  ┌────────────────────────┐  ┌──────────────────────────────────────────────────────┐  │
+│  │ Permission Chokepoint  │  │ SQLite Database (better-sqlite3)                     │  │
+│  │ isPathAllowed()        │  │ skills, sessions_meta, skill_invocations, findings   │  │
+│  └───────────┬────────────┘  └──────────────────────────┬───────────────────────────┘  │
+│              │                                          │                              │
+│  ┌───────────▼──────────────────────────────────────────▼───────────────────────────┐  │
+│  │ Ingestion & Analysis Engine                                                      │  │
+│  │ • Skills Scanner        • Plugin Registry        • Transcript Ingest             │  │
+│  │ • Deterministic Linter (5 static rules + MCP config resolver)                    │  │
+│  └──────────────────────────────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Security & Privacy
@@ -125,8 +145,13 @@ Megatron follows a secure multi-process Electron architecture:
 ```text
 src/
 ├── main/                          # Electron main process
-│   ├── db/                        # SQLite schemas, connections, and transactional queries
+│   ├── db/                        # SQLite schemas, column retrofits, and queries
 │   ├── ingest/                    # Ingestion workers (skills, plugins, transcripts)
+│   ├── linter/                    # Deterministic skill linter engine
+│   │   ├── rules/                 # 5 static rules (yaml, description, paths, mcp, collisions)
+│   │   ├── frontmatter.ts         # Robust YAML frontmatter parser
+│   │   ├── mcp-config.ts          # Global & project MCP config reader
+│   │   └── index.ts               # Orchestrator & multi-skill runner
 │   ├── index.ts                   # Application lifecycle and IPC handlers
 │   ├── permissions.ts             # Path validation and permission chokepoint
 │   ├── skill-files.ts             # Recursive directory walk and file preview reader
@@ -135,8 +160,8 @@ src/
 │   ├── index.ts                   # window.api exposure
 │   └── index.d.ts                 # Global TypeScript declarations
 ├── renderer/src/                  # React application
-│   ├── components/                # Reusable UI components (FileTree, CommandPalette, Sidebar, etc.)
-│   ├── views/                     # Main view routers (SkillInventory, SkillFileViewer)
+│   ├── components/                # Reusable UI components (LintFindingsPanel, LintStatusBadge, etc.)
+│   ├── views/                     # Main view routers (SkillInventory, SkillDetail, SkillFileViewer)
 │   ├── lib/                       # Pure utility helpers (file-tree, source-name, glide-highlight)
 │   └── App.tsx                    # Root application component
 └── shared/                        # Shared contracts between Main, Preload, and Renderer
