@@ -37,6 +37,10 @@ describe('isPathAllowed', () => {
     expect(isPathAllowed(resolve(homedir(), '.claude/settings.json'))).toBe(false)
   })
 
+  it('allows ~/.claude.json so the MCP linter can read user-level server config', () => {
+    expect(isPathAllowed(resolve(homedir(), '.claude.json'))).toBe(true)
+  })
+
   it('rejects traversal that escapes an allowed root', () => {
     expect(isPathAllowed(resolve(homedir(), '.claude/skills/../../etc/passwd'))).toBe(false)
     expect(isPathAllowed(resolve(homedir(), '.claude/skills-evil'))).toBe(false)
@@ -49,6 +53,23 @@ describe('isPathAllowed', () => {
     expect(isPathAllowed(repo)).toBe(true)
     expect(isPathAllowed(resolve(repo, '.claude/skills'))).toBe(true)
     expect(isPathAllowed(resolve(homedir(), 'Desktop/some-project-2'))).toBe(false)
+  })
+
+  it('allows a Tier-1 path when only the drive-letter case differs on win32', () => {
+    if (process.platform !== 'win32') return
+    const skillMd = resolve(homedir(), '.claude/skills/some-skill/SKILL.md')
+    const flipped = skillMd.replace(/^[A-Za-z]/, (ch) =>
+      ch === ch.toUpperCase() ? ch.toLowerCase() : ch.toUpperCase()
+    )
+    expect(flipped).not.toBe(skillMd)
+    expect(isPathAllowed(flipped)).toBe(true)
+    expect(
+      isPathAllowed(
+        resolve(homedir(), '.claude.json').replace(/^[A-Za-z]/, (ch) =>
+          ch === ch.toUpperCase() ? ch.toLowerCase() : ch.toUpperCase()
+        )
+      )
+    ).toBe(true)
   })
 })
 

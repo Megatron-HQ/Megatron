@@ -3,6 +3,8 @@ import { dirname, join, resolve, sep } from 'path'
 import type {
   AllowedPathRow,
   ContextBudget,
+  LintFindingRow,
+  LintSeverity,
   ProjectCount,
   RecentTrigger,
   SkillRow,
@@ -38,6 +40,13 @@ const SKILLS_WITH_USAGE_SELECT = `
     s.id, s.name, s.source_type, s.source_path, s.plugin_name, s.description,
     s.last_scanned_at, s.est_listing_tokens, s.est_body_tokens, s.project_root,
     s.shadowed_by_skill_id,
+    COALESCE(SUM(CASE WHEN lf.severity = 'error' THEN 1 ELSE 0 END), 0) AS error_count,
+    COALESCE(SUM(CASE WHEN lf.severity = 'warning' THEN 1 ELSE 0 END), 0) AS warning_count,
+    CASE
+      WHEN COUNT(CASE WHEN lf.severity = 'error' THEN 1 END) > 0 THEN 'error'
+      WHEN COUNT(CASE WHEN lf.severity = 'warning' THEN 1 END) > 0 THEN 'warning'
+      ELSE 'clean'
+    END AS lint_status,
     CASE
       WHEN s.shadowed_by_skill_id IS NOT NULL THEN 0
       WHEN s.source_type = 'project' THEN (
@@ -61,6 +70,8 @@ const SKILLS_WITH_USAGE_SELECT = `
       ELSE (SELECT MAX(si.invoked_at) FROM skill_invocations si WHERE si.skill_name = s.name)
     END AS last_invoked_at
   FROM s
+  LEFT JOIN lint_findings lf ON s.id = lf.skill_id
+  GROUP BY s.id
 `
 
 export function listSkills(db: Database.Database): SkillRow[] {
@@ -68,9 +79,84 @@ export function listSkills(db: Database.Database): SkillRow[] {
 }
 
 export function getSkillById(db: Database.Database, id: number): SkillRow | null {
-  const row = db.prepare(`${SKILLS_WITH_USAGE_SELECT} WHERE s.id = ?`).get(id) as
+  const row = db.prepare(`SELECT * FROM (${SKILLS_WITH_USAGE_SELECT}) WHERE id = ?`).get(id) as
     SkillRow | undefined
   return row ?? null
+}
+
+export interface InsertLintFindingInput {
+  skill_id?: number
+  rule_id: string
+  severity: LintSeverity
+  message: string
+  detail?: string | null
+  file_path?: string | null
+  line_number?: number | null
+}
+
+export function insertLintFindings(
+  db: Database.Database,
+  skillId: number,
+  findings: InsertLintFindingInput[]
+): void {
+  const insert = db.prepare(`
+    INSERT INTO lint_findings (skill_id, rule_id, severity, message, detail, file_path, line_number, detected_at)
+    VALUES (@skill_id, @rule_id, @severity, @message, @detail, @file_path, @line_number, @detected_at)
+  `)
+  const now = new Date().toISOString()
+  const insertMany = db.transaction(() => {
+    for (const f of findings) {
+      insert.run({
+        skill_id: skillId,
+        rule_id: f.rule_id,
+        severity: f.severity,
+        message: f.message,
+        detail: f.detail ?? null,
+        file_path: f.file_path ?? null,
+        line_number: f.line_number ?? null,
+        detected_at: now
+      })
+    }
+  })
+  insertMany()
+}
+
+export function getLintFindingsForSkill(db: Database.Database, skillId: number): LintFindingRow[] {
+  return db
+    .prepare(
+      `SELECT id, skill_id, rule_id, severity, message, detail, file_path, line_number, detected_at
+       FROM lint_findings
+       WHERE skill_id = ?
+       ORDER BY id ASC`
+    )
+    .all(skillId) as LintFindingRow[]
+}
+
+export function replaceAllLintFindings(
+  db: Database.Database,
+  findings: (InsertLintFindingInput & { skill_id: number })[]
+): void {
+  const insert = db.prepare(`
+    INSERT INTO lint_findings (skill_id, rule_id, severity, message, detail, file_path, line_number, detected_at)
+    VALUES (@skill_id, @rule_id, @severity, @message, @detail, @file_path, @line_number, @detected_at)
+  `)
+  const now = new Date().toISOString()
+  const transaction = db.transaction(() => {
+    db.prepare('DELETE FROM lint_findings').run()
+    for (const f of findings) {
+      insert.run({
+        skill_id: f.skill_id,
+        rule_id: f.rule_id,
+        severity: f.severity,
+        message: f.message,
+        detail: f.detail ?? null,
+        file_path: f.file_path ?? null,
+        line_number: f.line_number ?? null,
+        detected_at: now
+      })
+    }
+  })
+  transaction()
 }
 
 export interface SkillScanRow {

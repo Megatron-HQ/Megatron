@@ -9,7 +9,7 @@ beforeEach(() => {
 })
 
 describe('applySchema', () => {
-  it('creates all five tables', () => {
+  it('creates all six tables', () => {
     applySchema(db)
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -21,9 +21,64 @@ describe('applySchema', () => {
         'sessions_meta',
         'skill_invocations',
         'plugin_registry',
-        'allowed_paths'
+        'allowed_paths',
+        'lint_findings'
       ])
     )
+  })
+
+  it('rejects an invalid lint_findings.severity', () => {
+    applySchema(db)
+    const insertSkill = db.prepare(
+      `INSERT INTO skills (name, source_type, source_path, description, last_scanned_at)
+       VALUES ('skill-a', 'global', '/path/a', 'desc', ?)`
+    )
+    insertSkill.run(new Date().toISOString())
+    const skill = db.prepare('SELECT id FROM skills LIMIT 1').get() as { id: number }
+
+    const insertFinding = db.prepare(
+      `INSERT INTO lint_findings (skill_id, rule_id, severity, message, detail, file_path, line_number, detected_at)
+       VALUES (?, 'rule-1', 'critical', 'msg', NULL, NULL, NULL, ?)`
+    )
+    expect(() => insertFinding.run(skill.id, new Date().toISOString())).toThrow()
+  })
+
+  it('enables foreign_keys so lint_findings cascade without a manual pragma', () => {
+    applySchema(db)
+    const insertSkill = db.prepare(
+      `INSERT INTO skills (name, source_type, source_path, description, last_scanned_at)
+       VALUES ('skill-a', 'global', '/path/a', 'desc', ?)`
+    )
+    insertSkill.run(new Date().toISOString())
+    const skill = db.prepare('SELECT id FROM skills LIMIT 1').get() as { id: number }
+
+    db.prepare(
+      `INSERT INTO lint_findings (skill_id, rule_id, severity, message, detail, file_path, line_number, detected_at)
+       VALUES (?, 'rule-1', 'error', 'msg', NULL, NULL, NULL, ?)`
+    ).run(skill.id, new Date().toISOString())
+
+    db.prepare('DELETE FROM skills WHERE id = ?').run(skill.id)
+    expect(db.prepare('SELECT COUNT(*) as count FROM lint_findings').get()).toEqual({ count: 0 })
+  })
+
+  it('cascades deletion of lint_findings when parent skill is deleted', () => {
+    applySchema(db)
+    db.pragma('foreign_keys = ON')
+    const insertSkill = db.prepare(
+      `INSERT INTO skills (name, source_type, source_path, description, last_scanned_at)
+       VALUES ('skill-a', 'global', '/path/a', 'desc', ?)`
+    )
+    insertSkill.run(new Date().toISOString())
+    const skill = db.prepare('SELECT id FROM skills LIMIT 1').get() as { id: number }
+
+    db.prepare(
+      `INSERT INTO lint_findings (skill_id, rule_id, severity, message, detail, file_path, line_number, detected_at)
+       VALUES (?, 'rule-1', 'error', 'msg', NULL, NULL, NULL, ?)`
+    ).run(skill.id, new Date().toISOString())
+
+    expect(db.prepare('SELECT COUNT(*) as count FROM lint_findings').get()).toEqual({ count: 1 })
+    db.prepare('DELETE FROM skills WHERE id = ?').run(skill.id)
+    expect(db.prepare('SELECT COUNT(*) as count FROM lint_findings').get()).toEqual({ count: 0 })
   })
 
   it('rejects a duplicate allowed_paths.path', () => {
@@ -158,6 +213,24 @@ describe('applySchema', () => {
     expect(cols.some((c) => c.name === 'agent_id')).toBe(true)
   })
 
+  it('adds preceding_user_text column if skill_invocations was created from an older schema', () => {
+    db.exec(`
+      CREATE TABLE skill_invocations (
+        id INTEGER PRIMARY KEY,
+        source_uuid TEXT NOT NULL UNIQUE,
+        session_id TEXT NOT NULL,
+        skill_name TEXT NOT NULL,
+        args_text TEXT,
+        invoked_at TEXT NOT NULL,
+        trigger_type TEXT NOT NULL,
+        agent_id TEXT
+      );
+    `)
+    applySchema(db)
+    const cols = db.prepare("PRAGMA table_info('skill_invocations')").all() as { name: string }[]
+    expect(cols.some((c) => c.name === 'preceding_user_text')).toBe(true)
+  })
+
   it('accepts a project_root value on a skills row', () => {
     applySchema(db)
     db.prepare(
@@ -170,7 +243,7 @@ describe('applySchema', () => {
     expect(row.project_root).toBe('/repo')
   })
 
-  it('adds project_root column if skills was created from an older schema', () => {
+  it('adds project_root and token columns if skills was created from an older schema', () => {
     db.exec(`
       CREATE TABLE skills (
         id INTEGER PRIMARY KEY,
@@ -179,13 +252,13 @@ describe('applySchema', () => {
         source_path TEXT NOT NULL UNIQUE,
         plugin_name TEXT,
         description TEXT,
-        last_scanned_at TEXT NOT NULL,
-        est_listing_tokens INTEGER NOT NULL DEFAULT 0,
-        est_body_tokens INTEGER NOT NULL DEFAULT 0
+        last_scanned_at TEXT NOT NULL
       );
     `)
     applySchema(db)
     const cols = db.prepare("PRAGMA table_info('skills')").all() as { name: string }[]
     expect(cols.some((c) => c.name === 'project_root')).toBe(true)
+    expect(cols.some((c) => c.name === 'est_listing_tokens')).toBe(true)
+    expect(cols.some((c) => c.name === 'est_body_tokens')).toBe(true)
   })
 })

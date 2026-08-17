@@ -8,6 +8,7 @@ import {
   addAllowedPath,
   deleteSkillsForProjectRoot,
   getContextBudget,
+  getLintFindingsForSkill,
   getSkillById,
   getSkillUsageDetail,
   listAllowedPaths,
@@ -19,6 +20,7 @@ import { resolveInitialTheme, setStoredTheme, type ThemeStore } from './theme'
 import { scanSkills } from './ingest/skills-scanner'
 import { scanPluginRegistry } from './ingest/plugin-registry'
 import { scanTranscripts } from './ingest/transcript-scanner'
+import { runLinter } from './linter'
 import { readSkillFiles, readSkillMd } from './skill-files'
 import { isSafeExternalUrl } from './shell'
 import {
@@ -50,6 +52,14 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+  })
+
+  // If the scan finished before the renderer subscribed to scan:complete, replay it
+  // so lint findings and usage stats aren't stuck on the pre-lint snapshot.
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (scanComplete) {
+      mainWindow.webContents.send(IPC_CHANNELS.scanComplete)
+    }
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -89,10 +99,12 @@ app.whenReady().then(() => {
   ipcMain.handle(IPC_CHANNELS.openSkill, (_event, id: number): OpenSkillResult | null => {
     const skill = getSkillById(getDb(), id)
     if (!skill) return null
+    const findings = getLintFindingsForSkill(getDb(), id)
     return {
       skill,
       files: readSkillFiles(skill.source_path),
-      usage: getSkillUsageDetail(getDb(), skill)
+      usage: getSkillUsageDetail(getDb(), skill),
+      findings
     }
   })
 
@@ -100,10 +112,12 @@ app.whenReady().then(() => {
     const skill = getSkillById(getDb(), id)
     if (!skill) return null
     const skillMd = readSkillMd(skill.source_path)
+    const findings = getLintFindingsForSkill(getDb(), id)
     return {
       skill,
       usage: getSkillUsageDetail(getDb(), skill),
-      skillMdContent: skillMd?.status === 'ok' ? skillMd.content : null
+      skillMdContent: skillMd?.status === 'ok' ? skillMd.content : null,
+      findings
     }
   })
 
@@ -138,8 +152,9 @@ app.whenReady().then(() => {
     }
     try {
       scanSkills(db)
+      runLinter(db)
     } catch (err) {
-      console.error('[ingest] scanSkills failed after grant', err)
+      console.error('[ingest] scanSkills/runLinter failed after grant', err)
     }
     for (const win of BrowserWindow.getAllWindows()) {
       win.webContents.send(IPC_CHANNELS.scanComplete)
@@ -152,6 +167,11 @@ app.whenReady().then(() => {
     revokePath(path)
     removeAllowedPath(db, path)
     deleteSkillsForProjectRoot(db, path)
+    try {
+      runLinter(db)
+    } catch (err) {
+      console.error('[ingest] runLinter failed after revoke', err)
+    }
     for (const win of BrowserWindow.getAllWindows()) {
       win.webContents.send(IPC_CHANNELS.scanComplete)
     }
@@ -170,7 +190,7 @@ app.whenReady().then(() => {
     for (const row of allowed) {
       grantPath(row.path)
     }
-    for (const scan of [scanSkills, scanPluginRegistry, scanTranscripts]) {
+    for (const scan of [scanSkills, scanPluginRegistry, scanTranscripts, runLinter]) {
       try {
         scan(db)
       } catch (err) {

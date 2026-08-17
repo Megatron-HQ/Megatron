@@ -12,6 +12,7 @@ import type { SortingState } from '@tanstack/react-table'
 import { AlertTriangle, FolderOpen, Lock, Search } from 'lucide-react'
 import { motion } from 'motion/react'
 import { ClaudeIcon } from '@/components/ClaudeIcon'
+import { LintStatusBadge } from '@/components/LintStatusBadge'
 import { SourceBadge } from '@/components/SourceBadge'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -41,9 +42,10 @@ const features = tableFeatures({
 const columnHelper = createColumnHelper<typeof features, SkillRow>()
 
 const COLUMN_WIDTH: Record<string, string> = {
-  name: 'w-[220px]',
+  name: 'w-[200px]',
+  status: 'w-[100px]',
   source: 'w-[120px]',
-  est_listing_tokens: 'w-[100px]',
+  est_listing_tokens: 'w-[90px]',
   total_invocations: 'w-[80px]'
 }
 
@@ -77,6 +79,26 @@ const columns = columnHelper.columns([
             </Tooltip>
           )}
         </span>
+      )
+    }
+  }),
+  columnHelper.accessor('lint_status', {
+    id: 'status',
+    header: 'Status',
+    sortFn: (rowA, rowB) => {
+      const order: Record<string, number> = { error: 0, warning: 1, clean: 2 }
+      const aVal = order[rowA.original.lint_status] ?? 3
+      const bVal = order[rowB.original.lint_status] ?? 3
+      return aVal - bVal
+    },
+    cell: (info) => {
+      const row = info.row.original
+      return (
+        <LintStatusBadge
+          status={row.lint_status}
+          errorCount={row.error_count}
+          warningCount={row.warning_count}
+        />
       )
     }
   }),
@@ -181,10 +203,11 @@ export function SkillInventory({
         <Table className="table-fixed">
           <TableHeadGroup>
             <TableRow className="h-10">
-              <TableHead className="w-[220px] px-3 py-2">Name</TableHead>
+              <TableHead className="w-[200px] px-3 py-2">Name</TableHead>
+              <TableHead className="w-[100px] px-3 py-2">Status</TableHead>
               <TableHead className="w-[120px] px-3 py-2">Source</TableHead>
               <TableHead className="px-3 py-2">Description</TableHead>
-              <TableHead className="w-[100px] px-3 py-2">Tokens</TableHead>
+              <TableHead className="w-[90px] px-3 py-2">Tokens</TableHead>
               <TableHead className="w-[80px] px-3 py-2">Uses</TableHead>
             </TableRow>
           </TableHeadGroup>
@@ -193,6 +216,9 @@ export function SkillInventory({
               <TableRow key={i} className="h-10 border-b-0">
                 <TableCell className="px-3 py-2">
                   <Skeleton className="h-4 w-32" />
+                </TableCell>
+                <TableCell className="px-3 py-2">
+                  <Skeleton className="h-4 w-12" />
                 </TableCell>
                 <TableCell className="px-3 py-2">
                   <Skeleton className="h-4 w-16" />

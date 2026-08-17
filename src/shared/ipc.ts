@@ -17,6 +17,20 @@ export interface AllowedPathRow {
 }
 
 export type SourceType = 'global' | 'project' | 'plugin'
+export type LintSeverity = 'error' | 'warning'
+export type LintStatus = 'error' | 'warning' | 'clean'
+
+export interface LintFindingRow {
+  id: number
+  skill_id: number
+  rule_id: string
+  severity: LintSeverity
+  message: string
+  detail: string | null
+  file_path: string | null
+  line_number: number | null
+  detected_at: string
+}
 
 export type TriggerType = 'user_invoked' | 'autonomous' | 'subagent'
 
@@ -36,6 +50,9 @@ export interface SkillRow {
   // Non-null only for a project skill that's permanently shadowed by a global skill of the
   // same name (global always wins — see queries.ts). Points at the global skill's id.
   shadowed_by_skill_id: number | null
+  lint_status: LintStatus
+  error_count: number
+  warning_count: number
 }
 
 export interface ContextBudget {
@@ -82,12 +99,14 @@ export interface OpenSkillResult {
   skill: SkillRow
   files: SkillFile[]
   usage: SkillUsageDetail
+  findings: LintFindingRow[]
 }
 
 export interface OpenSkillMetaResult {
   skill: SkillRow
   usage: SkillUsageDetail
   skillMdContent: string | null
+  findings: LintFindingRow[]
 }
 
 export type Theme = 'light' | 'dark'

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Search } from 'lucide-react'
 import { FileTree } from '@/components/FileTree'
+import { LintFindingsPanel } from '@/components/LintFindingsPanel'
 import { MarkdownView } from '@/components/MarkdownView'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,6 +29,7 @@ export function SkillFileViewer({
   })
 
   const files = useMemo(() => data?.files ?? [], [data])
+  const findings = useMemo(() => data?.findings ?? [], [data])
   const [explicitSelection, setExplicitSelection] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -135,6 +137,8 @@ export function SkillFileViewer({
         </Button>
         <h2 className="min-w-0 truncate text-[13px] font-medium">{skill.name}</h2>
       </div>
+
+      <LintFindingsPanel key={skillId} findings={findings} />
 
       <div className="flex min-h-0 flex-1">
         <div

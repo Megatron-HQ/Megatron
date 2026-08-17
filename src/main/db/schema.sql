@@ -51,3 +51,17 @@ CREATE TABLE IF NOT EXISTS allowed_paths (
   path TEXT PRIMARY KEY,              -- resolved repository root
   granted_at TEXT NOT NULL            -- ISO8601
 );
+
+CREATE TABLE IF NOT EXISTS lint_findings (
+  id INTEGER PRIMARY KEY,
+  skill_id INTEGER NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+  rule_id TEXT NOT NULL,
+  severity TEXT NOT NULL CHECK (severity IN ('error', 'warning')),
+  message TEXT NOT NULL,
+  detail TEXT,
+  file_path TEXT,
+  line_number INTEGER,
+  detected_at TEXT NOT NULL           -- ISO8601
+);
+
+CREATE INDEX IF NOT EXISTS idx_lint_findings_skill_id ON lint_findings(skill_id);

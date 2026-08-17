@@ -32,7 +32,8 @@ function App(): React.JSX.Element {
 
   const { data } = useQuery({
     queryKey: ['skills'],
-    queryFn: () => window.api.listSkills()
+    queryFn: () => window.api.listSkills(),
+    refetchInterval: (query) => (query.state.data?.scanComplete ? false : 750)
   })
 
   const { data: foldersData } = useQuery({
@@ -45,6 +46,8 @@ function App(): React.JSX.Element {
       window.api.onScanComplete(() => {
         void queryClient.invalidateQueries({ queryKey: ['skills'] })
         void queryClient.invalidateQueries({ queryKey: ['folders'] })
+        void queryClient.invalidateQueries({ queryKey: ['skill-meta'] })
+        void queryClient.invalidateQueries({ queryKey: ['skill-files'] })
       }),
     [queryClient]
   )

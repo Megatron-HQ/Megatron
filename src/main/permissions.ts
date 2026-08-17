@@ -6,6 +6,10 @@ const TIER_1_ROOTS = ['skills', 'plugins', 'projects'].map((dir) =>
   resolve(homedir(), '.claude', dir)
 )
 
+// User-level Claude Code config — not under ~/.claude/{skills,plugins,projects}, but the MCP
+// linter has to read mcpServers from it. File-only, not the rest of $HOME.
+const TIER_1_FILES = [resolve(homedir(), '.claude.json')]
+
 const grantedPaths = new Set<string>()
 
 export function grantPath(path: string): void {
@@ -24,10 +28,16 @@ export function getGrantedPaths(): string[] {
   return [...grantedPaths]
 }
 
+function normalizeFsPath(p: string): string {
+  return process.platform === 'win32' ? p.toLowerCase() : p
+}
+
 export function isPathAllowed(path: string): boolean {
-  const resolved = resolve(path)
+  const resolved = normalizeFsPath(resolve(path))
+  if (TIER_1_FILES.some((file) => normalizeFsPath(file) === resolved)) return true
   for (const root of [...TIER_1_ROOTS, ...grantedPaths]) {
-    if (resolved === root || resolved.startsWith(root + sep)) return true
+    const normalizedRoot = normalizeFsPath(root)
+    if (resolved === normalizedRoot || resolved.startsWith(normalizedRoot + sep)) return true
   }
   return false
 }

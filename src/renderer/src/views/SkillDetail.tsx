@@ -1,6 +1,8 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, ArrowLeft, FolderOpen } from 'lucide-react'
+import { LintFindingsPanel } from '@/components/LintFindingsPanel'
+import { LintStatusBadge } from '@/components/LintStatusBadge'
 import { SourceBadge } from '@/components/SourceBadge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -57,7 +59,7 @@ export function SkillDetail({
     )
   }
 
-  const { skill, usage } = data
+  const { skill, usage, findings = [] } = data
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -73,6 +75,11 @@ export function SkillDetail({
             <ArrowLeft className="size-4" />
           </Button>
           <h2 className="min-w-0 truncate text-base font-semibold">{skill.name}</h2>
+          <LintStatusBadge
+            status={skill.lint_status}
+            errorCount={skill.error_count}
+            warningCount={skill.warning_count}
+          />
           <SourceBadge
             type={skill.source_type}
             sourcePath={skill.source_path}
@@ -105,6 +112,8 @@ export function SkillDetail({
           </Button>
         </div>
       )}
+
+      <LintFindingsPanel key={skillId} findings={findings} />
 
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col gap-4 px-4 py-4 pl-10">

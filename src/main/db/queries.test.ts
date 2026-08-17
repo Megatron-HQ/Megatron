@@ -96,7 +96,7 @@ describe('listSkills', () => {
     expect(listSkills(db)).toEqual([])
   })
 
-  it('returns every skill row with all columns intact', () => {
+  it('returns every skill row with all columns and lint summary intact', () => {
     db.prepare(
       `INSERT INTO skills (name, source_type, source_path, plugin_name, description, last_scanned_at)
        VALUES ('grill-me', 'plugin', '/plugins/grill-me', 'taste@leonxlnx', 'Interview the user', '2026-08-14T00:00:00.000Z')`
@@ -105,6 +105,18 @@ describe('listSkills', () => {
       `INSERT INTO skills (name, source_type, source_path, plugin_name, description, last_scanned_at)
        VALUES ('frontend-design', 'global', '/global/frontend-design', NULL, NULL, '2026-08-14T00:00:00.000Z')`
     ).run()
+
+    const grillSkill = db.prepare('SELECT id FROM skills WHERE name = ?').get('grill-me') as {
+      id: number
+    }
+    db.prepare(
+      `INSERT INTO lint_findings (skill_id, rule_id, severity, message, detail, file_path, line_number, detected_at)
+       VALUES (?, 'missing-description', 'error', 'Description missing', NULL, NULL, NULL, ?)`
+    ).run(grillSkill.id, '2026-08-14T00:00:00.000Z')
+    db.prepare(
+      `INSERT INTO lint_findings (skill_id, rule_id, severity, message, detail, file_path, line_number, detected_at)
+       VALUES (?, 'name-collision', 'warning', 'Collision found', NULL, NULL, NULL, ?)`
+    ).run(grillSkill.id, '2026-08-14T00:00:00.000Z')
 
     const rows = listSkills(db)
 
@@ -117,14 +129,20 @@ describe('listSkills', () => {
           source_path: '/plugins/grill-me',
           plugin_name: 'taste@leonxlnx',
           description: 'Interview the user',
-          last_scanned_at: '2026-08-14T00:00:00.000Z'
+          last_scanned_at: '2026-08-14T00:00:00.000Z',
+          lint_status: 'error',
+          error_count: 1,
+          warning_count: 1
         }),
         expect.objectContaining({
           name: 'frontend-design',
           source_type: 'global',
           source_path: '/global/frontend-design',
           plugin_name: null,
-          description: null
+          description: null,
+          lint_status: 'clean',
+          error_count: 0,
+          warning_count: 0
         })
       ])
     )
@@ -136,7 +154,7 @@ describe('getSkillById', () => {
     expect(getSkillById(db, 1)).toBeNull()
   })
 
-  it('returns the matching skill row', () => {
+  it('returns the matching skill row with lint status', () => {
     db.prepare(
       `INSERT INTO skills (name, source_type, source_path, plugin_name, description, last_scanned_at)
        VALUES ('grill-me', 'global', '/global/grill-me', NULL, 'Interview the user', '2026-08-14T00:00:00.000Z')`
@@ -144,10 +162,87 @@ describe('getSkillById', () => {
     const { id } = db.prepare('SELECT id FROM skills WHERE name = ?').get('grill-me') as {
       id: number
     }
+    db.prepare(
+      `INSERT INTO lint_findings (skill_id, rule_id, severity, message, detail, file_path, line_number, detected_at)
+       VALUES (?, 'missing-mcp-server', 'warning', 'Server missing', NULL, NULL, NULL, ?)`
+    ).run(id, '2026-08-14T00:00:00.000Z')
 
     expect(getSkillById(db, id)).toEqual(
-      expect.objectContaining({ id, name: 'grill-me', source_path: '/global/grill-me' })
+      expect.objectContaining({
+        id,
+        name: 'grill-me',
+        source_path: '/global/grill-me',
+        lint_status: 'warning',
+        error_count: 0,
+        warning_count: 1
+      })
     )
+  })
+})
+
+describe('lint findings queries', () => {
+  it('inserts and retrieves lint findings for a skill', async () => {
+    const { insertLintFindings, getLintFindingsForSkill } = await import('./queries')
+    db.prepare(
+      `INSERT INTO skills (name, source_type, source_path, plugin_name, description, last_scanned_at)
+       VALUES ('skill-1', 'global', '/path/1', NULL, 'desc', ?)`
+    ).run(new Date().toISOString())
+    const { id } = db.prepare('SELECT id FROM skills WHERE name = ?').get('skill-1') as {
+      id: number
+    }
+
+    insertLintFindings(db, id, [
+      {
+        rule_id: 'yaml-frontmatter',
+        severity: 'error',
+        message: 'Invalid frontmatter syntax',
+        detail: 'YAML Exception on line 2',
+        file_path: '/path/1/SKILL.md',
+        line_number: 2
+      }
+    ])
+
+    const findings = getLintFindingsForSkill(db, id)
+    expect(findings).toHaveLength(1)
+    expect(findings[0]).toMatchObject({
+      skill_id: id,
+      rule_id: 'yaml-frontmatter',
+      severity: 'error',
+      message: 'Invalid frontmatter syntax',
+      detail: 'YAML Exception on line 2',
+      file_path: '/path/1/SKILL.md',
+      line_number: 2
+    })
+  })
+
+  it('replaces lint findings for all skills atomically', async () => {
+    const { replaceAllLintFindings, getLintFindingsForSkill } = await import('./queries')
+    db.prepare(
+      `INSERT INTO skills (name, source_type, source_path, plugin_name, description, last_scanned_at)
+       VALUES ('skill-1', 'global', '/path/1', NULL, 'desc', ?)`
+    ).run(new Date().toISOString())
+    const { id } = db.prepare('SELECT id FROM skills WHERE name = ?').get('skill-1') as {
+      id: number
+    }
+
+    replaceAllLintFindings(db, [
+      {
+        skill_id: id,
+        rule_id: 'broken-file-paths',
+        severity: 'error',
+        message: 'File not found',
+        detail: null,
+        file_path: 'helper.sh',
+        line_number: 10
+      }
+    ])
+
+    const findings = getLintFindingsForSkill(db, id)
+    expect(findings).toHaveLength(1)
+    expect(findings[0].rule_id).toBe('broken-file-paths')
+
+    replaceAllLintFindings(db, [])
+    expect(getLintFindingsForSkill(db, id)).toHaveLength(0)
   })
 })
 
