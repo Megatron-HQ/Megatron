@@ -29,6 +29,11 @@ When using **Claude Code**, capabilities expand rapidly across multiple environm
 
 Megatron is strictly **read-only in v1**—it discovers and analyzes disk state without mutating your `~/.claude` directory.
 
+### Scope and platform
+
+- **Claude Code only**: Megatron inventories and analyzes Claude Code skills and transcripts; it does not track skills from Codex or other agent tools.
+- **macOS distribution**: v1 ships as a direct, notarized macOS DMG. Windows is supported for development and CI verification, not as a distributable target.
+
 ---
 
 ## Key Features
@@ -186,13 +191,13 @@ src/
    cd Megatron
    ```
 
-2. **Install dependencies**:
+2. **Install the locked dependencies**:
 
    ```bash
-   npm install
+   npm ci
    ```
 
-   _(Note: Git hooks and Electron app dependencies configure automatically on install)._
+   _(Git hooks and Electron app dependencies configure automatically.)_
 
 3. **Run in development mode**:
    ```bash
@@ -214,6 +219,7 @@ src/
 | `npm run verify:visual` | Run visual smoke tests via Playwright-Electron              |
 | `npm run build:unpack`  | Create unpacked application build                           |
 | `npm run build:mac`     | Package distributable macOS DMG                             |
+| `npm run db`            | Open the local SQLite index in DB Browser for SQLite (macOS) |
 
 ---
 
