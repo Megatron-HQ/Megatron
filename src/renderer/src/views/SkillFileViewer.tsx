@@ -2,23 +2,25 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Search } from 'lucide-react'
 import { FileTree } from '@/components/FileTree'
-import { SourceBadge } from '@/components/SourceBadge'
+import { MarkdownView } from '@/components/MarkdownView'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { TREE_WIDTH_MAX, TREE_WIDTH_MIN, TREE_WIDTH_STEP } from '@/lib/file-tree'
+import { isMarkdownFile } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
 
 interface SkillFileViewerProps {
   skillId: number
   treeWidth: number
   onTreeWidthChange: (width: number) => void
-  onClose: () => void
+  onBack: () => void
 }
 
 export function SkillFileViewer({
   skillId,
   treeWidth,
   onTreeWidthChange,
-  onClose
+  onBack
 }: SkillFileViewerProps): React.JSX.Element {
   const { data, isPending } = useQuery({
     queryKey: ['skill-files', skillId],
@@ -43,11 +45,11 @@ export function SkillFileViewer({
         setSearchQuery('')
         return
       }
-      onClose()
+      onBack()
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onClose, searchQuery])
+  }, [onBack, searchQuery])
 
   const draggingRef = useRef(false)
   const dragStartRef = useRef({ x: 0, width: treeWidth })
@@ -107,13 +109,12 @@ export function SkillFileViewer({
         <p className="max-w-[320px] text-sm text-muted-foreground">
           It may have been removed since the last scan.
         </p>
-        <button
-          type="button"
-          onClick={onClose}
-          className="mt-2 rounded-md bg-accent-lime px-3 py-1.5 text-sm text-accent-lime-foreground"
+        <Button
+          onClick={onBack}
+          className="mt-2 bg-accent-lime text-accent-lime-foreground hover:bg-accent-lime hover:opacity-90"
         >
-          Back to skills
-        </button>
+          Back
+        </Button>
       </div>
     )
   }
@@ -122,26 +123,17 @@ export function SkillFileViewer({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Back to skills"
-          className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-2">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onBack}
+          aria-label="Back to skill details"
+          className="shrink-0 text-muted-foreground"
         >
           <ArrowLeft className="size-4" />
-        </button>
-        <div className="flex min-w-0 items-center gap-3">
-          <h2 className="truncate text-base font-semibold">{skill.name}</h2>
-          <SourceBadge
-            type={skill.source_type}
-            sourcePath={skill.source_path}
-            pluginName={skill.plugin_name}
-          />
-          <span className="truncate font-mono text-xs text-muted-foreground">
-            {skill.source_path}
-          </span>
-        </div>
+        </Button>
+        <h2 className="min-w-0 truncate text-[13px] font-medium">{skill.name}</h2>
       </div>
 
       <div className="flex min-h-0 flex-1">
@@ -189,9 +181,18 @@ export function SkillFileViewer({
           {selectedFile === null ? (
             <p className="text-sm text-muted-foreground">No files found.</p>
           ) : selectedFile.status === 'ok' ? (
-            <pre className="font-mono text-[12px] leading-relaxed whitespace-pre-wrap break-words text-foreground">
-              {selectedFile.content}
-            </pre>
+            isMarkdownFile(selectedFile.relativePath) ? (
+              <MarkdownView
+                content={selectedFile.content ?? ''}
+                currentPath={selectedFile.relativePath}
+                files={files}
+                onSelectFile={setExplicitSelection}
+              />
+            ) : (
+              <pre className="font-mono text-[12px] leading-relaxed whitespace-pre-wrap break-words text-foreground">
+                {selectedFile.content}
+              </pre>
+            )
           ) : (
             <p className="text-sm text-muted-foreground">
               {selectedFile.status === 'too_large'

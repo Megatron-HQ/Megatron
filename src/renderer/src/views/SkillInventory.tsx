@@ -3,12 +3,13 @@ import {
   createColumnHelper,
   createSortedRowModel,
   rowSortingFeature,
+  sortFn_basic,
   sortFn_text,
   tableFeatures,
   useTable
 } from '@tanstack/react-table'
 import type { SortingState } from '@tanstack/react-table'
-import { FolderOpen, Lock, Search } from 'lucide-react'
+import { AlertTriangle, FolderOpen, Lock, Search } from 'lucide-react'
 import { motion } from 'motion/react'
 import { ClaudeIcon } from '@/components/ClaudeIcon'
 import { SourceBadge } from '@/components/SourceBadge'
@@ -24,8 +25,8 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
-import { getSourceSortKey } from '@/lib/source-name'
 import { FILTER_LABEL, type SourceFilter } from '@/lib/source-filter'
+import { getSourceSortKey } from '@/lib/source-name'
 import type { SkillRow } from '../../../shared/ipc'
 
 const ROW_HEIGHT = 40
@@ -34,14 +35,16 @@ const HEADER_HEIGHT = 40
 const features = tableFeatures({
   rowSortingFeature,
   sortedRowModel: createSortedRowModel(),
-  sortFns: { text: sortFn_text }
+  sortFns: { text: sortFn_text, number: sortFn_basic }
 })
 
 const columnHelper = createColumnHelper<typeof features, SkillRow>()
 
 const COLUMN_WIDTH: Record<string, string> = {
   name: 'w-[220px]',
-  source: 'w-[160px]'
+  source: 'w-[120px]',
+  est_listing_tokens: 'w-[100px]',
+  total_invocations: 'w-[80px]'
 }
 
 const columns = columnHelper.columns([
@@ -60,6 +63,16 @@ const columns = columnHelper.columns([
               </TooltipTrigger>
               <TooltipContent>
                 Plugin-managed — read-only, may be overwritten on update.
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {row.shadowed_by_skill_id !== null && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <AlertTriangle className="size-3 shrink-0 text-warning" />
+              </TooltipTrigger>
+              <TooltipContent>
+                A global skill with the same name always wins. This one can never run.
               </TooltipContent>
             </Tooltip>
           )}
@@ -92,6 +105,27 @@ const columns = columnHelper.columns([
     cell: (info) => (
       <span className="block truncate text-muted-foreground">{info.getValue() ?? '—'}</span>
     )
+  }),
+  columnHelper.accessor('est_listing_tokens', {
+    header: 'Tokens',
+    sortFn: 'number',
+    cell: (info) => (
+      <span className="block text-right font-mono text-xs tabular-nums text-muted-foreground">
+        {info.getValue().toLocaleString()}
+      </span>
+    )
+  }),
+  columnHelper.accessor('total_invocations', {
+    header: 'Uses',
+    sortFn: 'number',
+    cell: (info) => {
+      const value = info.getValue()
+      return (
+        <span className="block text-right font-mono text-xs tabular-nums text-muted-foreground">
+          {value === 0 ? 'Never' : value.toLocaleString()}
+        </span>
+      )
+    }
   })
 ])
 
@@ -148,8 +182,10 @@ export function SkillInventory({
           <TableHeadGroup>
             <TableRow className="h-10">
               <TableHead className="w-[220px] px-3 py-2">Name</TableHead>
-              <TableHead className="w-[160px] px-3 py-2">Source</TableHead>
+              <TableHead className="w-[120px] px-3 py-2">Source</TableHead>
               <TableHead className="px-3 py-2">Description</TableHead>
+              <TableHead className="w-[100px] px-3 py-2">Tokens</TableHead>
+              <TableHead className="w-[80px] px-3 py-2">Uses</TableHead>
             </TableRow>
           </TableHeadGroup>
           <TableBody>
@@ -163,6 +199,12 @@ export function SkillInventory({
                 </TableCell>
                 <TableCell className="px-3 py-2">
                   <Skeleton className="h-4 w-48" />
+                </TableCell>
+                <TableCell className="px-3 py-2">
+                  <Skeleton className="ml-auto h-4 w-10" />
+                </TableCell>
+                <TableCell className="px-3 py-2">
+                  <Skeleton className="ml-auto h-4 w-8" />
                 </TableCell>
               </TableRow>
             ))}

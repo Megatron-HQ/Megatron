@@ -30,7 +30,11 @@ CREATE TABLE IF NOT EXISTS skills (
   source_path TEXT NOT NULL UNIQUE,   -- discovered path, not realpath (see docs/skill-scanner.md)
   plugin_name TEXT,                   -- 'name@marketplace' composite, plugin-tier only
   description TEXT,                   -- NULL/empty is a valid, lint-worthy state
-  last_scanned_at TEXT NOT NULL       -- ISO8601
+  last_scanned_at TEXT NOT NULL,      -- ISO8601
+  est_listing_tokens INTEGER NOT NULL DEFAULT 0,  -- name+description, chars/4 — see docs/mvp-build-spec.md
+  est_body_tokens INTEGER NOT NULL DEFAULT 0,     -- full SKILL.md, chars/4
+  project_root TEXT                   -- granted repo root; NULL for global/plugin — see
+                                       -- Skill name collisions below
 );
 
 CREATE TABLE IF NOT EXISTS sessions_meta (
@@ -53,7 +57,9 @@ CREATE TABLE IF NOT EXISTS skill_invocations (
   trigger_type TEXT NOT NULL CHECK (   -- see docs/transcript-ingest.md
     trigger_type IN ('user_invoked', 'autonomous', 'subagent')
   ),
-  agent_id TEXT                       -- subagent filename stem; NULL for main-session invocations
+  agent_id TEXT,                      -- subagent filename stem; NULL for main-session invocations
+  preceding_user_text TEXT            -- nearest preceding user message; heuristic, nullable —
+                                       -- see docs/transcript-ingest.md
 );
 
 CREATE TABLE IF NOT EXISTS plugin_registry (
@@ -91,11 +97,55 @@ CREATE TABLE IF NOT EXISTS plugin_registry (
   the cascade-on-vanished-session case above.
 - `plugin_registry` upserts on `(name, marketplace)`, same pattern as `skills`.
 
-**Forward-looking gap, not blocking M1**: "no migrations, just `CREATE TABLE IF NOT EXISTS`"
-works for _new tables_ landing per-milestone, but won't retrofit a new _column_ onto an
-existing table once real users have a `megatron.db` on disk (e.g. M6 wanting to add
-`latest_known_version` to `plugin_registry`). Needs a guarded `ALTER TABLE ... ADD COLUMN` at
-that point — revisit before M7 ships, not now (no shipped `megatron.db` exists yet).
+**Usage stats (M5) are computed live, never stored.** `total_invocations`, `last_invoked_at`, and
+the trigger-type/per-project/recent-trigger breakdowns in `getSkillUsageDetail` are all aggregate
+queries over `skill_invocations` at read time, joined on `skill_name` (the same no-FK join as
+above), not counters maintained on the `skills` row. `skill_invocations` is append-only, so a
+stored count would need upkeep on every insert/delete and could drift; a live `COUNT`/`MAX` never
+can. The context budget (`getContextBudget`) is the same shape: `SUM(est_listing_tokens)` at read
+time, not a cached total.
+
+**Skill name collisions (added 2026-08-16)**: two same-named skills are always two separate
+`skills` rows (identity is `source_path`, already `UNIQUE`) — never merged. What changed is how
+`total_invocations`/`last_invoked_at` attribute a name's invocations across those rows, per the
+precedence Claude Code itself uses (verified against
+[code.claude.com/docs/en/skills](https://code.claude.com/docs/en/skills)): personal (global)
+always overrides a same-named project skill, everywhere, unconditionally; plugin skills use a
+`plugin-name:skill-name` namespace and can't collide with anything.
+
+- A project skill shadowed by a same-named global skill can never actually fire. Its count is
+  forced to `0` (not left to a bare name join) and `SkillRow.shadowed_by_skill_id` points at the
+  global skill's id. Known ceiling: if the project skill predates the global one, its real past
+  invocations still get attributed to the global row — there's no skill-version history to split
+  them by.
+- A non-shadowed project skill's count is scoped to sessions whose `cwd` is under its own
+  `project_root` (`substr`-based prefix match, not `LIKE` — `_`/`%` in a real path are literal
+  characters, not wildcards). This is what makes two different repos with a same-named skill
+  (e.g. two repos both having their own `visual-verify`) report correct, separate counts instead
+  of each absorbing the other's history.
+- Global and plugin skills stay unscoped by name — global wins everywhere, plugin skills can't
+  collide.
+
+Implemented in `SKILLS_WITH_USAGE_SELECT` and `getSkillUsageDetail` (`src/main/db/queries.ts`),
+which is why `getSkillUsageDetail` takes the full `SkillRow` now, not a bare name — it needs
+`source_type`/`project_root`/`shadowed_by_skill_id` to know how to scope. See
+`docs/scanner-coverage-gaps.md` for two related-but-separate scanner gaps (nested
+`.claude/skills/`, the `synced/` folder) found during this same investigation and deliberately
+not folded in here.
+
+**Retrofit pattern for new columns (superseded the gap noted below)**: `applySchema()`
+(`src/main/db/schema.ts`) runs `CREATE TABLE IF NOT EXISTS` first, then checks each table it's
+since grown a column for via `PRAGMA table_info` and runs a guarded `ALTER TABLE ... ADD COLUMN`
+if missing — so an existing `megatron.db` on disk picks up a new column on its next launch
+without deleting the db. `agent_id` (`skill_invocations`) and `project_root` (`skills`) both use
+this. New tables still need no migration at all (`CREATE TABLE IF NOT EXISTS` is enough on its
+own); this pattern is only for adding a column to a table that already shipped.
+
+**Forward-looking gap, not blocking M1**: the retrofit pattern above only adds a column with no
+default-value backfill logic beyond SQLite's own column default (`NULL` unless the `ALTER TABLE`
+specifies one) — fine for a column an existing row simply didn't have data for yet (it gets
+filled in on the next scan), not fine for a column that needs computing from other existing rows
+at retrofit time. No case has needed that yet.
 
 ## Why SQLite
 

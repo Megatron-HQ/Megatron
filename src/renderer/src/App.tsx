@@ -6,9 +6,18 @@ import { Sidebar } from '@/components/Sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { TREE_WIDTH_DEFAULT } from '@/lib/file-tree'
 import type { SourceFilter } from '@/lib/source-filter'
+import { SkillDetail } from './views/SkillDetail'
 import { SkillInventory } from './views/SkillInventory'
 import { SkillFileViewer } from './views/SkillFileViewer'
-import type { Theme } from '../../shared/ipc'
+import type { ContextBudget, Theme } from '../../shared/ipc'
+
+type View =
+  { kind: 'list' } | { kind: 'detail'; skillId: number } | { kind: 'files'; skillId: number }
+
+// Real value always arrives from the listSkills IPC round-trip almost immediately; this only
+// covers the brief pre-response instant, so it deliberately doesn't guess at the real limit
+// (that constant is derived in src/main/db/queries.ts from the binary-sourced formula).
+const DEFAULT_CONTEXT_BUDGET: ContextBudget = { used: 0, limit: 0 }
 
 function App(): React.JSX.Element {
   const queryClient = useQueryClient()
@@ -16,7 +25,7 @@ function App(): React.JSX.Element {
     document.documentElement.classList.contains('dark') ? 'dark' : 'light'
   )
   const [filter, setFilter] = useState<SourceFilter>('all')
-  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [view, setView] = useState<View>({ kind: 'list' })
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [foldersDialogOpen, setFoldersDialogOpen] = useState(false)
   const [treeWidth, setTreeWidth] = useState(TREE_WIDTH_DEFAULT)
@@ -54,6 +63,7 @@ function App(): React.JSX.Element {
   const skills = useMemo(() => data?.skills ?? [], [data])
   const folders = useMemo(() => foldersData ?? [], [foldersData])
   const scanComplete = data?.scanComplete ?? false
+  const contextBudget = data?.contextBudget ?? DEFAULT_CONTEXT_BUDGET
 
   const filteredSkills = useMemo(
     () => (filter === 'all' ? skills : skills.filter((skill) => skill.source_type === filter)),
@@ -61,8 +71,12 @@ function App(): React.JSX.Element {
   )
 
   function handleFilterChange(next: SourceFilter): void {
-    setSelectedId(null)
+    setView({ kind: 'list' })
     setFilter(next)
+  }
+
+  function openDetail(skillId: number): void {
+    setView({ kind: 'detail', skillId })
   }
 
   function toggleTheme(): void {
@@ -102,21 +116,30 @@ function App(): React.JSX.Element {
             onFilterChange={handleFilterChange}
             theme={theme}
             onToggleTheme={toggleTheme}
+            contextBudget={contextBudget}
           />
-          {selectedId !== null ? (
+          {view.kind === 'detail' ? (
+            <SkillDetail
+              key={view.skillId}
+              skillId={view.skillId}
+              onBack={() => setView({ kind: 'list' })}
+              onViewFiles={() => setView({ kind: 'files', skillId: view.skillId })}
+              onNavigate={openDetail}
+            />
+          ) : view.kind === 'files' ? (
             <SkillFileViewer
-              key={selectedId}
-              skillId={selectedId}
+              key={view.skillId}
+              skillId={view.skillId}
               treeWidth={treeWidth}
               onTreeWidthChange={setTreeWidth}
-              onClose={() => setSelectedId(null)}
+              onBack={() => setView({ kind: 'detail', skillId: view.skillId })}
             />
           ) : (
             <SkillInventory
               skills={filteredSkills}
               loading={!skills.length && !scanComplete}
               filter={filter}
-              onSelect={setSelectedId}
+              onSelect={openDetail}
               onOpenSearch={() => setPaletteOpen(true)}
               onManageFolders={() => setFoldersDialogOpen(true)}
               onGrantFolder={handleAddFolders}
@@ -128,7 +151,7 @@ function App(): React.JSX.Element {
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
         skills={skills}
-        onSelect={setSelectedId}
+        onSelect={openDetail}
       />
       <ManageFoldersDialog
         open={foldersDialogOpen}

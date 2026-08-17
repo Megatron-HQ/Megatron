@@ -7,7 +7,9 @@ import { getDb } from './db'
 import {
   addAllowedPath,
   deleteSkillsForProjectRoot,
+  getContextBudget,
   getSkillById,
+  getSkillUsageDetail,
   listAllowedPaths,
   listSkills,
   removeAllowedPath
@@ -17,8 +19,14 @@ import { resolveInitialTheme, setStoredTheme, type ThemeStore } from './theme'
 import { scanSkills } from './ingest/skills-scanner'
 import { scanPluginRegistry } from './ingest/plugin-registry'
 import { scanTranscripts } from './ingest/transcript-scanner'
-import { readSkillFiles } from './skill-files'
-import { IPC_CHANNELS, type OpenSkillResult, type Theme } from '../shared/ipc'
+import { readSkillFiles, readSkillMd } from './skill-files'
+import { isSafeExternalUrl } from './shell'
+import {
+  IPC_CHANNELS,
+  type OpenSkillMetaResult,
+  type OpenSkillResult,
+  type Theme
+} from '../shared/ipc'
 
 const themeStore: ThemeStore = new Store({ name: 'preferences' })
 let scanComplete = false
@@ -74,13 +82,29 @@ app.whenReady().then(() => {
 
   ipcMain.handle(IPC_CHANNELS.listSkills, () => ({
     skills: listSkills(getDb()),
-    scanComplete
+    scanComplete,
+    contextBudget: getContextBudget(getDb())
   }))
 
   ipcMain.handle(IPC_CHANNELS.openSkill, (_event, id: number): OpenSkillResult | null => {
     const skill = getSkillById(getDb(), id)
     if (!skill) return null
-    return { skill, files: readSkillFiles(skill.source_path) }
+    return {
+      skill,
+      files: readSkillFiles(skill.source_path),
+      usage: getSkillUsageDetail(getDb(), skill)
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.openSkillMeta, (_event, id: number): OpenSkillMetaResult | null => {
+    const skill = getSkillById(getDb(), id)
+    if (!skill) return null
+    const skillMd = readSkillMd(skill.source_path)
+    return {
+      skill,
+      usage: getSkillUsageDetail(getDb(), skill),
+      skillMdContent: skillMd?.status === 'ok' ? skillMd.content : null
+    }
   })
 
   ipcMain.on(IPC_CHANNELS.getInitialTheme, (event) => {
@@ -132,6 +156,10 @@ app.whenReady().then(() => {
       win.webContents.send(IPC_CHANNELS.scanComplete)
     }
     return listAllowedPaths(db)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.openExternal, (_event, url: string) => {
+    if (isSafeExternalUrl(url)) shell.openExternal(url)
   })
 
   createWindow()

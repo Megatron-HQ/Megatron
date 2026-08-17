@@ -131,7 +131,8 @@ describe('parseTranscript', () => {
         args_text: 'do it',
         invoked_at: '2024-01-01T00:01:00.000Z',
         trigger_type: 'autonomous',
-        agent_id: null
+        agent_id: null,
+        preceding_user_text: 'hello'
       }
     ])
   })
@@ -422,7 +423,8 @@ describe('parseTranscript', () => {
           args_text: null,
           invoked_at: '2024-01-01T00:01:00.000Z',
           trigger_type: 'user_invoked',
-          agent_id: null
+          agent_id: null,
+          preceding_user_text: null
         }
       ])
     })
@@ -524,6 +526,66 @@ describe('parseTranscript', () => {
     const filePath = writeTranscriptFile(tmpDir, 'sess-1', [metaLine(), skillInvocationLine()])
 
     expect(parseTranscript(filePath).invocations[0].agent_id).toBeNull()
+  })
+
+  describe('preceding_user_text capture', () => {
+    it('captures the nearest preceding user message on the tool_use path', () => {
+      const trigger = metaLine({ message: { content: 'please look into the flaky test' } })
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [trigger, skillInvocationLine()])
+
+      expect(parseTranscript(filePath).invocations[0].preceding_user_text).toBe(
+        'please look into the flaky test'
+      )
+    })
+
+    it('stores null on the slash-command path even though a preceding message exists', () => {
+      const priorTurn = metaLine({ message: { content: 'earlier unrelated message' } })
+      const command = {
+        type: 'user',
+        sessionId: 'sess-1',
+        isSidechain: false,
+        uuid: 'uuid-command',
+        timestamp: '2024-01-01T00:01:00.000Z',
+        message: {
+          content:
+            '<command-message>domain-modeling</command-message>\n<command-name>/domain-modeling</command-name>'
+        }
+      }
+      const marker = {
+        type: 'user',
+        sessionId: 'sess-1',
+        isSidechain: false,
+        isMeta: true,
+        parentUuid: 'uuid-command',
+        message: {
+          content: [
+            { type: 'text', text: 'Base directory for this skill: /Users/x/.claude/skills/foo' }
+          ]
+        }
+      }
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [priorTurn, command, marker])
+
+      expect(parseTranscript(filePath).invocations[0].preceding_user_text).toBeNull()
+    })
+
+    it('is null when there is no preceding user message at all', () => {
+      const trigger = metaLine({
+        message: { content: [{ type: 'tool_result', tool_use_id: 'x', content: 'not string' }] }
+      })
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [trigger, skillInvocationLine()])
+
+      expect(parseTranscript(filePath).invocations[0].preceding_user_text).toBeNull()
+    })
+
+    it('truncates to 2000 chars rather than storing the full message', () => {
+      const longMessage = 'x'.repeat(2500)
+      const trigger = metaLine({ message: { content: longMessage } })
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [trigger, skillInvocationLine()])
+
+      const captured = parseTranscript(filePath).invocations[0].preceding_user_text
+      expect(captured).toHaveLength(2000)
+      expect(captured).toBe(longMessage.slice(0, 2000))
+    })
   })
 })
 

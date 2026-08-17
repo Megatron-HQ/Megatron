@@ -157,4 +157,35 @@ describe('applySchema', () => {
     const cols = db.prepare("PRAGMA table_info('skill_invocations')").all() as { name: string }[]
     expect(cols.some((c) => c.name === 'agent_id')).toBe(true)
   })
+
+  it('accepts a project_root value on a skills row', () => {
+    applySchema(db)
+    db.prepare(
+      `INSERT INTO skills (name, source_type, source_path, description, last_scanned_at, project_root)
+       VALUES ('foo', 'project', '/repo/.claude/skills/foo', NULL, ?, '/repo')`
+    ).run(new Date().toISOString())
+    const row = db.prepare('SELECT project_root FROM skills WHERE name = ?').get('foo') as {
+      project_root: string
+    }
+    expect(row.project_root).toBe('/repo')
+  })
+
+  it('adds project_root column if skills was created from an older schema', () => {
+    db.exec(`
+      CREATE TABLE skills (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        source_type TEXT NOT NULL,
+        source_path TEXT NOT NULL UNIQUE,
+        plugin_name TEXT,
+        description TEXT,
+        last_scanned_at TEXT NOT NULL,
+        est_listing_tokens INTEGER NOT NULL DEFAULT 0,
+        est_body_tokens INTEGER NOT NULL DEFAULT 0
+      );
+    `)
+    applySchema(db)
+    const cols = db.prepare("PRAGMA table_info('skills')").all() as { name: string }[]
+    expect(cols.some((c) => c.name === 'project_root')).toBe(true)
+  })
 })

@@ -24,6 +24,15 @@ export function readSkillFiles(skillDir: string): SkillFile[] {
   return files.sort(bySkillMdFirstThenAlphabetical)
 }
 
+// Lighter than readSkillFiles: reads just SKILL.md rather than walking the whole directory, for
+// callers (the skill detail page) that only need frontmatter, not every file's bytes.
+export function readSkillMd(skillDir: string): SkillFile | null {
+  const fullPath = join(skillDir, 'SKILL.md')
+  const stats = allowedStatSync(fullPath)
+  if (stats === null || !stats.isFile()) return null
+  return readOneFile(skillDir, fullPath, stats.size)
+}
+
 function walk(root: string, dir: string, files: SkillFile[]): void {
   for (const entryName of allowedReaddirSync(dir)) {
     if (entryName.startsWith('.')) continue

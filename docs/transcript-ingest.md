@@ -140,6 +140,42 @@ in the UI. No general recursive directory walk — the one-level-deeper `subagen
 sufficient per the verified-flat structure above, and adding more would be solving a problem that
 doesn't exist in real data.
 
+**Third gap closed (M5): `preceding_user_text` recovers most `NULL` `args_text` rows.** A
+measurement across all 211 real transcripts on this machine found `args_text` is `NULL` on 36%
+of invocations overall (27% of `user_invoked` rows, 44% of `autonomous` rows) — this refines the
+"10/10 for one recurring plugin skill" spot-check above, which didn't reproduce at full scale;
+that anecdote was a small, non-representative sample. Root cause is clean and singular: the
+model omits the `args` key entirely when self-triggering. 100% of the `NULL` rows are that one
+shape — no empty strings, no non-string values, no truncation.
+
+The fix reuses a value `extractInvocations` already computes and previously discarded: the
+nearest preceding user-role message with string content (the same `precedingMessage` variable
+`classifyTrigger` reads). Stored as `skill_invocations.preceding_user_text`, populated only on
+the `Skill` tool_use detection path — the slash-command path stores `NULL`, since there
+`precedingMessage` has already been assigned the command record's own content and storing it
+would duplicate what `args_text` captures, not add ambient context. Truncated to 2000 chars on
+capture (observed max 4225, p90 929 — the field is unbounded by construction, so the cap is
+defensive, not a reaction to the data). Recovers values for 97% of the `NULL` `args_text` rows.
+
+Two known-imprecise properties, both accepted rather than engineered around:
+
+- **Cascade attribution** (same limitation as `trigger_type` above): 22% of recovered values are
+  shared across multiple invocations, because one triggering message can precede several
+  `Skill` calls.
+- **Image-caption stubs**: 9% of recovered values are placeholders like
+  `[Image: original 2438x1460, displayed at 2000x1198...]` — the preceding message was an
+  attached image, not text. Real and common, not a parsing bug. Filtered with a
+  `NOT LIKE '[Image:%'` predicate at query time (`getSkillUsageDetail` in `src/main/db/queries.ts`)
+  rather than at write time, since storage stays raw as a historical fact regardless of whether
+  a given UI surface wants to display it.
+
+**Validation**: cross-checked Megatron's `total_invocations` count against Claude Code's own
+internal counter (`jq '.skillUsage' ~/.claude.json`) for a handful of skills. `grill-me` (56),
+`visual-verify` (18), and `test-driven-development` (8) matched exactly. The one skill that
+didn't match exactly is explained by a 60-second dedup window in Claude Code's own counter, which
+Megatron deliberately doesn't replicate (`skill_invocations` dedupes on the transcript line's own
+`uuid`, not on a time window — a real design difference, not a bug in either counter).
+
 **Schema mechanics**: `skill_invocations` was designed immutable/append-only
 (`INSERT OR IGNORE`, no update path — see the Idempotency section in `docs/data-model.md`)
 specifically because its original columns are true, unchanging facts about what happened.

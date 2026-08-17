@@ -11,4 +11,9 @@ export function applySchema(db: Database.Database): void {
   if (skillInvocationsCols.length > 0 && !skillInvocationsCols.some((c) => c.name === 'agent_id')) {
     db.exec('ALTER TABLE skill_invocations ADD COLUMN agent_id TEXT')
   }
+
+  const skillsCols = db.prepare("PRAGMA table_info('skills')").all() as { name: string }[]
+  if (skillsCols.length > 0 && !skillsCols.some((c) => c.name === 'project_root')) {
+    db.exec('ALTER TABLE skills ADD COLUMN project_root TEXT')
+  }
 }

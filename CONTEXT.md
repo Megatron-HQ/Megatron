@@ -47,8 +47,20 @@ One recorded event of a Skill being called during a Session. Distinct from the S
 _Avoid_: Call, usage, run
 
 **Trigger Type**:
-Whether a Skill Invocation was **User-Invoked** (the user's own words named the skill) or **Autonomous** (the model chose to invoke it unprompted, matching context to the Skill's description). A property of the Invocation, never of the Skill itself — the same Skill can be triggered either way on different occasions.
+Whether a Skill Invocation was **User-Invoked** (the user's own words named the skill), **Autonomous** (the model chose to invoke it unprompted, matching context to the Skill's description), or **Subagent** (invoked from inside a Task/Agent fork, where no human typed anything — collapses the User-Invoked/Autonomous distinction since it doesn't apply). A property of the Invocation, never of the Skill itself — the same Skill can be triggered differently on different occasions.
 _Avoid_: Manual/automatic, explicit/implicit
+
+**Listing Tokens**:
+A Skill's estimated always-resident context cost — `name` + `description`, `chars / 4`, rounded — the same figure Claude Code itself uses to decide when to truncate a description in the skill listing shown to the model. Charged whether or not the Skill ever fires. See Body Tokens for the fires-only counterpart, and Context Budget for the sum this feeds.
+_Avoid_: Token count (ambiguous with Body Tokens — always specify which)
+
+**Body Tokens**:
+A Skill's estimated cost if it fires — the full `SKILL.md` content, `chars / 4`, rounded. Unlike Listing Tokens, never charged just by the Skill existing; only when Claude Code actually loads the file.
+_Avoid_: Token count (ambiguous with Listing Tokens — always specify which)
+
+**Context Budget**:
+The sum of Listing Tokens across every Global and Plugin Skill, compared against a fixed estimated limit — how much of the context window the skill listing alone consumes, before any Skill has fired. Project Skills are excluded (they only load inside their own repo, so a global total including them would overstate the always-resident cost everywhere else).
+_Avoid_: Token budget (loses the listing-only, global+plugin-only scope)
 
 ### Plugins
 

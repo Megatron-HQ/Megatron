@@ -9,6 +9,7 @@ import { parseSkillDirectory } from './skill-parser'
 export interface SkillRoot {
   dir: string
   sourceType: 'global' | 'project'
+  projectRoot?: string
 }
 
 export function defaultSkillRoots(): SkillRoot[] {
@@ -18,7 +19,8 @@ export function defaultSkillRoots(): SkillRoot[] {
   }
   const projectRoots: SkillRoot[] = getGrantedPaths().map((path) => ({
     dir: join(path, '.claude', 'skills'),
-    sourceType: 'project'
+    sourceType: 'project',
+    projectRoot: path
   }))
   return [globalRoot, ...projectRoots]
 }
@@ -57,7 +59,10 @@ export function scanSkills(db: Database.Database, roots: SkillRoot[] = defaultSk
         name: parsed.name,
         source_path: dirPath,
         plugin_name: null,
-        description: parsed.description
+        description: parsed.description,
+        est_listing_tokens: parsed.est_listing_tokens,
+        est_body_tokens: parsed.est_body_tokens,
+        project_root: root.projectRoot ?? null
       })
     }
   }

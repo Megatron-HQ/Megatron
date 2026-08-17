@@ -197,6 +197,45 @@ purposes, and that shapes how each handles a broken file:
   extraction (finding the `---`...`---` delimiters) is still hand-rolled; only the content
   between them goes through `yaml.parse()`.
 
+## Token estimation (M5)
+
+`est_listing_tokens` / `est_body_tokens` (`src/main/ingest/skill-parser.ts`) use
+`Math.round(text.length / 4)` — read directly out of Claude Code's compiled binary (function
+`xv` and its skill-listing call site), not an independent approximation. That's a deliberate
+choice, not a shortcut: `chars / 4` is the literal mechanism that decides when a live Claude
+Code session truncates a skill's description, so a "more accurate" BPE tokenizer would produce a
+number that *disagrees* with real truncation behavior — wrong in the way that matters here. No
+new dependency taken for this.
+
+Four details, all confirmed against the binary and each easy to get subtly wrong:
+
+- `Math.round`, not floor or ceil — matches that call site's specific rounding mode.
+- JS string length (`str.length`), not UTF-8 byte length (`Buffer.byteLength()`) — they diverge
+  on multi-byte characters (measured: one real `SKILL.md` was 6,131 bytes but 6,091 JS
+  characters, 20 em-dashes accounting for the gap).
+- `[name, description].filter(Boolean).join(' ')` — when `description` is `null`, the join space
+  disappears with it; the estimate is `name` alone, not `name + ' '`.
+- Descriptions are capped at 1536 chars before counting (`skillListingMaxDescChars` in the
+  binary) — real skills exceed this, so the estimate mirrors the cap or it overstates them.
+
+The context budget constant (`CONTEXT_BUDGET_LIMIT` in `src/main/db/queries.ts`, 2,000) is
+`contextWindow(200000) × 0.01`, also read from the binary (`budget_chars = floor(window × 4 ×
+0.01)`, compared in characters internally but displayed as tokens here).
+
+**All of these — `4`, `0.01`, `200000`, `1536` — are undocumented internal detail from one point
+-in-time build of Claude Code, not a public contract.** Consistent with this doc's existing
+"format can change on any release" posture toward `~/.claude`'s on-disk shapes: they're
+corroboration for Megatron's own heuristic, not something Megatron depends on staying fixed.
+
+**Known limitation: `200000` is a hardcoded assumption, not the live figure.** The real budget
+Claude Code enforces scales with *that session's* actual context window (confirmed in the current
+skills docs: "the budget scales at 1% of the model's context window") and can be further changed
+by the `skillListingBudgetFraction` setting. A session running an extended context window (e.g.
+1M-token beta) has a real budget several times larger than 2,000 — Megatron has no way to know
+this at scan time, since it reads `~/.claude` offline and isn't attached to a live session. So the
+sidebar's `used / 2,000` ratio is accurate for a default-window session and overstates how
+"over budget" a skill listing is on any session running a larger window.
+
 ## Linter rule set (v1, all static)
 
 Algorithms captured here for planning purposes — expect to revisit specifics once M4 is
@@ -209,6 +248,18 @@ actually being built, not treated as locked implementation.
 | File path referenced in skill body that doesn't exist on disk | Global, project, plugin | Regex over the skill body: markdown link targets (`[text](./relative/path)`) and backtick-quoted spans that look path-like (contain `/` or a recognizable extension, no spaces). Resolve each candidate relative to the skill's own directory, `fs.existsSync()` it | Heuristic — false positives (a backtick span that isn't meant as a path) and false negatives (a path mentioned without backticks) both possible; best-effort, not a compiler          |
 | Referenced MCP server not present in user's MCP config        | Global, project, plugin | Regex-scan the skill body for `mcp__([a-zA-Z0-9_-]+)__` (Claude Code's actual MCP tool-naming convention), extract the server name, check it against the user's MCP server config                                                                                   | Heuristic on the "find the reference" side; the pattern itself is well-defined. **Where the user's MCP config actually lives is not yet verified against real data** — see Still Open |
 | Exact-name collision across sources                           | Global, project, plugin | No file parsing at all — pure query over the already-scanned `skills` table: `GROUP BY name HAVING COUNT(*) > 1`                                                                                                                                                    | Deterministic, cheapest rule by far                                                                                                                                                   |
+
+**Shadow detection shipped ahead of M4 (2026-08-16), decoupled from `lint_findings`.** The row
+above treated every name collision as one flat case. A 2026-08-16 investigation split it in two:
+a project skill shadowed by a same-named global skill (dead, can never run — see
+`docs/data-model.md`'s "Skill name collisions") versus two real, both-working project skills in
+different repos (informational only, no defect). The shadow case needed a user-visible warning
+now, not whenever M4 lands, so it shipped as a live query in `SKILLS_WITH_USAGE_SELECT`
+(`src/main/db/queries.ts`) plus a `shadowed_by_skill_id` field on `SkillRow`, with no dependency
+on `lint_findings` existing. When M4 is actually built, this rule should reuse that same query
+logic and split it the same way rather than re-deriving a flat `GROUP BY` — plugin skills should
+also drop out of "Applies to" above, since the namespace verification found they structurally
+can't collide (`docs/skill-scanner.md`).
 
 ## Scan cadence
 
@@ -266,7 +317,7 @@ Tier-2 consent moved from last to right after the inventory UI — see Revisions
 | M2  | Skill inventory UI                  | List every skill across all three sources, tagged by origin; plugin entries visually marked read-only.                                                                                                                                           |
 | M3  | Tier-2 consent _(moved up from M6)_ | Onboarding folder picker for repos, wired through `isPathAllowed()` / `getGrantedPaths()`. Purpose is narrowly to find project-level skills — not a repo activity view.                                                                          |
 | M4  | Deterministic linter _(was M3)_     | Implement the five static rules; surface findings inline in the inventory and detail view.                                                                                                                                                       |
-| M5  | Usage stats _(was M4)_              | Join `skill_invocations` with `sessions_meta`: last-used date, invocation count, per-project breakdown as inventory columns.                                                                                                                     |
+| M5  | Usage stats _(was M4)_              | Join `skill_invocations` with `sessions_meta`: last-used date, invocation count, per-project breakdown as inventory columns. **Expanded**: per-skill token estimates (`est_listing_tokens`/`est_body_tokens`, see Token estimation above) and an aggregate context budget in the sidebar — the same insight Claude Code's own `/doctor` reports, computed from Megatron's richer raw material. **Done.** |
 | M6  | Plugin remediation _(was M5)_       | Version-compare against the marketplace cache for "Check for update"; deep-link to the marketplace repo's GitHub issues for "Report."                                                                                                            |
 | M7  | Ship                                | Code-sign, notarize, DMG. No App Store submission lane.                                                                                                                                                                                          |
 

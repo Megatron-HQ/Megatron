@@ -107,7 +107,9 @@ export function scanPluginRegistry(
             name: parsed.name,
             source_path: dirPath,
             plugin_name: `${name}@${marketplace}`,
-            description: parsed.description
+            description: parsed.description,
+            est_listing_tokens: parsed.est_listing_tokens,
+            est_body_tokens: parsed.est_body_tokens
           })
         }
       }

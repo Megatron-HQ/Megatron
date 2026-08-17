@@ -5,7 +5,12 @@ CREATE TABLE IF NOT EXISTS skills (
   source_path TEXT NOT NULL UNIQUE,   -- discovered path, not realpath (see symlinks note above)
   plugin_name TEXT,                   -- 'name@marketplace' composite, plugin-tier only
   description TEXT,                   -- NULL/empty is a valid, lint-worthy state
-  last_scanned_at TEXT NOT NULL       -- ISO8601
+  last_scanned_at TEXT NOT NULL,       -- ISO8601
+  est_listing_tokens INTEGER NOT NULL DEFAULT 0,  -- name + description, the always-resident cost
+  est_body_tokens INTEGER NOT NULL DEFAULT 0,     -- full SKILL.md, the cost when the skill fires
+  project_root TEXT                    -- granted repo root; NULL for global/plugin. Scopes
+                                        -- invocation counts to this repo's own sessions when
+                                        -- another repo has a same-named skill.
 );
 
 CREATE TABLE IF NOT EXISTS sessions_meta (
@@ -27,7 +32,8 @@ CREATE TABLE IF NOT EXISTS skill_invocations (
   trigger_type TEXT NOT NULL CHECK (   -- added post-M1, see Invocation trigger classification
     trigger_type IN ('user_invoked', 'autonomous', 'subagent')
   ),
-  agent_id TEXT                       -- subagent filename stem; NULL for main-session invocations
+  agent_id TEXT,                      -- subagent filename stem; NULL for main-session invocations
+  preceding_user_text TEXT            -- nearest preceding user message; heuristic, nullable
 );
 
 CREATE TABLE IF NOT EXISTS plugin_registry (
@@ -45,4 +51,3 @@ CREATE TABLE IF NOT EXISTS allowed_paths (
   path TEXT PRIMARY KEY,              -- resolved repository root
   granted_at TEXT NOT NULL            -- ISO8601
 );
-

@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'fs'
 import { homedir } from 'os'
 import { basename, join, resolve } from 'path'
 import { allowedReaddirSync, allowedStatSync, isPathAllowed } from '../permissions'
+import type { TriggerType } from '../../shared/ipc'
 
 export interface TranscriptSession {
   session_id: string
@@ -12,8 +13,6 @@ export interface TranscriptSession {
   message_count: number
 }
 
-export type TriggerType = 'user_invoked' | 'autonomous' | 'subagent'
-
 export interface TranscriptInvocation {
   source_uuid: string
   session_id: string
@@ -22,6 +21,13 @@ export interface TranscriptInvocation {
   invoked_at: string
   trigger_type: TriggerType
   agent_id: string | null
+  preceding_user_text: string | null
+}
+
+const PRECEDING_TEXT_MAX_CHARS = 2000
+
+function truncatePrecedingText(text: string | null): string | null {
+  return text === null ? null : text.slice(0, PRECEDING_TEXT_MAX_CHARS)
 }
 
 export interface TranscriptParse {
@@ -165,7 +171,10 @@ function extractInvocations(
             args_text: argsText,
             invoked_at: invokedAt,
             trigger_type: agentId !== null ? 'subagent' : 'user_invoked',
-            agent_id: agentId
+            agent_id: agentId,
+            // precedingMessage here is this same command record's own content — storing it
+            // would duplicate args_text, not add ambient context. See docs/transcript-ingest.md.
+            preceding_user_text: null
           })
         }
       }
@@ -208,7 +217,8 @@ function extractInvocations(
         // limitation, not a bug. See docs/mvp-build-spec.md, Invocation trigger
         // classification.
         trigger_type: agentId !== null ? 'subagent' : classifyTrigger(precedingMessage, skillName),
-        agent_id: agentId
+        agent_id: agentId,
+        preceding_user_text: truncatePrecedingText(precedingMessage)
       })
     }
   }
@@ -252,8 +262,8 @@ export function scanTranscripts(
 
   const insertInvocation = db.prepare(`
     INSERT OR IGNORE INTO skill_invocations
-      (source_uuid, session_id, skill_name, args_text, invoked_at, trigger_type, agent_id)
-    VALUES (@source_uuid, @session_id, @skill_name, @args_text, @invoked_at, @trigger_type, @agent_id)
+      (source_uuid, session_id, skill_name, args_text, invoked_at, trigger_type, agent_id, preceding_user_text)
+    VALUES (@source_uuid, @session_id, @skill_name, @args_text, @invoked_at, @trigger_type, @agent_id, @preceding_user_text)
   `)
 
   const getStoredMtime = db.prepare(

@@ -26,7 +26,9 @@ export const scenarios = [
     }
   },
   {
-    name: 'file-viewer-open',
+    // Clicking a row now lands on the SkillDetail page (metadata only) — the file
+    // tree/content view is a separate page, one click further via "View files".
+    name: 'skill-detail-open',
     async run(window) {
       await window.locator('tbody tr').first().click()
       await window.getByRole('button', { name: 'Back to skills' }).waitFor()
@@ -39,7 +41,7 @@ export const scenarios = [
     }
   },
   {
-    name: 'sidebar-filter-closes-open-viewer',
+    name: 'sidebar-filter-closes-open-detail',
     async run(window) {
       await window.locator('tbody tr').first().click()
       await window.getByRole('button', { name: 'Back to skills' }).waitFor()
@@ -63,12 +65,23 @@ export const scenarios = [
     }
   },
   {
-    // file-viewer-open above already captures the tree's default (all-collapsed)
+    // The dedicated entry point onto the trimmed file tree/content page: Detail's
+    // "View files" button. Its own back arrow returns to Detail, not the table.
+    name: 'skill-files-open',
+    async run(window) {
+      await window.locator('tbody tr').first().click()
+      await window.getByRole('button', { name: 'View files' }).click()
+      await window.getByRole('button', { name: 'Back to skill details' }).waitFor()
+    }
+  },
+  {
+    // skill-files-open above already captures the tree's default (all-collapsed)
     // state — this one exercises expand, the direct fix for the crowded-tree bug.
     name: 'file-viewer-tree-expanded',
     async run(window) {
       await window.locator('tbody tr').first().click()
-      await window.getByRole('button', { name: 'Back to skills' }).waitFor()
+      await window.getByRole('button', { name: 'View files' }).click()
+      await window.getByRole('button', { name: 'Back to skill details' }).waitFor()
       await window.locator('[role="treeitem"][aria-expanded]').first().click()
       await window.locator('[role="treeitem"][aria-expanded="true"]').first().waitFor()
       // The tree's expand/collapse and row-entrance effects are motion (JS-driven)
@@ -82,7 +95,8 @@ export const scenarios = [
     name: 'file-viewer-tree-search',
     async run(window) {
       await window.locator('tbody tr').first().click()
-      await window.getByRole('button', { name: 'Back to skills' }).waitFor()
+      await window.getByRole('button', { name: 'View files' }).click()
+      await window.getByRole('button', { name: 'Back to skill details' }).waitFor()
       // Every skill has a SKILL.md, so this is guaranteed to match regardless
       // of which skill the first table row happens to be.
       await window.getByPlaceholder(/filter files/i).fill('skill')
@@ -103,6 +117,24 @@ export const scenarios = [
     async run(window) {
       await window.locator('tbody tr').nth(1).hover()
       await window.waitForTimeout(300)
+    }
+  },
+  {
+    // M5 usage stats: a skill with real invocation history, rendering the always-expanded
+    // trigger-type/per-project/recent-trigger breakdown (no disclosure toggle anymore — the
+    // Detail page has room to just show it). Named skill rather than "first row" because this
+    // depends on real usage existing — same real-~/.claude-data assumption every other scenario
+    // here already makes (e.g. project-filter-empty-state assumes zero grants). Also exercises
+    // the command-palette entry point landing on Detail, same as a table-row click would.
+    name: 'skill-detail-with-usage-history',
+    async run(window) {
+      await window.keyboard.press('Meta+k')
+      await window.getByPlaceholder(/search skills by name/i).fill('grill-me')
+      await window
+        .getByRole('option', { name: /^grill-me/ })
+        .first()
+        .click()
+      await window.getByRole('button', { name: 'Back to skills' }).waitFor()
     }
   }
 ]

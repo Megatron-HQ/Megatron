@@ -18,6 +18,7 @@ interface SkillRow {
   plugin_name: string | null
   description: string | null
   last_scanned_at: string
+  project_root: string | null
 }
 
 function allSkills(): SkillRow[] {
@@ -226,6 +227,24 @@ describe('scanSkills', () => {
     }
   )
 
+  it('records project_root on a project-tier skill from the scanned root', () => {
+    const root = join(tmpDir, 'my-repo', '.claude', 'skills')
+    writeSkillDir(root, 'skill-a', '---\nname: skill-a\ndescription: A\n---\nBody')
+
+    scanSkills(db, [{ dir: root, sourceType: 'project', projectRoot: join(tmpDir, 'my-repo') }])
+
+    expect(allSkills()[0].project_root).toBe(join(tmpDir, 'my-repo'))
+  })
+
+  it('leaves project_root null for a global-tier skill', () => {
+    const root = join(tmpDir, 'skills')
+    writeSkillDir(root, 'skill-a', '---\nname: skill-a\ndescription: A\n---\nBody')
+
+    scanSkills(db, [{ dir: root, sourceType: 'global' }])
+
+    expect(allSkills()[0].project_root).toBeNull()
+  })
+
   it('records last_scanned_at as a valid ISO8601 string', () => {
     const root = join(tmpDir, 'skills')
     writeSkillDir(root, 'skill-a', '---\nname: skill-a\ndescription: First\n---\nBody')
@@ -254,7 +273,8 @@ describe('defaultSkillRoots', () => {
 
     expect(roots).toContainEqual({
       dir: join(repo, '.claude', 'skills'),
-      sourceType: 'project'
+      sourceType: 'project',
+      projectRoot: repo
     })
   })
 })

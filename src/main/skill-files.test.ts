@@ -3,7 +3,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { grantPath, resetGrantedPaths } from './permissions'
-import { readSkillFiles } from './skill-files'
+import { readSkillFiles, readSkillMd } from './skill-files'
 
 let tmpDir: string
 
@@ -83,5 +83,32 @@ describe('readSkillFiles', () => {
     const binary = readSkillFiles(tmpDir).find((f) => f.relativePath === 'binary.dat')
 
     expect(binary).toEqual({ relativePath: 'binary.dat', content: null, status: 'unreadable' })
+  })
+})
+
+describe('readSkillMd', () => {
+  it('reads only SKILL.md, ignoring every other file in the directory', () => {
+    grantPath(tmpDir)
+    writeFileSync(join(tmpDir, 'SKILL.md'), '---\nname: test\n---\nBody')
+    mkdirSync(join(tmpDir, 'references'))
+    writeFileSync(join(tmpDir, 'references', 'palette.md'), 'x'.repeat(300 * 1024))
+
+    expect(readSkillMd(tmpDir)).toEqual({
+      relativePath: 'SKILL.md',
+      content: '---\nname: test\n---\nBody',
+      status: 'ok'
+    })
+  })
+
+  it('returns null for a disallowed directory', () => {
+    writeFileSync(join(tmpDir, 'SKILL.md'), '---\nname: test\n---\nBody')
+
+    expect(readSkillMd(tmpDir)).toBeNull()
+  })
+
+  it('returns null when SKILL.md does not exist', () => {
+    grantPath(tmpDir)
+
+    expect(readSkillMd(tmpDir)).toBeNull()
   })
 })

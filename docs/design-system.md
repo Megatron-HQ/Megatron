@@ -83,13 +83,80 @@ itself. **Fullscreen, replacing the table pane, not layered over it** — the si
 and usable (filters, theme toggle) but the table is gone until you close back out, same
 mechanism as swapping table for panel content used to be, just at full width instead of 360px.
 
-Layout: a compact header (name, source badge, resolved directory path — `last_scanned_at` is
-dropped, it's scan bookkeeping nobody opens a file to check), a file tree on the left covering the
-skill's whole directory (not just `SKILL.md`), and a content pane on the right showing the
-selected file as raw monospace text — no markdown rendering, no syntax highlighting, matching the
-existing Geist Mono convention for code-like data rather than adding a rendering dependency for a
-read-only v1. `SKILL.md` is selected by default. Files skip dotfiles, cap preview content at
-256KB, and mark binary/undecodable content as unreadable rather than showing mojibake.
+Layout: a header (see Revised: header layout below), a file tree on the left covering the skill's
+whole directory (not just `SKILL.md`), and a content pane on the right showing the selected file.
+`SKILL.md` is selected by default. Files skip dotfiles, cap preview content at 256KB, and mark
+binary/undecodable content as unreadable rather than showing mojibake. `last_scanned_at` is
+dropped from the header, it's scan bookkeeping nobody opens a file to check.
+
+**Revised: header layout.** Originally one two-row header (name/source badge/path on a
+`justify-between` row, then description and frontmatter chips sharing one wrapped flex line).
+Reworked after that packed seven distinct data types — back button, title, source badge, absolute
+path, prose description, and N frontmatter chips — into two rows tight enough to read as crowded
+and misaligned once real skill data (long paths, multi-field frontmatter) filled it in.
+Reference (layout/hierarchy only, not literal code) drawn from two 21st.dev page-header patterns
+that group title + status badge as one left-aligned unit rather than splitting them: no new
+dependency, rebuilt with existing tokens. Now four stacked rows, indented under the title
+(`pl-8`, past the back button) except the identity row itself:
+
+1. **Identity row** — back button, title (`truncate`), source badge. Flush left, no
+   `justify-between` — that property was the actual alignment bug, splitting the button and title
+   to opposite ends of the row.
+2. **Path** — its own line, Geist Mono, `truncate` with a native `title` attribute carrying the
+   full value (same cheap precedent `SourceBadge` already uses over a richer `Tooltip`).
+3. **Description** — renders in full, no line-clamp, `max-w-[72ch]` (the same prose-measure
+   exception Markdown rendering below already carves out). Header height now varies per skill;
+   traded deliberately for the description actually being readable, which was the point of the
+   rework. Row is omitted entirely when there's no description.
+4. **Frontmatter chips** — now `Badge` (`variant="outline"`), the same pill `SourceBadge` uses,
+   instead of a bespoke `rounded-sm`/`bg-muted`/all-mono `<span>`. One pill vocabulary in the
+   header instead of two competing ones; the key stays Geist Sans, the value stays Geist Mono
+   inside the pill since it's literal declared data.
+
+The usage-stats strip below the header (est. tokens, uses, trigger-type breakdown) is untouched —
+still its own bordered strip, per Elevation's border-first stance below.
+
+**Revised: markdown rendering.** This section originally locked "raw monospace text — no markdown
+rendering, no syntax highlighting... rather than adding a rendering dependency for a read-only
+v1." Reversed once the app was actually used to read real `SKILL.md` files — undifferentiated
+plaintext made the single most-read surface in the app the least readable one. `.md`/`.markdown`
+files now render via `react-markdown` + `remark-gfm` (tables/task-lists/strikethrough); every other
+file type is untouched, still the original raw Geist Mono `<pre>`. Scoped narrowly, not a general
+reopening of the v1-minimalism stance:
+
+- **No syntax highlighter.** Fenced code gets a plain bordered/`bg-muted` box in Geist Mono, no
+  colored tokens — which is also why standalone script files in the tree stay unhighlighted; the
+  only reason to add one (matching fenced-code styling) doesn't apply.
+- **No raw HTML.** `react-markdown` escapes embedded HTML by default; that default is kept
+  deliberately — skill files are third-party content read off disk, and enabling raw HTML would
+  make an embedded `<script>` executable in a non-sandboxed renderer.
+- **No local image rendering.** An `![]()` referencing a file in the skill directory renders as
+  alt text / a broken-image placeholder. Real image bytes would need a new binary-read IPC channel
+  (today's `skills:open` returns all file content as UTF-8 text, `status: 'unreadable'` for binary)
+  — deferred until a real skill actually embeds one; none on the dev machine do.
+- **No rendered/raw toggle.** One view per file, same as every other file type in this viewer.
+- **Links work.** A relative link to another file in the same skill directory selects that file in
+  the tree (same selection state the tree itself drives). An `http(s)` link opens via the OS
+  browser, through a new `shell:openExternal` IPC channel that validates the scheme in the main
+  process (`src/main/shell.ts`) before calling `shell.openExternal` — the renderer is not trusted
+  to gate this itself, since the URL originates from scanned third-party content.
+- **Frontmatter moves into the header**, not the rendered body — `name` was already redundant with
+  the header's own title, and `description` now renders there as a subtitle. Any *other* top-level
+  scalar frontmatter field (string/number/boolean) a `SKILL.md` declares — e.g. `argument-hint`,
+  `license` — renders as a small `key: value` chip next to it. Not a hardcoded field list: whatever
+  a skill's frontmatter actually declares just shows up, since `yaml.parse()` already gives the
+  whole object and only `name`/`description` are deliberately dropped. Arrays/objects are skipped.
+- **Prose gets a `max-w-[72ch]` measure** — a scoped exception to the "Content max-width: None" row
+  under Layout & density below, which was written for the fluid table; a full-window line length is
+  genuinely unreadable for prose. Code blocks and tables inside markdown still scroll horizontally
+  in their own `overflow-x-auto` container rather than widening the pane.
+
+`MarkdownView.tsx` is hand-owned, one tier above `components/ui/`, alongside `FileTree.tsx` — same
+rationale already recorded there: a heavily-adapted/composed piece (an explicit `components` map
+mapping every markdown element to this doc's existing tokens), not an untouched shadcn CLI pull.
+Considered and skipped: `@tailwindcss/typography`. Its `prose` defaults carry their own type/color
+opinions that would have to be fought back with `prose-*` overrides to land on the locked 5-step
+scale below — a direct component map is less code and exactly on-token from the start.
 
 **File tree, revised**: real skill directories turned out to have high sibling counts within a
 directory (a `references/` folder with 15+ flat files, several `scripts/<name>/` subtrees) — a
@@ -127,7 +194,7 @@ table rather than a spacious admin dashboard:
 | Table row height       | 40px (was 36px — revised for more breathing room once Path was cut)         |
 | Table cell padding     | 8px / 12px                                                                  |
 | File viewer tree width | 240px default, resizable 200–480px (see Skill file viewer above)            |
-| Content max-width      | None — fluid, fills the window                                              |
+| Content max-width      | None — fluid, fills the window. **Exception**: rendered markdown prose caps at `72ch` (see Markdown rendering under Skill file viewer above) — a full-window line length is unreadable for prose even though it's correct for the table |
 
 ## Color
 
@@ -179,6 +246,14 @@ judgment, which is exactly the kind of improvisation this doc exists to prevent.
 | Table column headers          | 11px / 500 / uppercase / Geist Sans / `--muted-foreground` |
 | Body / table cells            | 13px / 400 / Geist Sans                                    |
 | Mono data (paths, plugin IDs) | 12px / 400 / Geist Mono / tabular-nums                     |
+
+**Extended for rendered markdown** (`MarkdownView.tsx`, see Skill file viewer above): the 5-step
+scale above is UI-purpose-bound and has no row for arbitrary prose headings, so rendered `.md`
+content gets its own small descending scale rather than reusing the Detail-panel title size for
+every heading level — h1 20px/600, h2 16px/600, h3 14px/600, h4–h6 13px/600 (h4 and below share the
+locked Body size rather than inventing sizes smaller than body text, which real skill docs rarely
+use anyway). All Geist Sans; fenced/inline code stays Geist Mono at the existing 12px mono-data
+step.
 
 ## Icons
 
@@ -340,7 +415,10 @@ overflow). The skill file viewer itself (see above) needed no new vendored compo
 tree component itself is **not** a shadcn vendor pull — it's hand-owned at
 `components/FileTree.tsx`, one tier up from `components/ui/`, alongside `CommandPalette.tsx`,
 because it's built from a heavily-adapted third-party reference rather than an untouched CLI pull
-(see Motion above).
+(see Motion above). `MarkdownView.tsx` joined that same tier for the same reason once markdown
+rendering landed (see Skill file viewer above) — `react-markdown` + `remark-gfm` are real new
+dependencies here, not a shadcn pull; no syntax-highlighter or `@tailwindcss/typography` dependency
+was added alongside them (see the Markdown rendering note above for why).
 
 **Sonner/toast is explicitly not on that list** — see Empty / loading / error states below for
 why.

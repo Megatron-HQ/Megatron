@@ -6,34 +6,72 @@ import { isPathAllowed } from '../permissions'
 export interface ParsedSkill {
   name: string
   description: string | null
+  est_listing_tokens: number
+  est_body_tokens: number
 }
 
-export function parseSkillDirectory(dirPath: string): ParsedSkill {
-  const fallback: ParsedSkill = { name: basename(dirPath), description: null }
-  const skillMdPath = join(dirPath, 'SKILL.md')
+// Verbatim from Claude Code's compiled binary (function `xv` and its skill-listing call site).
+// `chars / 4` isn't an approximation — it's the literal mechanism that decides when a live
+// session truncates a skill's description, so a "more accurate" tokenizer would disagree with
+// real behavior. Math.round (not floor/ceil) matches that call site's rounding mode.
+const LISTING_DESCRIPTION_MAX_CHARS = 1536
 
-  if (!isPathAllowed(skillMdPath) || !existsSync(skillMdPath)) return fallback
+function estimateTokens(text: string): number {
+  return Math.round(text.length / 4)
+}
 
-  const content = readFileSync(skillMdPath, 'utf8')
+function estimateListingTokens(name: string, description: string | null): number {
+  const capped =
+    description !== null && description.length > LISTING_DESCRIPTION_MAX_CHARS
+      ? description.slice(0, LISTING_DESCRIPTION_MAX_CHARS)
+      : description
+  return estimateTokens([name, capped].filter(Boolean).join(' '))
+}
+
+function parseFrontmatter(
+  content: string,
+  fallbackName: string
+): { name: string; description: string | null } {
   const block = extractFrontmatterBlock(content)
-  if (block === null) return fallback
+  if (block === null) return { name: fallbackName, description: null }
 
   let parsed: unknown
   try {
     parsed = parse(block)
   } catch {
-    return fallback
+    return { name: fallbackName, description: null }
   }
 
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return fallback
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { name: fallbackName, description: null }
+  }
 
   const record = parsed as Record<string, unknown>
   const trimmedName = typeof record.name === 'string' ? record.name.trim() : ''
-  const name = trimmedName === '' ? fallback.name : trimmedName
+  const name = trimmedName === '' ? fallbackName : trimmedName
   const rawDescription = typeof record.description === 'string' ? record.description.trim() : ''
   const description = rawDescription === '' ? null : rawDescription
 
   return { name, description }
+}
+
+export function parseSkillDirectory(dirPath: string): ParsedSkill {
+  const fallbackName = basename(dirPath)
+  const skillMdPath = join(dirPath, 'SKILL.md')
+
+  if (!isPathAllowed(skillMdPath) || !existsSync(skillMdPath)) {
+    return { name: fallbackName, description: null, est_listing_tokens: 0, est_body_tokens: 0 }
+  }
+
+  const content = readFileSync(skillMdPath, 'utf8')
+  const { name, description } = parseFrontmatter(content, fallbackName)
+
+  return {
+    name,
+    description,
+    est_listing_tokens: estimateListingTokens(name, description),
+    est_body_tokens: estimateTokens(content)
+  }
 }
 
 function extractFrontmatterBlock(content: string): string | null {
