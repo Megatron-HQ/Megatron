@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { homedir, tmpdir } from 'os'
 import { join, resolve } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -6,10 +6,12 @@ import {
   allowedExistsSync,
   allowedReaddirSync,
   allowedReadFileSync,
+  allowedRealpathSync,
   allowedStatSync,
   getGrantedPaths,
   grantPath,
   isPathAllowed,
+  readAllowedDirectory,
   resetGrantedPaths,
   revokePath
 } from './permissions'
@@ -171,6 +173,31 @@ describe('allowedReaddirSync', () => {
   })
 })
 
+describe('readAllowedDirectory', () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'megatron-perm-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('distinguishes empty, missing, and unavailable directories', () => {
+    grantPath(tmpDir)
+
+    expect(readAllowedDirectory(tmpDir)).toEqual({ entries: [], status: 'ok' })
+    expect(readAllowedDirectory(join(tmpDir, 'missing'))).toEqual({
+      entries: [],
+      status: 'missing'
+    })
+
+    resetGrantedPaths()
+    expect(readAllowedDirectory(tmpDir)).toEqual({ entries: [], status: 'unavailable' })
+  })
+})
+
 describe('allowedExistsSync', () => {
   let tmpDir: string
 
@@ -232,6 +259,28 @@ describe('allowedStatSync', () => {
   it('returns null for an allowed path that does not exist', () => {
     grantPath(tmpDir)
     expect(allowedStatSync(join(tmpDir, 'missing.txt'))).toBeNull()
+  })
+})
+
+describe('allowedRealpathSync', () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'megatron-perm-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('returns the same canonical path for an allowed directory and its symlink', () => {
+    grantPath(tmpDir)
+    const target = join(tmpDir, 'target')
+    mkdirSync(target)
+    const link = join(tmpDir, 'link')
+    symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir')
+
+    expect(allowedRealpathSync(link)).toBe(allowedRealpathSync(target))
   })
 })
 

@@ -98,6 +98,20 @@ this skill:`; no built-in ever produces that child. `skill_name`/`trigger_type`
 
 **Implemented and verified.** Full lint/typecheck/test gate green after the collapse.
 
+**Automatic-attribution path (post-M5):** newer Claude Code transcripts can record a skill the
+model selected automatically as root-level `attributionSkill` on an `assistant` record, with no
+`Skill` tool-use block. The parser indexes that shape generically for any non-empty skill name,
+using the surrounding user turn to preserve the existing `user_invoked` versus `autonomous`
+classification. Repeated attribution records for the same skill in one user turn collapse to one
+row. If a canonical slash-command or `Skill` tool-use record exists for that same skill and turn,
+it wins and the attribution record is suppressed: it has the original arguments and avoids
+counting one real invocation twice. Attribution names are trimmed before storage.
+
+`sessions_meta.transcript_parser_version` is part of the scan cache. A parser-semantic change
+bumps the named parser version, forcing one safe reindex even when the transcript's modification
+time and size are unchanged. This ensures a newly-supported transcript format is applied to
+already-indexed history rather than only to future writes.
+
 **Second gap closed (post-M2): subagent-invoked skills.** A 15 Aug 2026 audit comparing ground
 truth (parsed independently from every Aug-15-touching transcript) against the live db found the
 scanner captured 14 of 15 real invocations. The miss: a skill invoked _inside_ a subagent
@@ -132,8 +146,10 @@ changes to clean them up when a session is deleted.
 **Schema change**: `skill_invocations.trigger_type` CHECK widened to
 `('user_invoked', 'autonomous', 'subagent')`, and a new nullable `agent_id TEXT` column added
 (the subagent's filename stem, e.g. `agent-a5738f0e768b82c34`; `NULL` for main-session rows). No
-migration path exists (`applySchema` is `CREATE TABLE IF NOT EXISTS` only — see the forward-looking
-gap in `docs/data-model.md`), so this rides on a fresh local db rather than an `ALTER TABLE`.
+migration path existed when M5 was first implemented, so a fresh development index was used then.
+`applySchema` now rebuilds legacy `skill_invocations` safely when its `trigger_type` CHECK does
+not admit all three values, preserving existing rows; its session-cache migrations also add
+`source_size_bytes` and `transcript_parser_version` for pre-existing local indexes.
 
 **Not in scope**: no renderer/IPC surface reads `trigger_type` yet, so `'subagent'` doesn't appear
 in the UI. No general recursive directory walk — the one-level-deeper `subagents/` check is

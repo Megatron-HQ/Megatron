@@ -13,6 +13,19 @@ import type {
   TriggerTypeCount
 } from '../../shared/ipc'
 
+const PROJECT_PATH_SEPARATORS = [...new Set([sep, '/', '\\'])]
+
+function projectPathScopeSql(cwdExpression: string, rootExpression: string): string {
+  const nestedPathChecks = PROJECT_PATH_SEPARATORS.map(
+    (separator) =>
+      `substr(${cwdExpression}, 1, length(${rootExpression}) + 1) = ${rootExpression} || '${separator}'`
+  ).join(' OR ')
+  return `(${cwdExpression} = ${rootExpression} OR ${nestedPathChecks})`
+}
+
+const SKILL_PROJECT_PATH_SCOPE = projectPathScopeSql('sm.cwd', 's.project_root')
+const PARAMETERIZED_PROJECT_PATH_SCOPE = projectPathScopeSql('sm.cwd', '@root')
+
 // Live aggregate, not a stored count — skill_invocations is append-only and joined by
 // skill_name (no FK, per the locked no-FK decision), so this can never fall out of sync.
 //
@@ -53,8 +66,7 @@ const SKILLS_WITH_USAGE_SELECT = `
         SELECT COUNT(*) FROM skill_invocations si
         JOIN sessions_meta sm ON sm.session_id = si.session_id
         WHERE si.skill_name = s.name
-          AND (sm.cwd = s.project_root
-               OR substr(sm.cwd, 1, length(s.project_root) + 1) = s.project_root || '/')
+          AND ${SKILL_PROJECT_PATH_SCOPE}
       )
       ELSE (SELECT COUNT(*) FROM skill_invocations si WHERE si.skill_name = s.name)
     END AS total_invocations,
@@ -64,8 +76,7 @@ const SKILLS_WITH_USAGE_SELECT = `
         SELECT MAX(si.invoked_at) FROM skill_invocations si
         JOIN sessions_meta sm ON sm.session_id = si.session_id
         WHERE si.skill_name = s.name
-          AND (sm.cwd = s.project_root
-               OR substr(sm.cwd, 1, length(s.project_root) + 1) = s.project_root || '/')
+          AND ${SKILL_PROJECT_PATH_SCOPE}
       )
       ELSE (SELECT MAX(si.invoked_at) FROM skill_invocations si WHERE si.skill_name = s.name)
     END AS last_invoked_at
@@ -315,9 +326,7 @@ export function getSkillUsageDetail(db: Database.Database, skill: SkillRow): Ski
   }
 
   const scoped = skill.source_type === 'project' && skill.project_root !== null
-  const scopeClause = scoped
-    ? `AND (sm.cwd = @root OR substr(sm.cwd, 1, length(@root) + 1) = @root || '/')`
-    : ''
+  const scopeClause = scoped ? `AND ${PARAMETERIZED_PROJECT_PATH_SCOPE}` : ''
   const params = scoped
     ? { skillName: skill.name, root: skill.project_root }
     : { skillName: skill.name }

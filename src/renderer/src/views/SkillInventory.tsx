@@ -32,6 +32,7 @@ import type { SkillRow } from '../../../shared/ipc'
 
 const ROW_HEIGHT = 40
 const HEADER_HEIGHT = 40
+const NARROW_VIEWPORT_DESCRIPTION_CLASS = 'max-[1000px]:hidden'
 
 const features = tableFeatures({
   rowSortingFeature,
@@ -206,7 +207,9 @@ export function SkillInventory({
               <TableHead className="w-[200px] px-3 py-2">Name</TableHead>
               <TableHead className="w-[100px] px-3 py-2">Status</TableHead>
               <TableHead className="w-[120px] px-3 py-2">Source</TableHead>
-              <TableHead className="px-3 py-2">Description</TableHead>
+              <TableHead className={cn('px-3 py-2', NARROW_VIEWPORT_DESCRIPTION_CLASS)}>
+                Description
+              </TableHead>
               <TableHead className="w-[90px] px-3 py-2">Tokens</TableHead>
               <TableHead className="w-[80px] px-3 py-2">Uses</TableHead>
             </TableRow>
@@ -223,7 +226,7 @@ export function SkillInventory({
                 <TableCell className="px-3 py-2">
                   <Skeleton className="h-4 w-16" />
                 </TableCell>
-                <TableCell className="px-3 py-2">
+                <TableCell className={cn('px-3 py-2', NARROW_VIEWPORT_DESCRIPTION_CLASS)}>
                   <Skeleton className="h-4 w-48" />
                 </TableCell>
                 <TableCell className="px-3 py-2">
@@ -260,7 +263,8 @@ export function SkillInventory({
                     key={header.id}
                     className={cn(
                       'px-3 py-2 text-[11px] font-medium tracking-wide text-muted-foreground uppercase',
-                      COLUMN_WIDTH[header.column.id]
+                      COLUMN_WIDTH[header.column.id],
+                      header.column.id === 'description' && NARROW_VIEWPORT_DESCRIPTION_CLASS
                     )}
                   >
                     {header.column.getCanSort() ? (
@@ -309,7 +313,11 @@ export function SkillInventory({
                 {row.getAllCells().map((cell) => (
                   <TableCell
                     key={cell.id}
-                    className={cn('px-3 py-2', COLUMN_WIDTH[cell.column.id])}
+                    className={cn(
+                      'px-3 py-2',
+                      COLUMN_WIDTH[cell.column.id],
+                      cell.column.id === 'description' && NARROW_VIEWPORT_DESCRIPTION_CLASS
+                    )}
                   >
                     <table.FlexRender cell={cell} />
                   </TableCell>

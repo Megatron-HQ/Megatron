@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isSafeExternalUrl } from './shell'
+import { isSafeExternalUrl, openSafeExternal } from './shell'
 
 describe('isSafeExternalUrl', () => {
   it('allows https URLs', () => {
@@ -24,5 +24,17 @@ describe('isSafeExternalUrl', () => {
 
   it('rejects unparseable input', () => {
     expect(isSafeExternalUrl('not a url')).toBe(false)
+  })
+
+  it('opens only URLs accepted by the shared safety policy', () => {
+    const opened: string[] = []
+    const open = (url: string): void => {
+      opened.push(url)
+    }
+
+    expect(openSafeExternal('https://example.com/docs', open)).toBe(true)
+    expect(openSafeExternal('file:///etc/passwd', open)).toBe(false)
+
+    expect(opened).toEqual(['https://example.com/docs'])
   })
 })

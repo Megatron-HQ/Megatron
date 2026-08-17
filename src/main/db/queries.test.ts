@@ -795,6 +795,18 @@ describe('listSkills usage aggregation', () => {
     expect(listSkills(db)[0]).toMatchObject({ total_invocations: 1 })
   })
 
+  it('counts a Windows session whose cwd is nested below the project root', () => {
+    insertSkill('deploy', {
+      source_type: 'project',
+      project_root: 'C:\\repo',
+      source_path: 'C:\\repo\\.claude\\skills\\deploy'
+    })
+    insertSession('sess-1', 'C:\\repo\\packages\\web')
+    insertInvocation({ source_uuid: 'u1', session_id: 'sess-1', skill_name: 'deploy' })
+
+    expect(listSkills(db)[0]).toMatchObject({ total_invocations: 1 })
+  })
+
   it('counts a session whose cwd exactly equals the project root', () => {
     insertSkill('deploy', { source_type: 'project', project_root: '/repo' })
     insertSession('sess-1', '/repo')

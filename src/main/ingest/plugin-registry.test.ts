@@ -4,7 +4,7 @@ import { tmpdir } from 'os'
 import { join, resolve } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applySchema } from '../db/schema'
-import { grantPath, resetGrantedPaths } from '../permissions'
+import { grantPath, resetGrantedPaths, revokePath } from '../permissions'
 import { scanPluginRegistry } from './plugin-registry'
 
 let db: Database.Database
@@ -150,6 +150,29 @@ describe('scanPluginRegistry', () => {
     expect(allRegistry()[0].installed_version).toBe('unknown')
   })
 
+  it('preserves every installation listed for one plugin key', () => {
+    const userInstallPath = join(tmpDir, 'user-install')
+    const projectInstallPath = join(tmpDir, 'project-install')
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          { scope: 'user', installPath: userInstallPath, version: '1.0.0' },
+          { scope: 'project', installPath: projectInstallPath, version: '2.0.0' }
+        ]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir)
+
+    expect(allRegistry()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scope: 'user', install_path: userInstallPath }),
+        expect.objectContaining({ scope: 'project', install_path: projectInstallPath })
+      ])
+    )
+  })
+
   it('produces zero rows without throwing when the top level has no .plugins wrapper', () => {
     writeInstalledPlugins({
       'plugin-a@market-1': [
@@ -171,6 +194,63 @@ describe('scanPluginRegistry', () => {
 
     expect(() => scanPluginRegistry(db, pluginsDir)).not.toThrow()
     expect(allRegistry()).toHaveLength(0)
+  })
+
+  it('preserves the last-known-good registry when installed_plugins.json becomes malformed', () => {
+    const installPath = join(tmpDir, 'install-a')
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+    writePluginSkill(installPath, 'plugin-skill', '---\nname: plugin-skill\n---\nBody')
+    scanPluginRegistry(db, pluginsDir)
+
+    writeFileSync(join(pluginsDir, 'installed_plugins.json'), '{ not valid json')
+    scanPluginRegistry(db, pluginsDir)
+
+    expect(allRegistry()).toHaveLength(1)
+    expect(pluginSkills().map((skill) => skill.name)).toEqual(['plugin-skill'])
+  })
+
+  it('preserves plugin skills whose install directory becomes unavailable', () => {
+    const installRoot = mkdtempSync(join(tmpdir(), 'megatron-plugin-install-'))
+    try {
+      grantPath(installRoot)
+      writeInstalledPlugins({
+        version: 2,
+        plugins: {
+          'plugin-a@market-1': [{ scope: 'user', installPath: installRoot, version: '1.0.0' }]
+        }
+      })
+      writePluginSkill(installRoot, 'plugin-skill', '---\nname: plugin-skill\n---\nBody')
+      scanPluginRegistry(db, pluginsDir)
+
+      revokePath(installRoot)
+      scanPluginRegistry(db, pluginsDir)
+
+      expect(pluginSkills().map((skill) => skill.name)).toEqual(['plugin-skill'])
+    } finally {
+      rmSync(installRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('preserves a marketplace repo when known_marketplaces.json becomes malformed', () => {
+    const installPath = join(tmpDir, 'install-a')
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+    writeMarketplaces({ 'market-1': { source: { repo: 'org/repo' } } })
+    scanPluginRegistry(db, pluginsDir)
+
+    writeFileSync(join(pluginsDir, 'known_marketplaces.json'), '{ not valid json')
+    scanPluginRegistry(db, pluginsDir)
+
+    expect(allRegistry()[0]?.marketplace_repo).toBe('org/repo')
   })
 
   it('splits a scoped plugin name with an extra @ correctly', () => {
