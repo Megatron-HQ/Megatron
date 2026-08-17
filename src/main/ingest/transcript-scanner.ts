@@ -266,6 +266,10 @@ export function scanTranscripts(
     VALUES (@source_uuid, @session_id, @skill_name, @args_text, @invoked_at, @trigger_type, @agent_id, @preceding_user_text)
   `)
 
+  const deleteSessionInvocations = db.prepare(
+    'DELETE FROM skill_invocations WHERE session_id = ?'
+  )
+
   const getStoredMtime = db.prepare(
     'SELECT source_mtime_ms FROM sessions_meta WHERE session_id = ?'
   )
@@ -338,6 +342,7 @@ export function scanTranscripts(
 
         seenSessionIds.add(parsed.session.session_id)
         upsertSession.run({ ...parsed.session, source_mtime_ms: mtimeMs })
+        deleteSessionInvocations.run(parsed.session.session_id)
         for (const invocation of parsed.invocations) {
           insertInvocation.run(invocation)
         }
