@@ -535,7 +535,7 @@ describe('parseTranscript', () => {
           invoked_at: '2024-01-01T00:01:00.000Z',
           trigger_type: 'user_invoked',
           agent_id: null,
-          preceding_user_text: null
+          preceding_user_text: '/domain-modeling'
         }
       ])
     })
@@ -649,7 +649,7 @@ describe('parseTranscript', () => {
       )
     })
 
-    it('stores null on the slash-command path even though a preceding message exists', () => {
+    it('captures the slash command on the slash-command path', () => {
       const priorTurn = metaLine({ message: { content: 'earlier unrelated message' } })
       const command = {
         type: 'user',
@@ -676,7 +676,38 @@ describe('parseTranscript', () => {
       }
       const filePath = writeTranscriptFile(tmpDir, 'sess-1', [priorTurn, command, marker])
 
-      expect(parseTranscript(filePath).invocations[0].preceding_user_text).toBeNull()
+      expect(parseTranscript(filePath).invocations[0].preceding_user_text).toBe('/domain-modeling')
+    })
+
+    it('captures the slash command with arguments on the slash-command path', () => {
+      const command = {
+        type: 'user',
+        sessionId: 'sess-1',
+        isSidechain: false,
+        uuid: 'uuid-command-args',
+        timestamp: '2024-01-01T00:01:00.000Z',
+        message: {
+          content:
+            '<command-message>domain-modeling user auth</command-message>\n<command-name>/domain-modeling</command-name>\n<command-args>user auth</command-args>'
+        }
+      }
+      const marker = {
+        type: 'user',
+        sessionId: 'sess-1',
+        isSidechain: false,
+        isMeta: true,
+        parentUuid: 'uuid-command-args',
+        message: {
+          content: [
+            { type: 'text', text: 'Base directory for this skill: /Users/x/.claude/skills/foo' }
+          ]
+        }
+      }
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [command, marker])
+
+      expect(parseTranscript(filePath).invocations[0].preceding_user_text).toBe(
+        '/domain-modeling user auth'
+      )
     })
 
     it('is null when there is no preceding user message at all', () => {

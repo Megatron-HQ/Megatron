@@ -216,15 +216,41 @@ function UsageBreakdown({ usage }: { usage: SkillUsageDetail }): React.JSX.Eleme
       )}
 
       {usage.recentTriggers.length > 0 && (
-        <div>
+        <div className="space-y-1.5">
           <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
             Recent triggers
           </p>
-          {usage.recentTriggers.map((trigger, index) => (
-            <p key={index} className="truncate text-[13px] text-muted-foreground">
-              {trigger.preceding_user_text}
-            </p>
-          ))}
+          <div className="space-y-1">
+            {usage.recentTriggers.map((trigger, index) => (
+              <div key={index} className="flex items-center gap-2 text-[13px]">
+                <span
+                  className={cn(
+                    'shrink-0 rounded px-1.5 py-0.2 font-mono text-[10px] uppercase tracking-wider font-medium',
+                    trigger.trigger_type === 'user_invoked'
+                      ? 'bg-accent-lime/25 text-foreground'
+                      : trigger.trigger_type === 'subagent'
+                        ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400'
+                        : 'bg-muted text-muted-foreground'
+                  )}
+                >
+                  {trigger.trigger_type === 'user_invoked'
+                    ? 'Manual'
+                    : trigger.trigger_type === 'subagent'
+                      ? 'Subagent'
+                      : 'Auto'}
+                </span>
+                <span
+                  className={cn(
+                    'truncate text-muted-foreground',
+                    trigger.preceding_user_text.startsWith('/') && 'font-mono text-xs'
+                  )}
+                  title={trigger.preceding_user_text}
+                >
+                  {trigger.preceding_user_text}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

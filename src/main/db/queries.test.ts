@@ -68,6 +68,7 @@ function insertInvocation(overrides: {
   source_uuid: string
   session_id: string
   skill_name: string
+  args_text?: string | null
   invoked_at?: string
   trigger_type?: string
   preceding_user_text?: string | null
@@ -75,11 +76,12 @@ function insertInvocation(overrides: {
   db.prepare(
     `INSERT INTO skill_invocations
        (source_uuid, session_id, skill_name, args_text, invoked_at, trigger_type, agent_id, preceding_user_text)
-     VALUES (@source_uuid, @session_id, @skill_name, NULL, @invoked_at, @trigger_type, NULL, @preceding_user_text)`
+     VALUES (@source_uuid, @session_id, @skill_name, @args_text, @invoked_at, @trigger_type, NULL, @preceding_user_text)`
   ).run({
     source_uuid: overrides.source_uuid,
     session_id: overrides.session_id,
     skill_name: overrides.skill_name,
+    args_text: overrides.args_text ?? null,
     invoked_at: overrides.invoked_at ?? '2026-08-14T00:00:00.000Z',
     trigger_type: overrides.trigger_type ?? 'autonomous',
     preceding_user_text: overrides.preceding_user_text ?? null
@@ -986,7 +988,32 @@ describe('getSkillUsageDetail', () => {
 
     expect(detail.recentTriggers.map((t) => t.preceding_user_text)).toEqual([
       'newer message',
+      '/grill-me',
       'older message'
+    ])
+    expect(detail.recentTriggers[0].trigger_type).toBe('autonomous')
+  })
+
+  it('falls back to slash command with args_text when preceding_user_text is null', () => {
+    const id = insertSkill('deploy')
+    insertSession('sess-1')
+    insertInvocation({
+      source_uuid: 'uuid-1',
+      session_id: 'sess-1',
+      skill_name: 'deploy',
+      args_text: 'production --force',
+      invoked_at: '2026-08-01T00:00:00.000Z',
+      trigger_type: 'user_invoked',
+      preceding_user_text: null
+    })
+
+    const detail = getSkillUsageDetail(db, getSkillById(db, id)!)
+    expect(detail.recentTriggers).toEqual([
+      {
+        preceding_user_text: '/deploy production --force',
+        invoked_at: '2026-08-01T00:00:00.000Z',
+        trigger_type: 'user_invoked'
+      }
     ])
   })
 

@@ -356,11 +356,19 @@ export function getSkillUsageDetail(db: Database.Database, skill: SkillRow): Ski
   // "triggered by". Filtered at query time; storage stays raw as a historical fact.
   const recentTriggers = db
     .prepare(
-      `SELECT si.preceding_user_text, si.invoked_at
+      `SELECT COALESCE(
+                si.preceding_user_text,
+                CASE
+                  WHEN si.args_text IS NOT NULL AND si.args_text != '' THEN '/' || si.skill_name || ' ' || si.args_text
+                  ELSE '/' || si.skill_name
+                END
+              ) AS preceding_user_text,
+              si.invoked_at,
+              si.trigger_type
        FROM skill_invocations si
        JOIN sessions_meta sm ON sm.session_id = si.session_id
-       WHERE si.skill_name = @skillName AND si.preceding_user_text IS NOT NULL
-         AND si.preceding_user_text NOT LIKE '[Image:%' ${scopeClause}
+       WHERE si.skill_name = @skillName
+         AND (si.preceding_user_text IS NULL OR si.preceding_user_text NOT LIKE '[Image:%') ${scopeClause}
        ORDER BY si.invoked_at DESC
        LIMIT ${RECENT_TRIGGERS_LIMIT}`
     )

@@ -136,5 +136,28 @@ export const scenarios = [
         .click()
       await window.getByRole('button', { name: 'Back to skills' }).waitFor()
     }
+  },
+  {
+    name: 'sidebar-projects-expanded',
+    async run(window) {
+      await window.getByRole('button', { name: 'Project' }).click()
+      await window.waitForTimeout(300)
+    }
+  },
+  {
+    name: 'sidebar-plugins-expanded',
+    async run(window) {
+      await window.getByRole('button', { name: 'Plugin' }).click()
+      await window.waitForTimeout(300)
+    }
+  },
+  {
+    name: 'skill-detail-lint-panel-expanded',
+    async run(window) {
+      await window.locator('tbody tr').first().click()
+      await window.getByRole('button', { name: 'Back to skills' }).waitFor()
+      await window.getByRole('button', { name: /Lint Status:/i }).click()
+      await window.waitForTimeout(300)
+    }
   }
 ]

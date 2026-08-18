@@ -87,6 +87,7 @@ export interface ProjectCount {
 export interface RecentTrigger {
   preceding_user_text: string
   invoked_at: string
+  trigger_type: TriggerType
 }
 
 export interface SkillUsageDetail {

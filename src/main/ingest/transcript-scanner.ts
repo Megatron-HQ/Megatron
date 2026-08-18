@@ -36,7 +36,7 @@ interface InvocationCandidate {
 }
 
 const PRECEDING_TEXT_MAX_CHARS = 2000
-const TRANSCRIPT_PARSER_VERSION = 1
+const TRANSCRIPT_PARSER_VERSION = 2
 
 function truncatePrecedingText(text: string | null): string | null {
   return text === null ? null : text.slice(0, PRECEDING_TEXT_MAX_CHARS)
@@ -196,6 +196,8 @@ function extractInvocations(
         ) {
           const argsMatch = COMMAND_ARGS_PATTERN.exec(content)
           const argsText = argsMatch !== null && argsMatch[1] !== '' ? argsMatch[1] : null
+          const slashCommandText =
+            argsText !== null ? `/${commandMatch[1]} ${argsText}` : `/${commandMatch[1]}`
 
           addCandidate(
             {
@@ -206,9 +208,7 @@ function extractInvocations(
               invoked_at: invokedAt,
               trigger_type: agentId !== null ? 'subagent' : 'user_invoked',
               agent_id: agentId,
-              // precedingMessage here is this same command record's own content — storing it
-              // would duplicate args_text, not add ambient context. See docs/transcript-ingest.md.
-              preceding_user_text: null
+              preceding_user_text: truncatePrecedingText(slashCommandText)
             },
             'structured'
           )
