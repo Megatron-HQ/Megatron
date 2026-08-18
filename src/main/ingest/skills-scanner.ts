@@ -2,7 +2,12 @@ import type Database from 'better-sqlite3'
 import { homedir } from 'os'
 import { join, resolve } from 'path'
 import { writeSkillScan, type SkillScanRow } from '../db/queries'
-import { allowedExistsSync, getGrantedPaths, readAllowedDirectory } from '../permissions'
+import {
+  allowedExistsSync,
+  allowedStatSync,
+  getGrantedPaths,
+  readAllowedDirectory
+} from '../permissions'
 import { parseSkillDirectory } from './skill-parser'
 
 export interface SkillRoot {
@@ -48,6 +53,7 @@ export function scanSkills(db: Database.Database, roots: SkillRoot[] = defaultSk
       if (!allowedExistsSync(skillMdPath)) continue
 
       const parsed = parseSkillDirectory(dirPath)
+      const stats = allowedStatSync(skillMdPath)
       rows.push({
         name: parsed.name,
         source_path: dirPath,
@@ -55,7 +61,11 @@ export function scanSkills(db: Database.Database, roots: SkillRoot[] = defaultSk
         description: parsed.description,
         est_listing_tokens: parsed.est_listing_tokens,
         est_body_tokens: parsed.est_body_tokens,
-        project_root: root.projectRoot ?? null
+        project_root: root.projectRoot ?? null,
+        license: parsed.license,
+        metadata_json: parsed.metadata_json,
+        created_at: stats?.birthtime.toISOString() ?? null,
+        modified_at: stats?.mtime.toISOString() ?? null
       })
     }
   }

@@ -19,6 +19,9 @@ interface RegistryRow {
   scope: string
   install_path: string
   last_scanned_at: string
+  installed_at: string | null
+  last_updated: string | null
+  git_commit_sha: string | null
 }
 
 interface SkillRow {
@@ -28,6 +31,10 @@ interface SkillRow {
   source_path: string
   plugin_name: string | null
   description: string | null
+  license: string | null
+  metadata_json: string | null
+  created_at: string | null
+  modified_at: string | null
 }
 
 function allRegistry(): RegistryRow[] {
@@ -276,7 +283,7 @@ describe('scanPluginRegistry', () => {
     writePluginSkill(
       installPath,
       'sub-skill',
-      '---\nname: sub-skill\ndescription: A plugin skill\n---\nBody'
+      '---\nname: sub-skill\ndescription: A plugin skill\nlicense: MIT\nmetadata:\n  author: jane\n---\nBody'
     )
     writeInstalledPlugins({
       version: 2,
@@ -292,8 +299,75 @@ describe('scanPluginRegistry', () => {
     expect(skills[0]).toMatchObject({
       name: 'sub-skill',
       description: 'A plugin skill',
-      plugin_name: 'plugin-a@market-1'
+      plugin_name: 'plugin-a@market-1',
+      license: 'MIT',
+      metadata_json: JSON.stringify({ author: 'jane' })
     })
+  })
+
+  it('always leaves created_at and modified_at NULL for a plugin skill row', () => {
+    const installPath = join(tmpDir, 'install-a')
+    writePluginSkill(installPath, 'sub-skill', '---\nname: sub-skill\n---\nBody')
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir)
+
+    const skills = pluginSkills()
+    expect(skills).toHaveLength(1)
+    expect(skills[0].created_at).toBeNull()
+    expect(skills[0].modified_at).toBeNull()
+  })
+
+  it('captures installedAt, lastUpdated, and gitCommitSha when present in the entry', () => {
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          {
+            scope: 'user',
+            installPath: join(tmpDir, 'install-a'),
+            version: '1.0.0',
+            installedAt: '2026-01-01T00:00:00.000Z',
+            lastUpdated: '2026-02-01T00:00:00.000Z',
+            gitCommitSha: 'abc123'
+          }
+        ]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir)
+
+    expect(allRegistry()[0]).toMatchObject({
+      installed_at: '2026-01-01T00:00:00.000Z',
+      last_updated: '2026-02-01T00:00:00.000Z',
+      git_commit_sha: 'abc123'
+    })
+  })
+
+  it('sets git_commit_sha to NULL when the entry omits it (a semver-pinned install)', () => {
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          {
+            scope: 'user',
+            installPath: join(tmpDir, 'install-a'),
+            version: '1.0.0',
+            installedAt: '2026-01-01T00:00:00.000Z',
+            lastUpdated: '2026-02-01T00:00:00.000Z'
+          }
+        ]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir)
+
+    expect(allRegistry()[0].git_commit_sha).toBeNull()
   })
 
   it('inserts only a registry row when the plugin has no skills/ dir', () => {

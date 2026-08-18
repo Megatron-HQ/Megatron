@@ -8,9 +8,13 @@ CREATE TABLE IF NOT EXISTS skills (
   last_scanned_at TEXT NOT NULL,       -- ISO8601
   est_listing_tokens INTEGER NOT NULL DEFAULT 0,  -- name + description, the always-resident cost
   est_body_tokens INTEGER NOT NULL DEFAULT 0,     -- full SKILL.md, the cost when the skill fires
-  project_root TEXT                    -- granted repo root; NULL for global/plugin. Scopes
+  project_root TEXT,                   -- granted repo root; NULL for global/plugin. Scopes
                                         -- invocation counts to this repo's own sessions when
                                         -- another repo has a same-named skill.
+  license TEXT,                        -- frontmatter `license:`, NULL if absent
+  metadata_json TEXT,                  -- frontmatter `metadata:` block, JSON-serialized as-is
+  created_at TEXT,                     -- SKILL.md birthtime; NULL for plugin skills (see install_at)
+  modified_at TEXT                     -- SKILL.md mtime; NULL for plugin skills (see install_at)
 );
 
 CREATE TABLE IF NOT EXISTS sessions_meta (
@@ -49,6 +53,9 @@ CREATE TABLE IF NOT EXISTS plugin_registry (
   scope TEXT NOT NULL CHECK (scope IN ('user', 'project')),
   install_path TEXT NOT NULL,
   last_scanned_at TEXT NOT NULL,
+  installed_at TEXT,                  -- from installed_plugins.json; NULL if absent
+  last_updated TEXT,                  -- from installed_plugins.json; NULL if absent
+  git_commit_sha TEXT,                -- absent on semver-pinned installs
   PRIMARY KEY (name, marketplace, install_path)
 );
 

@@ -33,6 +33,8 @@ describe('parseSkillDirectory', () => {
     expect(parseSkillDirectory(dirPath)).toEqual({
       name: 'my-skill',
       description: 'Does a thing',
+      license: null,
+      metadata_json: null,
       est_listing_tokens: 5,
       est_body_tokens: 13
     })
@@ -41,7 +43,7 @@ describe('parseSkillDirectory', () => {
   it('parses frontmatter with a UTF-8 BOM and whitespace after delimiters', () => {
     const dirPath = writeSkill(
       'my-skill',
-      '\ufeff---  \r\nname: parsed-name\r\ndescription: Parsed description\r\n--- \r\nBody'
+      '\u{FEFF}---  \r\nname: parsed-name\r\ndescription: Parsed description\r\n--- \r\nBody'
     )
 
     expect(parseSkillDirectory(dirPath)).toMatchObject({
@@ -63,6 +65,8 @@ describe('parseSkillDirectory', () => {
     expect(parseSkillDirectory(dirPath)).toEqual({
       name: 'dir-name',
       description: 'A skill',
+      license: null,
+      metadata_json: null,
       est_listing_tokens: 4,
       est_body_tokens: 8
     })
@@ -73,6 +77,8 @@ describe('parseSkillDirectory', () => {
     expect(parseSkillDirectory(dirPath)).toEqual({
       name: 'dir-name',
       description: null,
+      license: null,
+      metadata_json: null,
       est_listing_tokens: 2,
       est_body_tokens: 9
     })
@@ -87,6 +93,8 @@ describe('parseSkillDirectory', () => {
     expect(parseSkillDirectory(dirPath)).toEqual({
       name: 'dir-name',
       description: null,
+      license: null,
+      metadata_json: null,
       est_listing_tokens: 2,
       est_body_tokens: 14
     })
@@ -97,6 +105,8 @@ describe('parseSkillDirectory', () => {
     expect(parseSkillDirectory(dirPath)).toEqual({
       name: 'my-skill',
       description: null,
+      license: null,
+      metadata_json: null,
       est_listing_tokens: 2,
       est_body_tokens: 7
     })
@@ -112,6 +122,8 @@ describe('parseSkillDirectory', () => {
     expect(parseSkillDirectory(dirPath)).toEqual({
       name: 'dir-name',
       description: 'A skill',
+      license: null,
+      metadata_json: null,
       est_listing_tokens: 4,
       est_body_tokens: 11
     })
@@ -123,6 +135,8 @@ describe('parseSkillDirectory', () => {
     expect(parseSkillDirectory(dirPath)).toEqual({
       name: 'no-skill-md',
       description: null,
+      license: null,
+      metadata_json: null,
       est_listing_tokens: 0,
       est_body_tokens: 0
     })
@@ -133,6 +147,8 @@ describe('parseSkillDirectory', () => {
     expect(parseSkillDirectory(dirPath)).toEqual({
       name: 'dir-name',
       description: null,
+      license: null,
+      metadata_json: null,
       est_listing_tokens: 2,
       est_body_tokens: 8
     })
@@ -143,6 +159,8 @@ describe('parseSkillDirectory', () => {
     expect(parseSkillDirectory(dirPath)).toEqual({
       name: 'dir-name',
       description: null,
+      license: null,
+      metadata_json: null,
       est_listing_tokens: 2,
       est_body_tokens: 6
     })
@@ -153,6 +171,8 @@ describe('parseSkillDirectory', () => {
     expect(parseSkillDirectory(dirPath)).toEqual({
       name: 'my-skill',
       description: null,
+      license: null,
+      metadata_json: null,
       est_listing_tokens: 2,
       est_body_tokens: 11
     })
@@ -167,6 +187,8 @@ describe('parseSkillDirectory', () => {
     expect(parseSkillDirectory(dirPath)).toEqual({
       name: 'my-skill',
       description: 'A skill',
+      license: null,
+      metadata_json: null,
       est_listing_tokens: 4,
       est_body_tokens: 18
     })
@@ -181,6 +203,8 @@ describe('parseSkillDirectory', () => {
     expect(parseSkillDirectory(dirPath)).toEqual({
       name: 'my-skill',
       description: null,
+      license: null,
+      metadata_json: null,
       est_listing_tokens: 0,
       est_body_tokens: 0
     })
@@ -194,6 +218,8 @@ describe('parseSkillDirectory', () => {
     expect(parseSkillDirectory(dirPath)).toEqual({
       name: 'dir-name',
       description: null,
+      license: null,
+      metadata_json: null,
       est_listing_tokens: 2,
       est_body_tokens: 15
     })
@@ -227,5 +253,56 @@ describe('parseSkillDirectory', () => {
     const dirPath = writeSkill('multibyte-skill', '---\nname: café — test\n---\nBody')
     // "café — test" = 11 chars -> round(11/4) = 3
     expect(parseSkillDirectory(dirPath).est_listing_tokens).toBe(3)
+  })
+
+  it('parses a license field', () => {
+    const dirPath = writeSkill('my-skill', '---\nname: my-skill\nlicense: MIT\n---\nBody')
+    expect(parseSkillDirectory(dirPath).license).toBe('MIT')
+  })
+
+  it('treats an absent license as null', () => {
+    const dirPath = writeSkill('my-skill', '---\nname: my-skill\n---\nBody')
+    expect(parseSkillDirectory(dirPath).license).toBeNull()
+  })
+
+  it('treats a whitespace-only license as null, not empty string', () => {
+    const dirPath = writeSkill('my-skill', '---\nname: my-skill\nlicense: "   "\n---\nBody')
+    expect(parseSkillDirectory(dirPath).license).toBeNull()
+  })
+
+  it('treats a non-string license as null', () => {
+    const dirPath = writeSkill('my-skill', '---\nname: my-skill\nlicense: 42\n---\nBody')
+    expect(parseSkillDirectory(dirPath).license).toBeNull()
+  })
+
+  it('serializes a mapping metadata block to a JSON string', () => {
+    const dirPath = writeSkill(
+      'my-skill',
+      '---\nname: my-skill\nmetadata:\n  author: jane\n  version: "1.0"\n---\nBody'
+    )
+    expect(parseSkillDirectory(dirPath).metadata_json).toBe(
+      JSON.stringify({ author: 'jane', version: '1.0' })
+    )
+  })
+
+  it('treats an absent metadata block as null', () => {
+    const dirPath = writeSkill('my-skill', '---\nname: my-skill\n---\nBody')
+    expect(parseSkillDirectory(dirPath).metadata_json).toBeNull()
+  })
+
+  it('treats a scalar metadata value as null', () => {
+    const dirPath = writeSkill(
+      'my-skill',
+      '---\nname: my-skill\nmetadata: just-a-string\n---\nBody'
+    )
+    expect(parseSkillDirectory(dirPath).metadata_json).toBeNull()
+  })
+
+  it('treats a list metadata value as null', () => {
+    const dirPath = writeSkill(
+      'my-skill',
+      '---\nname: my-skill\nmetadata:\n  - one\n  - two\n---\nBody'
+    )
+    expect(parseSkillDirectory(dirPath).metadata_json).toBeNull()
   })
 })

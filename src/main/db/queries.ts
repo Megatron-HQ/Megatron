@@ -178,6 +178,10 @@ export interface SkillScanRow {
   est_listing_tokens: number
   est_body_tokens: number
   project_root?: string | null
+  license?: string | null
+  metadata_json?: string | null
+  created_at?: string | null
+  modified_at?: string | null
 }
 
 // Upserts `rows` as `sourceType`, then deletes existing `sourceType` rows that
@@ -193,10 +197,12 @@ function writeSkillRows(
     const upsert = db.prepare(`
       INSERT INTO skills
         (name, source_type, source_path, plugin_name, description, last_scanned_at,
-         est_listing_tokens, est_body_tokens, project_root)
+         est_listing_tokens, est_body_tokens, project_root, license, metadata_json,
+         created_at, modified_at)
       VALUES
         (@name, @source_type, @source_path, @plugin_name, @description, @last_scanned_at,
-         @est_listing_tokens, @est_body_tokens, @project_root)
+         @est_listing_tokens, @est_body_tokens, @project_root, @license, @metadata_json,
+         @created_at, @modified_at)
       ON CONFLICT(source_path) DO UPDATE SET
         name = excluded.name,
         source_type = excluded.source_type,
@@ -205,7 +211,11 @@ function writeSkillRows(
         last_scanned_at = excluded.last_scanned_at,
         est_listing_tokens = excluded.est_listing_tokens,
         est_body_tokens = excluded.est_body_tokens,
-        project_root = excluded.project_root
+        project_root = excluded.project_root,
+        license = excluded.license,
+        metadata_json = excluded.metadata_json,
+        created_at = excluded.created_at,
+        modified_at = excluded.modified_at
     `)
     const now = new Date().toISOString()
     for (const row of rows) {
@@ -218,7 +228,11 @@ function writeSkillRows(
         last_scanned_at: now,
         est_listing_tokens: row.est_listing_tokens,
         est_body_tokens: row.est_body_tokens,
-        project_root: row.project_root ?? null
+        project_root: row.project_root ?? null,
+        license: row.license ?? null,
+        metadata_json: row.metadata_json ?? null,
+        created_at: row.created_at ?? null,
+        modified_at: row.modified_at ?? null
       })
     }
 

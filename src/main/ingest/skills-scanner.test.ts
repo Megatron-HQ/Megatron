@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'fs'
 import { homedir, tmpdir } from 'os'
 import { join, resolve } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -19,6 +19,8 @@ interface SkillRow {
   description: string | null
   last_scanned_at: string
   project_root: string | null
+  created_at: string | null
+  modified_at: string | null
 }
 
 function allSkills(): SkillRow[] {
@@ -265,6 +267,35 @@ describe('scanSkills', () => {
 
     const row = allSkills()[0]
     expect(new Date(row.last_scanned_at).toISOString()).toBe(row.last_scanned_at)
+  })
+
+  it('records created_at and modified_at as valid ISO8601 strings for a scanned skill', () => {
+    const root = join(tmpDir, 'skills')
+    writeSkillDir(root, 'skill-a', '---\nname: skill-a\ndescription: First\n---\nBody')
+
+    scanSkills(db, [{ dir: root, sourceType: 'global' }])
+
+    const row = allSkills()[0]
+    expect(row.created_at).not.toBeNull()
+    expect(row.modified_at).not.toBeNull()
+    expect(new Date(row.created_at as string).toISOString()).toBe(row.created_at)
+    expect(new Date(row.modified_at as string).toISOString()).toBe(row.modified_at)
+  })
+
+  it('records modified_at reflecting a real file mtime change', () => {
+    const root = join(tmpDir, 'skills')
+    const dirPath = writeSkillDir(
+      root,
+      'skill-a',
+      '---\nname: skill-a\ndescription: First\n---\nBody'
+    )
+    const future = new Date(Date.now() + 60000)
+    utimesSync(join(dirPath, 'SKILL.md'), future, future)
+
+    scanSkills(db, [{ dir: root, sourceType: 'global' }])
+
+    const row = allSkills()[0]
+    expect(row.modified_at).toBe(future.toISOString())
   })
 })
 

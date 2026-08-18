@@ -5,6 +5,8 @@ import { allowedReadFileSync } from '../permissions'
 export interface ParsedSkill {
   name: string
   description: string | null
+  license: string | null
+  metadata_json: string | null
   est_listing_tokens: number
   est_body_tokens: number
 }
@@ -27,22 +29,28 @@ function estimateListingTokens(name: string, description: string | null): number
   return estimateTokens([name, capped].filter(Boolean).join(' '))
 }
 
-function parseFrontmatter(
-  content: string,
-  fallbackName: string
-): { name: string; description: string | null } {
+interface ParsedFrontmatter {
+  name: string
+  description: string | null
+  license: string | null
+  metadata_json: string | null
+}
+
+function parseFrontmatter(content: string, fallbackName: string): ParsedFrontmatter {
   const block = extractFrontmatterBlock(content)
-  if (block === null) return { name: fallbackName, description: null }
+  if (block === null) {
+    return { name: fallbackName, description: null, license: null, metadata_json: null }
+  }
 
   let parsed: unknown
   try {
     parsed = parse(block)
   } catch {
-    return { name: fallbackName, description: null }
+    return { name: fallbackName, description: null, license: null, metadata_json: null }
   }
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    return { name: fallbackName, description: null }
+    return { name: fallbackName, description: null, license: null, metadata_json: null }
   }
 
   const record = parsed as Record<string, unknown>
@@ -50,8 +58,16 @@ function parseFrontmatter(
   const name = trimmedName === '' ? fallbackName : trimmedName
   const rawDescription = typeof record.description === 'string' ? record.description.trim() : ''
   const description = rawDescription === '' ? null : rawDescription
+  const rawLicense = typeof record.license === 'string' ? record.license.trim() : ''
+  const license = rawLicense === '' ? null : rawLicense
+  const metadata_json =
+    typeof record.metadata === 'object' &&
+    record.metadata !== null &&
+    !Array.isArray(record.metadata)
+      ? JSON.stringify(record.metadata)
+      : null
 
-  return { name, description }
+  return { name, description, license, metadata_json }
 }
 
 export function parseSkillDirectory(dirPath: string): ParsedSkill {
@@ -60,15 +76,24 @@ export function parseSkillDirectory(dirPath: string): ParsedSkill {
 
   const fileContents = allowedReadFileSync(skillMdPath)
   if (fileContents === null) {
-    return { name: fallbackName, description: null, est_listing_tokens: 0, est_body_tokens: 0 }
+    return {
+      name: fallbackName,
+      description: null,
+      license: null,
+      metadata_json: null,
+      est_listing_tokens: 0,
+      est_body_tokens: 0
+    }
   }
 
   const content = fileContents.toString('utf8')
-  const { name, description } = parseFrontmatter(content, fallbackName)
+  const { name, description, license, metadata_json } = parseFrontmatter(content, fallbackName)
 
   return {
     name,
     description,
+    license,
+    metadata_json,
     est_listing_tokens: estimateListingTokens(name, description),
     est_body_tokens: estimateTokens(content)
   }

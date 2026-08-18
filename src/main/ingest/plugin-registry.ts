@@ -9,6 +9,9 @@ interface PluginInstallEntry {
   scope?: unknown
   installPath?: unknown
   version?: unknown
+  installedAt?: unknown
+  lastUpdated?: unknown
+  gitCommitSha?: unknown
 }
 
 interface MarketplaceEntry {
@@ -70,8 +73,10 @@ export function scanPluginRegistry(
 
   const upsertRegistry = db.prepare(`
     INSERT INTO plugin_registry
-      (name, marketplace, marketplace_repo, installed_version, scope, install_path, last_scanned_at)
-    VALUES (@name, @marketplace, @marketplace_repo, @installed_version, @scope, @install_path, @last_scanned_at)
+      (name, marketplace, marketplace_repo, installed_version, scope, install_path, last_scanned_at,
+       installed_at, last_updated, git_commit_sha)
+    VALUES (@name, @marketplace, @marketplace_repo, @installed_version, @scope, @install_path, @last_scanned_at,
+       @installed_at, @last_updated, @git_commit_sha)
     ON CONFLICT(name, marketplace, install_path) DO UPDATE SET
       marketplace_repo = CASE
         WHEN @has_marketplace_snapshot = 1 THEN excluded.marketplace_repo
@@ -80,7 +85,10 @@ export function scanPluginRegistry(
       installed_version = excluded.installed_version,
       scope = excluded.scope,
       install_path = excluded.install_path,
-      last_scanned_at = excluded.last_scanned_at
+      last_scanned_at = excluded.last_scanned_at,
+      installed_at = excluded.installed_at,
+      last_updated = excluded.last_updated,
+      git_commit_sha = excluded.git_commit_sha
   `)
 
   const runScan = db.transaction(() => {
@@ -107,6 +115,9 @@ export function scanPluginRegistry(
         if (installPath === null) continue
 
         const version = typeof entry.version === 'string' ? entry.version : 'unknown'
+        const installedAt = typeof entry.installedAt === 'string' ? entry.installedAt : null
+        const lastUpdated = typeof entry.lastUpdated === 'string' ? entry.lastUpdated : null
+        const gitCommitSha = typeof entry.gitCommitSha === 'string' ? entry.gitCommitSha : null
 
         upsertRegistry.run({
           name,
@@ -116,7 +127,10 @@ export function scanPluginRegistry(
           scope,
           install_path: installPath,
           last_scanned_at: now,
-          has_marketplace_snapshot: hasMarketplaceSnapshot ? 1 : 0
+          has_marketplace_snapshot: hasMarketplaceSnapshot ? 1 : 0,
+          installed_at: installedAt,
+          last_updated: lastUpdated,
+          git_commit_sha: gitCommitSha
         })
         seenRegistryKeys.add(registryKey(name, marketplace, installPath))
 
@@ -139,7 +153,11 @@ export function scanPluginRegistry(
             plugin_name: `${name}@${marketplace}`,
             description: parsed.description,
             est_listing_tokens: parsed.est_listing_tokens,
-            est_body_tokens: parsed.est_body_tokens
+            est_body_tokens: parsed.est_body_tokens,
+            license: parsed.license,
+            metadata_json: parsed.metadata_json,
+            created_at: null,
+            modified_at: null
           })
         }
       }
