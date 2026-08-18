@@ -1,5 +1,12 @@
 import type { SourceType } from '../../../shared/ipc'
 
+export function getFolderBasename(fullPath?: string | null): string {
+  if (!fullPath) return ''
+  const normalized = fullPath.replace(/[\\/]+$/, '')
+  const parts = normalized.split(/[\\/]/)
+  return parts[parts.length - 1] || fullPath
+}
+
 export function getPluginBareName(pluginName: string | null | undefined): string {
   if (!pluginName || pluginName.trim() === '') return 'plugin'
   const atIndex = pluginName.lastIndexOf('@')

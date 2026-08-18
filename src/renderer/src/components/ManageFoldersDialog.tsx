@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { getFolderBasename } from '@/lib/source-name'
 import type { AllowedPathRow } from '../../../shared/ipc'
 
 interface ManageFoldersDialogProps {
@@ -18,12 +19,6 @@ interface ManageFoldersDialogProps {
   folders: AllowedPathRow[]
   onAddFolders: () => Promise<void>
   onRevokeFolder: (path: string) => Promise<void>
-}
-
-function getFolderBasename(fullPath: string): string {
-  const normalized = fullPath.replace(/[\\/]+$/, '')
-  const parts = normalized.split(/[\\/]/)
-  return parts[parts.length - 1] || fullPath
 }
 
 export function ManageFoldersDialog({

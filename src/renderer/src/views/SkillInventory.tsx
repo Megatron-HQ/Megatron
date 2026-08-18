@@ -26,8 +26,8 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
-import { FILTER_LABEL, type SourceFilter } from '@/lib/source-filter'
-import { getSourceSortKey } from '@/lib/source-name'
+import { getFilterHeaderTitle, type SourceFilter } from '@/lib/source-filter'
+import { getFolderBasename, getPluginBareName, getSourceSortKey } from '@/lib/source-name'
 import type { SkillRow } from '../../../shared/ipc'
 
 const ROW_HEIGHT = 40
@@ -333,7 +333,7 @@ export function SkillInventory({
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <TableHeader
-        title={FILTER_LABEL[filter]}
+        title={getFilterHeaderTitle(filter)}
         count={loading ? null : rows.length}
         filter={filter}
         onOpenSearch={onOpenSearch}
@@ -371,7 +371,7 @@ function TableHeader({
         </h2>
       </div>
       <div className="flex items-center gap-2">
-        {filter === 'project' && onManageFolders && (
+        {filter.kind === 'project' && onManageFolders && (
           <button
             type="button"
             onClick={onManageFolders}
@@ -404,19 +404,36 @@ function EmptyState({
   filter: SourceFilter
   onGrantFolder?: () => void
 }): React.JSX.Element {
-  const isProject = filter === 'project'
+  const isProject = filter.kind === 'project'
+  let title = 'No skills found'
+  let message = 'Nothing was found for this filter.'
+
+  if (filter.kind === 'project') {
+    if (filter.projectRoot) {
+      const projectName = getFolderBasename(filter.projectRoot)
+      title = `No skills found in ${projectName}`
+      message = `No skills were detected in ${projectName}'s .claude/skills folder.`
+    } else {
+      title = 'No project skills found'
+      message = 'Project-level skills come from repos you grant Megatron access to.'
+    }
+  } else if (filter.kind === 'plugin') {
+    if (filter.pluginName) {
+      const pluginName = getPluginBareName(filter.pluginName)
+      title = `No skills found for ${pluginName}`
+      message = `No skills were detected for this plugin.`
+    } else {
+      title = 'No plugin skills found'
+      message = 'Plugin skills are discovered from your installed Claude Code plugins.'
+    }
+  }
+
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
       <FolderOpen className="size-8 text-muted-foreground" />
-      <p className="text-sm font-medium">
-        {isProject ? 'No project skills found' : 'No skills found'}
-      </p>
-      <p className="max-w-[320px] text-sm text-muted-foreground">
-        {isProject
-          ? 'Project-level skills come from repos you grant Megatron access to.'
-          : 'Nothing was found for this filter.'}
-      </p>
-      {isProject && (
+      <p className="text-sm font-medium">{title}</p>
+      <p className="max-w-[360px] text-sm text-muted-foreground">{message}</p>
+      {isProject && !filter.projectRoot && (
         <button
           type="button"
           onClick={onGrantFolder}
