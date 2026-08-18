@@ -1,8 +1,12 @@
 import type Database from 'better-sqlite3'
-import { existsSync, readFileSync, readdirSync, statSync } from 'fs'
 import { homedir } from 'os'
 import { basename, join, resolve } from 'path'
-import { allowedReaddirSync, allowedStatSync, isPathAllowed } from '../permissions'
+import {
+  allowedReadFileSync,
+  allowedStatSync,
+  isPathAllowed,
+  readAllowedDirectory
+} from '../permissions'
 import type { TriggerType } from '../../shared/ipc'
 
 export interface TranscriptSession {
@@ -24,7 +28,15 @@ export interface TranscriptInvocation {
   preceding_user_text: string | null
 }
 
+interface InvocationCandidate {
+  invocation: TranscriptInvocation
+  source: 'structured' | 'attribution'
+  turn: number
+  order: number
+}
+
 const PRECEDING_TEXT_MAX_CHARS = 2000
+const TRANSCRIPT_PARSER_VERSION = 1
 
 function truncatePrecedingText(text: string | null): string | null {
   return text === null ? null : text.slice(0, PRECEDING_TEXT_MAX_CHARS)
@@ -40,7 +52,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function parseLines(filePath: string): Record<string, unknown>[] {
-  const raw = readFileSync(filePath, 'utf8').split('\n')
+  const contents = allowedReadFileSync(filePath)
+  if (contents === null) return []
+
+  const raw = contents.toString('utf8').split('\n')
   const records: Record<string, unknown>[] = []
   for (const line of raw) {
     if (line.trim() === '') continue
@@ -133,9 +148,26 @@ function extractInvocations(
   records: Record<string, unknown>[],
   agentId: string | null = null
 ): TranscriptInvocation[] {
-  const invocations: TranscriptInvocation[] = []
+  const candidates: InvocationCandidate[] = []
+  const attributedSkillKeys = new Set<string>()
+  const structuredSkillKeys = new Set<string>()
   let precedingMessage: string | null = null
+  let userTurn = 0
+  let order = 0
   const childrenByParentUuid = buildChildrenByParentUuid(records)
+
+  const addCandidate = (
+    invocation: TranscriptInvocation,
+    source: InvocationCandidate['source']
+  ): void => {
+    const skillKey = `${userTurn}\u0000${invocation.skill_name}`
+    if (source === 'attribution') {
+      attributedSkillKeys.add(skillKey)
+    } else {
+      structuredSkillKeys.add(skillKey)
+    }
+    candidates.push({ invocation, source, turn: userTurn, order: order++ })
+  }
 
   for (const record of records) {
     // Records from a dedicated subagent file (agentId !== null) are all real conversation turns
@@ -148,6 +180,7 @@ function extractInvocations(
       if (isRecord(message) && typeof message.content === 'string') {
         const content = message.content
         precedingMessage = content
+        userTurn += 1
 
         const commandMatch = COMMAND_NAME_PATTERN.exec(content)
         const sourceUuid = record.uuid
@@ -164,21 +197,56 @@ function extractInvocations(
           const argsMatch = COMMAND_ARGS_PATTERN.exec(content)
           const argsText = argsMatch !== null && argsMatch[1] !== '' ? argsMatch[1] : null
 
-          invocations.push({
-            source_uuid: sourceUuid,
-            session_id: sessionId,
-            skill_name: commandMatch[1],
-            args_text: argsText,
-            invoked_at: invokedAt,
-            trigger_type: agentId !== null ? 'subagent' : 'user_invoked',
-            agent_id: agentId,
-            // precedingMessage here is this same command record's own content — storing it
-            // would duplicate args_text, not add ambient context. See docs/transcript-ingest.md.
-            preceding_user_text: null
-          })
+          addCandidate(
+            {
+              source_uuid: sourceUuid,
+              session_id: sessionId,
+              skill_name: commandMatch[1],
+              args_text: argsText,
+              invoked_at: invokedAt,
+              trigger_type: agentId !== null ? 'subagent' : 'user_invoked',
+              agent_id: agentId,
+              // precedingMessage here is this same command record's own content — storing it
+              // would duplicate args_text, not add ambient context. See docs/transcript-ingest.md.
+              preceding_user_text: null
+            },
+            'structured'
+          )
         }
       }
       continue
+    }
+
+    const attributedSkill =
+      typeof record.attributionSkill === 'string' ? record.attributionSkill.trim() : null
+    if (
+      attributedSkill !== null &&
+      attributedSkill !== '' &&
+      !attributedSkillKeys.has(`${userTurn}\u0000${attributedSkill}`)
+    ) {
+      const sourceUuid = record.uuid
+      const sessionId = record.sessionId
+      const invokedAt = record.timestamp
+      if (
+        typeof sourceUuid === 'string' &&
+        typeof sessionId === 'string' &&
+        typeof invokedAt === 'string'
+      ) {
+        addCandidate(
+          {
+            source_uuid: sourceUuid,
+            session_id: sessionId,
+            skill_name: attributedSkill,
+            args_text: null,
+            invoked_at: invokedAt,
+            trigger_type:
+              agentId !== null ? 'subagent' : classifyTrigger(precedingMessage, attributedSkill),
+            agent_id: agentId,
+            preceding_user_text: truncatePrecedingText(precedingMessage)
+          },
+          'attribution'
+        )
+      }
     }
 
     const message = record.message
@@ -206,28 +274,39 @@ function extractInvocations(
         continue
       }
 
-      invocations.push({
-        source_uuid: sourceUuid,
-        session_id: sessionId,
-        skill_name: skillName,
-        args_text: typeof input.args === 'string' ? input.args : null,
-        invoked_at: invokedAt,
-        // A cascade of several invocations from one trigger message all get that same
-        // message's classification, even several turns later — accepted heuristic
-        // limitation, not a bug. See docs/mvp-build-spec.md, Invocation trigger
-        // classification.
-        trigger_type: agentId !== null ? 'subagent' : classifyTrigger(precedingMessage, skillName),
-        agent_id: agentId,
-        preceding_user_text: truncatePrecedingText(precedingMessage)
-      })
+      addCandidate(
+        {
+          source_uuid: sourceUuid,
+          session_id: sessionId,
+          skill_name: skillName,
+          args_text: typeof input.args === 'string' ? input.args : null,
+          invoked_at: invokedAt,
+          // A cascade of several invocations from one trigger message all get that same
+          // message's classification, even several turns later — accepted heuristic
+          // limitation, not a bug. See docs/mvp-build-spec.md, Invocation trigger
+          // classification.
+          trigger_type:
+            agentId !== null ? 'subagent' : classifyTrigger(precedingMessage, skillName),
+          agent_id: agentId,
+          preceding_user_text: truncatePrecedingText(precedingMessage)
+        },
+        'structured'
+      )
     }
   }
 
-  return invocations
+  return candidates
+    .filter(
+      (candidate) =>
+        candidate.source !== 'attribution' ||
+        !structuredSkillKeys.has(`${candidate.turn}\u0000${candidate.invocation.skill_name}`)
+    )
+    .sort((a, b) => a.order - b.order)
+    .map((candidate) => candidate.invocation)
 }
 
 export function parseTranscript(filePath: string): TranscriptParse {
-  if (!isPathAllowed(filePath) || !existsSync(filePath)) {
+  if (!isPathAllowed(filePath)) {
     return { session: null, invocations: [] }
   }
 
@@ -239,7 +318,7 @@ export function parseTranscript(filePath: string): TranscriptParse {
 // session's own sessionId and cwd, so upserting a "session" from this file would overwrite the
 // parent's real sessions_meta row with the subagent's own started_at/message_count.
 export function parseSubagentInvocations(filePath: string): TranscriptInvocation[] {
-  if (!isPathAllowed(filePath) || !existsSync(filePath)) return []
+  if (!isPathAllowed(filePath)) return []
 
   const agentId = basename(filePath, '.jsonl')
   return extractInvocations(parseLines(filePath), agentId)
@@ -250,14 +329,20 @@ export function scanTranscripts(
   projectsDir: string = resolve(homedir(), '.claude', 'projects')
 ): void {
   const upsertSession = db.prepare(`
-    INSERT INTO sessions_meta (session_id, cwd, git_branch, started_at, message_count, source_mtime_ms)
-    VALUES (@session_id, @cwd, @git_branch, @started_at, @message_count, @source_mtime_ms)
+    INSERT INTO sessions_meta
+      (session_id, cwd, git_branch, started_at, message_count, source_mtime_ms, source_size_bytes,
+       transcript_parser_version)
+    VALUES
+      (@session_id, @cwd, @git_branch, @started_at, @message_count, @source_mtime_ms, @source_size_bytes,
+       @transcript_parser_version)
     ON CONFLICT(session_id) DO UPDATE SET
       cwd = excluded.cwd,
       git_branch = excluded.git_branch,
       started_at = excluded.started_at,
       message_count = excluded.message_count,
-      source_mtime_ms = excluded.source_mtime_ms
+      source_mtime_ms = excluded.source_mtime_ms,
+      source_size_bytes = excluded.source_size_bytes,
+      transcript_parser_version = excluded.transcript_parser_version
   `)
 
   const insertInvocation = db.prepare(`
@@ -266,82 +351,93 @@ export function scanTranscripts(
     VALUES (@source_uuid, @session_id, @skill_name, @args_text, @invoked_at, @trigger_type, @agent_id, @preceding_user_text)
   `)
 
-  const deleteSessionInvocations = db.prepare(
-    'DELETE FROM skill_invocations WHERE session_id = ?'
-  )
+  const deleteSessionInvocations = db.prepare('DELETE FROM skill_invocations WHERE session_id = ?')
 
   const getStoredMtime = db.prepare(
-    'SELECT source_mtime_ms FROM sessions_meta WHERE session_id = ?'
+    `SELECT source_mtime_ms, source_size_bytes, transcript_parser_version
+     FROM sessions_meta WHERE session_id = ?`
   )
 
   const runScan = db.transaction(() => {
     const seenSessionIds = new Set<string>()
+    let scanIsAuthoritative = true
 
-    let projectDirNames: string[] = []
-    if (existsSync(projectsDir)) {
-      try {
-        projectDirNames = readdirSync(projectsDir)
-      } catch {
-        projectDirNames = []
-      }
-    }
+    const projectsDirectory = readAllowedDirectory(projectsDir)
+    if (projectsDirectory.status === 'unavailable') return
 
-    for (const projectDirName of projectDirNames) {
+    for (const projectDirName of projectsDirectory.entries) {
       const projectDirPath = join(projectsDir, projectDirName)
 
-      let projectStat: ReturnType<typeof statSync>
-      try {
-        projectStat = statSync(projectDirPath)
-      } catch {
-        continue
-      }
-      if (!projectStat.isDirectory()) continue
+      const projectStat = allowedStatSync(projectDirPath)
+      if (projectStat === null || !projectStat.isDirectory()) continue
 
-      let fileNames: string[]
-      try {
-        fileNames = readdirSync(projectDirPath)
-      } catch {
+      const projectDirectory = readAllowedDirectory(projectDirPath)
+      if (projectDirectory.status === 'unavailable') {
+        scanIsAuthoritative = false
         continue
       }
 
-      for (const fileName of fileNames) {
+      for (const fileName of projectDirectory.entries) {
         if (!fileName.endsWith('.jsonl')) continue
         const filePath = join(projectDirPath, fileName)
         if (!isPathAllowed(filePath)) continue
 
-        let fileStat: ReturnType<typeof statSync>
-        try {
-          fileStat = statSync(filePath)
-        } catch {
-          continue
-        }
+        const fileStat = allowedStatSync(filePath)
+        if (fileStat === null) continue
         const basenameSessionId = fileName.slice(0, -'.jsonl'.length)
 
         // A subagent transcript can be written after its parent's mtime was last cached, so
         // freshness is the max of the parent and every one of its subagent files — any of them
         // changing forces a rescan of this session.
         const subagentsDir = join(projectDirPath, basenameSessionId, 'subagents')
-        const subagentFilePaths = allowedReaddirSync(subagentsDir)
+        const subagentsDirectory = readAllowedDirectory(subagentsDir)
+        const subagentsStat = allowedStatSync(subagentsDir)
+        if (subagentsStat?.isDirectory() && subagentsDirectory.status !== 'ok') {
+          scanIsAuthoritative = false
+          continue
+        }
+        const subagentFilePaths = subagentsDirectory.entries
           .filter((name) => name.endsWith('.jsonl'))
           .map((name) => join(subagentsDir, name))
-        const subagentMtimes = subagentFilePaths
-          .map((path) => allowedStatSync(path)?.mtimeMs)
-          .filter((mtime): mtime is number => typeof mtime === 'number')
+        const subagentStats = subagentFilePaths
+          .map((path) => allowedStatSync(path))
+          .filter((stat): stat is NonNullable<typeof stat> => stat !== null)
+        const subagentMtimes = subagentStats.map((stat) => stat.mtimeMs)
 
         const mtimeMs = Math.round(Math.max(fileStat.mtimeMs, ...subagentMtimes))
+        const sourceSizeBytes =
+          fileStat.size + subagentStats.reduce((total, stat) => total + stat.size, 0)
 
         const stored = getStoredMtime.get(basenameSessionId) as
-          { source_mtime_ms: number } | undefined
-        if (stored !== undefined && stored.source_mtime_ms === mtimeMs) {
+          | {
+              source_mtime_ms: number
+              source_size_bytes: number
+              transcript_parser_version: number
+            }
+          | undefined
+        if (
+          stored !== undefined &&
+          stored.source_mtime_ms === mtimeMs &&
+          stored.source_size_bytes === sourceSizeBytes &&
+          stored.transcript_parser_version === TRANSCRIPT_PARSER_VERSION
+        ) {
           seenSessionIds.add(basenameSessionId)
           continue
         }
 
         const parsed = parseTranscript(filePath)
-        if (parsed.session === null) continue
+        if (parsed.session === null) {
+          scanIsAuthoritative = false
+          continue
+        }
 
         seenSessionIds.add(parsed.session.session_id)
-        upsertSession.run({ ...parsed.session, source_mtime_ms: mtimeMs })
+        upsertSession.run({
+          ...parsed.session,
+          source_mtime_ms: mtimeMs,
+          source_size_bytes: sourceSizeBytes,
+          transcript_parser_version: TRANSCRIPT_PARSER_VERSION
+        })
         deleteSessionInvocations.run(parsed.session.session_id)
         for (const invocation of parsed.invocations) {
           insertInvocation.run(invocation)
@@ -353,6 +449,8 @@ export function scanTranscripts(
         }
       }
     }
+
+    if (!scanIsAuthoritative) return
 
     if (seenSessionIds.size === 0) {
       db.prepare('DELETE FROM skill_invocations').run()

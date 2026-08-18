@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'os'
 import { join, resolve } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applySchema } from '../db/schema'
-import { grantPath, resetGrantedPaths } from '../permissions'
+import { grantPath, resetGrantedPaths, revokePath } from '../permissions'
 import { defaultSkillRoots, scanSkills, type SkillRoot } from './skills-scanner'
 
 let db: Database.Database
@@ -165,6 +165,18 @@ describe('scanSkills', () => {
     const roots: SkillRoot[] = [{ dir: join(tmpDir, 'does-not-exist'), sourceType: 'global' }]
     expect(() => scanSkills(db, roots)).not.toThrow()
     expect(allSkills()).toHaveLength(0)
+  })
+
+  it('preserves indexed skills when a previously readable root becomes unavailable', () => {
+    const root = join(tmpDir, 'skills')
+    writeSkillDir(root, 'skill-a', '---\nname: skill-a\ndescription: First\n---\nBody')
+    const roots: SkillRoot[] = [{ dir: root, sourceType: 'global' }]
+    scanSkills(db, roots)
+
+    revokePath(tmpDir)
+    scanSkills(db, roots)
+
+    expect(allSkills().map((skill) => skill.name)).toEqual(['skill-a'])
   })
 
   it('skips an ungranted directory even if it is present on disk', () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  getFolderBasename,
   getPluginBareName,
   getProjectNameFromPath,
   getSourceDisplayName,
@@ -7,6 +8,22 @@ import {
 } from './source-name'
 
 describe('source-name helpers', () => {
+  describe('getFolderBasename', () => {
+    it('extracts basename from Windows paths', () => {
+      expect(getFolderBasename('C:\\Users\\alice\\projects\\Megatron')).toBe('Megatron')
+      expect(getFolderBasename('C:\\Megatron\\')).toBe('Megatron')
+    })
+
+    it('extracts basename from POSIX paths', () => {
+      expect(getFolderBasename('/Users/alice/projects/Megatron')).toBe('Megatron')
+      expect(getFolderBasename('/Users/alice/projects/Megatron/')).toBe('Megatron')
+    })
+
+    it('returns empty string if null or undefined', () => {
+      expect(getFolderBasename(null)).toBe('')
+      expect(getFolderBasename(undefined)).toBe('')
+    })
+  })
   describe('getPluginBareName', () => {
     it('extracts name before @', () => {
       expect(getPluginBareName('frontend-design@claude-plugins-official')).toBe('frontend-design')

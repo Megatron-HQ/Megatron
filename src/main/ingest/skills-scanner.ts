@@ -1,9 +1,8 @@
 import type Database from 'better-sqlite3'
-import { existsSync, readdirSync } from 'fs'
 import { homedir } from 'os'
 import { join, resolve } from 'path'
 import { writeSkillScan, type SkillScanRow } from '../db/queries'
-import { allowedExistsSync, getGrantedPaths } from '../permissions'
+import { allowedExistsSync, getGrantedPaths, readAllowedDirectory } from '../permissions'
 import { parseSkillDirectory } from './skill-parser'
 
 export interface SkillRoot {
@@ -34,22 +33,16 @@ export function scanSkills(db: Database.Database, roots: SkillRoot[] = defaultSk
   const rootDirsBySourceType = new Map<SkillRoot['sourceType'], string[]>()
 
   for (const root of roots) {
+    const directory = readAllowedDirectory(root.dir)
+    if (directory.status === 'unavailable') continue
+
     const rows = rowsBySourceType.get(root.sourceType) ?? []
     rowsBySourceType.set(root.sourceType, rows)
     const rootDirs = rootDirsBySourceType.get(root.sourceType) ?? []
     rootDirs.push(root.dir)
     rootDirsBySourceType.set(root.sourceType, rootDirs)
 
-    if (!existsSync(root.dir)) continue
-
-    let entries: string[]
-    try {
-      entries = readdirSync(root.dir)
-    } catch {
-      continue
-    }
-
-    for (const entryName of entries) {
+    for (const entryName of directory.entries) {
       const dirPath = join(root.dir, entryName)
       const skillMdPath = join(dirPath, 'SKILL.md')
       if (!allowedExistsSync(skillMdPath)) continue

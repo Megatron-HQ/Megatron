@@ -26,12 +26,13 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
-import { FILTER_LABEL, type SourceFilter } from '@/lib/source-filter'
-import { getSourceSortKey } from '@/lib/source-name'
+import { getFilterHeaderTitle, type SourceFilter } from '@/lib/source-filter'
+import { getFolderBasename, getPluginBareName, getSourceSortKey } from '@/lib/source-name'
 import type { SkillRow } from '../../../shared/ipc'
 
 const ROW_HEIGHT = 40
 const HEADER_HEIGHT = 40
+const NARROW_VIEWPORT_DESCRIPTION_CLASS = 'max-[1000px]:hidden'
 
 const features = tableFeatures({
   rowSortingFeature,
@@ -206,7 +207,9 @@ export function SkillInventory({
               <TableHead className="w-[200px] px-3 py-2">Name</TableHead>
               <TableHead className="w-[100px] px-3 py-2">Status</TableHead>
               <TableHead className="w-[120px] px-3 py-2">Source</TableHead>
-              <TableHead className="px-3 py-2">Description</TableHead>
+              <TableHead className={cn('px-3 py-2', NARROW_VIEWPORT_DESCRIPTION_CLASS)}>
+                Description
+              </TableHead>
               <TableHead className="w-[90px] px-3 py-2">Tokens</TableHead>
               <TableHead className="w-[80px] px-3 py-2">Uses</TableHead>
             </TableRow>
@@ -223,7 +226,7 @@ export function SkillInventory({
                 <TableCell className="px-3 py-2">
                   <Skeleton className="h-4 w-16" />
                 </TableCell>
-                <TableCell className="px-3 py-2">
+                <TableCell className={cn('px-3 py-2', NARROW_VIEWPORT_DESCRIPTION_CLASS)}>
                   <Skeleton className="h-4 w-48" />
                 </TableCell>
                 <TableCell className="px-3 py-2">
@@ -260,7 +263,8 @@ export function SkillInventory({
                     key={header.id}
                     className={cn(
                       'px-3 py-2 text-[11px] font-medium tracking-wide text-muted-foreground uppercase',
-                      COLUMN_WIDTH[header.column.id]
+                      COLUMN_WIDTH[header.column.id],
+                      header.column.id === 'description' && NARROW_VIEWPORT_DESCRIPTION_CLASS
                     )}
                   >
                     {header.column.getCanSort() ? (
@@ -309,7 +313,11 @@ export function SkillInventory({
                 {row.getAllCells().map((cell) => (
                   <TableCell
                     key={cell.id}
-                    className={cn('px-3 py-2', COLUMN_WIDTH[cell.column.id])}
+                    className={cn(
+                      'px-3 py-2',
+                      COLUMN_WIDTH[cell.column.id],
+                      cell.column.id === 'description' && NARROW_VIEWPORT_DESCRIPTION_CLASS
+                    )}
                   >
                     <table.FlexRender cell={cell} />
                   </TableCell>
@@ -325,7 +333,7 @@ export function SkillInventory({
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <TableHeader
-        title={FILTER_LABEL[filter]}
+        title={getFilterHeaderTitle(filter)}
         count={loading ? null : rows.length}
         filter={filter}
         onOpenSearch={onOpenSearch}
@@ -363,7 +371,7 @@ function TableHeader({
         </h2>
       </div>
       <div className="flex items-center gap-2">
-        {filter === 'project' && onManageFolders && (
+        {filter.kind === 'project' && onManageFolders && (
           <button
             type="button"
             onClick={onManageFolders}
@@ -396,19 +404,36 @@ function EmptyState({
   filter: SourceFilter
   onGrantFolder?: () => void
 }): React.JSX.Element {
-  const isProject = filter === 'project'
+  const isProject = filter.kind === 'project'
+  let title = 'No skills found'
+  let message = 'Nothing was found for this filter.'
+
+  if (filter.kind === 'project') {
+    if (filter.projectRoot) {
+      const projectName = getFolderBasename(filter.projectRoot)
+      title = `No skills found in ${projectName}`
+      message = `No skills were detected in ${projectName}'s .claude/skills folder.`
+    } else {
+      title = 'No project skills found'
+      message = 'Project-level skills come from repos you grant Megatron access to.'
+    }
+  } else if (filter.kind === 'plugin') {
+    if (filter.pluginName) {
+      const pluginName = getPluginBareName(filter.pluginName)
+      title = `No skills found for ${pluginName}`
+      message = `No skills were detected for this plugin.`
+    } else {
+      title = 'No plugin skills found'
+      message = 'Plugin skills are discovered from your installed Claude Code plugins.'
+    }
+  }
+
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
       <FolderOpen className="size-8 text-muted-foreground" />
-      <p className="text-sm font-medium">
-        {isProject ? 'No project skills found' : 'No skills found'}
-      </p>
-      <p className="max-w-[320px] text-sm text-muted-foreground">
-        {isProject
-          ? 'Project-level skills come from repos you grant Megatron access to.'
-          : 'Nothing was found for this filter.'}
-      </p>
-      {isProject && (
+      <p className="text-sm font-medium">{title}</p>
+      <p className="max-w-[360px] text-sm text-muted-foreground">{message}</p>
+      {isProject && !filter.projectRoot && (
         <button
           type="button"
           onClick={onGrantFolder}

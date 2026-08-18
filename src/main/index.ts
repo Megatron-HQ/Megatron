@@ -20,9 +20,10 @@ import { resolveInitialTheme, setStoredTheme, type ThemeStore } from './theme'
 import { scanSkills } from './ingest/skills-scanner'
 import { scanPluginRegistry } from './ingest/plugin-registry'
 import { scanTranscripts } from './ingest/transcript-scanner'
+import { runAllScans } from './ingest/scan-all'
 import { runLinter } from './linter'
 import { readSkillFiles, readSkillMd } from './skill-files'
-import { isSafeExternalUrl } from './shell'
+import { openSafeExternal } from './shell'
 import {
   IPC_CHANNELS,
   type OpenSkillMetaResult,
@@ -32,6 +33,20 @@ import {
 
 const themeStore: ThemeStore = new Store({ name: 'preferences' })
 let scanComplete = false
+
+function notifyScanComplete(): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send(IPC_CHANNELS.scanComplete)
+  }
+}
+
+function scanAndNotify(): void {
+  runAllScans(getDb(), [scanSkills, scanPluginRegistry, scanTranscripts, runLinter], (error) => {
+    console.error('[ingest] scan failed', error)
+  })
+  scanComplete = true
+  notifyScanComplete()
+}
 
 function createWindow(): void {
   // Create the browser window.
@@ -63,7 +78,9 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    openSafeExternal(details.url, (url) => {
+      void shell.openExternal(url)
+    })
     return { action: 'deny' }
   })
 
@@ -156,9 +173,7 @@ app.whenReady().then(() => {
     } catch (err) {
       console.error('[ingest] scanSkills/runLinter failed after grant', err)
     }
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send(IPC_CHANNELS.scanComplete)
-    }
+    notifyScanComplete()
     return listAllowedPaths(db)
   })
 
@@ -172,35 +187,28 @@ app.whenReady().then(() => {
     } catch (err) {
       console.error('[ingest] runLinter failed after revoke', err)
     }
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send(IPC_CHANNELS.scanComplete)
-    }
+    notifyScanComplete()
     return listAllowedPaths(db)
   })
 
   ipcMain.handle(IPC_CHANNELS.openExternal, (_event, url: string) => {
-    if (isSafeExternalUrl(url)) shell.openExternal(url)
+    openSafeExternal(url, (safeUrl) => {
+      void shell.openExternal(safeUrl)
+    })
   })
 
   createWindow()
 
   setImmediate(() => {
-    const db = getDb()
-    const allowed = listAllowedPaths(db)
+    const allowed = listAllowedPaths(getDb())
     for (const row of allowed) {
       grantPath(row.path)
     }
-    for (const scan of [scanSkills, scanPluginRegistry, scanTranscripts, runLinter]) {
-      try {
-        scan(db)
-      } catch (err) {
-        console.error('[ingest] scan failed', err)
-      }
-    }
-    scanComplete = true
-    for (const window of BrowserWindow.getAllWindows()) {
-      window.webContents.send(IPC_CHANNELS.scanComplete)
-    }
+    scanAndNotify()
+  })
+
+  app.on('browser-window-focus', () => {
+    if (scanComplete) scanAndNotify()
   })
 
   app.on('activate', function () {

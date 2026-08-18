@@ -38,6 +38,18 @@ describe('parseSkillDirectory', () => {
     })
   })
 
+  it('parses frontmatter with a UTF-8 BOM and whitespace after delimiters', () => {
+    const dirPath = writeSkill(
+      'my-skill',
+      '\ufeff---  \r\nname: parsed-name\r\ndescription: Parsed description\r\n--- \r\nBody'
+    )
+
+    expect(parseSkillDirectory(dirPath)).toMatchObject({
+      name: 'parsed-name',
+      description: 'Parsed description'
+    })
+  })
+
   it('frontmatter name overrides the directory basename', () => {
     const dirPath = writeSkill(
       'dir-name',

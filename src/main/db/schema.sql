@@ -19,7 +19,12 @@ CREATE TABLE IF NOT EXISTS sessions_meta (
   git_branch TEXT,                    -- NULL when cwd isn't a git repo
   started_at TEXT NOT NULL,           -- timestamp of the first line carrying a `cwd` field
   message_count INTEGER NOT NULL,     -- count of lines where type IN ('user','assistant')
-  source_mtime_ms INTEGER NOT NULL    -- transcript file's mtime at last scan — see Scan cadence
+  source_mtime_ms INTEGER NOT NULL,   -- transcript file's mtime at last scan — see Scan cadence
+  source_size_bytes INTEGER NOT NULL DEFAULT -1,
+                                     -- total bytes across the parent transcript and its subagents;
+                                     -- pairs with mtime to detect appends that retain the same mtime
+  transcript_parser_version INTEGER NOT NULL DEFAULT 0
+                                     -- bumps when parser semantics change, forcing a safe one-time reindex
 );
 
 CREATE TABLE IF NOT EXISTS skill_invocations (
@@ -44,7 +49,7 @@ CREATE TABLE IF NOT EXISTS plugin_registry (
   scope TEXT NOT NULL CHECK (scope IN ('user', 'project')),
   install_path TEXT NOT NULL,
   last_scanned_at TEXT NOT NULL,
-  PRIMARY KEY (name, marketplace)
+  PRIMARY KEY (name, marketplace, install_path)
 );
 
 CREATE TABLE IF NOT EXISTS allowed_paths (

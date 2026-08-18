@@ -1,9 +1,8 @@
 import type Database from 'better-sqlite3'
-import { existsSync, readFileSync } from 'fs'
 import { homedir } from 'os'
 import { join, resolve } from 'path'
-import { writeSkillScanAuthoritative, type SkillScanRow } from '../db/queries'
-import { allowedExistsSync, allowedReaddirSync, isPathAllowed } from '../permissions'
+import { writeSkillScan, writeSkillScanAuthoritative, type SkillScanRow } from '../db/queries'
+import { allowedExistsSync, allowedReadFileSync, readAllowedDirectory } from '../permissions'
 import { parseSkillDirectory } from './skill-parser'
 
 interface PluginInstallEntry {
@@ -16,12 +15,26 @@ interface MarketplaceEntry {
   source?: { repo?: unknown }
 }
 
-function readJson(filePath: string): unknown {
-  if (!isPathAllowed(filePath) || !existsSync(filePath)) return null
+function registryKey(name: string, marketplace: string, installPath: string): string {
+  return JSON.stringify([name, marketplace, installPath])
+}
+
+type JsonReadStatus = 'ok' | 'missing' | 'unavailable' | 'invalid'
+
+interface JsonRead {
+  status: JsonReadStatus
+  value: unknown
+}
+
+function readJson(filePath: string): JsonRead {
+  const contents = allowedReadFileSync(filePath)
+  if (contents === null) {
+    return { status: allowedExistsSync(filePath) ? 'unavailable' : 'missing', value: null }
+  }
   try {
-    return JSON.parse(readFileSync(filePath, 'utf8'))
+    return { status: 'ok', value: JSON.parse(contents.toString('utf8')) }
   } catch {
-    return null
+    return { status: 'invalid', value: null }
   }
 }
 
@@ -38,23 +51,32 @@ export function scanPluginRegistry(
   db: Database.Database,
   pluginsDir: string = resolve(homedir(), '.claude', 'plugins')
 ): void {
-  const installedRaw = readJson(join(pluginsDir, 'installed_plugins.json'))
-  const marketplacesRaw = readJson(join(pluginsDir, 'known_marketplaces.json'))
+  const pluginsDirectory = readAllowedDirectory(pluginsDir)
+  if (pluginsDirectory.status === 'unavailable') return
+
+  const installed = readJson(join(pluginsDir, 'installed_plugins.json'))
+  if (installed.status === 'unavailable' || installed.status === 'invalid') return
+
+  const marketplaces = readJson(join(pluginsDir, 'known_marketplaces.json'))
 
   const pluginsMap =
-    isRecord(installedRaw) && isRecord(installedRaw.plugins)
-      ? (installedRaw.plugins as Record<string, unknown>)
+    isRecord(installed.value) && isRecord(installed.value.plugins)
+      ? (installed.value.plugins as Record<string, unknown>)
       : {}
-  const marketplaces = isRecord(marketplacesRaw)
-    ? (marketplacesRaw as Record<string, MarketplaceEntry>)
+  const marketplaceEntries = isRecord(marketplaces.value)
+    ? (marketplaces.value as Record<string, MarketplaceEntry>)
     : {}
+  const hasMarketplaceSnapshot = marketplaces.status === 'ok' || marketplaces.status === 'missing'
 
   const upsertRegistry = db.prepare(`
     INSERT INTO plugin_registry
       (name, marketplace, marketplace_repo, installed_version, scope, install_path, last_scanned_at)
     VALUES (@name, @marketplace, @marketplace_repo, @installed_version, @scope, @install_path, @last_scanned_at)
-    ON CONFLICT(name, marketplace) DO UPDATE SET
-      marketplace_repo = excluded.marketplace_repo,
+    ON CONFLICT(name, marketplace, install_path) DO UPDATE SET
+      marketplace_repo = CASE
+        WHEN @has_marketplace_snapshot = 1 THEN excluded.marketplace_repo
+        ELSE plugin_registry.marketplace_repo
+      END,
       installed_version = excluded.installed_version,
       scope = excluded.scope,
       install_path = excluded.install_path,
@@ -64,11 +86,13 @@ export function scanPluginRegistry(
   const runScan = db.transaction(() => {
     const seenRegistryKeys = new Set<string>()
     const skillRows: SkillScanRow[] = []
+    const readableSkillRoots: string[] = []
+    let pluginSkillScanIsAuthoritative = true
     const now = new Date().toISOString()
 
     for (const [key, entriesRaw] of Object.entries(pluginsMap)) {
       const { name, marketplace } = splitPluginKey(key)
-      const marketplaceRepo = marketplaces[marketplace]?.source?.repo
+      const marketplaceRepo = marketplaceEntries[marketplace]?.source?.repo
       const repo = typeof marketplaceRepo === 'string' ? marketplaceRepo : null
 
       const entries = Array.isArray(entriesRaw) ? entriesRaw : []
@@ -91,14 +115,20 @@ export function scanPluginRegistry(
           installed_version: version,
           scope,
           install_path: installPath,
-          last_scanned_at: now
+          last_scanned_at: now,
+          has_marketplace_snapshot: hasMarketplaceSnapshot ? 1 : 0
         })
-        seenRegistryKeys.add(`${name}@${marketplace}`)
+        seenRegistryKeys.add(registryKey(name, marketplace, installPath))
 
         const skillsDir = join(installPath, 'skills')
-        const skillEntries = allowedReaddirSync(skillsDir)
+        const skillsDirectory = readAllowedDirectory(skillsDir)
+        if (skillsDirectory.status === 'unavailable') {
+          pluginSkillScanIsAuthoritative = false
+          continue
+        }
+        readableSkillRoots.push(skillsDir)
 
-        for (const entryName of skillEntries) {
+        for (const entryName of skillsDirectory.entries) {
           const dirPath = join(skillsDir, entryName)
           if (!allowedExistsSync(join(dirPath, 'SKILL.md'))) continue
 
@@ -115,20 +145,26 @@ export function scanPluginRegistry(
       }
     }
 
-    const existingRegistry = db.prepare('SELECT name, marketplace FROM plugin_registry').all() as {
+    const existingRegistry = db
+      .prepare('SELECT name, marketplace, install_path FROM plugin_registry')
+      .all() as {
       name: string
       marketplace: string
+      install_path: string
     }[]
     for (const row of existingRegistry) {
-      if (!seenRegistryKeys.has(`${row.name}@${row.marketplace}`)) {
-        db.prepare('DELETE FROM plugin_registry WHERE name = ? AND marketplace = ?').run(
-          row.name,
-          row.marketplace
-        )
+      if (!seenRegistryKeys.has(registryKey(row.name, row.marketplace, row.install_path))) {
+        db.prepare(
+          'DELETE FROM plugin_registry WHERE name = ? AND marketplace = ? AND install_path = ?'
+        ).run(row.name, row.marketplace, row.install_path)
       }
     }
 
-    writeSkillScanAuthoritative(db, 'plugin', skillRows)
+    if (pluginSkillScanIsAuthoritative) {
+      writeSkillScanAuthoritative(db, 'plugin', skillRows)
+    } else if (readableSkillRoots.length > 0) {
+      writeSkillScan(db, 'plugin', skillRows, readableSkillRoots)
+    }
   })
 
   runScan()

@@ -1,7 +1,6 @@
-import { existsSync, readFileSync } from 'fs'
 import { basename, join } from 'path'
 import { parse } from 'yaml'
-import { isPathAllowed } from '../permissions'
+import { allowedReadFileSync } from '../permissions'
 
 export interface ParsedSkill {
   name: string
@@ -59,11 +58,12 @@ export function parseSkillDirectory(dirPath: string): ParsedSkill {
   const fallbackName = basename(dirPath)
   const skillMdPath = join(dirPath, 'SKILL.md')
 
-  if (!isPathAllowed(skillMdPath) || !existsSync(skillMdPath)) {
+  const fileContents = allowedReadFileSync(skillMdPath)
+  if (fileContents === null) {
     return { name: fallbackName, description: null, est_listing_tokens: 0, est_body_tokens: 0 }
   }
 
-  const content = readFileSync(skillMdPath, 'utf8')
+  const content = fileContents.toString('utf8')
   const { name, description } = parseFrontmatter(content, fallbackName)
 
   return {
@@ -75,11 +75,14 @@ export function parseSkillDirectory(dirPath: string): ParsedSkill {
 }
 
 function extractFrontmatterBlock(content: string): string | null {
-  const normalized = content.replace(/\r\n/g, '\n')
-  if (!normalized.startsWith('---\n')) return null
+  const withoutBom = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content
+  const normalized = withoutBom.replace(/\r\n/g, '\n')
+  const startMatch = normalized.match(/^---[ \t]*(?:\n|$)/)
+  if (!startMatch) return null
 
-  const closingIndex = normalized.indexOf('\n---', 4)
-  if (closingIndex === -1) return null
+  const startOffset = startMatch[0].length
+  const closingMatch = normalized.slice(startOffset).match(/\n---[ \t]*(?:\n|$)/)
+  if (!closingMatch || closingMatch.index === undefined) return null
 
-  return normalized.slice(4, closingIndex)
+  return normalized.slice(startOffset, startOffset + closingMatch.index)
 }

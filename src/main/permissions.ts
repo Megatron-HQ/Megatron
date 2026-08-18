@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync, type Stats } from 'fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync, type Stats } from 'fs'
 import { homedir } from 'os'
 import { resolve, sep } from 'path'
 
@@ -47,11 +47,22 @@ export function isPathAllowed(path: string): boolean {
 // can't reach the filesystem without passing it.
 
 export function allowedReaddirSync(dirPath: string): string[] {
-  if (!isPathAllowed(dirPath)) return []
+  return readAllowedDirectory(dirPath).entries
+}
+
+export interface AllowedDirectoryRead {
+  entries: string[]
+  status: 'ok' | 'missing' | 'unavailable'
+}
+
+export function readAllowedDirectory(dirPath: string): AllowedDirectoryRead {
+  if (!isPathAllowed(dirPath)) return { entries: [], status: 'unavailable' }
   try {
-    return readdirSync(dirPath)
-  } catch {
-    return []
+    return { entries: readdirSync(dirPath), status: 'ok' }
+  } catch (error) {
+    const code =
+      error instanceof Error && 'code' in error ? (error as NodeJS.ErrnoException).code : undefined
+    return { entries: [], status: code === 'ENOENT' ? 'missing' : 'unavailable' }
   }
 }
 
@@ -63,6 +74,17 @@ export function allowedStatSync(path: string): Stats | null {
   if (!isPathAllowed(path)) return null
   try {
     return statSync(path)
+  } catch {
+    return null
+  }
+}
+
+// Canonical paths let callers detect cycles while preserving the locked behavior of following a
+// symlink rooted at an allowed path. The permission check deliberately applies to the link path.
+export function allowedRealpathSync(path: string): string | null {
+  if (!isPathAllowed(path)) return null
+  try {
+    return realpathSync(path)
   } catch {
     return null
   }

@@ -113,7 +113,7 @@ export function SkillDetail({
         </div>
       )}
 
-      <LintFindingsPanel key={skillId} findings={findings} />
+      <LintFindingsPanel key={skillId} skill={skill} findings={findings} />
 
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col gap-4 px-4 py-4 pl-10">

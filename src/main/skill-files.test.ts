@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -83,6 +83,16 @@ describe('readSkillFiles', () => {
     const binary = readSkillFiles(tmpDir).find((f) => f.relativePath === 'binary.dat')
 
     expect(binary).toEqual({ relativePath: 'binary.dat', content: null, status: 'unreadable' })
+  })
+
+  it('does not recurse forever through a directory symlink cycle', () => {
+    grantPath(tmpDir)
+    writeFileSync(join(tmpDir, 'SKILL.md'), 'skill body')
+    symlinkSync(tmpDir, join(tmpDir, 'loop'), process.platform === 'win32' ? 'junction' : 'dir')
+
+    expect(readSkillFiles(tmpDir)).toEqual([
+      { relativePath: 'SKILL.md', content: 'skill body', status: 'ok' }
+    ])
   })
 })
 

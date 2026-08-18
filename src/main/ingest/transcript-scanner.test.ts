@@ -4,7 +4,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applySchema } from '../db/schema'
-import { grantPath, resetGrantedPaths } from '../permissions'
+import { grantPath, resetGrantedPaths, revokePath } from '../permissions'
 import { parseSubagentInvocations, parseTranscript, scanTranscripts } from './transcript-scanner'
 
 let tmpDir: string
@@ -134,6 +134,117 @@ describe('parseTranscript', () => {
         agent_id: null,
         preceding_user_text: 'hello'
       }
+    ])
+  })
+
+  it('captures each automatic attributionSkill once per triggering user turn', () => {
+    const automaticHumanizer = {
+      type: 'assistant',
+      sessionId: 'sess-1',
+      timestamp: '2024-01-01T00:01:00.000Z',
+      uuid: 'uuid-humanizer-first',
+      isSidechain: false,
+      attributionSkill: 'humanizer',
+      message: { content: [{ type: 'text', text: 'I will revise this text.' }] }
+    }
+    const repeatedHumanizer = {
+      ...automaticHumanizer,
+      timestamp: '2024-01-01T00:01:01.000Z',
+      uuid: 'uuid-humanizer-repeat'
+    }
+    const automaticAgentReach = {
+      ...automaticHumanizer,
+      timestamp: '2024-01-01T00:01:02.000Z',
+      uuid: 'uuid-agent-reach',
+      attributionSkill: 'agent-reach'
+    }
+    const filePath = writeTranscriptFile(tmpDir, 'sess-1', [
+      metaLine({
+        message: { content: 'Make this text sound more natural and research the claim.' }
+      }),
+      automaticHumanizer,
+      repeatedHumanizer,
+      automaticAgentReach
+    ])
+
+    expect(parseTranscript(filePath).invocations).toEqual([
+      {
+        source_uuid: 'uuid-humanizer-first',
+        session_id: 'sess-1',
+        skill_name: 'humanizer',
+        args_text: null,
+        invoked_at: '2024-01-01T00:01:00.000Z',
+        trigger_type: 'autonomous',
+        agent_id: null,
+        preceding_user_text: 'Make this text sound more natural and research the claim.'
+      },
+      {
+        source_uuid: 'uuid-agent-reach',
+        session_id: 'sess-1',
+        skill_name: 'agent-reach',
+        args_text: null,
+        invoked_at: '2024-01-01T00:01:02.000Z',
+        trigger_type: 'autonomous',
+        agent_id: null,
+        preceding_user_text: 'Make this text sound more natural and research the claim.'
+      }
+    ])
+  })
+
+  it('normalizes whitespace around an automatic attributionSkill name', () => {
+    const filePath = writeTranscriptFile(tmpDir, 'sess-1', [
+      metaLine({ message: { content: 'Improve this draft.' } }),
+      {
+        type: 'assistant',
+        sessionId: 'sess-1',
+        timestamp: '2024-01-01T00:01:00.000Z',
+        uuid: 'uuid-attribution',
+        isSidechain: false,
+        attributionSkill: '  humanizer  ',
+        message: { content: [{ type: 'text', text: 'Rewriting now.' }] }
+      }
+    ])
+
+    expect(parseTranscript(filePath).invocations).toEqual([
+      expect.objectContaining({ skill_name: 'humanizer', trigger_type: 'autonomous' })
+    ])
+  })
+
+  it('does not duplicate a slash command when later assistant records attribute the same skill', () => {
+    const command = metaLine({
+      uuid: 'uuid-command',
+      timestamp: '2024-01-01T00:01:00.000Z',
+      message: {
+        content: '<command-name>/humanizer</command-name><command-args>draft</command-args>'
+      }
+    })
+    const marker = {
+      type: 'user',
+      sessionId: 'sess-1',
+      timestamp: '2024-01-01T00:01:00.000Z',
+      uuid: 'uuid-marker',
+      parentUuid: 'uuid-command',
+      isSidechain: false,
+      message: { content: [{ type: 'text', text: 'Base directory for this skill: C:\\skills' }] }
+    }
+    const automaticRecord = {
+      type: 'assistant',
+      sessionId: 'sess-1',
+      timestamp: '2024-01-01T00:01:01.000Z',
+      uuid: 'uuid-attribution',
+      isSidechain: false,
+      attributionSkill: 'humanizer',
+      message: { content: [{ type: 'text', text: 'Rewriting now.' }] }
+    }
+    const filePath = writeTranscriptFile(tmpDir, 'sess-1', [command, marker, automaticRecord])
+
+    expect(parseTranscript(filePath).invocations).toEqual([
+      expect.objectContaining({
+        source_uuid: 'uuid-command',
+        skill_name: 'humanizer',
+        args_text: 'draft',
+        trigger_type: 'user_invoked'
+      })
     ])
   })
 
@@ -715,6 +826,18 @@ describe('scanTranscripts', () => {
     expect(allSessions()).toHaveLength(0)
   })
 
+  it('preserves the last-known-good index when the transcripts root is unavailable', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    writeTranscriptFile(projectDir, 'sess-1', [metaLine(), skillInvocationLine()])
+    scanTranscripts(db, projectsDir)
+
+    revokePath(tmpDir)
+    scanTranscripts(db, projectsDir)
+
+    expect(getSession('sess-1')).toBeTruthy()
+    expect(allInvocations()).toHaveLength(1)
+  })
+
   it('produces no row for a transcript with no cwd-bearing line, without affecting other files', () => {
     const line = metaLine()
     delete line.cwd
@@ -729,7 +852,7 @@ describe('scanTranscripts', () => {
     expect(getSession('sess-good')).toBeTruthy()
   })
 
-  it('does not re-read the file when mtime is unchanged (pinned via utimesSync)', () => {
+  it('re-reads the file when its size changes even if mtime is unchanged', () => {
     const projectDir = join(projectsDir, 'project-a')
     const filePath = writeTranscriptFile(projectDir, 'sess-1', [metaLine()])
     scanTranscripts(db, projectsDir)
@@ -744,7 +867,23 @@ describe('scanTranscripts', () => {
 
     scanTranscripts(db, projectsDir)
 
-    expect(getSession('sess-1')?.message_count).toBe(1)
+    expect(getSession('sess-1')?.message_count).toBe(2)
+  })
+
+  it('reindexes an unchanged transcript when the parser version changes', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    writeTranscriptFile(projectDir, 'sess-1', [metaLine(), skillInvocationLine()])
+    scanTranscripts(db, projectsDir)
+    expect(allInvocations()).toHaveLength(1)
+
+    db.prepare('DELETE FROM skill_invocations WHERE session_id = ?').run('sess-1')
+    db.prepare('UPDATE sessions_meta SET transcript_parser_version = 0 WHERE session_id = ?').run(
+      'sess-1'
+    )
+
+    scanTranscripts(db, projectsDir)
+
+    expect(allInvocations()).toHaveLength(1)
   })
 
   it('re-reads the file and updates values when mtime has changed', () => {

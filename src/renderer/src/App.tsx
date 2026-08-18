@@ -5,7 +5,7 @@ import { ManageFoldersDialog } from '@/components/ManageFoldersDialog'
 import { Sidebar } from '@/components/Sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { TREE_WIDTH_DEFAULT } from '@/lib/file-tree'
-import type { SourceFilter } from '@/lib/source-filter'
+import { matchesFilter, type SourceFilter } from '@/lib/source-filter'
 import { SkillDetail } from './views/SkillDetail'
 import { SkillInventory } from './views/SkillInventory'
 import { SkillFileViewer } from './views/SkillFileViewer'
@@ -24,7 +24,7 @@ function App(): React.JSX.Element {
   const [theme, setTheme] = useState<Theme>(() =>
     document.documentElement.classList.contains('dark') ? 'dark' : 'light'
   )
-  const [filter, setFilter] = useState<SourceFilter>('all')
+  const [filter, setFilter] = useState<SourceFilter>({ kind: 'all' })
   const [view, setView] = useState<View>({ kind: 'list' })
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [foldersDialogOpen, setFoldersDialogOpen] = useState(false)
@@ -69,7 +69,7 @@ function App(): React.JSX.Element {
   const contextBudget = data?.contextBudget ?? DEFAULT_CONTEXT_BUDGET
 
   const filteredSkills = useMemo(
-    () => (filter === 'all' ? skills : skills.filter((skill) => skill.source_type === filter)),
+    () => skills.filter((skill) => matchesFilter(skill, filter)),
     [skills, filter]
   )
 
@@ -120,6 +120,8 @@ function App(): React.JSX.Element {
             theme={theme}
             onToggleTheme={toggleTheme}
             contextBudget={contextBudget}
+            skills={skills}
+            folders={folders}
           />
           {view.kind === 'detail' ? (
             <SkillDetail

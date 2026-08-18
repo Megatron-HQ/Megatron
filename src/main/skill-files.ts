@@ -2,6 +2,7 @@ import { join, relative, sep } from 'path'
 import {
   allowedReaddirSync,
   allowedReadFileSync,
+  allowedRealpathSync,
   allowedStatSync,
   isPathAllowed
 } from './permissions'
@@ -19,8 +20,11 @@ export interface SkillFile {
 export function readSkillFiles(skillDir: string): SkillFile[] {
   if (!isPathAllowed(skillDir)) return []
 
+  const canonicalRoot = allowedRealpathSync(skillDir)
+  if (canonicalRoot === null) return []
+
   const files: SkillFile[] = []
-  walk(skillDir, skillDir, files)
+  walk(skillDir, skillDir, files, new Set([canonicalRoot]))
   return files.sort(bySkillMdFirstThenAlphabetical)
 }
 
@@ -33,7 +37,12 @@ export function readSkillMd(skillDir: string): SkillFile | null {
   return readOneFile(skillDir, fullPath, stats.size)
 }
 
-function walk(root: string, dir: string, files: SkillFile[]): void {
+function walk(
+  root: string,
+  dir: string,
+  files: SkillFile[],
+  visitedDirectories: Set<string>
+): void {
   for (const entryName of allowedReaddirSync(dir)) {
     if (entryName.startsWith('.')) continue
 
@@ -42,7 +51,11 @@ function walk(root: string, dir: string, files: SkillFile[]): void {
     if (stats === null) continue
 
     if (stats.isDirectory()) {
-      walk(root, fullPath, files)
+      const canonicalPath = allowedRealpathSync(fullPath)
+      if (canonicalPath === null || visitedDirectories.has(canonicalPath)) continue
+
+      visitedDirectories.add(canonicalPath)
+      walk(root, fullPath, files, visitedDirectories)
     } else if (stats.isFile()) {
       files.push(readOneFile(root, fullPath, stats.size))
     }

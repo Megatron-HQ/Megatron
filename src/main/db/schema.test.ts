@@ -142,6 +142,42 @@ describe('applySchema', () => {
     expect(() => insert.run('same-name', 'marketplace-a', now)).toThrow()
   })
 
+  it('migrates a legacy plugin registry without dropping its existing installation', () => {
+    db.exec(`
+      CREATE TABLE plugin_registry (
+        name TEXT NOT NULL,
+        marketplace TEXT NOT NULL,
+        marketplace_repo TEXT,
+        installed_version TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        install_path TEXT NOT NULL,
+        last_scanned_at TEXT NOT NULL,
+        PRIMARY KEY (name, marketplace)
+      );
+    `)
+    const now = new Date().toISOString()
+    db.prepare(
+      `INSERT INTO plugin_registry
+         (name, marketplace, marketplace_repo, installed_version, scope, install_path, last_scanned_at)
+       VALUES ('same-name', 'marketplace-a', NULL, '1.0.0', 'user', '/user-install', ?)`
+    ).run(now)
+
+    applySchema(db)
+
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO plugin_registry
+             (name, marketplace, marketplace_repo, installed_version, scope, install_path, last_scanned_at)
+           VALUES ('same-name', 'marketplace-a', NULL, '2.0.0', 'project', '/project-install', ?)`
+        )
+        .run(now)
+    ).not.toThrow()
+    expect(
+      db.prepare('SELECT install_path FROM plugin_registry ORDER BY install_path').all()
+    ).toEqual([{ install_path: '/project-install' }, { install_path: '/user-install' }])
+  })
+
   it('rejects a duplicate skill_invocations.source_uuid', () => {
     applySchema(db)
     db.prepare(
@@ -229,6 +265,90 @@ describe('applySchema', () => {
     applySchema(db)
     const cols = db.prepare("PRAGMA table_info('skill_invocations')").all() as { name: string }[]
     expect(cols.some((c) => c.name === 'preceding_user_text')).toBe(true)
+  })
+
+  it('migrates a legacy skill_invocations trigger check without losing prior rows', () => {
+    db.exec(`
+      CREATE TABLE sessions_meta (
+        session_id TEXT PRIMARY KEY,
+        cwd TEXT NOT NULL,
+        git_branch TEXT,
+        started_at TEXT NOT NULL,
+        message_count INTEGER NOT NULL,
+        source_mtime_ms INTEGER NOT NULL
+      );
+      CREATE TABLE skill_invocations (
+        id INTEGER PRIMARY KEY,
+        source_uuid TEXT NOT NULL UNIQUE,
+        session_id TEXT NOT NULL,
+        skill_name TEXT NOT NULL,
+        args_text TEXT,
+        invoked_at TEXT NOT NULL,
+        trigger_type TEXT NOT NULL CHECK (trigger_type IN ('autonomous'))
+      );
+    `)
+    const now = new Date().toISOString()
+    db.prepare(
+      `INSERT INTO sessions_meta (session_id, cwd, git_branch, started_at, message_count, source_mtime_ms)
+       VALUES ('session-1', '/cwd', NULL, ?, 0, 0)`
+    ).run(now)
+    db.prepare(
+      `INSERT INTO skill_invocations
+         (source_uuid, session_id, skill_name, args_text, invoked_at, trigger_type)
+       VALUES ('old-uuid', 'session-1', 'old-skill', NULL, ?, 'autonomous')`
+    ).run(now)
+
+    applySchema(db)
+
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO skill_invocations
+             (source_uuid, session_id, skill_name, args_text, invoked_at, trigger_type)
+           VALUES ('new-uuid', 'session-1', 'new-skill', NULL, ?, 'user_invoked')`
+        )
+        .run(now)
+    ).not.toThrow()
+    expect(
+      db.prepare('SELECT source_uuid FROM skill_invocations ORDER BY source_uuid').all()
+    ).toEqual([{ source_uuid: 'new-uuid' }, { source_uuid: 'old-uuid' }])
+  })
+
+  it('adds source_size_bytes if sessions_meta was created from an older schema', () => {
+    db.exec(`
+      CREATE TABLE sessions_meta (
+        session_id TEXT PRIMARY KEY,
+        cwd TEXT NOT NULL,
+        git_branch TEXT,
+        started_at TEXT NOT NULL,
+        message_count INTEGER NOT NULL,
+        source_mtime_ms INTEGER NOT NULL
+      );
+    `)
+
+    applySchema(db)
+
+    const cols = db.prepare("PRAGMA table_info('sessions_meta')").all() as { name: string }[]
+    expect(cols.some((c) => c.name === 'source_size_bytes')).toBe(true)
+  })
+
+  it('adds transcript_parser_version if sessions_meta was created from an older schema', () => {
+    db.exec(`
+      CREATE TABLE sessions_meta (
+        session_id TEXT PRIMARY KEY,
+        cwd TEXT NOT NULL,
+        git_branch TEXT,
+        started_at TEXT NOT NULL,
+        message_count INTEGER NOT NULL,
+        source_mtime_ms INTEGER NOT NULL,
+        source_size_bytes INTEGER NOT NULL DEFAULT -1
+      );
+    `)
+
+    applySchema(db)
+
+    const cols = db.prepare("PRAGMA table_info('sessions_meta')").all() as { name: string }[]
+    expect(cols.some((c) => c.name === 'transcript_parser_version')).toBe(true)
   })
 
   it('accepts a project_root value on a skills row', () => {
