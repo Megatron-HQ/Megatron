@@ -13,6 +13,7 @@ Full script list is in `package.json`; these are the ones with a gotcha.
 | `npm run test`          | vitest run                                                        |
 | `npm run verify:visual` | Playwright-Electron screenshots; **not** wired into `npm test`/CI |
 | `npm run db`            | opens the local SQLite index in DB Browser                        |
+| `npm run db:reset`      | deletes the local index — run after editing `schema.sql`, see Locked decisions |
 | `npm run build:unpack`  | `--dir`, no DMG                                                   |
 | `npm run build:mac`     | the actual DMG                                                    |
 
@@ -44,6 +45,7 @@ Repo-wide. Subsystem decisions are locked in the owning doc — see the Docs tab
 | Module system     | ESM only (`"type": "module"`) — no `require`/`module.exports`/`__dirname`/`__filename`                         | ESLint-enforced. Preload builds to `out/preload/index.mjs` and must stay unsandboxed to load. Use `import.meta.dirname` — electron-vite's `__dirname` shim injects `createRequire`, which is CJS                  |
 | Distribution      | Direct notarized DMG, indefinitely — no Mac App Store                                                          | App Store mandates App Sandbox, which the permission model deliberately skips                                                                                                                                     |
 | Generated mirrors | `AGENTS.md` (from `CLAUDE.md`) and `.agents/skills/` (from `.claude/skills/`) — never hand-edited, no symlinks | Git symlinks need Developer Mode **and** `core.symlinks=true` on Windows. Instead `.githooks/pre-commit` regenerates and re-stages both every commit; CI runs `node .githooks/pre-commit --check` as the backstop |
+| Schema changes    | Delete the local index and let it rebuild — never write a migration. Run `npm run db:reset` after editing `schema.sql`, then relaunch | The index is a pure derived cache of `~/.claude/` (see `docs/data-model.md`); a full rescan is sub-second even at hundreds of MB of transcripts. In-place migration code is pure risk for a saving that doesn't exist yet |
 
 ## Exploration budget
 

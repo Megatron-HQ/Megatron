@@ -14,6 +14,7 @@ are locked here, and this doc is where they are argued.
 | Plugin identity          | Key on the composite `name@marketplace`, not bare name                                  | `installed_plugins.json` keys this way; also handles `"version": "unknown"` (non-semver)                                                                                                                                  |
 | Plugin → install         | One-to-**many** (array), with a `scope` field (`user` / `project`)                      | `installed_plugins.json` values are arrays, not single objects                                                                                                                                                            |
 | Marketplace repo         | Read from `known_marketplaces.json` (separate file), not `installed_plugins.json`       | This is what makes the plugin-remediation milestone's "Report" deep-link to the marketplace's GitHub repo resolvable — see `docs/mvp-build-spec.md` for milestone numbering                                               |
+| Schema changes           | Delete the local index and let it rebuild — no migration code                         | The index is 100% derived from `~/.claude/`; nothing in it is user-authored. See "Schema changes: delete, don't migrate" below                                                                                            |
 
 ## Index schema
 
@@ -151,19 +152,23 @@ Implemented in `SKILLS_WITH_USAGE_SELECT` and `getSkillUsageDetail` (`src/main/d
 which is why `getSkillUsageDetail` takes the full `SkillRow` now, not a bare name — it needs
 `source_type`/`project_root`/`shadowed_by_skill_id` to know how to scope.
 
-**Retrofit pattern for new columns (superseded the gap noted below)**: `applySchema()`
-(`src/main/db/schema.ts`) runs `CREATE TABLE IF NOT EXISTS` first, then checks each table it's
-since grown a column for via `PRAGMA table_info` and runs a guarded `ALTER TABLE ... ADD COLUMN`
-if missing — so an existing `megatron.db` on disk picks up a new column on its next launch
-without deleting the db. `agent_id` (`skill_invocations`) and `project_root` (`skills`) both use
-this. New tables still need no migration at all (`CREATE TABLE IF NOT EXISTS` is enough on its
-own); this pattern is only for adding a column to a table that already shipped.
-
-**Forward-looking gap, not blocking M1**: the retrofit pattern above only adds a column with no
-default-value backfill logic beyond SQLite's own column default (`NULL` unless the `ALTER TABLE`
-specifies one) — fine for a column an existing row simply didn't have data for yet (it gets
-filled in on the next scan), not fine for a column that needs computing from other existing rows
-at retrofit time. No case has needed that yet.
+**Schema changes: delete, don't migrate (revised 2026-08-18)**: `applySchema()`
+(`src/main/db/schema.ts`) is `db.pragma('foreign_keys = ON'); db.exec(schemaSql)` — nothing else.
+An earlier version retrofitted an existing `megatron.db` in place: guarded
+`ALTER TABLE ... ADD COLUMN` for new columns, plus a `CREATE ..._rebuild` / copy / `DROP` / rename
+dance for the `CHECK`/`PRIMARY KEY` changes SQLite can't `ALTER`. That bought exactly one thing —
+`sessions_meta`'s scan cache (`source_mtime_ms`/`source_size_bytes`/`transcript_parser_version`,
+see Scan cadence in `docs/mvp-build-spec.md`) survives a schema change instead of forcing a full
+transcript re-read. But that re-read is measured at 0.066s per ~80MB of transcript history and
+runs after the window is shown, never blocking startup — and every row in this index is derived
+from `~/.claude/`, so nothing is lost by deleting the file outright. ~100 lines of the
+highest-risk code in the data layer, buying a sub-second saving nobody has felt yet: not worth it.
+Current policy: whoever changes `schema.sql` runs `npm run db:reset` and relaunches; the startup
+scan (`main/index.ts`) repopulates everything. The one table this doesn't cover is `allowed_paths`
+(Tier-2 folder grants — no scan can rediscover a folder the user picked by hand), which means a
+reset means re-granting. Acceptable while the only two people with a `megatron.db` are the two
+developers; revisit before the first distributed release, where a shipped user can't be told to
+`rm` a file.
 
 ## Why SQLite
 
