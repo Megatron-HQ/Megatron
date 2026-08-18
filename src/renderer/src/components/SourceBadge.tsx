@@ -26,7 +26,7 @@ export function SourceBadge({
   return (
     <Badge
       variant="outline"
-      className={cn('inline-flex max-w-[180px] items-center gap-1 font-normal', className)}
+      className={cn('inline-flex max-w-full items-center gap-1 font-normal', className)}
       title={tooltip}
     >
       <Icon className="size-3 shrink-0" />
