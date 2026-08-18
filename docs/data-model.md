@@ -137,8 +137,15 @@ always overrides a same-named project skill, everywhere, unconditionally; plugin
   global or project — shadows it, same forced-`0`-count/NULL-`last_invoked_at` treatment as
   above, via a second `WHEN` branch in the `shadowed_by_skill_id` subquery
   (`skills.is_synced = 1 AND ns.is_synced = 0`, `COALESCE`d with the existing
-  global-shadows-project branch since a row can only be shadowed one way at a time). Gap 1
-  (nested `.claude/skills/`) is still open — see `docs/scanner-coverage-gaps.md`.
+  global-shadows-project branch since a row can only be shadowed one way at a time).
+- **Nested project skills are not a shadowing relationship (closed 2026-08-18, was Gap 1 in
+  `docs/scanner-coverage-gaps.md`)**: a monorepo package's own `.claude/skills/`
+  (`docs/skill-scanner.md`) can share a bare name with the repo's top-level project skill —
+  unlike every case above, **both stay reachable**, not shadowed. `shadowed_by_skill_id` is
+  untouched by this; instead `skills.name` itself carries whatever Claude Code would actually
+  invoke that row as (bare, or directory-qualified on collision — see `skill-scanner.md`), so the
+  existing no-FK `skill_name` join already attributes each row's invocations correctly with zero
+  further query changes.
 
 Implemented in `SKILLS_WITH_USAGE_SELECT` and `getSkillUsageDetail` (`src/main/db/queries.ts`),
 which is why `getSkillUsageDetail` takes the full `SkillRow` now, not a bare name — it needs

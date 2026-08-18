@@ -5,7 +5,12 @@ import { join, resolve } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applySchema } from '../db/schema'
 import { grantPath, resetGrantedPaths, revokePath } from '../permissions'
-import { defaultSkillRoots, scanSkills, type SkillRoot } from './skills-scanner'
+import {
+  defaultSkillRoots,
+  findNestedSkillsDirs,
+  scanSkills,
+  type SkillRoot
+} from './skills-scanner'
 
 let db: Database.Database
 let tmpDir: string
@@ -361,6 +366,117 @@ describe('scanSkills', () => {
 
     expect(allSkills()[0]).toMatchObject({ name: 'foo', is_synced: 0 })
   })
+
+  it('keeps the bare name for a nested skill with no collision', () => {
+    const repoRoot = join(tmpDir, 'my-repo')
+    const nestedRoot = join(repoRoot, 'apps', 'web', '.claude', 'skills')
+    writeSkillDir(nestedRoot, 'deploy', '---\nname: deploy\ndescription: A\n---\nBody')
+
+    scanSkills(db, [{ dir: nestedRoot, sourceType: 'project', projectRoot: repoRoot }])
+
+    expect(allSkills()[0].name).toBe('deploy')
+  })
+
+  it('qualifies a nested skill colliding with a root-level same-named skill, leaving the root one bare', () => {
+    const repoRoot = join(tmpDir, 'my-repo')
+    const rootLevelRoot = join(repoRoot, '.claude', 'skills')
+    const nestedRoot = join(repoRoot, 'apps', 'web', '.claude', 'skills')
+    writeSkillDir(rootLevelRoot, 'deploy', '---\nname: deploy\ndescription: Root\n---\nBody')
+    writeSkillDir(nestedRoot, 'deploy', '---\nname: deploy\ndescription: Nested\n---\nBody')
+
+    scanSkills(db, [
+      { dir: rootLevelRoot, sourceType: 'project', projectRoot: repoRoot },
+      { dir: nestedRoot, sourceType: 'project', projectRoot: repoRoot }
+    ])
+
+    const rows = allSkills()
+    const rootRow = rows.find((r) => r.source_path === join(rootLevelRoot, 'deploy'))
+    const nestedRow = rows.find((r) => r.source_path === join(nestedRoot, 'deploy'))
+    expect(rootRow?.name).toBe('deploy')
+    expect(nestedRow?.name).toBe('apps/web:deploy')
+  })
+
+  it('records the granted repo root as project_root for a nested skill, not its own subdirectory', () => {
+    const repoRoot = join(tmpDir, 'my-repo')
+    const nestedRoot = join(repoRoot, 'apps', 'web', '.claude', 'skills')
+    writeSkillDir(nestedRoot, 'deploy', '---\nname: deploy\ndescription: A\n---\nBody')
+
+    scanSkills(db, [{ dir: nestedRoot, sourceType: 'project', projectRoot: repoRoot }])
+
+    expect(allSkills()[0].project_root).toBe(repoRoot)
+  })
+
+  it('removes a nested skill row when its directory is deleted from disk on rescan', () => {
+    const repoRoot = join(tmpDir, 'my-repo')
+    const nestedRoot = join(repoRoot, 'apps', 'web', '.claude', 'skills')
+    const skillDir = writeSkillDir(
+      nestedRoot,
+      'deploy',
+      '---\nname: deploy\ndescription: A\n---\nBody'
+    )
+    const roots: SkillRoot[] = [{ dir: nestedRoot, sourceType: 'project', projectRoot: repoRoot }]
+
+    scanSkills(db, roots)
+    expect(allSkills()).toHaveLength(1)
+
+    rmSync(skillDir, { recursive: true, force: true })
+    scanSkills(db, roots)
+
+    expect(allSkills()).toHaveLength(0)
+  })
+})
+
+describe('findNestedSkillsDirs', () => {
+  it('finds a nested .claude/skills directory below the repo root', () => {
+    const repoRoot = join(tmpDir, 'my-repo')
+    const nestedSkillsDir = join(repoRoot, 'apps', 'web', '.claude', 'skills')
+    mkdirSync(nestedSkillsDir, { recursive: true })
+
+    expect(findNestedSkillsDirs(repoRoot)).toEqual([nestedSkillsDir])
+  })
+
+  it('does not include the top-level .claude/skills directory itself', () => {
+    const repoRoot = join(tmpDir, 'my-repo')
+    mkdirSync(join(repoRoot, '.claude', 'skills'), { recursive: true })
+
+    expect(findNestedSkillsDirs(repoRoot)).toEqual([])
+  })
+
+  it('does not descend into a skip-listed directory such as node_modules', () => {
+    const repoRoot = join(tmpDir, 'my-repo')
+    mkdirSync(join(repoRoot, 'node_modules', 'some-pkg', '.claude', 'skills'), {
+      recursive: true
+    })
+
+    expect(findNestedSkillsDirs(repoRoot)).toEqual([])
+  })
+
+  it('does not treat a fixture buried inside a top-level skill as a nested root', () => {
+    const repoRoot = join(tmpDir, 'my-repo')
+    mkdirSync(
+      join(repoRoot, '.claude', 'skills', 'my-skill', 'references', '.claude', 'skills', 'fake'),
+      { recursive: true }
+    )
+
+    expect(findNestedSkillsDirs(repoRoot)).toEqual([])
+  })
+
+  it('returns an empty array without throwing when the repo root does not exist', () => {
+    const repoRoot = join(tmpDir, 'does-not-exist')
+    expect(() => findNestedSkillsDirs(repoRoot)).not.toThrow()
+    expect(findNestedSkillsDirs(repoRoot)).toEqual([])
+  })
+
+  it.skipIf(process.platform === 'win32')(
+    'terminates on a symlink cycle instead of hanging',
+    () => {
+      const repoRoot = join(tmpDir, 'my-repo')
+      mkdirSync(join(repoRoot, 'a'), { recursive: true })
+      symlinkSync(join(repoRoot, 'a'), join(repoRoot, 'a', 'loop'), 'dir')
+
+      expect(() => findNestedSkillsDirs(repoRoot)).not.toThrow()
+    }
+  )
 })
 
 describe('defaultSkillRoots', () => {
@@ -380,6 +496,20 @@ describe('defaultSkillRoots', () => {
 
     expect(roots).toContainEqual({
       dir: join(repo, '.claude', 'skills'),
+      sourceType: 'project',
+      projectRoot: repo
+    })
+  })
+
+  it('includes a nested .claude/skills directory below a granted repo', () => {
+    const repo = join(tmpDir, 'some-repo')
+    grantPath(repo)
+    mkdirSync(join(repo, 'apps', 'web', '.claude', 'skills'), { recursive: true })
+
+    const roots = defaultSkillRoots()
+
+    expect(roots).toContainEqual({
+      dir: join(repo, 'apps', 'web', '.claude', 'skills'),
       sourceType: 'project',
       projectRoot: repo
     })
