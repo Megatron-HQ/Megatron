@@ -21,6 +21,7 @@ interface SkillRow {
   project_root: string | null
   created_at: string | null
   modified_at: string | null
+  is_synced: number
 }
 
 function allSkills(): SkillRow[] {
@@ -296,6 +297,69 @@ describe('scanSkills', () => {
 
     const row = allSkills()[0]
     expect(row.modified_at).toBe(future.toISOString())
+  })
+
+  it('discovers a skill nested under synced/, tagged is_synced and global', () => {
+    const root = join(tmpDir, 'skills')
+    writeSkillDir(join(root, 'synced'), 'foo', '---\nname: foo\ndescription: Synced\n---\nBody')
+
+    scanSkills(db, [{ dir: root, sourceType: 'global' }])
+
+    const rows = allSkills()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      name: 'foo',
+      source_type: 'global',
+      is_synced: 1,
+      source_path: join(root, 'synced', 'foo')
+    })
+  })
+
+  it('does not treat synced/ itself as a skill even when it has its own SKILL.md', () => {
+    const root = join(tmpDir, 'skills')
+    writeSkillDir(root, 'synced', '---\nname: synced\ndescription: Not real\n---\nBody')
+    writeSkillDir(join(root, 'synced'), 'foo', '---\nname: foo\ndescription: Real\n---\nBody')
+
+    scanSkills(db, [{ dir: root, sourceType: 'global' }])
+
+    const rows = allSkills()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].name).toBe('foo')
+  })
+
+  it('treats Synced/ and SYNCED/ as the reserved folder, case-insensitively', () => {
+    const root = join(tmpDir, 'skills')
+    writeSkillDir(join(root, 'Synced'), 'foo', '---\nname: foo\ndescription: A\n---\nBody')
+
+    scanSkills(db, [{ dir: root, sourceType: 'global' }])
+
+    expect(allSkills()[0]).toMatchObject({ name: 'foo', is_synced: 1 })
+  })
+
+  it('reconciles away a synced skill row when its directory is removed from disk', () => {
+    const root = join(tmpDir, 'skills')
+    const fooDir = writeSkillDir(
+      join(root, 'synced'),
+      'foo',
+      '---\nname: foo\ndescription: A\n---\nBody'
+    )
+    const roots: SkillRoot[] = [{ dir: root, sourceType: 'global' }]
+    scanSkills(db, roots)
+    expect(allSkills()).toHaveLength(1)
+
+    rmSync(fooDir, { recursive: true, force: true })
+    scanSkills(db, roots)
+
+    expect(allSkills()).toHaveLength(0)
+  })
+
+  it('does not mark a skill synced merely because its granted repo path contains a synced segment', () => {
+    const root = join(tmpDir, 'synced-repo', '.claude', 'skills')
+    writeSkillDir(root, 'foo', '---\nname: foo\ndescription: A\n---\nBody')
+
+    scanSkills(db, [{ dir: root, sourceType: 'project', projectRoot: join(tmpDir, 'synced-repo') }])
+
+    expect(allSkills()[0]).toMatchObject({ name: 'foo', is_synced: 0 })
   })
 })
 

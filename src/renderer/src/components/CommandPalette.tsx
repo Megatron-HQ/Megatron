@@ -1,4 +1,4 @@
-import { SOURCE_ICON } from '@/lib/source-icon'
+import { SOURCE_ICON, SYNCED_ICON } from '@/lib/source-icon'
 import { getSourceDisplayName } from '@/lib/source-name'
 import {
   CommandDialog,
@@ -35,11 +35,13 @@ export function CommandPalette({
         <CommandEmpty>No skills found.</CommandEmpty>
         <CommandGroup>
           {skills.map((skill) => {
-            const Icon = SOURCE_ICON[skill.source_type]
+            const isSynced = skill.is_synced === 1
+            const Icon = isSynced ? SYNCED_ICON : SOURCE_ICON[skill.source_type]
             const sourceName = getSourceDisplayName(
               skill.source_type,
               skill.source_path,
-              skill.plugin_name
+              skill.plugin_name,
+              isSynced
             )
             return (
               <CommandItem

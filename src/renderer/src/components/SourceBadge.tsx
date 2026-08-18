@@ -1,5 +1,5 @@
 import { Badge } from '@/components/ui/badge'
-import { SOURCE_ICON } from '@/lib/source-icon'
+import { SOURCE_ICON, SYNCED_ICON } from '@/lib/source-icon'
 import { getSourceDisplayName, getSourceTooltip } from '@/lib/source-name'
 import { cn } from '@/lib/utils'
 import type { SourceType } from '../../../shared/ipc'
@@ -8,6 +8,7 @@ export interface SourceBadgeProps {
   type: SourceType
   sourcePath?: string
   pluginName?: string | null
+  isSynced?: boolean
   label?: string
   className?: string
 }
@@ -16,12 +17,13 @@ export function SourceBadge({
   type,
   sourcePath,
   pluginName,
+  isSynced,
   label,
   className
 }: SourceBadgeProps): React.JSX.Element {
-  const Icon = SOURCE_ICON[type]
-  const displayName = label ?? getSourceDisplayName(type, sourcePath, pluginName)
-  const tooltip = getSourceTooltip(type, sourcePath, pluginName)
+  const Icon = isSynced ? SYNCED_ICON : SOURCE_ICON[type]
+  const displayName = label ?? getSourceDisplayName(type, sourcePath, pluginName, isSynced)
+  const tooltip = getSourceTooltip(type, sourcePath, pluginName, isSynced)
 
   return (
     <Badge

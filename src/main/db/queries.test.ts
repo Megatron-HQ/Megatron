@@ -40,19 +40,21 @@ function insertSkill(
     est_listing_tokens?: number
     source_path?: string
     project_root?: string | null
+    is_synced?: number
   } = {}
 ): number {
   db.prepare(
     `INSERT INTO skills
        (name, source_type, source_path, plugin_name, description, last_scanned_at,
-        est_listing_tokens, est_body_tokens, project_root)
-     VALUES (?, ?, ?, NULL, NULL, '2026-08-14T00:00:00.000Z', ?, 0, ?)`
+        est_listing_tokens, est_body_tokens, project_root, is_synced)
+     VALUES (?, ?, ?, NULL, NULL, '2026-08-14T00:00:00.000Z', ?, 0, ?, ?)`
   ).run(
     name,
     overrides.source_type ?? 'global',
     overrides.source_path ?? `/skills/${name}`,
     overrides.est_listing_tokens ?? 0,
-    overrides.project_root ?? null
+    overrides.project_root ?? null,
+    overrides.is_synced ?? 0
   )
   return (db.prepare('SELECT last_insert_rowid() AS id').get() as { id: number }).id
 }
@@ -882,6 +884,38 @@ describe('global-shadows-project detection', () => {
 
   it('leaves an unrelated global skill unaffected', () => {
     insertSkill('grill-me', { source_type: 'global' })
+
+    expect(listSkills(db)[0]).toMatchObject({ shadowed_by_skill_id: null })
+  })
+})
+
+describe('synced-shadowed-by-non-synced detection', () => {
+  it('zeroes a synced skill invocation count when a non-synced skill shares its name', () => {
+    const nonSyncedId = insertSkill('deploy', { source_type: 'global' })
+    insertSkill('deploy', { source_type: 'global', is_synced: 1, source_path: '/synced/deploy' })
+    insertSession('sess-1')
+    insertInvocation({ source_uuid: 'u1', session_id: 'sess-1', skill_name: 'deploy' })
+
+    const syncedRow = listSkills(db).find((r) => r.source_path === '/synced/deploy')
+    expect(syncedRow).toMatchObject({
+      total_invocations: 0,
+      last_invoked_at: null,
+      shadowed_by_skill_id: nonSyncedId
+    })
+  })
+
+  it('attributes the full invocation count to the shadowing non-synced skill', () => {
+    insertSkill('deploy', { source_type: 'global' })
+    insertSkill('deploy', { source_type: 'global', is_synced: 1, source_path: '/synced/deploy' })
+    insertSession('sess-1')
+    insertInvocation({ source_uuid: 'u1', session_id: 'sess-1', skill_name: 'deploy' })
+
+    const nonSyncedRow = listSkills(db).find((r) => r.source_path === '/skills/deploy')
+    expect(nonSyncedRow).toMatchObject({ total_invocations: 1, shadowed_by_skill_id: null })
+  })
+
+  it('leaves shadowed_by_skill_id null for a synced skill with no same-named collision', () => {
+    insertSkill('visual-verify', { is_synced: 1, source_path: '/synced/visual-verify' })
 
     expect(listSkills(db)[0]).toMatchObject({ shadowed_by_skill_id: null })
   })

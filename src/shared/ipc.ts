@@ -45,6 +45,8 @@ export interface SkillRow {
   est_listing_tokens: number
   est_body_tokens: number
   project_root: string | null
+  // 1 for a global skill found under the reserved synced/ folder (claude.ai sync); 0 otherwise.
+  is_synced: number
   total_invocations: number
   last_invoked_at: string | null
   // Non-null only for a project skill that's permanently shadowed by a global skill of the

@@ -19,6 +19,7 @@ function makeSkill(overrides: Partial<SkillRow> = {}): SkillRow {
     est_listing_tokens: 100,
     est_body_tokens: 200,
     project_root: null,
+    is_synced: 0,
     total_invocations: 0,
     last_invoked_at: null,
     shadowed_by_skill_id: null,

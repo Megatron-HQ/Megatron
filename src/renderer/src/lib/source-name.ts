@@ -28,11 +28,12 @@ export function getProjectNameFromPath(sourcePath?: string): string {
 export function getSourceDisplayName(
   type: SourceType,
   sourcePath?: string,
-  pluginName?: string | null
+  pluginName?: string | null,
+  isSynced?: boolean
 ): string {
   switch (type) {
     case 'global':
-      return 'global'
+      return isSynced ? 'synced' : 'global'
     case 'project':
       return getProjectNameFromPath(sourcePath)
     case 'plugin':
@@ -43,11 +44,12 @@ export function getSourceDisplayName(
 export function getSourceTooltip(
   type: SourceType,
   sourcePath?: string,
-  pluginName?: string | null
+  pluginName?: string | null,
+  isSynced?: boolean
 ): string {
   switch (type) {
     case 'global':
-      return 'Global skill'
+      return isSynced ? 'Synced from claude.ai' : 'Global skill'
     case 'project':
       return sourcePath ?? 'Project skill'
     case 'plugin':
@@ -64,9 +66,10 @@ const TYPE_ORDER: Record<SourceType, number> = {
 export function getSourceSortKey(
   type: SourceType,
   sourcePath?: string,
-  pluginName?: string | null
+  pluginName?: string | null,
+  isSynced?: boolean
 ): string {
   const order = TYPE_ORDER[type]
-  const displayName = getSourceDisplayName(type, sourcePath, pluginName).toLowerCase()
+  const displayName = getSourceDisplayName(type, sourcePath, pluginName, isSynced).toLowerCase()
   return `${order}_${displayName}`
 }

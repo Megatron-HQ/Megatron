@@ -96,6 +96,9 @@ export function applySchema(db: Database.Database): void {
     if (!skillsCols.some((c) => c.name === 'est_body_tokens')) {
       db.exec('ALTER TABLE skills ADD COLUMN est_body_tokens INTEGER NOT NULL DEFAULT 0')
     }
+    if (!skillsCols.some((c) => c.name === 'is_synced')) {
+      db.exec('ALTER TABLE skills ADD COLUMN is_synced INTEGER NOT NULL DEFAULT 0')
+    }
   }
 
   const sessionsMetaCols = db.prepare("PRAGMA table_info('sessions_meta')").all() as {

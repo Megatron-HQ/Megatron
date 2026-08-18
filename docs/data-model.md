@@ -131,13 +131,18 @@ always overrides a same-named project skill, everywhere, unconditionally; plugin
   of each absorbing the other's history.
 - Global and plugin skills stay unscoped by name — global wins everywhere, plugin skills can't
   collide.
+- **`is_synced` shadowing (closed 2026-08-18, was Gap 2 in `docs/scanner-coverage-gaps.md`)**: a
+  claude.ai-synced skill (`skills.is_synced = 1`, still `source_type: 'global'` — see
+  `docs/skill-scanner.md`) is the lowest-priority source. Any same-named non-synced skill —
+  global or project — shadows it, same forced-`0`-count/NULL-`last_invoked_at` treatment as
+  above, via a second `WHEN` branch in the `shadowed_by_skill_id` subquery
+  (`skills.is_synced = 1 AND ns.is_synced = 0`, `COALESCE`d with the existing
+  global-shadows-project branch since a row can only be shadowed one way at a time). Gap 1
+  (nested `.claude/skills/`) is still open — see `docs/scanner-coverage-gaps.md`.
 
 Implemented in `SKILLS_WITH_USAGE_SELECT` and `getSkillUsageDetail` (`src/main/db/queries.ts`),
 which is why `getSkillUsageDetail` takes the full `SkillRow` now, not a bare name — it needs
-`source_type`/`project_root`/`shadowed_by_skill_id` to know how to scope. See
-`docs/scanner-coverage-gaps.md` for two related-but-separate scanner gaps (nested
-`.claude/skills/`, the `synced/` folder) found during this same investigation and deliberately
-not folded in here.
+`source_type`/`project_root`/`shadowed_by_skill_id` to know how to scope.
 
 **Retrofit pattern for new columns (superseded the gap noted below)**: `applySchema()`
 (`src/main/db/schema.ts`) runs `CREATE TABLE IF NOT EXISTS` first, then checks each table it's

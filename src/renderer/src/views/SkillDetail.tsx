@@ -84,6 +84,7 @@ export function SkillDetail({
             type={skill.source_type}
             sourcePath={skill.source_path}
             pluginName={skill.plugin_name}
+            isSynced={skill.is_synced === 1}
           />
         </div>
         <Button

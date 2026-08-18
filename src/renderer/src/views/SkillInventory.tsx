@@ -104,7 +104,8 @@ const columns = columnHelper.columns([
     }
   }),
   columnHelper.accessor(
-    (row) => getSourceSortKey(row.source_type, row.source_path, row.plugin_name),
+    (row) =>
+      getSourceSortKey(row.source_type, row.source_path, row.plugin_name, row.is_synced === 1),
     {
       id: 'source',
       header: 'Source',
@@ -116,6 +117,7 @@ const columns = columnHelper.columns([
             type={row.source_type}
             sourcePath={row.source_path}
             pluginName={row.plugin_name}
+            isSynced={row.is_synced === 1}
           />
         )
       }

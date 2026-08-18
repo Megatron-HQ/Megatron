@@ -81,6 +81,12 @@ describe('source-name helpers', () => {
         getSourceDisplayName('plugin', undefined, 'frontend-design@claude-plugins-official')
       ).toBe('frontend-design')
     })
+
+    it('returns synced for a global skill found under synced/', () => {
+      expect(
+        getSourceDisplayName('global', '/Users/alice/.claude/skills/synced/test', null, true)
+      ).toBe('synced')
+    })
   })
 
   describe('getSourceSortKey', () => {
@@ -95,6 +101,15 @@ describe('source-name helpers', () => {
       expect(projAKey < projBKey).toBe(true)
       expect(projBKey < pluginAKey).toBe(true)
       expect(pluginAKey < pluginZKey).toBe(true)
+    })
+
+    it('sorts a synced skill within the global tier, after plain global skills', () => {
+      const globalKey = getSourceSortKey('global', '/path')
+      const syncedKey = getSourceSortKey('global', '/path/synced/x', null, true)
+      const projAKey = getSourceSortKey('project', '/repo-a/.claude/skills/a')
+
+      expect(globalKey < syncedKey).toBe(true)
+      expect(syncedKey < projAKey).toBe(true)
     })
   })
 })

@@ -42,17 +42,26 @@ const SKILLS_WITH_USAGE_SELECT = `
   WITH s AS (
     SELECT
       skills.*,
-      (
-        SELECT g.id FROM skills g
-        WHERE g.source_type = 'global' AND g.name = skills.name AND skills.source_type = 'project'
-        LIMIT 1
+      COALESCE(
+        (
+          SELECT g.id FROM skills g
+          WHERE g.source_type = 'global' AND g.name = skills.name AND skills.source_type = 'project'
+          LIMIT 1
+        ),
+        (
+          -- Synced skills are the lowest-priority source (docs/skill-scanner.md): any
+          -- non-synced skill of the same name — global or project — outranks them.
+          SELECT ns.id FROM skills ns
+          WHERE ns.name = skills.name AND ns.is_synced = 0 AND skills.is_synced = 1
+          LIMIT 1
+        )
       ) AS shadowed_by_skill_id
     FROM skills
   )
   SELECT
     s.id, s.name, s.source_type, s.source_path, s.plugin_name, s.description,
     s.last_scanned_at, s.est_listing_tokens, s.est_body_tokens, s.project_root,
-    s.shadowed_by_skill_id,
+    s.is_synced, s.shadowed_by_skill_id,
     COALESCE(SUM(CASE WHEN lf.severity = 'error' THEN 1 ELSE 0 END), 0) AS error_count,
     COALESCE(SUM(CASE WHEN lf.severity = 'warning' THEN 1 ELSE 0 END), 0) AS warning_count,
     CASE
@@ -182,6 +191,7 @@ export interface SkillScanRow {
   metadata_json?: string | null
   created_at?: string | null
   modified_at?: string | null
+  is_synced?: number
 }
 
 // Upserts `rows` as `sourceType`, then deletes existing `sourceType` rows that
@@ -198,11 +208,11 @@ function writeSkillRows(
       INSERT INTO skills
         (name, source_type, source_path, plugin_name, description, last_scanned_at,
          est_listing_tokens, est_body_tokens, project_root, license, metadata_json,
-         created_at, modified_at)
+         created_at, modified_at, is_synced)
       VALUES
         (@name, @source_type, @source_path, @plugin_name, @description, @last_scanned_at,
          @est_listing_tokens, @est_body_tokens, @project_root, @license, @metadata_json,
-         @created_at, @modified_at)
+         @created_at, @modified_at, @is_synced)
       ON CONFLICT(source_path) DO UPDATE SET
         name = excluded.name,
         source_type = excluded.source_type,
@@ -215,7 +225,8 @@ function writeSkillRows(
         license = excluded.license,
         metadata_json = excluded.metadata_json,
         created_at = excluded.created_at,
-        modified_at = excluded.modified_at
+        modified_at = excluded.modified_at,
+        is_synced = excluded.is_synced
     `)
     const now = new Date().toISOString()
     for (const row of rows) {
@@ -232,7 +243,8 @@ function writeSkillRows(
         license: row.license ?? null,
         metadata_json: row.metadata_json ?? null,
         created_at: row.created_at ?? null,
-        modified_at: row.modified_at ?? null
+        modified_at: row.modified_at ?? null,
+        is_synced: row.is_synced ?? 0
       })
     }
 

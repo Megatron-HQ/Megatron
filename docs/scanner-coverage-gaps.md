@@ -1,16 +1,17 @@
 # Megatron: Scanner coverage gaps
 
-Not a locked-decision doc. A backlog note: two real skill locations the scanner currently
-never reads, found during the 2026-08-16 skill-name-collision planning session (see
+Not a locked-decision doc. A backlog note: real skill locations the scanner currently never
+reads, found during the 2026-08-16 skill-name-collision planning session (see
 `docs/skill-scanner.md` and `docs/data-model.md` for the collision-handling work these gaps
-were split out of). Neither is folded into that work — recorded here so a future session can
-pick either up on its own.
+were split out of).
+
+**Gap 2 (`synced/`) closed 2026-08-18** — see `docs/skill-scanner.md`'s locked-decisions table
+and `docs/data-model.md`'s `is_synced` shadowing note. Gap 1 is still open, recorded below.
 
 Both gaps trace to the same root cause: `scanSkills()` in `src/main/ingest/skills-scanner.ts`
 does one flat, non-recursive `readdirSync(root.dir)` per root and keys a hit on
-`<root.dir>/<entryName>/SKILL.md` existing (skills-scanner.ts:43-64). Anything requiring a
-second level of directory nesting below `root.dir` before reaching a real `SKILL.md` is
-invisible to it.
+`<root.dir>/<entryName>/SKILL.md` existing. Anything requiring a second level of directory
+nesting below `root.dir` before reaching a real `SKILL.md` is invisible to it.
 
 Source for both: [code.claude.com/docs/en/skills](https://code.claude.com/docs/en/skills)
 ("Where skills live" section), fetched and quoted 2026-08-16.
@@ -40,23 +41,14 @@ already generalizes to this case for free — the actual work is purely in the s
 (recursing into subdirectories, deciding a depth bound, and deciding whether to store/display
 the directory-qualified name `apps/web:deploy` Claude Code itself would use).
 
-## Gap 2 — `synced/` (claude.ai-synced skills)
+## Gap 2 — `synced/` (claude.ai-synced skills) — CLOSED 2026-08-18
 
-> The folder name `synced` is reserved in the enterprise, personal, and project skills
-> locations, in any capitalization. Claude Code downloads the skills you enable on claude.ai
-> into `~/.claude/skills/synced/` when `CLAUDE_CODE_SYNC_SKILLS` is set in non-interactive mode.
-
-A synced skill lives at `~/.claude/skills/synced/<skill-name>/SKILL.md` — one level deeper than
-every other global skill. `scanSkills()`'s flat walk checks `~/.claude/skills/synced/SKILL.md`
-(doesn't exist — `synced` itself is never a skill) and stops there; it never descends into
-`synced/` to find the real per-skill directories underneath. Result: synced skills are silently
-absent from the inventory today, not merely unlabeled.
-
-Precedence-wise (same docs page): "A skill or command from any of these sources overrides a
-skill synced from your claude.ai account with the same name" — synced skills are the
-lowest-priority source. Worth knowing if/when this gap is picked up, since it means a synced
-skill can itself be shadowed by a personal/project/enterprise skill of the same name, same
-general shape as the global-shadows-project case already being designed for.
+Was a flat-walk blind spot identical in shape to Gap 1 (one extra level of nesting under
+`~/.claude/skills/synced/<skill-name>/SKILL.md`), plus a lowest-priority precedence rule.
+Resolved: `scanSkills()` special-cases `synced/` and tags its rows `is_synced: 1`; precedence is
+a second `WHEN` branch in the shadowing subquery. See `docs/skill-scanner.md`'s locked-decisions
+table and `docs/data-model.md`'s "Skill name collisions" section for the closed design, and
+`src/main/ingest/skills-scanner.test.ts` / `src/main/db/queries.test.ts` for the tests.
 
 ## Not investigated
 
