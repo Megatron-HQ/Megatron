@@ -53,10 +53,27 @@ export function getFilterHeaderTitle(filter: SourceFilter): string {
     case 'all':
       return 'All Skills'
     case 'global':
-      return 'Global'
+      return 'Global Skills'
     case 'project':
-      return filter.projectRoot ? `Project / ${getFolderBasename(filter.projectRoot)}` : 'Project'
+      return filter.projectRoot
+        ? `Project / ${getFolderBasename(filter.projectRoot)} Skills`
+        : 'Project Skills'
     case 'plugin':
-      return filter.pluginName ? `Plugin / ${getPluginBareName(filter.pluginName)}` : 'Plugin'
+      return filter.pluginName
+        ? `Plugin / ${getPluginBareName(filter.pluginName)} Skills`
+        : 'Plugin Skills'
+  }
+}
+
+export function shouldShowSourceColumn(filter: SourceFilter): boolean {
+  switch (filter.kind) {
+    case 'all':
+      return true
+    case 'global':
+      return false
+    case 'project':
+      return !filter.projectRoot
+    case 'plugin':
+      return !filter.pluginName
   }
 }

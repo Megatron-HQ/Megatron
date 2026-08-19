@@ -8,8 +8,9 @@ description: Use after implementing any UI change requested by the user — new 
 Megatron is Electron + IPC/SQLite-driven — most of the UI has no content without a real running
 app, so there's no way to "just look at the JSX" and know it renders, let alone whether it matches
 what was asked. This skill builds the app, drives the real packaged output through every known
-screen/state at every window size, and gives you the evidence (screenshots + a deterministic
-overflow/console-error report) to judge against the actual request.
+screen/state at every window size, and gives you the evidence (screenshots, a diff against each
+screenshot's last-accepted baseline, and a deterministic overflow/console-error report) to judge
+against the actual request.
 
 ## Process
 
@@ -39,17 +40,49 @@ scanners still read real `~/.claude` data, so the screenshots show real skills, 
 the clicks at automation speed, not human speed. The script logs each step as it goes
 (`capturing <name>...`) — watch the terminal, not the window.
 
+**Reading a diff result.** Every screenshot is also pixel-diffed against its stored baseline in
+`.visual-verify-baselines/` (gitignored, persists across runs — unlike `.visual-verify/`, which gets
+wiped every run). The threshold (`0.1`, antialiasing excluded) and the diff-pixel floor (`2000`px)
+are fixed in `verify.mjs`, so "unchanged" means the same thing every time regardless of who's running
+it — not re-tuned per run. The floor isn't a guess: the capture window emulates
+`prefers-reduced-motion` so the app's JS-driven spring animations (hover-glide, file-tree
+expand/collapse) render instantly instead of needing a wait long enough to outlast an unreliable
+frame rate, and even so, repeated identical runs still showed up to ~650 pixels of ordinary subpixel
+font-rendering jitter. `2000` clears that with real margin. Each screenshot lands in one bucket:
+
+- **new** — no baseline exists yet (a first run, or a newly added scenario). Always review.
+- **changed** — differs from the accepted baseline by more than the floor, or its dimensions don't
+  even match the baseline (e.g. a DPI change) and no pixel comparison was possible. Always review.
+- **unchanged** — matches the accepted baseline. Nothing new here — skip reading it.
+
+The runner also prints any **orphaned baselines** — files in `.visual-verify-baselines/` with no
+matching scenario in this run (a sign a scenario was renamed or removed). Nothing is deleted
+automatically: an automated sweep can't reliably tell a rename from a deletion, so it's surfaced for
+you to deal with by hand if it's worth the five minutes.
+
 **3. Read everything and judge against the requirement from step 1.**
 
-- **Read every PNG.** A screenshot nobody looked at verifies nothing. For each one, ask: does the
-  intended change actually show up here the way it was asked for — not just "does something render."
+- **Read every screenshot flagged `new` or `changed`.** A screenshot nobody looked at verifies
+  nothing. For each one, ask: does the intended change actually show up here the way it was asked
+  for — not just "does something render." Screenshots flagged `unchanged` don't need re-reading —
+  they already matched a state you (or a prior session) already judged correct.
+- **`unchanged` means "nothing new to look at," never "verified."** The diff has no idea whether a
+  change matches what was actually asked for — it only knows pixels didn't move. Don't let a clean
+  diff summary become a reason to skip judgment on the screenshots that *are* flagged.
+- **Watch for data drift, not just UI drift.** Scenarios read real `~/.claude` data, not fixtures —
+  a skill count, a last-used timestamp, or a recency-sorted list can shift between two runs with zero
+  code change in between. If a flagged diff is confined to that kind of live content rather than
+  layout/style, treat it as `DATA DRIFT — not a regression`: note it, don't promote it (see step 5),
+  and move on — it's not a finding.
 - **Read the overflow/console-error summary.** These are deterministic, not judgment calls — any hit
-  is a real finding, go look at the screenshot(s) it names.
+  is a real finding, go look at the screenshot(s) it names. This runs on every screenshot regardless
+  of its diff status.
 - **Check both sizes, not just default.** Megatron is user-resizable down to its real minimum; a
   layout that only works at the default size is broken, not passing.
 - **Check screens the current change didn't touch, not just the one it did.** Every scenario runs
   every time specifically so a shared-component or token change shows up here even though the edit
-  was somewhere else.
+  was somewhere else — the diff against baseline is what makes this cheap to keep doing as scenario
+  count grows: an untouched screen that really didn't change costs nothing to skip.
 
 **4. If you find a real defect caused by this change, fix it — once.** Fix the specific issue, then
 re-run `npm run verify:visual` one more time to confirm. Whether the recheck comes back clean or not,
@@ -62,12 +95,20 @@ A defect that's clearly **pre-existing and unrelated** to the current change (no
 change caused) gets reported, not silently fixed as a drive-by — stay scoped to what you were asked
 to verify.
 
-**5. Clean up.** Once you've read the screenshots, judged them, and reported the outcome to the
-user, delete `.visual-verify/` (`rm -rf .visual-verify`). It's gitignored, local, ephemeral evidence
-for this one cycle, not a deliverable — the next run clears it anyway (see `verify.mjs`), but don't
-leave it sitting in the working tree once its job is done. Exception: if you're about to hand the
-screenshots to a deliberate `/impeccable critique` pass (see Scope below), keep them until that's
-finished too.
+**5. Promote the screenshots you just accepted.** For each `new`/`changed` screenshot you judged
+correct in step 3 (not `DATA DRIFT`, not something you're about to fix in step 4), copy it from
+`.visual-verify/<name>.png` to `.visual-verify-baselines/<name>.png` — that's what makes the next run
+recognize it as `unchanged` instead of flagging it again. Only promote what you actually reviewed,
+not a blanket copy of everything. Do this **before** cleanup below — step 6 deletes the directory
+you'd be copying from.
+
+**6. Clean up.** Once you've read the screenshots, judged them, promoted what was accepted, and
+reported the outcome to the user, delete `.visual-verify/` (`rm -rf .visual-verify`). It's gitignored,
+local, ephemeral evidence for this one cycle, not a deliverable — the next run clears it anyway (see
+`verify.mjs`), but don't leave it sitting in the working tree once its job is done.
+`.visual-verify-baselines/` is untouched by this — it's meant to persist across runs. Exception: if
+you're about to hand the screenshots to a deliberate `/impeccable critique` pass (see Scope below),
+keep them until that's finished too.
 
 ## Keeping coverage current
 
@@ -75,7 +116,9 @@ finished too.
 its scenario to `scenarios.mjs` in the same change** — this is part of "done," not a follow-up. Each
 entry is `{ name, run(window) }`: describe how to get from the app's default baseline state to the
 state you want screenshotted (the runner reloads back to baseline before every scenario, so don't
-assume another scenario ran first — see the comment at the top of `scenarios.mjs`).
+assume another scenario ran first — see the comment at the top of `scenarios.mjs`). A renamed or
+removed scenario's old baseline shows up in the next run's orphaned-baselines report (step 2) — no
+action required, it's just visibility, not a cleanup obligation.
 
 ## Scope — read this before reaching for more
 

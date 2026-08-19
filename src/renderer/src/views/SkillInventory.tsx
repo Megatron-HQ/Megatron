@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   createColumnHelper,
   createSortedRowModel,
@@ -8,7 +8,7 @@ import {
   tableFeatures,
   useTable
 } from '@tanstack/react-table'
-import type { SortingState } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { AlertTriangle, FolderOpen, Lock, Search } from 'lucide-react'
 import { motion } from 'motion/react'
 import { ClaudeIcon } from '@/components/ClaudeIcon'
@@ -26,8 +26,18 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
-import { getFilterHeaderTitle, type SourceFilter } from '@/lib/source-filter'
-import { getFolderBasename, getPluginBareName, getSourceSortKey } from '@/lib/source-name'
+import {
+  getFilterHeaderTitle,
+  shouldShowSourceColumn,
+  type SourceFilter
+} from '@/lib/source-filter'
+import { SYNCED_ICON } from '@/lib/source-icon'
+import {
+  getFolderBasename,
+  getPluginBareName,
+  getSourceSortKey,
+  getSourceTooltip
+} from '@/lib/source-name'
 import type { SkillRow } from '../../../shared/ipc'
 
 const ROW_HEIGHT = 40
@@ -50,109 +60,133 @@ const COLUMN_WIDTH: Record<string, string> = {
   total_invocations: 'w-[80px]'
 }
 
-const columns = columnHelper.columns([
-  columnHelper.accessor('name', {
-    header: 'Name',
+const SYNCED_TOOLTIP = getSourceTooltip('global', undefined, undefined, true)
+
+const nameColumn = columnHelper.accessor('name', {
+  header: 'Name',
+  sortFn: 'text',
+  cell: (info) => {
+    const row = info.row.original
+    return (
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span className="truncate">{info.getValue()}</span>
+        {row.is_synced === 1 && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <SYNCED_ICON className="size-3 shrink-0 text-muted-foreground" />
+            </TooltipTrigger>
+            <TooltipContent>{SYNCED_TOOLTIP}</TooltipContent>
+          </Tooltip>
+        )}
+        {row.source_type === 'plugin' && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Lock className="size-3 shrink-0 text-muted-foreground" />
+            </TooltipTrigger>
+            <TooltipContent>
+              Plugin-managed — read-only, may be overwritten on update.
+            </TooltipContent>
+          </Tooltip>
+        )}
+        {row.shadowed_by_skill_id !== null && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <AlertTriangle className="size-3 shrink-0 text-warning" />
+            </TooltipTrigger>
+            <TooltipContent>
+              A global skill with the same name always wins. This one can never run.
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </span>
+    )
+  }
+})
+
+const statusColumn = columnHelper.accessor('lint_status', {
+  id: 'status',
+  header: 'Status',
+  sortFn: (rowA, rowB) => {
+    const order: Record<string, number> = { error: 0, warning: 1, clean: 2 }
+    const aVal = order[rowA.original.lint_status] ?? 3
+    const bVal = order[rowB.original.lint_status] ?? 3
+    return aVal - bVal
+  },
+  cell: (info) => {
+    const row = info.row.original
+    return (
+      <LintStatusBadge
+        status={row.lint_status}
+        errorCount={row.error_count}
+        warningCount={row.warning_count}
+      />
+    )
+  }
+})
+
+const sourceColumn = columnHelper.accessor(
+  (row) => getSourceSortKey(row.source_type, row.source_path, row.plugin_name, false),
+  {
+    id: 'source',
+    header: 'Source',
     sortFn: 'text',
     cell: (info) => {
       const row = info.row.original
       return (
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate">{info.getValue()}</span>
-          {row.source_type === 'plugin' && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Lock className="size-3 shrink-0 text-muted-foreground" />
-              </TooltipTrigger>
-              <TooltipContent>
-                Plugin-managed — read-only, may be overwritten on update.
-              </TooltipContent>
-            </Tooltip>
-          )}
-          {row.shadowed_by_skill_id !== null && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <AlertTriangle className="size-3 shrink-0 text-warning" />
-              </TooltipTrigger>
-              <TooltipContent>
-                A global skill with the same name always wins. This one can never run.
-              </TooltipContent>
-            </Tooltip>
-          )}
-        </span>
-      )
-    }
-  }),
-  columnHelper.accessor('lint_status', {
-    id: 'status',
-    header: 'Status',
-    sortFn: (rowA, rowB) => {
-      const order: Record<string, number> = { error: 0, warning: 1, clean: 2 }
-      const aVal = order[rowA.original.lint_status] ?? 3
-      const bVal = order[rowB.original.lint_status] ?? 3
-      return aVal - bVal
-    },
-    cell: (info) => {
-      const row = info.row.original
-      return (
-        <LintStatusBadge
-          status={row.lint_status}
-          errorCount={row.error_count}
-          warningCount={row.warning_count}
+        <SourceBadge
+          type={row.source_type}
+          sourcePath={row.source_path}
+          pluginName={row.plugin_name}
         />
       )
     }
-  }),
-  columnHelper.accessor(
-    (row) =>
-      getSourceSortKey(row.source_type, row.source_path, row.plugin_name, row.is_synced === 1),
-    {
-      id: 'source',
-      header: 'Source',
-      sortFn: 'text',
-      cell: (info) => {
-        const row = info.row.original
-        return (
-          <SourceBadge
-            type={row.source_type}
-            sourcePath={row.source_path}
-            pluginName={row.plugin_name}
-            isSynced={row.is_synced === 1}
-          />
-        )
-      }
-    }
-  ),
-  columnHelper.accessor('description', {
-    header: 'Description',
-    sortFn: 'text',
-    sortUndefined: 'last',
-    cell: (info) => (
-      <span className="block truncate text-muted-foreground">{info.getValue() ?? '—'}</span>
-    )
-  }),
-  columnHelper.accessor('est_listing_tokens', {
-    header: 'Tokens',
-    sortFn: 'number',
-    cell: (info) => (
+  }
+)
+
+const descriptionColumn = columnHelper.accessor('description', {
+  header: 'Description',
+  sortFn: 'text',
+  sortUndefined: 'last',
+  cell: (info) => (
+    <span className="block truncate text-muted-foreground">{info.getValue() ?? '—'}</span>
+  )
+})
+
+const tokensColumn = columnHelper.accessor('est_listing_tokens', {
+  header: 'Tokens',
+  sortFn: 'number',
+  cell: (info) => (
+    <span className="block text-right font-mono text-xs tabular-nums text-muted-foreground">
+      {info.getValue().toLocaleString()}
+    </span>
+  )
+})
+
+const usesColumn = columnHelper.accessor('total_invocations', {
+  header: 'Uses',
+  sortFn: 'number',
+  cell: (info) => {
+    const value = info.getValue()
+    return (
       <span className="block text-right font-mono text-xs tabular-nums text-muted-foreground">
-        {info.getValue().toLocaleString()}
+        {value === 0 ? 'Never' : value.toLocaleString()}
       </span>
     )
-  }),
-  columnHelper.accessor('total_invocations', {
-    header: 'Uses',
-    sortFn: 'number',
-    cell: (info) => {
-      const value = info.getValue()
-      return (
-        <span className="block text-right font-mono text-xs tabular-nums text-muted-foreground">
-          {value === 0 ? 'Never' : value.toLocaleString()}
-        </span>
-      )
-    }
-  })
+  }
+})
+
+const allColumns = columnHelper.columns([
+  nameColumn,
+  statusColumn,
+  sourceColumn,
+  descriptionColumn,
+  tokensColumn,
+  usesColumn
 ])
+
+function buildColumns(showSource: boolean): ColumnDef<typeof features, SkillRow, unknown>[] {
+  return showSource ? allColumns : allColumns.filter((column) => column.id !== 'source')
+}
 
 interface SkillInventoryProps {
   skills: SkillRow[]
@@ -178,6 +212,9 @@ export function SkillInventory({
   const containerRef = useRef<HTMLDivElement>(null)
   const { hoveredId, setHoveredId, onMouseLeave, reduceMotion, transition } =
     useGlideHighlight<number>()
+
+  const showSource = shouldShowSourceColumn(filter)
+  const columns = useMemo(() => buildColumns(showSource), [showSource])
 
   const table = useTable({
     features,
@@ -208,7 +245,7 @@ export function SkillInventory({
             <TableRow className="h-10">
               <TableHead className="w-[200px] px-3 py-2">Name</TableHead>
               <TableHead className="w-[100px] px-3 py-2">Status</TableHead>
-              <TableHead className="w-[120px] px-3 py-2">Source</TableHead>
+              {showSource && <TableHead className="w-[120px] px-3 py-2">Source</TableHead>}
               <TableHead className={cn('px-3 py-2', NARROW_VIEWPORT_DESCRIPTION_CLASS)}>
                 Description
               </TableHead>
@@ -225,9 +262,11 @@ export function SkillInventory({
                 <TableCell className="px-3 py-2">
                   <Skeleton className="h-4 w-12" />
                 </TableCell>
-                <TableCell className="px-3 py-2">
-                  <Skeleton className="h-4 w-16" />
-                </TableCell>
+                {showSource && (
+                  <TableCell className="px-3 py-2">
+                    <Skeleton className="h-4 w-16" />
+                  </TableCell>
+                )}
                 <TableCell className={cn('px-3 py-2', NARROW_VIEWPORT_DESCRIPTION_CLASS)}>
                   <Skeleton className="h-4 w-48" />
                 </TableCell>

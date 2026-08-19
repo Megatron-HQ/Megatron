@@ -61,6 +61,7 @@ const SKILLS_WITH_USAGE_SELECT = `
   SELECT
     s.id, s.name, s.source_type, s.source_path, s.plugin_name, s.description,
     s.last_scanned_at, s.est_listing_tokens, s.est_body_tokens, s.project_root,
+    s.metadata_json, s.modified_at,
     s.is_synced, s.shadowed_by_skill_id,
     COALESCE(SUM(CASE WHEN lf.severity = 'error' THEN 1 ELSE 0 END), 0) AS error_count,
     COALESCE(SUM(CASE WHEN lf.severity = 'warning' THEN 1 ELSE 0 END), 0) AS warning_count,

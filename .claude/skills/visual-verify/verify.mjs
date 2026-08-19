@@ -13,15 +13,35 @@
 // realistic despite the empty profile.
 
 import { execSync } from 'node:child_process'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import pixelmatch from 'pixelmatch'
+import { PNG } from 'pngjs'
 import { _electron as electron } from 'playwright-core'
 import { scenarios } from './scenarios.mjs'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../..')
 const OUT_DIR = join(REPO_ROOT, '.visual-verify')
 const SETTLE_TIMEOUT_MS = 15_000
+
+// A sibling of OUT_DIR, never nested inside it — OUT_DIR gets rm -rf'd at the
+// start of every run (see main()), so a baseline stored inside it would be
+// destroyed before it could ever be diffed against. Never wiped; persists
+// across runs so "unchanged since last accepted" has something to mean.
+const BASELINE_DIR = join(REPO_ROOT, '.visual-verify-baselines')
+
+// Decided upfront and hardcoded rather than re-tuned per run — see SKILL.md's
+// "Reading a diff result" section for why. The floor was measured, not
+// guessed: with reduced-motion emulation on (below) and an otherwise
+// identical baseline, repeated back-to-back runs still showed up to ~650
+// differing pixels from ordinary subpixel font-rendering jitter (confirmed
+// via a manual diff — it's confined to a couple of characters of sidebar
+// text, not a layout change). 2000 clears that band with comfortable margin
+// while staying far below what any real, visible layout/content regression
+// would produce.
+const DIFF_THRESHOLD = 0.1
+const DIFF_PIXEL_FLOOR = 2000
 
 /** Waits past the loading skeleton into whichever real state comes next. */
 async function waitForSettle(window) {
@@ -63,6 +83,57 @@ async function hasHorizontalOverflow(window) {
   )
 }
 
+/**
+ * Diffs a freshly captured screenshot against its stored baseline (if any).
+ * Returns 'new' (no baseline yet), 'changed' (meaningful pixel diff, or a
+ * dimension mismatch that makes a pixel comparison impossible — e.g. a DPI
+ * change — which pixelmatch can't compare and would otherwise throw on), or
+ * 'unchanged' (matches the last accepted baseline).
+ */
+async function diffAgainstBaseline(screenshotPath, name) {
+  let baselineBuffer
+  try {
+    baselineBuffer = await readFile(join(BASELINE_DIR, name))
+  } catch {
+    return 'new'
+  }
+
+  const baseline = PNG.sync.read(baselineBuffer)
+  const candidate = PNG.sync.read(await readFile(screenshotPath))
+
+  if (baseline.width !== candidate.width || baseline.height !== candidate.height) {
+    return 'changed'
+  }
+
+  const diffPixels = pixelmatch(
+    baseline.data,
+    candidate.data,
+    null,
+    baseline.width,
+    baseline.height,
+    {
+      threshold: DIFF_THRESHOLD,
+      includeAA: false
+    }
+  )
+
+  return diffPixels > DIFF_PIXEL_FLOOR ? 'changed' : 'unchanged'
+}
+
+// Read-only visibility, not cleanup — an automated sweep here would need to
+// tell "scenario renamed" apart from "scenario deleted" to avoid silently
+// discarding a still-relevant baseline, which isn't cheaply guaranteable.
+// Report and let a human decide.
+async function findOrphanBaselines(producedNames) {
+  let existing
+  try {
+    existing = await readdir(BASELINE_DIR)
+  } catch {
+    return []
+  }
+  return existing.filter((file) => !producedNames.has(file))
+}
+
 // Electron windows aren't a Playwright "viewport" — there's no
 // page.setViewportSize() for _electron, resizing goes through the real
 // BrowserWindow. Reading its real minimum back (rather than hardcoding it)
@@ -99,9 +170,11 @@ function registerDefectListeners(window, defects) {
 async function captureAll(app, window, outDir) {
   const written = []
   const defects = { consoleErrors: [], pageErrors: [], overflow: [] }
+  const diff = { new: [], changed: [], unchanged: [] }
   registerDefectListeners(window, defects)
 
   const sizes = await getWindowSizes(app)
+  const producedNames = new Set()
 
   for (const scenario of scenarios) {
     for (const size of sizes) {
@@ -111,6 +184,14 @@ async function captureAll(app, window, outDir) {
       await window.reload()
       await waitForSettle(window)
       await resizeWindow(app, size.width, size.height)
+      // _electron opens a real OS window, so CSS :hover responds to the real
+      // system cursor's actual screen position — not a virtual one Playwright
+      // controls — and that position is whatever it happened to be left at,
+      // landing on a different row every run since the window isn't pinned to
+      // a fixed screen position (src/main/index.ts doesn't set x/y). Move it
+      // off-content before every capture so "nothing hovered" is the actual
+      // deterministic baseline; a scenario that wants a hover calls it after.
+      await window.mouse.move(0, 0)
 
       await scenario.run(window)
       await finishTransitions(window)
@@ -120,6 +201,9 @@ async function captureAll(app, window, outDir) {
       const path = join(outDir, name)
       await window.screenshot({ path })
       written.push(path)
+      producedNames.add(name)
+
+      diff[await diffAgainstBaseline(path, name)].push(name)
 
       if (await hasHorizontalOverflow(window)) {
         defects.overflow.push(name)
@@ -127,12 +211,32 @@ async function captureAll(app, window, outDir) {
     }
   }
 
-  return { written, defects }
+  const orphanBaselines = await findOrphanBaselines(producedNames)
+
+  return { written, defects, diff, orphanBaselines }
 }
 
-function printSummary(written, defects) {
+function printSummary(written, defects, diff, orphanBaselines) {
   console.log('[visual-verify] wrote:')
   for (const path of written) console.log(`  ${path}`)
+
+  console.log(
+    `[visual-verify] diff vs baseline: ${diff.new.length} new, ${diff.changed.length} changed, ${diff.unchanged.length} unchanged (skip reading these)`
+  )
+  if (diff.new.length > 0) {
+    console.log('[visual-verify] NEW (no baseline yet — review and promote):')
+    for (const name of diff.new) console.log(`  ${name}`)
+  }
+  if (diff.changed.length > 0) {
+    console.log('[visual-verify] CHANGED (differs from accepted baseline — review):')
+    for (const name of diff.changed) console.log(`  ${name}`)
+  }
+  if (orphanBaselines.length > 0) {
+    console.log(
+      '[visual-verify] orphaned baselines (no matching scenario this run — not deleted, just flagged):'
+    )
+    for (const name of orphanBaselines) console.log(`  ${name}`)
+  }
 
   if (defects.overflow.length > 0) {
     console.log('[visual-verify] HORIZONTAL OVERFLOW at:')
@@ -164,6 +268,9 @@ async function main() {
   // removed scenario's old PNG lingers forever instead of going away with it.
   await rm(OUT_DIR, { recursive: true, force: true })
   await mkdir(OUT_DIR, { recursive: true })
+  // Never wiped, unlike OUT_DIR above — this is the persistent "last accepted"
+  // cache that diffing compares against.
+  await mkdir(BASELINE_DIR, { recursive: true })
 
   let app
   try {
@@ -175,9 +282,18 @@ async function main() {
 
     const window = await app.firstWindow()
     await window.waitForLoadState('load')
+    // The hover-glide pill (useGlideHighlight) and the file tree's motion are
+    // JS-driven springs, not CSS transitions — finishTransitions() can't snap
+    // them, and this backgrounded automation window doesn't pump compositor
+    // frames reliably enough for a fixed wait to reliably catch their settled
+    // state (confirmed: produced a ~10%-of-frame diff between two identical
+    // consecutive runs). Both components already respect prefers-reduced-motion
+    // via useReducedMotion() — emulating it here makes them instant instead of
+    // guessing at a wait long enough to outlast an unreliable frame rate.
+    await window.emulateMedia({ reducedMotion: 'reduce' })
 
-    const { written, defects } = await captureAll(app, window, OUT_DIR)
-    printSummary(written, defects)
+    const { written, defects, diff, orphanBaselines } = await captureAll(app, window, OUT_DIR)
+    printSummary(written, defects, diff, orphanBaselines)
   } finally {
     await app?.close()
     await rm(userDataDir, { recursive: true, force: true })

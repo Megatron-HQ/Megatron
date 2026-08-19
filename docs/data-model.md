@@ -170,6 +170,24 @@ reset means re-granting. Acceptable while the only two people with a `megatron.d
 developers; revisit before the first distributed release, where a shipped user can't be told to
 `rm` a file.
 
+**SKILL.md metadata capture (added 2026-08-18)**: `skills` gained four columns beyond the M1
+snippet above — `license` and `metadata_json` (frontmatter `license:` / `metadata:` block,
+parsed in `skill-parser.ts`), and `created_at` / `modified_at` (`SKILL.md`'s own filesystem
+birthtime/mtime, NULL for plugin skills — see `install_at` on `plugin_registry` below for that
+case instead). `plugin_registry` gained `installed_at` / `last_updated` / `git_commit_sha`,
+read from `installed_plugins.json`.
+
+Not all of these reach the UI. `metadata_json` and `modified_at` are selected in
+`SKILLS_WITH_USAGE_SELECT` and exposed on `SkillRow` (shown in `SkillDetail.tsx` as a
+"Metadata" badge section and a "Modified" stat). `license` deliberately is not added to
+`SkillRow` — it already renders today via a separate, older path: `SkillDetail.tsx`
+re-parses raw `SKILL.md` client-side (`parseExtraFrontmatterFields`) and shows any
+unrecognized scalar frontmatter key, including `license`, as a badge. `created_at` and the
+three new `plugin_registry` columns are captured but not yet surfaced anywhere — the former
+because it's near-always identical to `modified_at`, the latter because `plugin_registry` has
+no query or IPC channel at all yet (deferred, larger slice: install/update provenance for
+plugin-sourced skills).
+
 ## Why SQLite
 
 The data is relational, not key-value — a skill has many invocations, an invocation belongs

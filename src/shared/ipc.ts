@@ -45,6 +45,8 @@ export interface SkillRow {
   est_listing_tokens: number
   est_body_tokens: number
   project_root: string | null
+  metadata_json: string | null // frontmatter `metadata:` block, JSON as stored
+  modified_at: string | null // SKILL.md mtime; NULL for plugin skills
   // 1 for a global skill found under the reserved synced/ folder (claude.ai sync); 0 otherwise.
   is_synced: number
   total_invocations: number

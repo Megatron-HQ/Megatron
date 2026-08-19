@@ -10,6 +10,10 @@ A local-first desktop app that inventories, lints, and tracks usage of every Cla
 A named, self-contained capability Claude Code can invoke, identified by a `SKILL.md` file's frontmatter (name + description). Static — describes what exists on disk, not whether or how often it's been used. See Skill Invocation for the usage-event counterpart.
 _Avoid_: Capability, tool
 
+**Metadata**:
+Any frontmatter key on a Skill's `SKILL.md` that Megatron doesn't otherwise model as a first-class field — shown as badges in the Skill Detail view.
+_Avoid_: Frontmatter (that's the whole YAML header block a `SKILL.md` starts with; Metadata is the leftover keys within it Megatron doesn't model directly)
+
 **Skill Source**:
 Which of the three places a Skill lives: Global, Project, or Plugin. Determines discoverability and whether the Skill is user-editable (Plugin Skills aren't — they're silently overwritten on update).
 _Avoid_: Tier, kind, type — "tier" specifically collides with Permission Tier below; use Skill Source for this axis

@@ -2,6 +2,7 @@ node_modules
 dist
 out
 .visual-verify
+.visual-verify-baselines
 .DS_Store
 .eslintcache
 *.log*

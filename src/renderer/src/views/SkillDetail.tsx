@@ -34,6 +34,8 @@ export function SkillDetail({
     [data]
   )
 
+  const metadataEntries = useMemo(() => parseMetadataEntries(data?.skill.metadata_json), [data])
+
   if (isPending) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
@@ -152,15 +154,49 @@ export function SkillDetail({
                   skill.last_invoked_at ? new Date(skill.last_invoked_at).toLocaleDateString() : '—'
                 }
               />
+              {skill.modified_at && (
+                <Stat label="Modified" value={new Date(skill.modified_at).toLocaleDateString()} />
+              )}
               <Stat label="Path" value={skill.source_path} mono title={skill.source_path} />
             </CardContent>
           </Card>
+
+          {metadataEntries.length > 0 && (
+            <div>
+              <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                Metadata
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {metadataEntries.map(([key, value]) => (
+                  <Badge key={key} variant="outline" className="font-normal">
+                    {key}: <span className="font-mono">{formatMetadataValue(value)}</span>
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
 
           <UsageBreakdown usage={usage} />
         </div>
       </div>
     </div>
   )
+}
+
+function parseMetadataEntries(metadataJson: string | null | undefined): [string, unknown][] {
+  if (!metadataJson) return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(metadataJson)
+  } catch {
+    return []
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return []
+  return Object.entries(parsed as Record<string, unknown>)
+}
+
+function formatMetadataValue(value: unknown): string {
+  return typeof value === 'string' ? value : JSON.stringify(value)
 }
 
 function Stat({

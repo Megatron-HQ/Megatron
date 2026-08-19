@@ -4,6 +4,7 @@ import {
   getFilterHeaderTitle,
   isFilterEqual,
   matchesFilter,
+  shouldShowSourceColumn,
   type SourceFilter
 } from './source-filter'
 
@@ -19,6 +20,8 @@ function makeSkill(overrides: Partial<SkillRow> = {}): SkillRow {
     est_listing_tokens: 100,
     est_body_tokens: 200,
     project_root: null,
+    metadata_json: null,
+    modified_at: null,
     is_synced: 0,
     total_invocations: 0,
     last_invoked_at: null,
@@ -138,14 +141,29 @@ describe('source-filter helpers', () => {
   describe('getFilterHeaderTitle', () => {
     it('returns appropriate titles for all filters', () => {
       expect(getFilterHeaderTitle({ kind: 'all' })).toBe('All Skills')
-      expect(getFilterHeaderTitle({ kind: 'global' })).toBe('Global')
-      expect(getFilterHeaderTitle({ kind: 'project' })).toBe('Project')
+      expect(getFilterHeaderTitle({ kind: 'global' })).toBe('Global Skills')
+      expect(getFilterHeaderTitle({ kind: 'project' })).toBe('Project Skills')
       expect(getFilterHeaderTitle({ kind: 'project', projectRoot: '/Users/dev/Megatron' })).toBe(
-        'Project / Megatron'
+        'Project / Megatron Skills'
       )
-      expect(getFilterHeaderTitle({ kind: 'plugin' })).toBe('Plugin')
+      expect(getFilterHeaderTitle({ kind: 'plugin' })).toBe('Plugin Skills')
       expect(getFilterHeaderTitle({ kind: 'plugin', pluginName: 'frontend-design@npm' })).toBe(
-        'Plugin / frontend-design'
+        'Plugin / frontend-design Skills'
+      )
+    })
+  })
+
+  describe('shouldShowSourceColumn', () => {
+    it('shows the Source column only where rows can span multiple source values', () => {
+      expect(shouldShowSourceColumn({ kind: 'all' })).toBe(true)
+      expect(shouldShowSourceColumn({ kind: 'global' })).toBe(false)
+      expect(shouldShowSourceColumn({ kind: 'project' })).toBe(true)
+      expect(shouldShowSourceColumn({ kind: 'project', projectRoot: '/Users/dev/Megatron' })).toBe(
+        false
+      )
+      expect(shouldShowSourceColumn({ kind: 'plugin' })).toBe(true)
+      expect(shouldShowSourceColumn({ kind: 'plugin', pluginName: 'frontend-design@npm' })).toBe(
+        false
       )
     })
   })

@@ -102,12 +102,14 @@ describe('listSkills', () => {
 
   it('returns every skill row with all columns and lint summary intact', () => {
     db.prepare(
-      `INSERT INTO skills (name, source_type, source_path, plugin_name, description, last_scanned_at)
-       VALUES ('grill-me', 'plugin', '/plugins/grill-me', 'taste@leonxlnx', 'Interview the user', '2026-08-14T00:00:00.000Z')`
+      `INSERT INTO skills
+         (name, source_type, source_path, plugin_name, description, last_scanned_at, metadata_json)
+       VALUES ('grill-me', 'plugin', '/plugins/grill-me', 'taste@leonxlnx', 'Interview the user', '2026-08-14T00:00:00.000Z', '{"author":"anthropic"}')`
     ).run()
     db.prepare(
-      `INSERT INTO skills (name, source_type, source_path, plugin_name, description, last_scanned_at)
-       VALUES ('frontend-design', 'global', '/global/frontend-design', NULL, NULL, '2026-08-14T00:00:00.000Z')`
+      `INSERT INTO skills
+         (name, source_type, source_path, plugin_name, description, last_scanned_at, modified_at)
+       VALUES ('frontend-design', 'global', '/global/frontend-design', NULL, NULL, '2026-08-14T00:00:00.000Z', '2026-08-15T12:00:00.000Z')`
     ).run()
 
     const grillSkill = db.prepare('SELECT id FROM skills WHERE name = ?').get('grill-me') as {
@@ -134,6 +136,8 @@ describe('listSkills', () => {
           plugin_name: 'taste@leonxlnx',
           description: 'Interview the user',
           last_scanned_at: '2026-08-14T00:00:00.000Z',
+          metadata_json: '{"author":"anthropic"}',
+          modified_at: null,
           lint_status: 'error',
           error_count: 1,
           warning_count: 1
@@ -144,6 +148,8 @@ describe('listSkills', () => {
           source_path: '/global/frontend-design',
           plugin_name: null,
           description: null,
+          metadata_json: null,
+          modified_at: '2026-08-15T12:00:00.000Z',
           lint_status: 'clean',
           error_count: 0,
           warning_count: 0
@@ -160,8 +166,11 @@ describe('getSkillById', () => {
 
   it('returns the matching skill row with lint status', () => {
     db.prepare(
-      `INSERT INTO skills (name, source_type, source_path, plugin_name, description, last_scanned_at)
-       VALUES ('grill-me', 'global', '/global/grill-me', NULL, 'Interview the user', '2026-08-14T00:00:00.000Z')`
+      `INSERT INTO skills
+         (name, source_type, source_path, plugin_name, description, last_scanned_at,
+          metadata_json, modified_at)
+       VALUES ('grill-me', 'global', '/global/grill-me', NULL, 'Interview the user', '2026-08-14T00:00:00.000Z',
+               '{"version":"1.0.0"}', '2026-08-15T12:00:00.000Z')`
     ).run()
     const { id } = db.prepare('SELECT id FROM skills WHERE name = ?').get('grill-me') as {
       id: number
@@ -176,10 +185,26 @@ describe('getSkillById', () => {
         id,
         name: 'grill-me',
         source_path: '/global/grill-me',
+        metadata_json: '{"version":"1.0.0"}',
+        modified_at: '2026-08-15T12:00:00.000Z',
         lint_status: 'warning',
         error_count: 0,
         warning_count: 1
       })
+    )
+  })
+
+  it('returns null metadata_json and modified_at when the columns are unset', () => {
+    db.prepare(
+      `INSERT INTO skills (name, source_type, source_path, plugin_name, description, last_scanned_at)
+       VALUES ('deploy', 'plugin', '/plugins/deploy', 'ops@marketplace', NULL, '2026-08-14T00:00:00.000Z')`
+    ).run()
+    const { id } = db.prepare('SELECT id FROM skills WHERE name = ?').get('deploy') as {
+      id: number
+    }
+
+    expect(getSkillById(db, id)).toEqual(
+      expect.objectContaining({ metadata_json: null, modified_at: null })
     )
   })
 })
