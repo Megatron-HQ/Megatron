@@ -18,10 +18,9 @@ are locked here, and this doc is where they are argued.
 
 ## Index schema
 
-No upfront sketch — each table lands with the milestone that knows its real shape.
-`lint_findings` (needs the linter to exist first to know what a finding looks like) and
-`allowed_paths` (needs the picker to need restart-persistence) are deliberately not declared
-yet. M1's four tables:
+No upfront sketch — each table was added by the milestone that knew its real shape. All six now
+exist: the four below plus `allowed_paths` (Tier-2 folder grants) and `lint_findings` (linter
+output), added once the folder picker and linter respectively needed them.
 
 ```sql
 CREATE TABLE IF NOT EXISTS skills (
@@ -43,7 +42,8 @@ CREATE TABLE IF NOT EXISTS sessions_meta (
   cwd TEXT NOT NULL,
   git_branch TEXT,                    -- NULL when cwd isn't a git repo
   started_at TEXT NOT NULL,           -- timestamp of the first line carrying a `cwd` field (not
-                                       -- literally line 0 — see mvp-build-spec's Real data section)
+                                       -- literally line 0 — see mvp-build-spec's On-disk data
+                                       -- shapes section)
   message_count INTEGER NOT NULL,     -- count of lines where type IN ('user','assistant')
   source_mtime_ms INTEGER NOT NULL,   -- transcript file's mtime at last scan — see Scan cadence
   source_size_bytes INTEGER NOT NULL DEFAULT -1,
@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS skill_invocations (
   source_uuid TEXT NOT NULL UNIQUE,   -- the transcript line's own `uuid` — natural dedup key
   session_id TEXT NOT NULL REFERENCES sessions_meta(session_id),
   skill_name TEXT NOT NULL,           -- no FK to skills.id — locked decision
-  args_text TEXT,                     -- kept, not cut — see mvp-build-spec's Revisions section
+  args_text TEXT,                     -- kept, not cut — see Idempotency below (the
+                                       -- outliving-its-source risk and its fix)
   invoked_at TEXT NOT NULL,
   trigger_type TEXT NOT NULL CHECK (   -- see docs/transcript-ingest.md
     trigger_type IN ('user_invoked', 'autonomous', 'subagent')
@@ -78,7 +79,33 @@ CREATE TABLE IF NOT EXISTS plugin_registry (
   last_scanned_at TEXT NOT NULL,
   PRIMARY KEY (name, marketplace, install_path)
 );
+
+CREATE TABLE IF NOT EXISTS allowed_paths (
+  path TEXT PRIMARY KEY,              -- resolved repository root
+  granted_at TEXT NOT NULL            -- ISO8601
+);
+
+CREATE TABLE IF NOT EXISTS lint_findings (
+  id INTEGER PRIMARY KEY,
+  skill_id INTEGER NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+  rule_id TEXT NOT NULL,
+  severity TEXT NOT NULL CHECK (severity IN ('error', 'warning')),
+  message TEXT NOT NULL,
+  detail TEXT,
+  file_path TEXT,
+  line_number INTEGER,
+  detected_at TEXT NOT NULL           -- ISO8601
+);
 ```
+
+`allowed_paths` is the Tier-2 grant list the folder picker persists to (`folders:list` /
+`folders:pickAndAdd` / `folders:revoke`) — no separate restart-persistence mechanism, the table
+itself is the persistence. `lint_findings` is rebuilt whole on each lint pass —
+`replaceAllLintFindings` (`src/main/db/queries.ts`) deletes every row and bulk-reinserts findings
+for every skill in one transaction, rather than diffing per skill; `skill_id ON DELETE CASCADE`
+separately means a rescan that drops a skill row drops its findings too. See
+`docs/mvp-build-spec.md`'s Linter rule set for what populates `rule_id`/`severity`/`message`/
+`detail`.
 
 **Idempotency / re-scan strategy** — the natural unique key per table _is_ the strategy:
 
