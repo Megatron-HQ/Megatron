@@ -126,8 +126,8 @@ This is a conformance/regression/responsiveness check, not a quality gate:
 
 - **No assertions, no pass/fail wired into CI.** It captures and flags deterministic defects
   (overflow, console errors); you judge everything else. Don't wire this into `npm test`/`ci.yml` —
-  see `docs/design-system.md`'s "Design QA tooling" section and the M1 renderer testing note in
-  `CLAUDE.md` for why an assertion suite against a UI this young isn't worth it yet.
+  see the M1 renderer testing note in `CLAUDE.md` for why an assertion suite against a UI this young
+  isn't worth it yet.
 - **Not a taste/critique tool.** For "does this look _good_" (spacing, hierarchy, anti-slop
   patterns), that's a separate, deliberate call to Impeccable (`/impeccable critique`) — not
   something this skill should trigger automatically. The two don't compose today: Impeccable's

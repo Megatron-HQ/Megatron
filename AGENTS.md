@@ -46,6 +46,9 @@ Repo-wide. Subsystem decisions are locked in the owning doc — see the Docs tab
 | Distribution      | Direct notarized DMG, indefinitely — no Mac App Store                                                          | App Store mandates App Sandbox, which the permission model deliberately skips                                                                                                                                     |
 | Generated mirrors | `AGENTS.md` (from `CLAUDE.md`) and `.agents/skills/` (from `.claude/skills/`) — never hand-edited, no symlinks | Git symlinks need Developer Mode **and** `core.symlinks=true` on Windows. Instead `.githooks/pre-commit` regenerates and re-stages both every commit; CI runs `node .githooks/pre-commit --check` as the backstop |
 | Schema changes    | Delete the local index and let it rebuild — never write a migration. Run `npm run db:reset` after editing `schema.sql`, then relaunch | The index is a pure derived cache of `~/.claude/` (see `docs/data-model.md`); a full rescan is sub-second even at hundreds of MB of transcripts. In-place migration code is pure risk for a saving that doesn't exist yet |
+| Renderer state    | TanStack Query for IPC-backed data, plain `useState`/Context for local UI state — no Redux/Zustand | Every piece of real state so far is either Query-backed or genuinely local; no cross-cutting, deeply interdependent client-state graph exists yet that either library would solve |
+| Data table        | `@tanstack/react-table` backs the skills table; no virtualization for the table itself (`@tanstack/react-virtual` is only for the file viewer's file tree) | Real `~/.claude` data is tens of skills, not thousands — the file tree's per-directory file count is the actual scaling concern |
+| Table columns      | Name / Source / Description only — Path was cut | A truncated absolute path needing a tooltip to be legible was spending the table's widest column on data nobody read from the table itself; it lives in the file viewer's header instead |
 
 ## Exploration budget
 
@@ -76,6 +79,6 @@ Each doc below is authoritative for the locked decisions it owns.
 | `docs/skill-scanner.md`     | The 3 skill sources; `.agents/skills/` out of scope; symlinks followed | Touching `src/main/ingest/skills-scanner.ts` or `plugin-registry.ts` |
 | `docs/transcript-ingest.md` | `isSidechain`/`subagents/` double-count rule; `trigger_type`           | Touching `src/main/ingest/transcript-scanner.ts`                     |
 | `docs/data-model.md`        | `better-sqlite3`; index schema; no-FK join; plugin identity            | Touching `src/main/db/` or plugin parsing                            |
-| `docs/design-system.md`     | Color, type, motion, renderer state, table, empty/error states         | Any `src/renderer/` UI work                                          |
+| `DESIGN.md`                 | Visual design system — colors, type, layout, elevation, shapes, components | Any `src/renderer/` UI work                                          |
 | `docs/mvp-build-spec.md`    | Milestones, linter rules, frontmatter parsing, what's still open       | Assuming a decision hasn't been made yet                             |
 | `docs/environment-setup.md` | M0 install quirks (npm allowlist, silent `extract-zip` no-op)          | `npm run dev` failing with `Error: Electron uninstall`               |

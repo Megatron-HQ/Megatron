@@ -1,6 +1,6 @@
 // Source: material-extensions/vscode-material-icon-theme, icons/claude.svg (MIT).
 // Community icon, not official Anthropic branding. Recolored to currentColor
-// to stay inside the app's monochrome icon language (docs/design-system.md).
+// to stay inside the app's monochrome icon language (DESIGN.md).
 export function ClaudeIcon({ className }: { className?: string }): React.JSX.Element {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" className={className}>

@@ -30,9 +30,9 @@ it.
 ## Locked decisions
 
 This doc doesn't hold locked decisions — each is locked in the doc that owns the subsystem:
-`CLAUDE.md` (repo-wide), `docs/skill-scanner.md` (sources, symlinks),
+`CLAUDE.md` (repo-wide, including renderer state), `docs/skill-scanner.md` (sources, symlinks),
 `docs/transcript-ingest.md` (ingest, trigger classification), `docs/data-model.md` (driver,
-schema, plugin identity), `docs/design-system.md` (renderer state).
+schema, plugin identity), `DESIGN.md` (visual system).
 
 One addition not yet written up in any of those docs: `permissions.ts` exports
 `getGrantedPaths(): string[]` (`grantPath`/`isPathAllowed` handle write and membership-check;
