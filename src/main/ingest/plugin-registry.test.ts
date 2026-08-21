@@ -35,6 +35,7 @@ interface SkillRow {
   metadata_json: string | null
   created_at: string | null
   modified_at: string | null
+  hook_events: string | null
 }
 
 function allRegistry(): RegistryRow[] {
@@ -59,6 +60,24 @@ function writePluginSkill(installPath: string, skillName: string, frontmatter: s
   const dirPath = join(installPath, 'skills', skillName)
   mkdirSync(dirPath, { recursive: true })
   writeFileSync(join(dirPath, 'SKILL.md'), frontmatter)
+}
+
+// Mirrors a real installed plugin's `.claude-plugin/plugin.json` declaring a hooks manifest
+// (e.g. ponytail's `"hooks": "./hooks/claude-codex-hooks.json"`) plus the manifest file itself.
+function writePluginManifestWithHooks(
+  installPath: string,
+  hooksRelPath: string,
+  hookEvents: Record<string, unknown>
+): void {
+  const manifestDir = join(installPath, '.claude-plugin')
+  mkdirSync(manifestDir, { recursive: true })
+  writeFileSync(
+    join(manifestDir, 'plugin.json'),
+    JSON.stringify({ name: 'plugin-a', hooks: hooksRelPath })
+  )
+  const hooksPath = join(installPath, hooksRelPath)
+  mkdirSync(join(hooksPath, '..'), { recursive: true })
+  writeFileSync(hooksPath, JSON.stringify({ hooks: hookEvents }))
 }
 
 beforeEach(() => {
@@ -218,7 +237,7 @@ describe('scanPluginRegistry', () => {
     scanPluginRegistry(db, pluginsDir)
 
     expect(allRegistry()).toHaveLength(1)
-    expect(pluginSkills().map((skill) => skill.name)).toEqual(['plugin-skill'])
+    expect(pluginSkills().map((skill) => skill.name)).toEqual(['plugin-a:plugin-skill'])
   })
 
   it('preserves plugin skills whose install directory becomes unavailable', () => {
@@ -237,7 +256,7 @@ describe('scanPluginRegistry', () => {
       revokePath(installRoot)
       scanPluginRegistry(db, pluginsDir)
 
-      expect(pluginSkills().map((skill) => skill.name)).toEqual(['plugin-skill'])
+      expect(pluginSkills().map((skill) => skill.name)).toEqual(['plugin-a:plugin-skill'])
     } finally {
       rmSync(installRoot, { recursive: true, force: true })
     }
@@ -297,12 +316,27 @@ describe('scanPluginRegistry', () => {
     const skills = pluginSkills()
     expect(skills).toHaveLength(1)
     expect(skills[0]).toMatchObject({
-      name: 'sub-skill',
+      name: 'plugin-a:sub-skill',
       description: 'A plugin skill',
       plugin_name: 'plugin-a@market-1',
       license: 'MIT',
       metadata_json: JSON.stringify({ author: 'jane' })
     })
+  })
+
+  it('namespaces a plugin skill row name as "plugin-name:skill-name", matching how Claude Code records its invocations', () => {
+    const installPath = join(tmpDir, 'install-a')
+    writePluginSkill(installPath, 'sub-skill', '---\nname: sub-skill\n---\nBody')
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir)
+
+    expect(pluginSkills().map((skill) => skill.name)).toEqual(['plugin-a:sub-skill'])
   })
 
   it('always leaves created_at and modified_at NULL for a plugin skill row', () => {
@@ -321,6 +355,60 @@ describe('scanPluginRegistry', () => {
     expect(skills).toHaveLength(1)
     expect(skills[0].created_at).toBeNull()
     expect(skills[0].modified_at).toBeNull()
+  })
+
+  it("captures the plugin's declared hook event names onto its skill rows", () => {
+    const installPath = join(tmpDir, 'install-a')
+    writePluginSkill(installPath, 'sub-skill', '---\nname: sub-skill\n---\nBody')
+    writePluginManifestWithHooks(installPath, './hooks/claude-codex-hooks.json', {
+      SessionStart: [{ hooks: [{ type: 'command', command: 'noop' }] }],
+      UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'noop' }] }]
+    })
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir)
+
+    expect(pluginSkills()[0].hook_events).toBe(JSON.stringify(['SessionStart', 'UserPromptSubmit']))
+  })
+
+  it('leaves hook_events NULL for a plugin with no hooks manifest declared', () => {
+    const installPath = join(tmpDir, 'install-a')
+    writePluginSkill(installPath, 'sub-skill', '---\nname: sub-skill\n---\nBody')
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir)
+
+    expect(pluginSkills()[0].hook_events).toBeNull()
+  })
+
+  it('leaves hook_events NULL without throwing when the declared hooks file is missing', () => {
+    const installPath = join(tmpDir, 'install-a')
+    writePluginSkill(installPath, 'sub-skill', '---\nname: sub-skill\n---\nBody')
+    const manifestDir = join(installPath, '.claude-plugin')
+    mkdirSync(manifestDir, { recursive: true })
+    writeFileSync(
+      join(manifestDir, 'plugin.json'),
+      JSON.stringify({ name: 'plugin-a', hooks: './hooks/missing.json' })
+    )
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+
+    expect(() => scanPluginRegistry(db, pluginsDir)).not.toThrow()
+    expect(pluginSkills()[0].hook_events).toBeNull()
   })
 
   it('captures installedAt, lastUpdated, and gitCommitSha when present in the entry', () => {

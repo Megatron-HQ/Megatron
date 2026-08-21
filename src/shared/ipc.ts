@@ -49,6 +49,9 @@ export interface SkillRow {
   modified_at: string | null // SKILL.md mtime; NULL for plugin skills
   // 1 for a global skill found under the reserved synced/ folder (claude.ai sync); 0 otherwise.
   is_synced: number
+  // JSON array of hook event names from the plugin's declared hooks manifest; NULL for
+  // global/project skills and for plugin skills whose plugin declares no hooks.
+  hook_events: string | null
   total_invocations: number
   last_invoked_at: string | null
   // Non-null only for a project skill that's permanently shadowed by a global skill of the

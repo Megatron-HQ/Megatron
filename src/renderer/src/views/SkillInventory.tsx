@@ -9,7 +9,7 @@ import {
   useTable
 } from '@tanstack/react-table'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
-import { AlertTriangle, FolderOpen, Lock, Search } from 'lucide-react'
+import { AlertTriangle, FolderOpen, Lock, Search, Webhook } from 'lucide-react'
 import { motion } from 'motion/react'
 import { ClaudeIcon } from '@/components/ClaudeIcon'
 import { LintStatusBadge } from '@/components/LintStatusBadge'
@@ -26,6 +26,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
+import { parseHookEvents } from '@/lib/hook-events'
 import {
   getFilterHeaderTitle,
   shouldShowSourceColumn,
@@ -85,6 +86,16 @@ const nameColumn = columnHelper.accessor('name', {
             </TooltipTrigger>
             <TooltipContent>
               Plugin-managed — read-only, may be overwritten on update.
+            </TooltipContent>
+          </Tooltip>
+        )}
+        {row.hook_events !== null && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Webhook className="size-3 shrink-0 text-muted-foreground" />
+            </TooltipTrigger>
+            <TooltipContent>
+              Also runs via hooks: {parseHookEvents(row.hook_events).join(', ')}
             </TooltipContent>
           </Tooltip>
         )}

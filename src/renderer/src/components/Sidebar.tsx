@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Blocks, ChevronRight, FolderGit2, Globe, List, Moon, Sun } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
+import { ContextBudgetDialog } from '@/components/ContextBudgetDialog'
 import { cn } from '@/lib/utils'
 import { getFolderBasename, getPluginBareName, getProjectNameFromPath } from '@/lib/source-name'
 import type { SourceFilter } from '@/lib/source-filter'
@@ -12,6 +13,7 @@ interface SidebarProps {
   theme: Theme
   onToggleTheme: () => void
   contextBudget: ContextBudget
+  onSelectSkill: (id: number) => void
   skills?: SkillRow[]
   folders?: AllowedPathRow[]
 }
@@ -34,6 +36,7 @@ export function Sidebar({
   theme,
   onToggleTheme,
   contextBudget,
+  onSelectSkill,
   skills = [],
   folders = []
 }: SidebarProps): React.JSX.Element {
@@ -224,7 +227,7 @@ export function Sidebar({
                             <span className="truncate">{project.name}</span>
                             <span
                               className={cn(
-                                'ml-auto shrink-0 rounded px-1.5 py-0.2 font-mono text-[10px] tabular-nums',
+                                'ml-auto shrink-0 rounded px-1.5 py-0.2 font-mono text-[12px] tabular-nums',
                                 isSelected
                                   ? 'bg-accent-lime-foreground/15 text-accent-lime-foreground'
                                   : 'bg-muted text-muted-foreground'
@@ -303,7 +306,7 @@ export function Sidebar({
                             <span className="truncate">{plugin.displayName}</span>
                             <span
                               className={cn(
-                                'ml-auto shrink-0 rounded px-1.5 py-0.2 font-mono text-[10px] tabular-nums',
+                                'ml-auto shrink-0 rounded px-1.5 py-0.2 font-mono text-[12px] tabular-nums',
                                 isSelected
                                   ? 'bg-accent-lime-foreground/15 text-accent-lime-foreground'
                                   : 'bg-muted text-muted-foreground'
@@ -323,7 +326,7 @@ export function Sidebar({
         </nav>
       </div>
 
-      <ContextBudgetReadout budget={contextBudget} />
+      <ContextBudgetReadout budget={contextBudget} skills={skills} onSelectSkill={onSelectSkill} />
 
       <div className="border-t border-border p-2">
         <button
@@ -339,26 +342,35 @@ export function Sidebar({
   )
 }
 
-function ContextBudgetReadout({ budget }: { budget: ContextBudget }): React.JSX.Element {
-  const over = budget.limit > 0 && budget.used > budget.limit
-  const percent = budget.limit > 0 ? Math.min(100, (budget.used / budget.limit) * 100) : 0
+function ContextBudgetReadout({
+  budget,
+  skills,
+  onSelectSkill
+}: {
+  budget: ContextBudget
+  skills: SkillRow[]
+  onSelectSkill: (id: number) => void
+}): React.JSX.Element {
+  const [dialogOpen, setDialogOpen] = useState(false)
 
   return (
-    <div className="border-t border-border px-3 py-2.5">
-      <p
-        className={cn(
-          'font-mono text-[11px] tabular-nums',
-          over ? 'text-warning' : 'text-muted-foreground'
-        )}
+    <div className="border-t border-border p-2">
+      <button
+        type="button"
+        onClick={() => setDialogOpen(true)}
+        className="flex w-full items-center rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent hover:text-accent-foreground"
       >
-        {budget.used.toLocaleString()} / {budget.limit.toLocaleString()} est. tokens
-      </p>
-      <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted">
-        <div
-          className={cn('h-full rounded-full', over ? 'bg-warning' : 'bg-muted-foreground/50')}
-          style={{ width: `${percent}%` }}
-        />
-      </div>
+        <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+          {budget.used.toLocaleString()} EST. tokens
+        </span>
+      </button>
+      <ContextBudgetDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        budget={budget}
+        skills={skills}
+        onSelectSkill={onSelectSkill}
+      />
     </div>
   )
 }

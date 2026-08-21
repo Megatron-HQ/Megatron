@@ -50,6 +50,28 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+// Reads the plugin's own `.claude-plugin/plugin.json` and, if it declares a hooks manifest
+// (e.g. `"hooks": "./hooks/claude-codex-hooks.json"`), resolves and reads that file too, so
+// Megatron can tell "never invoked as a Skill" apart from "runs every turn via a hook" — a plugin
+// that's active but was never routed through the Skill tool would otherwise look identically dead.
+// Degrades to null on any missing/invalid manifest rather than aborting the plugin's whole scan.
+function readPluginHookEvents(installPath: string): string | null {
+  const manifest = readJson(join(installPath, '.claude-plugin', 'plugin.json'))
+  if (manifest.status !== 'ok' || !isRecord(manifest.value)) return null
+
+  const hooksRelPath = manifest.value.hooks
+  if (typeof hooksRelPath !== 'string' || hooksRelPath.length === 0) return null
+
+  const hooksManifest = readJson(resolve(installPath, hooksRelPath))
+  if (hooksManifest.status !== 'ok' || !isRecord(hooksManifest.value)) return null
+
+  const events = hooksManifest.value.hooks
+  if (!isRecord(events)) return null
+
+  const eventNames = Object.keys(events)
+  return eventNames.length > 0 ? JSON.stringify(eventNames) : null
+}
+
 export function scanPluginRegistry(
   db: Database.Database,
   pluginsDir: string = resolve(homedir(), '.claude', 'plugins')
@@ -134,6 +156,8 @@ export function scanPluginRegistry(
         })
         seenRegistryKeys.add(registryKey(name, marketplace, installPath))
 
+        const hookEvents = readPluginHookEvents(installPath)
+
         const skillsDir = join(installPath, 'skills')
         const skillsDirectory = readAllowedDirectory(skillsDir)
         if (skillsDirectory.status === 'unavailable') {
@@ -148,7 +172,11 @@ export function scanPluginRegistry(
 
           const parsed = parseSkillDirectory(dirPath)
           skillRows.push({
-            name: parsed.name,
+            // Claude Code invokes and records a plugin skill under this namespaced form
+            // (e.g. `impeccable:impeccable`), never the bare SKILL.md name — skill_invocations
+            // joins on this text with no FK (docs/data-model.md), so a bare name here silently
+            // orphans every invocation of every plugin skill from its usage stats.
+            name: `${name}:${parsed.name}`,
             source_path: dirPath,
             plugin_name: `${name}@${marketplace}`,
             description: parsed.description,
@@ -157,7 +185,8 @@ export function scanPluginRegistry(
             license: parsed.license,
             metadata_json: parsed.metadata_json,
             created_at: null,
-            modified_at: null
+            modified_at: null,
+            hook_events: hookEvents
           })
         }
       }

@@ -7,6 +7,7 @@ import { SourceBadge } from '@/components/SourceBadge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { parseHookEvents } from '@/lib/hook-events'
 import { parseExtraFrontmatterFields } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
 import type { SkillUsageDetail } from '../../../shared/ipc'
@@ -35,6 +36,7 @@ export function SkillDetail({
   )
 
   const metadataEntries = useMemo(() => parseMetadataEntries(data?.skill.metadata_json), [data])
+  const hookEvents = parseHookEvents(data?.skill.hook_events).join(', ')
 
   if (isPending) {
     return (
@@ -148,6 +150,9 @@ export function SkillDetail({
                 }
                 mono
               />
+              {skill.hook_events !== null && (
+                <Stat label="Hooks" value={hookEvents} title={hookEvents} />
+              )}
               <Stat
                 label="Last used"
                 value={

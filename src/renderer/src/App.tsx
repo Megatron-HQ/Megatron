@@ -120,6 +120,7 @@ function App(): React.JSX.Element {
             theme={theme}
             onToggleTheme={toggleTheme}
             contextBudget={contextBudget}
+            onSelectSkill={openDetail}
             skills={skills}
             folders={folders}
           />

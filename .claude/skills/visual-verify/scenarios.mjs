@@ -173,7 +173,9 @@ export const scenarios = [
     // Metadata section are both correctly omitted, not rendered empty/broken.
     name: 'skill-detail-without-metadata',
     async run(window) {
-      await openSkillViaCommandPalette(window, 'ponytail', /^ponytail\s/)
+      // Namespaced as "ponytail:ponytail" (plugin-name:skill-name — see
+      // docs/data-model.md), not the bare "ponytail" this used to match pre-namespacing.
+      await openSkillViaCommandPalette(window, 'ponytail', /^ponytail:/)
     }
   },
   {
@@ -191,11 +193,37 @@ export const scenarios = [
     }
   },
   {
+    // The table Name column's hook-driven-skill indicator (Webhook icon, next to the
+    // existing synced/plugin-managed/shadowed icons) — filters to the ponytail plugin
+    // via the sidebar so the icon's row is guaranteed on-screen, then hovers it to
+    // reveal the tooltip's real event-name list (skills.hook_events, not a placeholder).
+    name: 'table-hook-driven-icon-tooltip',
+    async run(window) {
+      await window.getByRole('button', { name: 'Plugin' }).click()
+      await window.getByRole('button', { name: /^ponytail/ }).click()
+      await window
+        .locator('tbody tr', { hasText: 'ponytail:ponytail' })
+        .first()
+        .locator('svg.lucide-webhook')
+        .hover()
+      await window.getByText(/Also runs via hooks:/).waitFor()
+    }
+  },
+  {
     name: 'skill-detail-lint-panel-expanded',
     async run(window) {
       await openFirstSkillDetail(window)
       await window.getByRole('button', { name: /Lint Status:/i }).click()
       await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // Sidebar's "N EST. tokens" readout button → the explainer modal (stat, budget
+    // derivation, heaviest-skills breakdown).
+    name: 'context-budget-dialog-open',
+    async run(window) {
+      await window.getByRole('button', { name: /EST\. tokens$/i }).click()
+      await window.getByText('Never used, heaviest first').waitFor()
     }
   }
 ]

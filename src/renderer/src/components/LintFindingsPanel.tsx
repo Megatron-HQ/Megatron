@@ -1,12 +1,5 @@
 import React, { useState } from 'react'
-import {
-  AlertCircle,
-  AlertTriangle,
-  ChevronDown,
-  ChevronRight,
-  CircleCheck,
-  Minus
-} from 'lucide-react'
+import { AlertCircle, AlertTriangle, ChevronDown, ChevronRight, CircleCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { LintFindingRow, SkillRow } from '../../../shared/ipc'
 
@@ -21,7 +14,6 @@ interface LinterRuleDefinition {
   description: string
   passDescription: string
   isApplicable: (skill?: SkillRow) => boolean
-  naReason: string
 }
 
 const LINTER_RULES: LinterRuleDefinition[] = [
@@ -30,40 +22,35 @@ const LINTER_RULES: LinterRuleDefinition[] = [
     name: 'YAML Frontmatter',
     description: 'Validates that SKILL.md begins with a valid YAML frontmatter block',
     passDescription: 'Frontmatter block is valid and properly formatted',
-    isApplicable: (skill) => !skill || skill.source_type !== 'plugin',
-    naReason: 'Not applicable to plugin-managed skills'
+    isApplicable: (skill) => !skill || skill.source_type !== 'plugin'
   },
   {
     id: 'missing-description',
     name: 'Description Presence',
     description: 'Validates that a non-empty description is defined in the frontmatter',
     passDescription: 'Non-empty description present for trigger matching',
-    isApplicable: (skill) => !skill || skill.source_type !== 'plugin',
-    naReason: 'Not applicable to plugin-managed skills'
+    isApplicable: (skill) => !skill || skill.source_type !== 'plugin'
   },
   {
     id: 'broken-file-paths',
     name: 'File Reference Integrity',
     description: 'Verifies referenced bundled scripts, docs, and assets exist on disk',
     passDescription: 'All referenced file and directory paths exist',
-    isApplicable: () => true,
-    naReason: ''
+    isApplicable: () => true
   },
   {
     id: 'missing-mcp-server',
     name: 'MCP Server Availability',
     description: 'Checks that referenced MCP servers are configured in Claude settings',
     passDescription: 'All referenced MCP servers are configured',
-    isApplicable: () => true,
-    naReason: ''
+    isApplicable: () => true
   },
   {
     id: 'name-collision',
     name: 'Name Collision & Shadowing',
     description: 'Checks if project skill is shadowed by a global skill of the same name',
     passDescription: 'No naming collisions or global shadowing detected',
-    isApplicable: (skill) => skill?.source_type === 'project',
-    naReason: 'Applies only to project skills'
+    isApplicable: (skill) => skill?.source_type === 'project'
   }
 ]
 
@@ -141,23 +128,7 @@ export function LintFindingsPanel({ findings, skill }: LintFindingsPanelProps): 
             const hasErrors = ruleFindings.some((f) => f.severity === 'error')
 
             if (!applicable) {
-              return (
-                <div key={rule.id} className="flex items-start gap-2 py-2 text-xs">
-                  <Minus className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/60" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="font-medium text-muted-foreground">{rule.name}</span>
-                      <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                        {rule.id}
-                      </span>
-                      <span className="rounded bg-muted/60 px-1.5 py-0.2 font-mono text-[10px] text-muted-foreground">
-                        N/A
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground/70">{rule.naReason}</p>
-                  </div>
-                </div>
-              )
+              return null
             }
 
             if (ruleFindings.length > 0) {

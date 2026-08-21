@@ -15,9 +15,13 @@ CREATE TABLE IF NOT EXISTS skills (
   metadata_json TEXT,                  -- frontmatter `metadata:` block, JSON-serialized as-is
   created_at TEXT,                     -- SKILL.md birthtime; NULL for plugin skills (see install_at)
   modified_at TEXT,                    -- SKILL.md mtime; NULL for plugin skills (see install_at)
-  is_synced INTEGER NOT NULL DEFAULT 0 -- global skill found under a reserved synced/ dir
+  is_synced INTEGER NOT NULL DEFAULT 0, -- global skill found under a reserved synced/ dir
                                         -- (claude.ai sync) — lowest-priority source, see
                                         -- docs/skill-scanner.md
+  hook_events TEXT                     -- JSON array of event names from the plugin's declared
+                                        -- hooks manifest (.claude-plugin/plugin.json's "hooks"
+                                        -- field); NULL for global/project skills and for plugin
+                                        -- skills whose plugin declares no hooks
 );
 
 CREATE TABLE IF NOT EXISTS sessions_meta (
