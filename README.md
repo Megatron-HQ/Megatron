@@ -6,7 +6,7 @@
 Inventory, inspect, lint, and track usage across all your global, project, and plugin skills.
 
 [![Node.js Version](https://img.shields.io/badge/node-22.x-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
-[![Electron](https://img.shields.io/badge/Electron-39-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
+[![Electron](https://img.shields.io/badge/Electron-43-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
@@ -41,10 +41,13 @@ Megatron is strictly **read-only in v1**—it discovers and analyzes disk state 
 ### 🔍 Unified Skill Inventory
 
 - Real-time catalog of all skills across **Global**, **Project**, and **Plugin** sources.
-- Displays dynamic source badges with project repository names and plugin packages.
+- Native support for **Claude.ai Synced Skills** (`~/.claude/skills/synced/`) with dedicated indicators and lowest-priority source precedence.
+- Recursive detection for **Monorepo / Nested Skills** with automatic directory qualification upon name collisions (e.g. `apps/web:deploy`).
+- Displays dynamic source badges with repository names, plugin packages, read-only locks, and declared hook indicators.
 - Status badges (`Valid`, `Warnings`, `Errors`) highlighting skill health at a glance.
+- Visual warning badges for shadowed project skills overridden by same-named global skills.
 - Fluid active-state animations and keyboard navigation (Arrow keys, Enter, Esc).
-- Instant multi-column sorting (by name, status, tokens, usage, source category, and description).
+- Instant multi-column sorting (by name, status, source, description, tokens, and uses).
 
 ### 🛠️ Deterministic Skill Linter
 
@@ -57,11 +60,13 @@ Megatron is strictly **read-only in v1**—it discovers and analyzes disk state 
   5. **Name Collision & Shadowing (`name-collision`)**: Warns when project skills shadow global skills or share conflicting names.
 - Interactive `LintFindingsPanel` in both Skill Detail and File Viewer views with precise line numbers and explanations.
 
-### 📋 Skill Detail & Token Cost Estimator
+### 📋 Skill Detail & Context Budget Estimator
 
 - Master-detail view with rich Markdown previewing, copyable commands, and formatted metadata.
-- **Token Budget Metrics**: Calculates estimated listing tokens (frontmatter description loaded into Claude system prompt) and estimated body tokens.
-- **Invocation Analytics**: Real-time breakdown of total uses, autonomous vs. user-prompted invocations, and per-project usage distribution.
+- **Token Budget Metrics**: Calculates estimated listing tokens (frontmatter description loaded into Claude system prompt) and estimated body tokens (`chars / 4` rounding matching Claude Code binary logic).
+- **Context Budget Triage Dialog**: Real-time sidebar readout and interactive `ContextBudgetDialog` measuring total resident listing tokens against the Claude Code 2,000-token limit, surfacing over/under-budget status and "Never used, heaviest first" triage.
+- **Invocation Analytics**: Real-time breakdown of total uses, manual vs. auto vs. subagent invocations, and per-project usage distribution.
+- **Plugin Hooks Manifest Detection**: Displays declared hook event subscriptions (e.g. `SessionStart`) parsed from `.claude-plugin/plugin.json`.
 
 ### 🛡️ Tier-2 Repo Folder Management
 
@@ -81,9 +86,9 @@ Megatron is strictly **read-only in v1**—it discovers and analyzes disk state 
 
 ### 📊 Transcript Ingestion & Trigger Classification
 
-- Scans Claude Code session transcripts (`~/.claude/projects/*/*.jsonl`).
-- Differentiates **User-Invoked** calls (e.g. `/my-skill`) from **Autonomous** invocations chosen unprompted by the model.
-- Subagent double-count protection (`isSidechain === false`) and timestamp mtime-skipping for zero-overhead background scanning.
+- Scans Claude Code session transcripts (`~/.claude/projects/*/*.jsonl`) and dedicated subagent sessions (`subagents/*.jsonl`).
+- Differentiates 3 distinct trigger classifications: **Manual** (`user_invoked`), **Auto** (`autonomous`), and **Subagent** (`subagent`).
+- Subagent double-count protection (`isSidechain === false` on parent sessions) and timestamp mtime-skipping for zero-overhead background scanning.
 
 ### 🌓 Clean Modern UI & Theme Support
 
@@ -113,7 +118,8 @@ Megatron follows a secure multi-process Electron architecture:
 │                                     MAIN PROCESS                                       │
 │  ┌────────────────────────┐  ┌──────────────────────────────────────────────────────┐  │
 │  │ Permission Chokepoint  │  │ SQLite Database (better-sqlite3)                     │  │
-│  │ isPathAllowed()        │  │ skills, sessions_meta, skill_invocations, findings   │  │
+│  │ isPathAllowed()        │  │ skills, sessions_meta, skill_invocations,            │  │
+│  │                        │  │ plugin_registry, allowed_paths, lint_findings        │  │
 │  └───────────┬────────────┘  └──────────────────────────┬───────────────────────────┘  │
 │              │                                          │                              │
 │  ┌───────────▼──────────────────────────────────────────▼───────────────────────────┐  │
@@ -136,7 +142,7 @@ Megatron follows a secure multi-process Electron architecture:
 
 | Layer                       | Technologies                                                                                                                                         |
 | :-------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Desktop Shell**           | [Electron 39](https://www.electronjs.org/), [electron-vite](https://electron-vite.org/)                                                              |
+| **Desktop Shell**           | [Electron 43](https://www.electronjs.org/), [electron-vite](https://electron-vite.org/)                                                              |
 | **UI Framework**            | [React 19](https://react.dev/), [TypeScript 5.9](https://www.typescriptlang.org/)                                                                    |
 | **Styling & Components**    | [Tailwind CSS v4](https://tailwindcss.com/), [shadcn/ui](https://ui.shadcn.com/), [Lucide Icons](https://lucide.dev/), [Motion](https://motion.dev/) |
 | **Data Layer**              | [better-sqlite3](https://github.com/WiseLibs/better-sqlite3), [TanStack React Query v5](https://tanstack.com/query)                                  |
@@ -159,13 +165,14 @@ src/
 │   │   └── index.ts               # Orchestrator & multi-skill runner
 │   ├── index.ts                   # Application lifecycle and IPC handlers
 │   ├── permissions.ts             # Path validation and permission chokepoint
+│   ├── shell.ts                   # Protocol validation and safe external link opener
 │   ├── skill-files.ts             # Recursive directory walk and file preview reader
 │   └── theme.ts                   # Theme resolution and persistence
 ├── preload/                       # Context-isolated IPC bridge
 │   ├── index.ts                   # window.api exposure
 │   └── index.d.ts                 # Global TypeScript declarations
 ├── renderer/src/                  # React application
-│   ├── components/                # Reusable UI components (LintFindingsPanel, LintStatusBadge, etc.)
+│   ├── components/                # Reusable UI components (ContextBudgetDialog, LintFindingsPanel, etc.)
 │   ├── views/                     # Main view routers (SkillInventory, SkillDetail, SkillFileViewer)
 │   ├── lib/                       # Pure utility helpers (file-tree, source-name, glide-highlight)
 │   └── App.tsx                    # Root application component
@@ -208,18 +215,20 @@ src/
 
 ## Available Commands
 
-| Command                 | Description                                                 |
-| :---------------------- | :---------------------------------------------------------- |
-| `npm run dev`           | Launch Electron app with Hot Module Replacement (HMR)       |
-| `npm run build`         | Run typechecks and build production bundle                  |
-| `npm run typecheck`     | Run TypeScript validation across both Node and Web projects |
-| `npm run lint`          | Run ESLint across all files                                 |
-| `npm run format`        | Format the entire codebase with Prettier                    |
-| `npm run test`          | Run unit and integration test suite with Vitest             |
-| `npm run verify:visual` | Run visual smoke tests via Playwright-Electron              |
-| `npm run build:unpack`  | Create unpacked application build                           |
-| `npm run build:mac`     | Package distributable macOS DMG                             |
+| Command                 | Description                                                  |
+| :---------------------- | :----------------------------------------------------------- |
+| `npm run dev`           | Launch Electron app with Hot Module Replacement (HMR)        |
+| `npm run start`         | Preview the production build with electron-vite              |
+| `npm run build`         | Run typechecks and build production bundle                   |
+| `npm run typecheck`     | Run TypeScript validation across both Node and Web projects  |
+| `npm run lint`          | Run ESLint across all files                                  |
+| `npm run format`        | Format the entire codebase with Prettier                     |
+| `npm run test`          | Run unit and integration test suite with Vitest              |
+| `npm run verify:visual` | Run visual smoke tests via Playwright-Electron               |
+| `npm run build:unpack`  | Create unpacked application build                            |
+| `npm run build:mac`     | Package distributable macOS DMG                              |
 | `npm run db`            | Open the local SQLite index in DB Browser for SQLite (macOS) |
+| `npm run db:reset`      | Reset and delete the local SQLite index cache                |
 
 ---
 
