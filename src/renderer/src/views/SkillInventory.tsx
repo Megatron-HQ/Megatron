@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   createColumnHelper,
   createSortedRowModel,
@@ -238,16 +238,26 @@ export function SkillInventory({
   })
 
   const rows = table.getRowModel().rows
+  const hasRows = rows.length > 0
   const safeFocusedIndex = Math.min(focusedIndex, Math.max(rows.length - 1, 0))
   const highlightIndex =
     hoveredId !== null ? rows.findIndex((row) => row.original.id === hoveredId) : -1
 
-  function focusRow(index: number): void {
-    const clamped = Math.max(0, Math.min(index, rows.length - 1))
-    setFocusedIndex(clamped)
-    const rowEl = containerRef.current?.querySelectorAll('tbody tr')[clamped]
-    if (rowEl instanceof HTMLElement) rowEl.focus()
-  }
+  const focusRow = useCallback(
+    (index: number): void => {
+      const clamped = Math.max(0, Math.min(index, rows.length - 1))
+      setFocusedIndex(clamped)
+      const rowEl = containerRef.current?.querySelectorAll('tbody tr')[clamped]
+      if (rowEl instanceof HTMLElement) rowEl.focus()
+    },
+    [rows.length]
+  )
+
+  useEffect(() => {
+    if (!hasRows) return
+    if (containerRef.current?.contains(document.activeElement)) return
+    focusRow(0)
+  }, [filter, hasRows, focusRow])
 
   let body: React.JSX.Element
   if (loading) {
