@@ -12,6 +12,9 @@ export const HEAVIEST_SKILLS_LIMIT = 5
 // A skill with hook_events is excluded outright, even at 0 invocations: its plugin runs via a
 // Claude Code hook, not the Skill tool, so "0 uses" doesn't mean dead weight — it means Megatron
 // can't see that mechanism. Recommending "disable it, it's unused" would be actively wrong here.
+//
+// A skill with disabled_reason set is excluded too: it already costs 0 tokens (getContextBudget
+// skips it the same way), so "disable this" is advice for something already disabled.
 export function heaviestBudgetSkills(
   skills: SkillRow[],
   limit = HEAVIEST_SKILLS_LIMIT
@@ -20,7 +23,8 @@ export function heaviestBudgetSkills(
     .filter(
       (skill) =>
         (skill.source_type === 'global' || skill.source_type === 'plugin') &&
-        skill.hook_events === null
+        skill.hook_events === null &&
+        skill.disabled_reason === null
     )
     .sort((a, b) => {
       const aUnused = a.total_invocations === 0

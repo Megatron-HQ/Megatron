@@ -24,6 +24,7 @@ function makeSkill(overrides: Partial<SkillRow> = {}): SkillRow {
     modified_at: null,
     is_synced: 0,
     hook_events: null,
+    disabled_reason: null,
     total_invocations: 0,
     last_invoked_at: null,
     shadowed_by_skill_id: null,
@@ -64,6 +65,8 @@ describe('source-filter helpers', () => {
           { kind: 'plugin', pluginName: 'beta@market' }
         )
       ).toBe(false)
+      expect(isFilterEqual({ kind: 'disabled' }, { kind: 'disabled' })).toBe(true)
+      expect(isFilterEqual({ kind: 'disabled' }, { kind: 'all' })).toBe(false)
     })
   })
 
@@ -137,6 +140,36 @@ describe('source-filter helpers', () => {
       const filterOther: SourceFilter = { kind: 'plugin', pluginName: 'other-plugin' }
       expect(matchesFilter(pluginSkill, filterOther)).toBe(false)
     })
+
+    it('matches disabled global and plugin skills, excluding enabled and project ones', () => {
+      const filter: SourceFilter = { kind: 'disabled' }
+      const disabledGlobal = makeSkill({
+        id: 5,
+        source_type: 'global',
+        disabled_reason: 'override'
+      })
+      const disabledPlugin = makeSkill({
+        id: 6,
+        source_type: 'plugin',
+        plugin_name: 'designer@official',
+        disabled_reason: 'plugin'
+      })
+      const disabledProject = makeSkill({
+        id: 7,
+        source_type: 'project',
+        project_root: '/repos/alpha',
+        disabled_reason: 'override'
+      })
+
+      expect(matchesFilter(disabledGlobal, filter)).toBe(true)
+      expect(matchesFilter(disabledPlugin, filter)).toBe(true)
+      expect(matchesFilter(globalSkill, filter)).toBe(false)
+      expect(matchesFilter(pluginSkill, filter)).toBe(false)
+      // Never shown here even though disabled_reason is set — getContextBudget's excludedCount
+      // only counts global/plugin skills, so a project skill can't inflate this filter's results
+      // past the number the user saw in the dialog.
+      expect(matchesFilter(disabledProject, filter)).toBe(false)
+    })
   })
 
   describe('getFilterHeaderTitle', () => {
@@ -151,6 +184,7 @@ describe('source-filter helpers', () => {
       expect(getFilterHeaderTitle({ kind: 'plugin', pluginName: 'frontend-design@npm' })).toBe(
         'Plugin / frontend-design Skills'
       )
+      expect(getFilterHeaderTitle({ kind: 'disabled' })).toBe('Disabled Skills')
     })
   })
 
@@ -166,6 +200,7 @@ describe('source-filter helpers', () => {
       expect(shouldShowSourceColumn({ kind: 'plugin', pluginName: 'frontend-design@npm' })).toBe(
         false
       )
+      expect(shouldShowSourceColumn({ kind: 'disabled' })).toBe(true)
     })
   })
 })

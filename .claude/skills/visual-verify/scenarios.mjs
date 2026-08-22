@@ -70,7 +70,7 @@ export const scenarios = [
   {
     name: 'project-filter-empty-state',
     async run(window) {
-      await window.getByRole('button', { name: 'Project' }).click()
+      await window.getByRole('button', { name: 'Project', exact: true }).click()
     }
   },
   {
@@ -181,14 +181,38 @@ export const scenarios = [
   {
     name: 'sidebar-projects-expanded',
     async run(window) {
-      await window.getByRole('button', { name: 'Project' }).click()
+      await window.getByRole('button', { name: 'Project', exact: true }).click()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
   {
     name: 'sidebar-plugins-expanded',
     async run(window) {
-      await window.getByRole('button', { name: 'Plugin' }).click()
+      await window.getByRole('button', { name: 'Plugin', exact: true }).click()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // The chevron is a separate hit target from the row label (polish pass fixing
+    // the P0 filter/expand click-coupling finding) — this proves the sublist can
+    // open while the active filter stays put, rather than jumping to Project.
+    name: 'sidebar-projects-expanded-via-chevron',
+    async run(window) {
+      await window.getByRole('button', { name: 'Global' }).click()
+      await window.getByRole('button', { name: 'Expand project list' }).click()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // SourceBadge's tooltip moved from native `title` to Radix Tooltip, matching
+    // the name column's icon-affordance tooltips (LintStatusBadge, synced/lock/hook).
+    // Targeted by data-variant="outline" rather than data-slot="badge" — wrapping
+    // Badge in TooltipTrigger asChild has Radix's Slot overwrite data-slot to
+    // "tooltip-trigger" on the merged element (harmless: nothing else in the app
+    // selects on data-slot="badge"), but data-variant survives untouched.
+    name: 'source-badge-tooltip',
+    async run(window) {
+      await window.locator('tbody tr').first().locator('[data-variant="outline"]').hover()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
@@ -199,7 +223,7 @@ export const scenarios = [
     // reveal the tooltip's real event-name list (skills.hook_events, not a placeholder).
     name: 'table-hook-driven-icon-tooltip',
     async run(window) {
-      await window.getByRole('button', { name: 'Plugin' }).click()
+      await window.getByRole('button', { name: 'Plugin', exact: true }).click()
       await window.getByRole('button', { name: /^ponytail/ }).click()
       await window
         .locator('tbody tr', { hasText: 'ponytail:ponytail' })
@@ -207,6 +231,35 @@ export const scenarios = [
         .locator('svg.lucide-webhook')
         .hover()
       await window.getByText(/Also runs via hooks:/).waitFor()
+    }
+  },
+  {
+    // The table Name column's disabled-skill indicator: a red Power icon (promoted
+    // from a neutral CircleSlash to its own flag color — see DESIGN.md's Disabled
+    // Flag entry). design-taste-frontend-v1 is disabled via skillOverrides in this
+    // developer's own ~/.claude/settings.json, so its row carries the icon without
+    // any UI action needed to induce the state.
+    name: 'table-disabled-icon-tooltip',
+    async run(window) {
+      await window
+        .locator('tbody tr', { hasText: 'design-taste-frontend-v1' })
+        .first()
+        .locator('svg.lucide-power')
+        .hover()
+      await window.getByText(/Disabled via \/skills/).waitFor()
+    }
+  },
+  {
+    // Disabled-skill detail header: same red Power icon as the table row, next to
+    // the skill name. Confirms it renders there too, while the "Disabled" Stat
+    // further down the page stays plain text (deliberately left unchanged).
+    name: 'skill-detail-disabled',
+    async run(window) {
+      await openSkillViaCommandPalette(
+        window,
+        'design-taste-frontend-v1',
+        /^design-taste-frontend-v1/
+      )
     }
   },
   {
@@ -224,6 +277,16 @@ export const scenarios = [
     async run(window) {
       await window.getByRole('button', { name: /EST\. tokens$/i }).click()
       await window.getByText('Never used, heaviest first').waitFor()
+    }
+  },
+  {
+    // "View disabled skills" link in the dialog closes it and filters the table down to
+    // exactly the disabled global/plugin skills behind the excludedCount sentence above it.
+    name: 'context-budget-dialog-view-disabled',
+    async run(window) {
+      await window.getByRole('button', { name: /EST\. tokens$/i }).click()
+      await window.getByRole('button', { name: 'View disabled skills' }).click()
+      await window.getByText('Disabled Skills').waitFor()
     }
   }
 ]

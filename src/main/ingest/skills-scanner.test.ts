@@ -14,6 +14,7 @@ import {
 
 let db: Database.Database
 let tmpDir: string
+let userSettingsPath: string
 
 interface SkillRow {
   id: number
@@ -27,6 +28,7 @@ interface SkillRow {
   created_at: string | null
   modified_at: string | null
   is_synced: number
+  disabled_reason: string | null
 }
 
 function allSkills(): SkillRow[] {
@@ -40,10 +42,15 @@ function writeSkillDir(rootDir: string, name: string, frontmatter: string): stri
   return dirPath
 }
 
+function writeUserSettings(content: unknown): void {
+  writeFileSync(userSettingsPath, JSON.stringify(content))
+}
+
 beforeEach(() => {
   db = new Database(':memory:')
   applySchema(db)
   tmpDir = mkdtempSync(join(tmpdir(), 'megatron-test-'))
+  userSettingsPath = join(tmpDir, 'user-settings.json')
   grantPath(tmpDir)
 })
 
@@ -423,6 +430,52 @@ describe('scanSkills', () => {
     scanSkills(db, roots)
 
     expect(allSkills()).toHaveLength(0)
+  })
+})
+
+describe('scanSkills disabled_reason via skillOverrides', () => {
+  it('sets disabled_reason to override for a global skill set to off in user settings', () => {
+    const root = join(tmpDir, 'skills')
+    writeSkillDir(root, 'skill-a', '---\nname: skill-a\ndescription: First\n---\nBody')
+    writeUserSettings({ skillOverrides: { 'skill-a': 'off' } })
+
+    scanSkills(db, [{ dir: root, sourceType: 'global' }], userSettingsPath)
+
+    expect(allSkills()[0].disabled_reason).toBe('override')
+  })
+
+  it('leaves disabled_reason NULL for a global skill set to name-only', () => {
+    const root = join(tmpDir, 'skills')
+    writeSkillDir(root, 'skill-a', '---\nname: skill-a\ndescription: First\n---\nBody')
+    writeUserSettings({ skillOverrides: { 'skill-a': 'name-only' } })
+
+    scanSkills(db, [{ dir: root, sourceType: 'global' }], userSettingsPath)
+
+    expect(allSkills()[0].disabled_reason).toBeNull()
+  })
+
+  it('leaves disabled_reason NULL for a global skill with no override at all', () => {
+    const root = join(tmpDir, 'skills')
+    writeSkillDir(root, 'skill-a', '---\nname: skill-a\ndescription: First\n---\nBody')
+
+    scanSkills(db, [{ dir: root, sourceType: 'global' }], userSettingsPath)
+
+    expect(allSkills()[0].disabled_reason).toBeNull()
+  })
+
+  it('picks up a project-scope override for a project skill', () => {
+    const repoRoot = join(tmpDir, 'my-repo')
+    const root = join(repoRoot, '.claude', 'skills')
+    writeSkillDir(root, 'skill-a', '---\nname: skill-a\ndescription: First\n---\nBody')
+    mkdirSync(join(repoRoot, '.claude'), { recursive: true })
+    writeFileSync(
+      join(repoRoot, '.claude', 'settings.json'),
+      JSON.stringify({ skillOverrides: { 'skill-a': 'off' } })
+    )
+
+    scanSkills(db, [{ dir: root, sourceType: 'project', projectRoot: repoRoot }], userSettingsPath)
+
+    expect(allSkills()[0].disabled_reason).toBe('override')
   })
 })
 

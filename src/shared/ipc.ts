@@ -52,6 +52,10 @@ export interface SkillRow {
   // JSON array of hook event names from the plugin's declared hooks manifest; NULL for
   // global/project skills and for plugin skills whose plugin declares no hooks.
   hook_events: string | null
+  // NULL when enabled. 'plugin' when the owning plugin is disabled (enabledPlugins: false —
+  // Claude Code unloads the whole plugin). 'override' when settings.json's skillOverrides has
+  // this skill set to "off" (plugin skills can't carry this one, only 'plugin' applies to them).
+  disabled_reason: string | null
   total_invocations: number
   last_invoked_at: string | null
   // Non-null only for a project skill that's permanently shadowed by a global skill of the
@@ -65,6 +69,10 @@ export interface SkillRow {
 export interface ContextBudget {
   used: number
   limit: number
+  // Sum of est_listing_tokens, and count, of global/plugin skills excluded from `used`
+  // because disabled_reason is set — the audit line under the budget in ContextBudgetDialog.
+  excludedTokens: number
+  excludedCount: number
 }
 
 export interface SkillsListResult {

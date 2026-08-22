@@ -53,7 +53,9 @@ export function getSourceTooltip(
     case 'project':
       return sourcePath ?? 'Project skill'
     case 'plugin':
-      return pluginName ? `Plugin: ${pluginName}` : 'Plugin skill'
+      return pluginName
+        ? `Plugin: ${pluginName} — read-only, may be overwritten on update.`
+        : 'Plugin skill — read-only, may be overwritten on update.'
   }
 }
 

@@ -17,7 +17,12 @@ type View =
 // Real value always arrives from the listSkills IPC round-trip almost immediately; this only
 // covers the brief pre-response instant, so it deliberately doesn't guess at the real limit
 // (that constant is derived in src/main/db/queries.ts from the binary-sourced formula).
-const DEFAULT_CONTEXT_BUDGET: ContextBudget = { used: 0, limit: 0 }
+const DEFAULT_CONTEXT_BUDGET: ContextBudget = {
+  used: 0,
+  limit: 0,
+  excludedTokens: 0,
+  excludedCount: 0
+}
 
 function App(): React.JSX.Element {
   const queryClient = useQueryClient()

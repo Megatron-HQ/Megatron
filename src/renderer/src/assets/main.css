@@ -28,6 +28,7 @@
   --destructive: oklch(0.577 0.245 27.325);
   --warning: oklch(0.769 0.188 70.08);
   --success: oklch(0.723 0.219 149.579);
+  --disabled-flag: oklch(0.577 0.12 27.325);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -55,6 +56,7 @@
   --destructive: oklch(0.704 0.191 22.216);
   --warning: oklch(0.828 0.189 84.429);
   --success: oklch(0.792 0.209 151.711);
+  --disabled-flag: oklch(0.704 0.094 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
@@ -78,6 +80,7 @@
   --color-destructive: var(--destructive);
   --color-warning: var(--warning);
   --color-success: var(--success);
+  --color-disabled-flag: var(--disabled-flag);
   --color-accent-lime: var(--accent-lime);
   --color-accent-lime-foreground: var(--accent-lime-foreground);
   --color-border: var(--border);

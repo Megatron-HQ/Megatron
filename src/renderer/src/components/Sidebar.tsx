@@ -167,11 +167,9 @@ export function Sidebar({
           </button>
 
           <div className="flex flex-col">
-            <button
-              type="button"
-              onClick={handleProjectClick}
+            <div
               className={cn(
-                'group flex h-8 items-center justify-between rounded-md px-2 text-left text-sm transition-colors',
+                'flex h-8 items-center justify-between rounded-md px-2 text-sm transition-colors',
                 filter.kind === 'project' && !filter.projectRoot
                   ? 'bg-accent-lime text-accent-lime-foreground'
                   : filter.kind === 'project'
@@ -179,17 +177,29 @@ export function Sidebar({
                     : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
               )}
             >
-              <span className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleProjectClick}
+                className="flex h-full flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
                 <FolderGit2 className="size-4 shrink-0" />
                 <span>Project</span>
-              </span>
-              <ChevronRight
-                className={cn(
-                  'size-3.5 shrink-0 transition-transform duration-200',
-                  projectExpanded && 'rotate-90'
-                )}
-              />
-            </button>
+              </button>
+              <button
+                type="button"
+                onClick={() => setProjectExpanded((open) => !open)}
+                aria-expanded={projectExpanded}
+                aria-label={projectExpanded ? 'Collapse project list' : 'Expand project list'}
+                className="-mr-1 shrink-0 rounded p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <ChevronRight
+                  className={cn(
+                    'size-3.5 shrink-0 transition-transform duration-200',
+                    projectExpanded && 'rotate-90'
+                  )}
+                />
+              </button>
+            </div>
 
             <AnimatePresence initial={false}>
               {projectExpanded && (
@@ -246,11 +256,9 @@ export function Sidebar({
           </div>
 
           <div className="flex flex-col">
-            <button
-              type="button"
-              onClick={handlePluginClick}
+            <div
               className={cn(
-                'group flex h-8 items-center justify-between rounded-md px-2 text-left text-sm transition-colors',
+                'flex h-8 items-center justify-between rounded-md px-2 text-sm transition-colors',
                 filter.kind === 'plugin' && !filter.pluginName
                   ? 'bg-accent-lime text-accent-lime-foreground'
                   : filter.kind === 'plugin'
@@ -258,17 +266,29 @@ export function Sidebar({
                     : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
               )}
             >
-              <span className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handlePluginClick}
+                className="flex h-full flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
                 <Blocks className="size-4 shrink-0" />
                 <span>Plugin</span>
-              </span>
-              <ChevronRight
-                className={cn(
-                  'size-3.5 shrink-0 transition-transform duration-200',
-                  pluginExpanded && 'rotate-90'
-                )}
-              />
-            </button>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPluginExpanded((open) => !open)}
+                aria-expanded={pluginExpanded}
+                aria-label={pluginExpanded ? 'Collapse plugin list' : 'Expand plugin list'}
+                className="-mr-1 shrink-0 rounded p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <ChevronRight
+                  className={cn(
+                    'size-3.5 shrink-0 transition-transform duration-200',
+                    pluginExpanded && 'rotate-90'
+                  )}
+                />
+              </button>
+            </div>
 
             <AnimatePresence initial={false}>
               {pluginExpanded && (
@@ -326,7 +346,12 @@ export function Sidebar({
         </nav>
       </div>
 
-      <ContextBudgetReadout budget={contextBudget} skills={skills} onSelectSkill={onSelectSkill} />
+      <ContextBudgetReadout
+        budget={contextBudget}
+        skills={skills}
+        onSelectSkill={onSelectSkill}
+        onViewDisabled={() => onFilterChange({ kind: 'disabled' })}
+      />
 
       <div className="border-t border-border p-2">
         <button
@@ -345,11 +370,13 @@ export function Sidebar({
 function ContextBudgetReadout({
   budget,
   skills,
-  onSelectSkill
+  onSelectSkill,
+  onViewDisabled
 }: {
   budget: ContextBudget
   skills: SkillRow[]
   onSelectSkill: (id: number) => void
+  onViewDisabled: () => void
 }): React.JSX.Element {
   const [dialogOpen, setDialogOpen] = useState(false)
 
@@ -370,6 +397,7 @@ function ContextBudgetReadout({
         budget={budget}
         skills={skills}
         onSelectSkill={onSelectSkill}
+        onViewDisabled={onViewDisabled}
       />
     </div>
   )

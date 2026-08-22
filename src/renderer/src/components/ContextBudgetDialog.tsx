@@ -16,6 +16,7 @@ interface ContextBudgetDialogProps {
   budget: ContextBudget
   skills: SkillRow[]
   onSelectSkill: (id: number) => void
+  onViewDisabled: () => void
 }
 
 export function ContextBudgetDialog({
@@ -23,7 +24,8 @@ export function ContextBudgetDialog({
   onOpenChange,
   budget,
   skills,
-  onSelectSkill
+  onSelectSkill,
+  onViewDisabled
 }: ContextBudgetDialogProps): React.JSX.Element {
   const heaviest = heaviestBudgetSkills(skills)
   const over = budget.limit > 0 && budget.used > budget.limit
@@ -38,9 +40,9 @@ export function ContextBudgetDialog({
           </DialogTitle>
           <DialogDescription>What this number means?</DialogDescription>
           <p className="max-w-[72ch] text-left text-[13px] leading-relaxed text-muted-foreground">
-            Sum of every global and plugin skill&apos;s name and description: the part of a skill
-            Claude Code always keeps in context, whether or not the skill ever runs. Claude Code
-            budgets this listing at{' '}
+            Sum of every <em>enabled</em> global and plugin skill&apos;s name and description: the
+            part of a skill Claude Code always keeps in context, whether or not the skill ever runs.
+            Claude Code budgets this listing at{' '}
             <span className="font-mono tabular-nums text-foreground">
               {budget.limit.toLocaleString()}
             </span>{' '}
@@ -67,6 +69,25 @@ export function ContextBudgetDialog({
             Or raise <span className="font-mono text-foreground">skillListingBudgetFraction</span>{' '}
             in settings.json.
           </p>
+          {budget.excludedCount > 0 && (
+            <p className="flex flex-wrap items-center gap-x-1.5 text-[13px] text-muted-foreground">
+              <span>
+                {budget.excludedCount.toLocaleString()}{' '}
+                {budget.excludedCount === 1 ? 'disabled skill' : 'disabled skills'} (
+                {budget.excludedTokens.toLocaleString()} tokens) excluded.
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  onViewDisabled()
+                  onOpenChange(false)
+                }}
+                className="font-medium text-foreground underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+              >
+                View disabled skills
+              </button>
+            </p>
+          )}
         </div>
 
         {heaviest.length > 0 ? (

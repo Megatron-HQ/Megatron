@@ -9,6 +9,7 @@ import {
   getGrantedPaths,
   readAllowedDirectory
 } from '../permissions'
+import { readSkillOverrides } from './claude-settings'
 import { parseSkillDirectory } from './skill-parser'
 
 // Directory names never worth descending into while hunting for nested `.claude/skills/`
@@ -95,11 +96,18 @@ const SYNCED_DIR_NAME = 'synced'
 
 // A skill directory is `<parentDir>/<entryName>`, real iff it has its own SKILL.md.
 // Shared by the top-level walk and the one-level-deeper synced/ walk below.
+//
+// `overrides` is keyed by the skill's own frontmatter name — not the collision-qualified name
+// qualifyCollidingNestedSkillNames rewrites afterward.
+// ponytail: a nested project skill that both collides (gets qualified) and is individually
+// disabled via /skills would be looked up under the wrong key here. Rare double-edge case;
+// upgrade by re-keying overrides after qualification if it ever surfaces for real.
 function scanSkillEntry(
   parentDir: string,
   entryName: string,
   projectRoot: string | undefined,
-  isSynced: boolean
+  isSynced: boolean,
+  overrides: Map<string, string>
 ): SkillScanRow | null {
   const dirPath = join(parentDir, entryName)
   const skillMdPath = join(dirPath, 'SKILL.md')
@@ -120,7 +128,8 @@ function scanSkillEntry(
     created_at: stats?.birthtime.toISOString() ?? null,
     modified_at: stats?.mtime.toISOString() ?? null,
     // better-sqlite3 only binds numbers/strings/bigints/buffers/null, not booleans.
-    is_synced: isSynced ? 1 : 0
+    is_synced: isSynced ? 1 : 0,
+    disabled_reason: overrides.get(parsed.name) === 'off' ? 'override' : null
   }
 }
 
@@ -174,13 +183,21 @@ function qualifyCollidingNestedSkillNames(rows: SkillScanRow[]): void {
 // project grant) never gets its rows deleted — writeSkillScan is only called for source
 // types with at least one root this pass, so an absent root's rows are simply never
 // considered. Add eager cleanup-on-revoke if M3's picker needs it.
-export function scanSkills(db: Database.Database, roots: SkillRoot[] = defaultSkillRoots()): void {
+export function scanSkills(
+  db: Database.Database,
+  roots: SkillRoot[] = defaultSkillRoots(),
+  userSettingsPath?: string
+): void {
   const rowsBySourceType = new Map<SkillRoot['sourceType'], SkillScanRow[]>()
   const rootDirsBySourceType = new Map<SkillRoot['sourceType'], string[]>()
 
   for (const root of roots) {
     const directory = readAllowedDirectory(root.dir)
     if (directory.status === 'unavailable') continue
+
+    // Read once per root, not once per skill. Global roots (no projectRoot) resolve user scope
+    // only; a project root gets the full local > project > user merge — see claude-settings.ts.
+    const overrides = readSkillOverrides(root.projectRoot, userSettingsPath)
 
     const rows = rowsBySourceType.get(root.sourceType) ?? []
     rowsBySourceType.set(root.sourceType, rows)
@@ -200,13 +217,13 @@ export function scanSkills(db: Database.Database, roots: SkillRoot[] = defaultSk
         // synced/ has to be a root in its own right or a deleted synced skill never gets swept.
         rootDirs.push(syncedDir)
         for (const syncedEntryName of syncedEntries.entries) {
-          const row = scanSkillEntry(syncedDir, syncedEntryName, root.projectRoot, true)
+          const row = scanSkillEntry(syncedDir, syncedEntryName, root.projectRoot, true, overrides)
           if (row) rows.push(row)
         }
         continue
       }
 
-      const row = scanSkillEntry(root.dir, entryName, root.projectRoot, false)
+      const row = scanSkillEntry(root.dir, entryName, root.projectRoot, false, overrides)
       if (row) rows.push(row)
     }
   }

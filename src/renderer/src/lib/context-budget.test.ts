@@ -18,6 +18,7 @@ function makeSkill(overrides: Partial<SkillRow> = {}): SkillRow {
     modified_at: null,
     is_synced: 0,
     hook_events: null,
+    disabled_reason: null,
     total_invocations: 0,
     last_invoked_at: null,
     shadowed_by_skill_id: null,
@@ -96,6 +97,19 @@ describe('heaviestBudgetSkills', () => {
         source_type: 'plugin',
         est_listing_tokens: 999,
         hook_events: JSON.stringify(['SessionStart', 'UserPromptSubmit'])
+      }),
+      makeSkill({ id: 2, name: 'small-and-unused', est_listing_tokens: 10 })
+    ]
+    expect(heaviestBudgetSkills(skills).map((s) => s.id)).toEqual([2])
+  })
+
+  it('excludes an unused disabled skill, even when heaviest — it costs 0 tokens already', () => {
+    const skills = [
+      makeSkill({
+        id: 1,
+        name: 'disabled-skill',
+        est_listing_tokens: 999,
+        disabled_reason: 'plugin'
       }),
       makeSkill({ id: 2, name: 'small-and-unused', est_listing_tokens: 10 })
     ]

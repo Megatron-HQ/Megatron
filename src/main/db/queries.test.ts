@@ -41,20 +41,22 @@ function insertSkill(
     source_path?: string
     project_root?: string | null
     is_synced?: number
+    disabled_reason?: string | null
   } = {}
 ): number {
   db.prepare(
     `INSERT INTO skills
        (name, source_type, source_path, plugin_name, description, last_scanned_at,
-        est_listing_tokens, est_body_tokens, project_root, is_synced)
-     VALUES (?, ?, ?, NULL, NULL, '2026-08-14T00:00:00.000Z', ?, 0, ?, ?)`
+        est_listing_tokens, est_body_tokens, project_root, is_synced, disabled_reason)
+     VALUES (?, ?, ?, NULL, NULL, '2026-08-14T00:00:00.000Z', ?, 0, ?, ?, ?)`
   ).run(
     name,
     overrides.source_type ?? 'global',
     overrides.source_path ?? `/skills/${name}`,
     overrides.est_listing_tokens ?? 0,
     overrides.project_root ?? null,
-    overrides.is_synced ?? 0
+    overrides.is_synced ?? 0,
+    overrides.disabled_reason ?? null
   )
   return (db.prepare('SELECT last_insert_rowid() AS id').get() as { id: number }).id
 }
@@ -1151,10 +1153,51 @@ describe('getContextBudget', () => {
     insertSkill('b', { source_type: 'plugin', est_listing_tokens: 700 })
     insertSkill('c', { source_type: 'project', est_listing_tokens: 100000 })
 
-    expect(getContextBudget(db)).toEqual({ used: 1200, limit: 2000 })
+    expect(getContextBudget(db)).toEqual({
+      used: 1200,
+      limit: 2000,
+      excludedTokens: 0,
+      excludedCount: 0
+    })
   })
 
   it('returns 0 used when there are no skills indexed', () => {
-    expect(getContextBudget(db)).toEqual({ used: 0, limit: 2000 })
+    expect(getContextBudget(db)).toEqual({
+      used: 0,
+      limit: 2000,
+      excludedTokens: 0,
+      excludedCount: 0
+    })
+  })
+
+  it('excludes a disabled global/plugin skill from used, and reports it as excluded', () => {
+    insertSkill('a', { source_type: 'global', est_listing_tokens: 500 })
+    insertSkill('b', {
+      source_type: 'plugin',
+      est_listing_tokens: 700,
+      disabled_reason: 'plugin'
+    })
+
+    expect(getContextBudget(db)).toEqual({
+      used: 500,
+      limit: 2000,
+      excludedTokens: 700,
+      excludedCount: 1
+    })
+  })
+
+  it('does not count a disabled project skill toward excludedTokens (already out of scope)', () => {
+    insertSkill('c', {
+      source_type: 'project',
+      est_listing_tokens: 100000,
+      disabled_reason: 'override'
+    })
+
+    expect(getContextBudget(db)).toEqual({
+      used: 0,
+      limit: 2000,
+      excludedTokens: 0,
+      excludedCount: 0
+    })
   })
 })

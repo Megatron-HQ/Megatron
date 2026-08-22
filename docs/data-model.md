@@ -137,7 +137,15 @@ queries over `skill_invocations` at read time, joined on `skill_name` (the same 
 above), not counters maintained on the `skills` row. `skill_invocations` is append-only, so a
 stored count would need upkeep on every insert/delete and could drift; a live `COUNT`/`MAX` never
 can. The context budget (`getContextBudget`) is the same shape: `SUM(est_listing_tokens)` at read
-time, not a cached total.
+time, not a cached total — filtered to `disabled_reason IS NULL` (see below), since a disabled
+skill costs Claude Code nothing.
+
+**`disabled_reason` (added 2026-08-21)**: nullable `TEXT` on `skills`, stamped at Scan time —
+`NULL` when enabled, `'plugin'` when the owning plugin's `enabledPlugins` entry in `settings.json`
+is `false` (Claude Code unloads the whole plugin), `'override'` when `settings.json`'s
+`skillOverrides` has this skill set to `"off"` (plugin skills can't carry this second reason — see
+`docs/skill-scanner.md`). `getContextBudget()` excludes any row with `disabled_reason` set from
+`used`, and reports its tokens/count separately as `excludedTokens`/`excludedCount`.
 
 **Skill name collisions (added 2026-08-16)**: two same-named skills are always two separate
 `skills` rows (identity is `source_path`, already `UNIQUE`) — never merged. What changed is how

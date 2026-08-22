@@ -4,7 +4,8 @@ import {
   getPluginBareName,
   getProjectNameFromPath,
   getSourceDisplayName,
-  getSourceSortKey
+  getSourceSortKey,
+  getSourceTooltip
 } from './source-name'
 
 describe('source-name helpers', () => {
@@ -86,6 +87,29 @@ describe('source-name helpers', () => {
       expect(
         getSourceDisplayName('global', '/Users/alice/.claude/skills/synced/test', null, true)
       ).toBe('synced')
+    })
+  })
+
+  describe('getSourceTooltip', () => {
+    it('returns plain labels for global and project skills', () => {
+      expect(getSourceTooltip('global')).toBe('Global skill')
+      expect(getSourceTooltip('project', '/repo/.claude/skills/a')).toBe('/repo/.claude/skills/a')
+    })
+
+    it('returns the synced label for a synced global skill', () => {
+      expect(getSourceTooltip('global', undefined, undefined, true)).toBe('Synced from claude.ai')
+    })
+
+    it('names the plugin and flags it read-only', () => {
+      expect(getSourceTooltip('plugin', undefined, 'frontend-design@claude-plugins-official')).toBe(
+        'Plugin: frontend-design@claude-plugins-official — read-only, may be overwritten on update.'
+      )
+    })
+
+    it('flags read-only even without a plugin name', () => {
+      expect(getSourceTooltip('plugin')).toBe(
+        'Plugin skill — read-only, may be overwritten on update.'
+      )
     })
   })
 

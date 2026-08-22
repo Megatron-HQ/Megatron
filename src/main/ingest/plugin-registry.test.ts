@@ -10,6 +10,7 @@ import { scanPluginRegistry } from './plugin-registry'
 let db: Database.Database
 let tmpDir: string
 let pluginsDir: string
+let userSettingsPath: string
 
 interface RegistryRow {
   name: string
@@ -36,6 +37,7 @@ interface SkillRow {
   created_at: string | null
   modified_at: string | null
   hook_events: string | null
+  disabled_reason: string | null
 }
 
 function allRegistry(): RegistryRow[] {
@@ -54,6 +56,10 @@ function writeInstalledPlugins(content: unknown): void {
 
 function writeMarketplaces(content: unknown): void {
   writeFileSync(join(pluginsDir, 'known_marketplaces.json'), JSON.stringify(content))
+}
+
+function writeUserSettings(content: unknown): void {
+  writeFileSync(userSettingsPath, JSON.stringify(content))
 }
 
 function writePluginSkill(installPath: string, skillName: string, frontmatter: string): void {
@@ -85,6 +91,7 @@ beforeEach(() => {
   applySchema(db)
   tmpDir = mkdtempSync(join(tmpdir(), 'megatron-test-'))
   pluginsDir = join(tmpDir, 'plugins')
+  userSettingsPath = join(tmpDir, 'user-settings.json')
   mkdirSync(pluginsDir, { recursive: true })
   grantPath(tmpDir)
 })
@@ -238,6 +245,53 @@ describe('scanPluginRegistry', () => {
 
     expect(allRegistry()).toHaveLength(1)
     expect(pluginSkills().map((skill) => skill.name)).toEqual(['plugin-a:plugin-skill'])
+  })
+
+  it('sets disabled_reason to plugin for a skill whose plugin is disabled in enabledPlugins', () => {
+    const installPath = join(tmpDir, 'install-a')
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+    writePluginSkill(installPath, 'plugin-skill', '---\nname: plugin-skill\n---\nBody')
+    writeUserSettings({ enabledPlugins: { 'plugin-a@market-1': false } })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(pluginSkills()[0].disabled_reason).toBe('plugin')
+  })
+
+  it('leaves disabled_reason NULL for a skill whose plugin is enabled', () => {
+    const installPath = join(tmpDir, 'install-a')
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+    writePluginSkill(installPath, 'plugin-skill', '---\nname: plugin-skill\n---\nBody')
+    writeUserSettings({ enabledPlugins: { 'plugin-a@market-1': true } })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(pluginSkills()[0].disabled_reason).toBeNull()
+  })
+
+  it('leaves disabled_reason NULL when the user settings file is absent', () => {
+    const installPath = join(tmpDir, 'install-a')
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+    writePluginSkill(installPath, 'plugin-skill', '---\nname: plugin-skill\n---\nBody')
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(pluginSkills()[0].disabled_reason).toBeNull()
   })
 
   it('preserves plugin skills whose install directory becomes unavailable', () => {

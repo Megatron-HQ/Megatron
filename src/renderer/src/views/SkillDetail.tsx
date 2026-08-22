@@ -1,12 +1,13 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, ArrowLeft, FolderOpen } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, FolderOpen, Power } from 'lucide-react'
 import { LintFindingsPanel } from '@/components/LintFindingsPanel'
 import { LintStatusBadge } from '@/components/LintStatusBadge'
 import { SourceBadge } from '@/components/SourceBadge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { parseHookEvents } from '@/lib/hook-events'
 import { parseExtraFrontmatterFields } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
@@ -79,6 +80,18 @@ export function SkillDetail({
             <ArrowLeft className="size-4" />
           </Button>
           <h2 className="min-w-0 truncate text-base font-semibold">{skill.name}</h2>
+          {skill.disabled_reason !== null && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Power className="size-4 shrink-0 text-disabled-flag" />
+              </TooltipTrigger>
+              <TooltipContent>
+                {skill.disabled_reason === 'plugin'
+                  ? 'Plugin is disabled — not loaded into context.'
+                  : 'Disabled via /skills — not loaded into context.'}
+              </TooltipContent>
+            </Tooltip>
+          )}
           <LintStatusBadge
             status={skill.lint_status}
             errorCount={skill.error_count}
@@ -152,6 +165,12 @@ export function SkillDetail({
               />
               {skill.hook_events !== null && (
                 <Stat label="Hooks" value={hookEvents} title={hookEvents} />
+              )}
+              {skill.disabled_reason !== null && (
+                <Stat
+                  label="Disabled"
+                  value={skill.disabled_reason === 'plugin' ? 'Plugin' : '/skills override'}
+                />
               )}
               <Stat
                 label="Last used"

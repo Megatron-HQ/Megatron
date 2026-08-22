@@ -1,20 +1,12 @@
-import type { SkillRow, SourceType } from '../../../shared/ipc'
+import type { SkillRow } from '../../../shared/ipc'
 import { getFolderBasename, getPluginBareName } from './source-name'
-
-export type SourceFilterKind = 'all' | SourceType
 
 export type SourceFilter =
   | { kind: 'all' }
   | { kind: 'global' }
   | { kind: 'project'; projectRoot?: string }
   | { kind: 'plugin'; pluginName?: string }
-
-export const FILTER_LABEL: Record<SourceFilterKind, string> = {
-  all: 'All Skills',
-  global: 'Global',
-  project: 'Project',
-  plugin: 'Plugin'
-}
+  | { kind: 'disabled' }
 
 export function isFilterEqual(a: SourceFilter, b: SourceFilter): boolean {
   if (a.kind !== b.kind) return false
@@ -29,6 +21,15 @@ export function isFilterEqual(a: SourceFilter, b: SourceFilter): boolean {
 
 export function matchesFilter(skill: SkillRow, filter: SourceFilter): boolean {
   if (filter.kind === 'all') return true
+  if (filter.kind === 'disabled') {
+    // Mirrors getContextBudget()'s WHERE source_type IN ('global','plugin') in queries.ts — a
+    // project skill can carry disabled_reason too (skillOverrides applies to project roots), but
+    // it never counted toward the budget, so it can't appear in this filter's results either.
+    return (
+      skill.disabled_reason !== null &&
+      (skill.source_type === 'global' || skill.source_type === 'plugin')
+    )
+  }
   if (skill.source_type !== filter.kind) return false
   if (filter.kind === 'project' && filter.projectRoot) {
     const targetRoot = filter.projectRoot.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '')
@@ -62,6 +63,8 @@ export function getFilterHeaderTitle(filter: SourceFilter): string {
       return filter.pluginName
         ? `Plugin / ${getPluginBareName(filter.pluginName)} Skills`
         : 'Plugin Skills'
+    case 'disabled':
+      return 'Disabled Skills'
   }
 }
 
@@ -75,5 +78,7 @@ export function shouldShowSourceColumn(filter: SourceFilter): boolean {
       return !filter.projectRoot
     case 'plugin':
       return !filter.pluginName
+    case 'disabled':
+      return true
   }
 }

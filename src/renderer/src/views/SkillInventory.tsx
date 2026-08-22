@@ -9,7 +9,7 @@ import {
   useTable
 } from '@tanstack/react-table'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
-import { AlertTriangle, FolderOpen, Lock, Search, Webhook } from 'lucide-react'
+import { AlertTriangle, FolderOpen, Power, Search, Webhook } from 'lucide-react'
 import { motion } from 'motion/react'
 import { ClaudeIcon } from '@/components/ClaudeIcon'
 import { LintStatusBadge } from '@/components/LintStatusBadge'
@@ -79,16 +79,6 @@ const nameColumn = columnHelper.accessor('name', {
             <TooltipContent>{SYNCED_TOOLTIP}</TooltipContent>
           </Tooltip>
         )}
-        {row.source_type === 'plugin' && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Lock className="size-3 shrink-0 text-muted-foreground" />
-            </TooltipTrigger>
-            <TooltipContent>
-              Plugin-managed — read-only, may be overwritten on update.
-            </TooltipContent>
-          </Tooltip>
-        )}
         {row.hook_events !== null && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -106,6 +96,18 @@ const nameColumn = columnHelper.accessor('name', {
             </TooltipTrigger>
             <TooltipContent>
               A global skill with the same name always wins. This one can never run.
+            </TooltipContent>
+          </Tooltip>
+        )}
+        {row.disabled_reason !== null && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Power className="size-3 shrink-0 text-disabled-flag" />
+            </TooltipTrigger>
+            <TooltipContent>
+              {row.disabled_reason === 'plugin'
+                ? 'Plugin is disabled — not loaded into context.'
+                : 'Disabled via /skills — not loaded into context.'}
             </TooltipContent>
           </Tooltip>
         )}
@@ -423,6 +425,19 @@ function TableHeader({
         </h2>
       </div>
       <div className="flex items-center gap-2">
+        {count !== null && count > 0 && (
+          <span className="hidden shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground min-[901px]:flex">
+            <kbd className="rounded border border-border bg-background px-1 font-mono text-[11px]">
+              ↑↓
+            </kbd>
+            navigate
+            <span className="text-border">·</span>
+            <kbd className="rounded border border-border bg-background px-1 font-mono text-[11px]">
+              ↵
+            </kbd>
+            open
+          </span>
+        )}
         {filter.kind === 'project' && onManageFolders && (
           <button
             type="button"

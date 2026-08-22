@@ -2,7 +2,8 @@ import type Database from 'better-sqlite3'
 import { homedir } from 'os'
 import { join, resolve } from 'path'
 import { writeSkillScan, writeSkillScanAuthoritative, type SkillScanRow } from '../db/queries'
-import { allowedExistsSync, allowedReadFileSync, readAllowedDirectory } from '../permissions'
+import { allowedExistsSync, readAllowedDirectory } from '../permissions'
+import { isRecord, readDisabledPlugins, readJson } from './claude-settings'
 import { parseSkillDirectory } from './skill-parser'
 
 interface PluginInstallEntry {
@@ -22,32 +23,9 @@ function registryKey(name: string, marketplace: string, installPath: string): st
   return JSON.stringify([name, marketplace, installPath])
 }
 
-type JsonReadStatus = 'ok' | 'missing' | 'unavailable' | 'invalid'
-
-interface JsonRead {
-  status: JsonReadStatus
-  value: unknown
-}
-
-function readJson(filePath: string): JsonRead {
-  const contents = allowedReadFileSync(filePath)
-  if (contents === null) {
-    return { status: allowedExistsSync(filePath) ? 'unavailable' : 'missing', value: null }
-  }
-  try {
-    return { status: 'ok', value: JSON.parse(contents.toString('utf8')) }
-  } catch {
-    return { status: 'invalid', value: null }
-  }
-}
-
 function splitPluginKey(key: string): { name: string; marketplace: string } {
   const atIndex = key.lastIndexOf('@')
   return { name: key.slice(0, atIndex), marketplace: key.slice(atIndex + 1) }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 // Reads the plugin's own `.claude-plugin/plugin.json` and, if it declares a hooks manifest
@@ -74,10 +52,13 @@ function readPluginHookEvents(installPath: string): string | null {
 
 export function scanPluginRegistry(
   db: Database.Database,
-  pluginsDir: string = resolve(homedir(), '.claude', 'plugins')
+  pluginsDir: string = resolve(homedir(), '.claude', 'plugins'),
+  userSettingsPath?: string
 ): void {
   const pluginsDirectory = readAllowedDirectory(pluginsDir)
   if (pluginsDirectory.status === 'unavailable') return
+
+  const disabledPlugins = readDisabledPlugins(userSettingsPath)
 
   const installed = readJson(join(pluginsDir, 'installed_plugins.json'))
   if (installed.status === 'unavailable' || installed.status === 'invalid') return
@@ -157,6 +138,7 @@ export function scanPluginRegistry(
         seenRegistryKeys.add(registryKey(name, marketplace, installPath))
 
         const hookEvents = readPluginHookEvents(installPath)
+        const disabledReason = disabledPlugins.has(`${name}@${marketplace}`) ? 'plugin' : null
 
         const skillsDir = join(installPath, 'skills')
         const skillsDirectory = readAllowedDirectory(skillsDir)
@@ -186,7 +168,8 @@ export function scanPluginRegistry(
             metadata_json: parsed.metadata_json,
             created_at: null,
             modified_at: null,
-            hook_events: hookEvents
+            hook_events: hookEvents,
+            disabled_reason: disabledReason
           })
         }
       }

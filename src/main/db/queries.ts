@@ -62,7 +62,7 @@ const SKILLS_WITH_USAGE_SELECT = `
     s.id, s.name, s.source_type, s.source_path, s.plugin_name, s.description,
     s.last_scanned_at, s.est_listing_tokens, s.est_body_tokens, s.project_root,
     s.metadata_json, s.modified_at,
-    s.is_synced, s.hook_events, s.shadowed_by_skill_id,
+    s.is_synced, s.hook_events, s.disabled_reason, s.shadowed_by_skill_id,
     COALESCE(SUM(CASE WHEN lf.severity = 'error' THEN 1 ELSE 0 END), 0) AS error_count,
     COALESCE(SUM(CASE WHEN lf.severity = 'warning' THEN 1 ELSE 0 END), 0) AS warning_count,
     CASE
@@ -194,6 +194,7 @@ export interface SkillScanRow {
   modified_at?: string | null
   is_synced?: number
   hook_events?: string | null
+  disabled_reason?: string | null
 }
 
 // Upserts `rows` as `sourceType`, then deletes existing `sourceType` rows that
@@ -210,11 +211,11 @@ function writeSkillRows(
       INSERT INTO skills
         (name, source_type, source_path, plugin_name, description, last_scanned_at,
          est_listing_tokens, est_body_tokens, project_root, license, metadata_json,
-         created_at, modified_at, is_synced, hook_events)
+         created_at, modified_at, is_synced, hook_events, disabled_reason)
       VALUES
         (@name, @source_type, @source_path, @plugin_name, @description, @last_scanned_at,
          @est_listing_tokens, @est_body_tokens, @project_root, @license, @metadata_json,
-         @created_at, @modified_at, @is_synced, @hook_events)
+         @created_at, @modified_at, @is_synced, @hook_events, @disabled_reason)
       ON CONFLICT(source_path) DO UPDATE SET
         name = excluded.name,
         source_type = excluded.source_type,
@@ -229,7 +230,8 @@ function writeSkillRows(
         created_at = excluded.created_at,
         modified_at = excluded.modified_at,
         is_synced = excluded.is_synced,
-        hook_events = excluded.hook_events
+        hook_events = excluded.hook_events,
+        disabled_reason = excluded.disabled_reason
     `)
     const now = new Date().toISOString()
     for (const row of rows) {
@@ -248,7 +250,8 @@ function writeSkillRows(
         created_at: row.created_at ?? null,
         modified_at: row.modified_at ?? null,
         is_synced: row.is_synced ?? 0,
-        hook_events: row.hook_events ?? null
+        hook_events: row.hook_events ?? null,
+        disabled_reason: row.disabled_reason ?? null
       })
     }
 
@@ -415,9 +418,13 @@ export const CONTEXT_BUDGET_LIMIT = Math.floor(200000 * 0.01)
 export function getContextBudget(db: Database.Database): ContextBudget {
   const row = db
     .prepare(
-      `SELECT COALESCE(SUM(est_listing_tokens), 0) AS used
+      `SELECT
+         COALESCE(SUM(CASE WHEN disabled_reason IS NULL THEN est_listing_tokens END), 0) AS used,
+         COALESCE(SUM(CASE WHEN disabled_reason IS NOT NULL THEN est_listing_tokens END), 0)
+           AS excludedTokens,
+         COALESCE(SUM(CASE WHEN disabled_reason IS NOT NULL THEN 1 END), 0) AS excludedCount
        FROM skills WHERE source_type IN ('global', 'plugin')`
     )
-    .get() as { used: number }
-  return { used: row.used, limit: CONTEXT_BUDGET_LIMIT }
+    .get() as { used: number; excludedTokens: number; excludedCount: number }
+  return { ...row, limit: CONTEXT_BUDGET_LIMIT }
 }

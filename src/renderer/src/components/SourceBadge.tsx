@@ -1,4 +1,6 @@
+import { Lock } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { SOURCE_ICON, SYNCED_ICON } from '@/lib/source-icon'
 import { getSourceDisplayName, getSourceTooltip } from '@/lib/source-name'
 import { cn } from '@/lib/utils'
@@ -26,13 +28,18 @@ export function SourceBadge({
   const tooltip = getSourceTooltip(type, sourcePath, pluginName, isSynced)
 
   return (
-    <Badge
-      variant="outline"
-      className={cn('inline-flex max-w-full items-center gap-1 font-normal', className)}
-      title={tooltip}
-    >
-      <Icon className="size-3 shrink-0" />
-      <span className="truncate">{displayName}</span>
-    </Badge>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          variant="outline"
+          className={cn('inline-flex max-w-full items-center gap-1 font-normal', className)}
+        >
+          <Icon className="size-3 shrink-0" />
+          <span className="truncate">{displayName}</span>
+          {type === 'plugin' && <Lock className="size-3 shrink-0" />}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent side="top">{tooltip}</TooltipContent>
+    </Tooltip>
   )
 }

@@ -34,13 +34,17 @@ describe('isPathAllowed', () => {
     expect(isPathAllowed('/etc/passwd')).toBe(false)
   })
 
-  it('rejects ~/.claude itself and sibling files, not just other roots', () => {
+  it('rejects ~/.claude itself and other sibling files, not just other roots', () => {
     expect(isPathAllowed(resolve(homedir(), '.claude'))).toBe(false)
-    expect(isPathAllowed(resolve(homedir(), '.claude/settings.json'))).toBe(false)
+    expect(isPathAllowed(resolve(homedir(), '.claude/CLAUDE.md'))).toBe(false)
   })
 
   it('allows ~/.claude.json so the MCP linter can read user-level server config', () => {
     expect(isPathAllowed(resolve(homedir(), '.claude.json'))).toBe(true)
+  })
+
+  it('allows ~/.claude/settings.json so scans can read enabledPlugins/skillOverrides', () => {
+    expect(isPathAllowed(resolve(homedir(), '.claude/settings.json'))).toBe(true)
   })
 
   it('rejects traversal that escapes an allowed root', () => {

@@ -18,10 +18,15 @@ CREATE TABLE IF NOT EXISTS skills (
   is_synced INTEGER NOT NULL DEFAULT 0, -- global skill found under a reserved synced/ dir
                                         -- (claude.ai sync) — lowest-priority source, see
                                         -- docs/skill-scanner.md
-  hook_events TEXT                     -- JSON array of event names from the plugin's declared
+  hook_events TEXT,                    -- JSON array of event names from the plugin's declared
                                         -- hooks manifest (.claude-plugin/plugin.json's "hooks"
                                         -- field); NULL for global/project skills and for plugin
                                         -- skills whose plugin declares no hooks
+  disabled_reason TEXT                 -- NULL when enabled. 'plugin' when the owning plugin's
+                                        -- settings.json enabledPlugins entry is false (Claude Code
+                                        -- unloads the whole plugin). 'override' when settings.json
+                                        -- skillOverrides has this skill set to "off" (plugin skills
+                                        -- can't carry this one — see docs/skill-scanner.md)
 );
 
 CREATE TABLE IF NOT EXISTS sessions_meta (
