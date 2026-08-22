@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, ArrowLeft, FolderOpen, Power } from 'lucide-react'
 import { LintFindingsPanel } from '@/components/LintFindingsPanel'
@@ -38,6 +38,15 @@ export function SkillDetail({
 
   const metadataEntries = useMemo(() => parseMetadataEntries(data?.skill.metadata_json), [data])
   const hookEvents = parseHookEvents(data?.skill.hook_events).join(', ')
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      onBack()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onBack])
 
   if (isPending) {
     return (

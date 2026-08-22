@@ -42,7 +42,7 @@ export function SkillFileViewer({
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key !== 'Escape') return
+      if (event.key !== 'Escape' || event.defaultPrevented) return
       if (searchQuery) {
         setSearchQuery('')
         return
