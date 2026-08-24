@@ -63,8 +63,8 @@ Megatron is strictly **read-only in v1**—it discovers and analyzes disk state 
 ### 📋 Skill Detail & Context Budget Estimator
 
 - Master-detail view with rich Markdown previewing, copyable commands, and formatted metadata.
-- **Token Budget Metrics**: Calculates estimated listing tokens (frontmatter description loaded into Claude system prompt) and estimated body tokens (`chars / 4` rounding matching Claude Code binary logic).
-- **Context Budget Triage Dialog**: Real-time sidebar readout and interactive `ContextBudgetDialog` measuring total resident listing tokens against the Claude Code 2,000-token limit, surfacing over/under-budget status and "Never used, heaviest first" triage.
+- **Token Budget Metrics**: Calculates estimated listing tokens (frontmatter description loaded into Claude system prompt) and estimated body tokens (`chars / 3.0` rounding, empirically calibrated against Claude Code's own `/context` output — see `docs/mvp-build-spec.md`).
+- **Context Budget Triage Dialog**: Real-time sidebar readout and interactive `ContextBudgetDialog` measuring total resident listing tokens against the Claude Code 2,666-token limit, surfacing over/under-budget status and "Never used, heaviest first" triage.
 - **Invocation Analytics**: Real-time breakdown of total uses, manual vs. auto vs. subagent invocations, and per-project usage distribution.
 - **Plugin Hooks Manifest Detection**: Displays declared hook event subscriptions (e.g. `SessionStart`) parsed from `.claude-plugin/plugin.json`.
 

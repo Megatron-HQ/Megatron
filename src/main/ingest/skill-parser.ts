@@ -11,14 +11,22 @@ export interface ParsedSkill {
   est_body_tokens: number
 }
 
-// Verbatim from Claude Code's compiled binary (function `xv` and its skill-listing call site).
-// `chars / 4` isn't an approximation — it's the literal mechanism that decides when a live
-// session truncates a skill's description, so a "more accurate" tokenizer would disagree with
-// real behavior. Math.round (not floor/ceil) matches that call site's rounding mode.
+// Still verbatim from Claude Code's compiled binary (function `xv` and its skill-listing call
+// site): the real cap it applies to a description before truncating it in its own system prompt.
 const LISTING_DESCRIPTION_MAX_CHARS = 1536
 
+// Empirically calibrated 2026-08-24, NOT verbatim from Claude Code's binary — see
+// docs/mvp-build-spec.md's Token estimation section for the full story. Claude Code doesn't
+// publish an offline tokenizer for current models, and Anthropic's own docs explicitly disclaim
+// third-party tokenizers (tiktoken, gpt-tokenizer) as wrong for its vocabulary, so this is the
+// closest available approximation, not an exact count. Derived by comparing Megatron's prior
+// chars/4 estimate against Claude Code's own `/context` output across 25 real skills: chars/4
+// averaged 74.6% of the real number (4 × 0.746 ≈ 3.0). `queries.ts`'s CONTEXT_BUDGET_LIMIT
+// imports this same constant so the two stay in lockstep — see its comment for why.
+export const CHARS_PER_TOKEN = 3
+
 function estimateTokens(text: string): number {
-  return Math.round(text.length / 4)
+  return Math.round(text.length / CHARS_PER_TOKEN)
 }
 
 function estimateListingTokens(name: string, description: string | null): number {

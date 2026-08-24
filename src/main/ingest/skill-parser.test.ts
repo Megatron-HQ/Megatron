@@ -35,8 +35,8 @@ describe('parseSkillDirectory', () => {
       description: 'Does a thing',
       license: null,
       metadata_json: null,
-      est_listing_tokens: 5,
-      est_body_tokens: 13
+      est_listing_tokens: 7,
+      est_body_tokens: 18
     })
   })
 
@@ -67,8 +67,8 @@ describe('parseSkillDirectory', () => {
       description: 'A skill',
       license: null,
       metadata_json: null,
-      est_listing_tokens: 4,
-      est_body_tokens: 8
+      est_listing_tokens: 5,
+      est_body_tokens: 11
     })
   })
 
@@ -79,8 +79,8 @@ describe('parseSkillDirectory', () => {
       description: null,
       license: null,
       metadata_json: null,
-      est_listing_tokens: 2,
-      est_body_tokens: 9
+      est_listing_tokens: 3,
+      est_body_tokens: 11
     })
   })
 
@@ -95,8 +95,8 @@ describe('parseSkillDirectory', () => {
       description: null,
       license: null,
       metadata_json: null,
-      est_listing_tokens: 2,
-      est_body_tokens: 14
+      est_listing_tokens: 3,
+      est_body_tokens: 19
     })
   })
 
@@ -107,8 +107,8 @@ describe('parseSkillDirectory', () => {
       description: null,
       license: null,
       metadata_json: null,
-      est_listing_tokens: 2,
-      est_body_tokens: 7
+      est_listing_tokens: 3,
+      est_body_tokens: 9
     })
   })
 
@@ -124,8 +124,8 @@ describe('parseSkillDirectory', () => {
       description: 'A skill',
       license: null,
       metadata_json: null,
-      est_listing_tokens: 4,
-      est_body_tokens: 11
+      est_listing_tokens: 5,
+      est_body_tokens: 14
     })
   })
 
@@ -149,8 +149,8 @@ describe('parseSkillDirectory', () => {
       description: null,
       license: null,
       metadata_json: null,
-      est_listing_tokens: 2,
-      est_body_tokens: 8
+      est_listing_tokens: 3,
+      est_body_tokens: 11
     })
   })
 
@@ -161,8 +161,8 @@ describe('parseSkillDirectory', () => {
       description: null,
       license: null,
       metadata_json: null,
-      est_listing_tokens: 2,
-      est_body_tokens: 6
+      est_listing_tokens: 3,
+      est_body_tokens: 8
     })
   })
 
@@ -173,8 +173,8 @@ describe('parseSkillDirectory', () => {
       description: null,
       license: null,
       metadata_json: null,
-      est_listing_tokens: 2,
-      est_body_tokens: 11
+      est_listing_tokens: 3,
+      est_body_tokens: 14
     })
   })
 
@@ -189,8 +189,8 @@ describe('parseSkillDirectory', () => {
       description: 'A skill',
       license: null,
       metadata_json: null,
-      est_listing_tokens: 4,
-      est_body_tokens: 18
+      est_listing_tokens: 5,
+      est_body_tokens: 23
     })
   })
 
@@ -220,21 +220,24 @@ describe('parseSkillDirectory', () => {
       description: null,
       license: null,
       metadata_json: null,
-      est_listing_tokens: 2,
-      est_body_tokens: 15
+      est_listing_tokens: 3,
+      est_body_tokens: 20
     })
   })
 
-  it('rounds half up rather than flooring — a 2-char name alone is 1 token, not 0', () => {
+  it('rounds up past the midpoint rather than flooring — a 2-char name alone is 1 token, not 0', () => {
+    // 2 chars / CHARS_PER_TOKEN(3) = 0.667. floor(0.667) would be 0; Math.round is 1. (At an odd
+    // divisor no integer char count ever lands on an exact .5 tie, so this can't test half-up
+    // tie-breaking specifically — only that it rounds up past the midpoint, not down.)
     const dirPath = writeSkill('ab', '---\nname: ab\n---\nBody')
     expect(parseSkillDirectory(dirPath).est_listing_tokens).toBe(1)
   })
 
   it('joins name and description with no trailing space when description is null', () => {
-    // "nine-char" = 9 chars -> round(9/4) = 2. If a stray join space survived instead of
-    // filter(Boolean) dropping it, the estimate would be based on "nine-char " (10 chars) ->
-    // round(10/4) = 3 — chosen so the two diverge.
-    const dirPath = writeSkill('nine-char', '---\nname: nine-char\n---\nBody')
+    // "example" = 7 chars -> round(7/3) = 2. If a stray join space survived instead of
+    // filter(Boolean) dropping it, the estimate would be based on "example " (8 chars) ->
+    // round(8/3) = 3 — chosen so the two diverge.
+    const dirPath = writeSkill('example', '---\nname: example\n---\nBody')
     expect(parseSkillDirectory(dirPath).est_listing_tokens).toBe(2)
   })
 
@@ -244,15 +247,15 @@ describe('parseSkillDirectory', () => {
       'my-skill',
       `---\nname: my-skill\ndescription: ${longDescription}\n---\nBody`
     )
-    // capped: "my-skill" (8) + " " (1) + 1536 a's = 1545 chars -> round(1545/4) = 386
-    expect(parseSkillDirectory(dirPath).est_listing_tokens).toBe(386)
+    // capped: "my-skill" (8) + " " (1) + 1536 a's = 1545 chars -> round(1545/3) = 515
+    expect(parseSkillDirectory(dirPath).est_listing_tokens).toBe(515)
   })
 
   it('measures listing tokens by JS string length, not UTF-8 byte length', () => {
     // "café — test" is 11 JS chars but more UTF-8 bytes (é and — are multi-byte).
     const dirPath = writeSkill('multibyte-skill', '---\nname: café — test\n---\nBody')
-    // "café — test" = 11 chars -> round(11/4) = 3
-    expect(parseSkillDirectory(dirPath).est_listing_tokens).toBe(3)
+    // "café — test" = 11 chars -> round(11/3) = 4
+    expect(parseSkillDirectory(dirPath).est_listing_tokens).toBe(4)
   })
 
   it('parses a license field', () => {

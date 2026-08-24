@@ -1190,7 +1190,7 @@ describe('getContextBudget', () => {
 
     expect(getContextBudget(db)).toEqual({
       used: 1200,
-      limit: 2000,
+      limit: 2666,
       excludedTokens: 0,
       excludedCount: 0
     })
@@ -1199,7 +1199,7 @@ describe('getContextBudget', () => {
   it('returns 0 used when there are no skills indexed', () => {
     expect(getContextBudget(db)).toEqual({
       used: 0,
-      limit: 2000,
+      limit: 2666,
       excludedTokens: 0,
       excludedCount: 0
     })
@@ -1215,7 +1215,7 @@ describe('getContextBudget', () => {
 
     expect(getContextBudget(db)).toEqual({
       used: 500,
-      limit: 2000,
+      limit: 2666,
       excludedTokens: 700,
       excludedCount: 1
     })
@@ -1230,7 +1230,7 @@ describe('getContextBudget', () => {
 
     expect(getContextBudget(db)).toEqual({
       used: 0,
-      limit: 2000,
+      limit: 2666,
       excludedTokens: 0,
       excludedCount: 0
     })

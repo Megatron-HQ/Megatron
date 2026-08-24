@@ -110,22 +110,38 @@ different purposes:
 ## Token estimation
 
 `est_listing_tokens` / `est_body_tokens` (`src/main/ingest/skill-parser.ts`) use
-`Math.round(text.length / 4)` — read directly out of Claude Code's compiled binary, not an
-independent approximation. This is deliberate: `chars / 4` is the literal mechanism that decides
-when a live Claude Code session truncates a skill's description, so a "more accurate" BPE
-tokenizer would disagree with real truncation behavior.
+`Math.round(text.length / CHARS_PER_TOKEN)`. `CHARS_PER_TOKEN` was originally `4`, read verbatim
+out of Claude Code's compiled binary as the literal mechanism that decides when a live session
+truncates a skill's description. **Recalibrated to `3` on 2026-08-24** after comparing Megatron's
+estimate against Claude Code's own `/context` command output (which shows real per-skill token
+counts) across 25 skills: chars/4 averaged only 74.6% of the real number — a consistent
+undercount, not noise. `4 × 0.746 ≈ 3.0` fits the real numbers far better (e.g. a 1,367-character
+skill: chars/4 gives 342 vs. a real 460; chars/3 gives 456).
 
-Four details, each easy to get subtly wrong:
+This is now an honestly-labeled empirical approximation, not a verbatim binary constant, and it's
+the closest available one: Claude Code doesn't publish an offline tokenizer for current models,
+and Anthropic's own docs (the `claude-api` skill's `token-counting.md`) explicitly disclaim
+third-party tokenizers — "Any estimate from tiktoken, gpt-tokenizer, or similar is wrong for
+Claude." The only exact source of truth is Anthropic's network `count_tokens` API, ruled out here
+because it would break Megatron's local-first/offline scan (network dependency, credential
+management, per-skill API calls during what's otherwise a sub-second local scan).
+
+Four details, each easy to get subtly wrong, still hold regardless of the divisor's value:
 
 - `Math.round`, not floor or ceil.
 - JS string length (`str.length`), not UTF-8 byte length — they diverge on multi-byte characters.
 - `[name, description].filter(Boolean).join(' ')` — when `description` is `null`, the estimate is
   `name` alone, not `name + ' '`.
 - Descriptions are capped at 1536 chars before counting (`skillListingMaxDescChars` in the
-  binary) — the estimate mirrors the cap or it overstates real skills that exceed it.
+  binary) — the estimate mirrors the cap or it overstates real skills that exceed it. This cap
+  value itself is still verbatim from the binary, unaffected by the `CHARS_PER_TOKEN` recalibration.
 
-The context budget constant (`CONTEXT_BUDGET_LIMIT` in `src/main/db/queries.ts`, 2,000) is
-`contextWindow(200000) × 0.01`, also read from the binary.
+The context budget constant (`CONTEXT_BUDGET_LIMIT` in `src/main/db/queries.ts`, now 2,666, was
+2,000) is derived from the same real, unchanged 8,000-character truncation threshold
+(`contextWindow(200000) × 4 × 0.01` — that inner `× 4` is Claude Code's own internal constant,
+distinct from and unaffected by our `CHARS_PER_TOKEN`) divided by the same `CHARS_PER_TOKEN` used
+above, so the over/warning/ok comparison against real truncation risk is exactly as correct as it
+was before the recalibration — only the displayed numbers changed.
 
 **All of these — `4`, `0.01`, `200000`, `1536` — are undocumented internal detail from one
 point-in-time build of Claude Code, not a public contract.** Corroboration for Megatron's own

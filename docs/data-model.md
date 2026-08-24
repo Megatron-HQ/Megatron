@@ -31,8 +31,9 @@ CREATE TABLE IF NOT EXISTS skills (
   plugin_name TEXT,                   -- 'name@marketplace' composite, plugin-tier only
   description TEXT,                   -- NULL/empty is a valid, lint-worthy state
   last_scanned_at TEXT NOT NULL,      -- ISO8601
-  est_listing_tokens INTEGER NOT NULL DEFAULT 0,  -- name+description, chars/4 — see docs/mvp-build-spec.md
-  est_body_tokens INTEGER NOT NULL DEFAULT 0,     -- full SKILL.md, chars/4
+  est_listing_tokens INTEGER NOT NULL DEFAULT 0,  -- name+description, chars/3.0 (calibrated,
+                                                   -- not exact) — see docs/mvp-build-spec.md
+  est_body_tokens INTEGER NOT NULL DEFAULT 0,     -- full SKILL.md, chars/3.0
   project_root TEXT                   -- granted repo root; NULL for global/plugin — see
                                        -- Skill name collisions below
 );

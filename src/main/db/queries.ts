@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3'
 import { dirname, join, resolve, sep } from 'path'
+import { CHARS_PER_TOKEN } from '../ingest/skill-parser'
 import type {
   AllowedPathRow,
   ContextBudget,
@@ -413,10 +414,15 @@ export function getSkillUsageDetail(db: Database.Database, skill: SkillRow): Ski
   return { byTriggerType, byProject, recentTriggers }
 }
 
-// From Claude Code's compiled binary: budget_chars = floor(contextWindow(200000) × 4 × 0.01),
-// compared in characters but displayed as tokens — so the token limit is contextWindow × 0.01.
-// A live comparison in Claude Code, not a hardcoded threshold; scales with the model's window.
-export const CONTEXT_BUDGET_LIMIT = Math.floor(200000 * 0.01)
+// Claude Code's real truncation threshold is 8,000 characters — from its compiled binary:
+// budget_chars = floor(contextWindow(200000) × 4 × 0.01). That inner ×4 is Claude Code's own
+// verified internal chars-per-token constant for this comparison; it's unrelated to, and
+// unchanged by, our own CHARS_PER_TOKEN calibration (skill-parser.ts) below. Dividing by
+// CHARS_PER_TOKEN instead of a hardcoded 4 keeps `used` (SUM of est_listing_tokens, which is
+// also in CHARS_PER_TOKEN units) and `limit` in the same units, so the over/warning/ok comparison
+// in context-budget.ts's budgetStatus() stays exactly as correct as it was under chars/4 — only
+// the displayed numbers changed when CHARS_PER_TOKEN was recalibrated from 4 to 3.
+export const CONTEXT_BUDGET_LIMIT = Math.floor(Math.floor(200000 * 4 * 0.01) / CHARS_PER_TOKEN)
 
 export function getContextBudget(db: Database.Database): ContextBudget {
   const row = db
