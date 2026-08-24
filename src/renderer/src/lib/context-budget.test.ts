@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { SkillRow } from '../../../shared/ipc'
-import { heaviestBudgetSkills } from './context-budget'
+import type { ContextBudget, SkillRow } from '../../../shared/ipc'
+import { budgetStatus, heaviestBudgetSkills } from './context-budget'
 
 function makeSkill(overrides: Partial<SkillRow> = {}): SkillRow {
   return {
@@ -114,5 +114,35 @@ describe('heaviestBudgetSkills', () => {
       makeSkill({ id: 2, name: 'small-and-unused', est_listing_tokens: 10 })
     ]
     expect(heaviestBudgetSkills(skills).map((s) => s.id)).toEqual([2])
+  })
+})
+
+function makeBudget(overrides: Partial<ContextBudget> = {}): ContextBudget {
+  return { used: 0, limit: 2000, excludedTokens: 0, excludedCount: 0, ...overrides }
+}
+
+describe('budgetStatus', () => {
+  it('is ok well under the warning threshold', () => {
+    expect(budgetStatus(makeBudget({ used: 1000, limit: 2000 }))).toBe('ok')
+  })
+
+  it('is warning once past the threshold but still under the limit', () => {
+    expect(budgetStatus(makeBudget({ used: 1601, limit: 2000 }))).toBe('warning')
+  })
+
+  it('is ok exactly at the warning threshold (boundary is exclusive)', () => {
+    expect(budgetStatus(makeBudget({ used: 1600, limit: 2000 }))).toBe('ok')
+  })
+
+  it('is warning, not over, exactly at the limit — matches ContextBudgetDialog\'s strict `over` check', () => {
+    expect(budgetStatus(makeBudget({ used: 2000, limit: 2000 }))).toBe('warning')
+  })
+
+  it('is over once usage exceeds the limit', () => {
+    expect(budgetStatus(makeBudget({ used: 2001, limit: 2000 }))).toBe('over')
+  })
+
+  it('is ok pre-scan, when limit is not yet known', () => {
+    expect(budgetStatus(makeBudget({ used: 0, limit: 0 }))).toBe('ok')
   })
 })

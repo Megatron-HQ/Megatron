@@ -1,6 +1,20 @@
-import type { SkillRow } from '../../../shared/ipc'
+import type { ContextBudget, SkillRow } from '../../../shared/ipc'
 
 export const HEAVIEST_SKILLS_LIMIT = 5
+
+// Below this fraction of budget.limit, the sidebar's status dot reads 'ok'. Above it (but not yet
+// over), it reads 'warning' — an early heads-up below the hard 'over' line ContextBudgetDialog
+// already draws at budget.used > budget.limit.
+export const BUDGET_WARNING_THRESHOLD = 0.8
+
+export type ContextBudgetStatus = 'ok' | 'warning' | 'over'
+
+export function budgetStatus(budget: ContextBudget): ContextBudgetStatus {
+  if (budget.limit <= 0) return 'ok' // pre-scan state, mirrors ContextBudgetDialog's `over` guard
+  if (budget.used > budget.limit) return 'over'
+  if (budget.used / budget.limit > BUDGET_WARNING_THRESHOLD) return 'warning'
+  return 'ok'
+}
 
 // Mirrors getContextBudget()'s WHERE source_type IN ('global','plugin') in queries.ts —
 // project skills don't count toward the budget, so they're excluded here too.

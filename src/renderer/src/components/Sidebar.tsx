@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import { Blocks, ChevronRight, FolderGit2, Globe, List, Moon, Sun } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { ContextBudgetDialog } from '@/components/ContextBudgetDialog'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { budgetStatus } from '@/lib/context-budget'
 import { cn } from '@/lib/utils'
 import { getFolderBasename, getPluginBareName, getProjectNameFromPath } from '@/lib/source-name'
 import type { SourceFilter } from '@/lib/source-filter'
@@ -379,18 +381,37 @@ function ContextBudgetReadout({
   onViewDisabled: () => void
 }): React.JSX.Element {
   const [dialogOpen, setDialogOpen] = useState(false)
+  const status = budgetStatus(budget)
+  const statusLabel =
+    status === 'over' ? 'Over budget' : status === 'warning' ? 'Approaching budget' : 'Under budget'
 
   return (
     <div className="border-t border-border p-2">
-      <button
-        type="button"
-        onClick={() => setDialogOpen(true)}
-        className="flex w-full items-center rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent hover:text-accent-foreground"
-      >
-        <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-          {budget.used.toLocaleString()} EST. tokens
-        </span>
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => setDialogOpen(true)}
+            className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent hover:text-accent-foreground"
+          >
+            <span
+              aria-hidden="true"
+              className={cn(
+                'size-1.5 shrink-0 rounded-full',
+                status === 'over' && 'bg-destructive',
+                status === 'warning' && 'bg-warning',
+                status === 'ok' && 'bg-success'
+              )}
+            />
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+              {budget.used.toLocaleString()} EST. tokens
+            </span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          <p className="text-xs">{statusLabel}</p>
+        </TooltipContent>
+      </Tooltip>
       <ContextBudgetDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}

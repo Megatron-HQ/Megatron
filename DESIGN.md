@@ -105,7 +105,7 @@ components:
 
 Megatron reads like a well-kept ledger, not a dashboard performing busyness. Every skill gets one flat, neutral-ink row — global, project, and plugin sources sit in the same visual register, distinguished by an icon and a word, never by their own color. Density is the feature, not a compromise: a page of quiet rows is the sign that nothing needs you, and the interface stays legible precisely because it refuses to compete with itself for attention.
 
-Exactly one stamp of color breaks that quiet: acid lime, reserved for the single active thing on screen — the selected sidebar filter, or a primary call-to-action. A separate, purely functional palette of flags reports lint state (red/amber/green) and disabled state (a quieter, desaturated red), and never borrows the stamp's job or vice versa. Everything else — borders, hover states, focus rings — is drawn in ink and rule-lines, the ledger's native materials.
+Exactly one stamp of color breaks that quiet: acid lime, reserved for the single active thing on screen — the selected sidebar filter, or a primary call-to-action. A separate, purely functional palette of flags reports lint state (red/amber/green), disabled state (a quieter, desaturated red), and the sidebar's context-budget status (the same red/amber/green, reused rather than duplicated) — and never borrows the stamp's job or vice versa. Everything else — borders, hover states, focus rings — is drawn in ink and rule-lines, the ledger's native materials.
 
 Confirmed rejections: no drop shadows on anything at rest (shadows are reserved for genuinely floating layers), no gradients, no per-source-tier color coding, no hero-scale type anywhere in the product.
 
@@ -118,7 +118,7 @@ Confirmed rejections: no drop shadows on anything at rest (shadows are reserved 
 
 ## Colors
 
-Near-monochrome ledger ink on paper, with exactly two functional color layers on top: one accent for "this is the active line," and four status flags — three for lint state, one for disabled state. Nothing else in the system carries color. Built on shadcn's `new-york`/`neutral` base (`components.json`) before the ledger's own accent and flags are layered on top.
+Near-monochrome ledger ink on paper, with exactly two functional color layers on top: one accent for "this is the active line," and four status flags — three shared between lint state and the sidebar's context-budget status, one for disabled state. Nothing else in the system carries color. Built on shadcn's `new-york`/`neutral` base (`components.json`) before the ledger's own accent and flags are layered on top.
 
 ### Primary
 - **Acid Lime** (`#e4f222`, same literal value in both themes): the ledger's one stamp of color. Marks the active sidebar filter-nav item and overrides the default button fill on primary CTAs (e.g. "Grant a folder to scan for skills"). Never body text, never a link — text-weight lime on a light background reads poorly, and its rarity is the point.
@@ -133,14 +133,14 @@ Near-monochrome ledger ink on paper, with exactly two functional color layers on
 - **Focus Ring** (`oklch(0.708 0 0)` light / `oklch(0.556 0 0)` dark): the single keyboard-focus indicator used everywhere — no separate focus-color system.
 
 ### Status flags (functional, not decorative)
-- **Flag Red** (`oklch(0.577 0.245 27.325)` light / `oklch(0.704 0.191 22.216)` dark): lint errors.
-- **Flag Amber** (`oklch(0.769 0.188 70.08)` light / `oklch(0.828 0.189 84.429)` dark): lint warnings.
-- **Flag Green** (`oklch(0.723 0.219 149.579)` light / `oklch(0.792 0.209 151.711)` dark): passing lint / up to date.
+- **Flag Red** (`oklch(0.577 0.245 27.325)` light / `oklch(0.704 0.191 22.216)` dark): lint errors; also the sidebar's context-budget dot once usage is over budget.
+- **Flag Amber** (`oklch(0.769 0.188 70.08)` light / `oklch(0.828 0.189 84.429)` dark): lint warnings; also the budget dot once usage is approaching budget (past 80%, `BUDGET_WARNING_THRESHOLD` in `context-budget.ts`).
+- **Flag Green** (`oklch(0.723 0.219 149.579)` light / `oklch(0.792 0.209 151.711)` dark): passing lint / up to date; also the budget dot's default, comfortably-under-budget state.
 - **Disabled Flag** (`oklch(0.577 0.12 27.325)` light / `oklch(0.704 0.094 22.216)` dark): a skill disabled via `skillOverrides` or a disabled plugin. Same hue as Flag Red, roughly half the chroma — deliberately quieter, so "turned off" never gets mistaken for "broken" even though a skill can be both at once (lint status and disabled state are independent facts).
 
 ### Named Rules
 **The One Stamp Rule.** Acid lime marks exactly one thing at a time — the active sidebar filter, or a single primary call-to-action — and never appears as body text, a link, or a decorative fill.
-**The Flags-Aren't-The-Stamp Rule.** The flag palette reports lint state and disabled state only. It never substitutes for the lime accent, and a status is never color alone — always paired with an icon, and paired with a label wherever the flag renders as a pill (the disabled flag renders as an icon-only signal with a tooltip instead, since it lives in the table's icon tray, not the Status column).
+**The Flags-Aren't-The-Stamp Rule.** The flag palette reports lint state, disabled state, and the sidebar's context-budget status only. It never substitutes for the lime accent, and a status is never color alone — always paired with an icon, and paired with a label wherever the flag renders as a pill (the disabled flag renders as an icon-only signal with a tooltip instead, since it lives in the table's icon tray, not the Status column). The context-budget dot is a deliberate, narrow exception: a compact, always-visible ambient indicator in the sidebar footer, paired with a tooltip label instead of an icon — not a primary status pill, where icon-pairing stays mandatory.
 
 ## Typography
 
