@@ -110,7 +110,7 @@ Exactly one stamp of color breaks that quiet: acid lime, reserved for the single
 Confirmed rejections: no drop shadows on anything at rest (shadows are reserved for genuinely floating layers), no gradients, no per-source-tier color coding, no hero-scale type anywhere in the product.
 
 **Key Characteristics:**
-- Dense, Linear-style sidebar + list/detail shell — a single-domain utility, not a multi-section product
+- Dense, Linear-style sidebar + list/detail shell, now spanning two sections (Skills, Plugins) behind a persistent icon rail — still a utility, never a spacious admin dashboard
 - One accent (acid lime), used sparingly, never as body text or a link
 - Border-first, flat elevation — shadows appear only on floating layers (dropdowns, popovers, tooltips)
 - Geist Sans for all UI text, Geist Mono for tabular/code-like data
@@ -121,7 +121,7 @@ Confirmed rejections: no drop shadows on anything at rest (shadows are reserved 
 Near-monochrome ledger ink on paper, with exactly two functional color layers on top: one accent for "this is the active line," and four status flags — three shared between lint state and the sidebar's context-budget status, one for disabled state. Nothing else in the system carries color. Built on shadcn's `new-york`/`neutral` base (`components.json`) before the ledger's own accent and flags are layered on top.
 
 ### Primary
-- **Acid Lime** (`#e4f222`, same literal value in both themes): the ledger's one stamp of color. Marks the active sidebar filter-nav item and overrides the default button fill on primary CTAs (e.g. "Grant a folder to scan for skills"). Never body text, never a link — text-weight lime on a light background reads poorly, and its rarity is the point.
+- **Acid Lime** (`#e4f222`, same literal value in both themes): the ledger's one stamp of color. Marks the active sidebar filter-nav item and overrides the default button fill on primary CTAs (e.g. "Grant a folder to scan for skills"). Never body text, never a link — text-weight lime on a light background reads poorly, and its rarity is the point. The app rail's active section is deliberately excluded from this stamp — see the Rail entry under Components — so the One Stamp Rule's wording (`{colors.accent}` marks the *sidebar's* active filter) stays true without amendment.
 
 ### Neutral
 - **Ledger Paper** (`oklch(0.99 0 0)` light / `oklch(0.145 0 0)` dark): app background. Deliberately off pure white/black in both themes.
@@ -163,7 +163,7 @@ Near-monochrome ledger ink on paper, with exactly two functional color layers on
 
 ## Layout
 
-A dense, Linear-style sidebar + list/detail shell, not a spacious admin dashboard or a marketing page: a persistent 220px sidebar, a fluid table pane that fills the rest of the window, and a fullscreen file viewer that replaces (not layers over) the table when a row opens. A 40px full-width drag strip sits above both panes for window-dragging under the `hiddenInset` titlebar.
+A dense, Linear-style sidebar + list/detail shell, not a spacious admin dashboard or a marketing page: a persistent 48px icon rail for switching sections (Skills, Plugins), a 220px sidebar nested inside the Skills section only, a fluid table pane that fills the rest of the window, and a fullscreen file viewer that replaces (not layers over) the table when a row opens. The Plugins section runs full-width with no sidebar of its own. A 40px full-width drag strip sits above all panes for window-dragging under the `hiddenInset` titlebar.
 
 Row height is fixed at 40px with 8/12px cell padding. The file viewer's tree pane defaults to 240px and is user-resizable between 200–480px. Content max-width is `none` everywhere — fluid — except rendered markdown prose, which caps at `72ch` for readability. The command palette (`⌘K`) is a modal overlay, not primary navigation; it does not reopen the "no search box in the sidebar" decision.
 
@@ -197,6 +197,10 @@ A single radius scale rooted at 10px (`--radius: 0.625rem`), applied identically
 - **Row height:** 40px; **cell padding:** 8/12px; `table-fixed` with Name/Source fixed-width and Description filling the remainder — no horizontal scroll, no variable row height.
 - **Hover / selection:** one shared, absolutely-positioned highlight box tracks the hovered row's position via a spring transition (stiffness 500, damping 40) rather than each row repainting its own background — full-bleed and unrounded, matching the flat/bordered elevation stance.
 - **Keyboard:** `↓`/`↑` moves selection, `Enter`/`Space` opens the fullscreen file viewer; the focus ring is the same shared `{colors.focus-ring}` token, applied inset.
+
+### Rail (section switcher)
+- 48px wide, icon-only, `Tooltip`-labeled (`AppRail.tsx`), 32px square targets, rounded-md, sitting left of everything else behind a single rule-line border — no shadow, per the Ledger-Lies-Flat Rule. Two sections today: Skills and Plugins.
+- **Active state is ink-fill, not lime:** `Surface Muted` background + `Ledger Ink` icon color, inactive items sit at `Ink, Muted` with the standard hover treatment. The rail switches which *section* is showing, not which item within a section is selected — that distinction is what the Sidebar's own lime-filter nav still owns, and is why the rail deliberately sits outside the One Stamp Rule's scope rather than adding a second lime instance.
 
 ### Sidebar Navigation
 - 32px items, rounded-md, icon + label. The active item is the One Stamp Rule's other live application — lime fill, never more than one item lit at a time. Nested project/plugin sublists indent under a border-left rule-line rather than a background change, and expand/collapse with a 0.15s ease-out height animation.

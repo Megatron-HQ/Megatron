@@ -68,6 +68,8 @@ CREATE TABLE IF NOT EXISTS plugin_registry (
   installed_at TEXT,                  -- from installed_plugins.json; NULL if absent
   last_updated TEXT,                  -- from installed_plugins.json; NULL if absent
   git_commit_sha TEXT,                -- absent on semver-pinned installs
+  disabled_reason TEXT,               -- NULL when enabled. 'plugin' when settings.json's
+                                       -- enabledPlugins has this name@marketplace set to false
   PRIMARY KEY (name, marketplace, install_path)
 );
 

@@ -5,6 +5,9 @@ import type {
   ContextBudget,
   LintFindingRow,
   LintSeverity,
+  PluginDetailResult,
+  PluginInstall,
+  PluginRow,
   ProjectCount,
   RecentTrigger,
   SkillRow,
@@ -427,4 +430,66 @@ export function getContextBudget(db: Database.Database): ContextBudget {
     )
     .get() as { used: number; excludedTokens: number; excludedCount: number }
   return { ...row, limit: CONTEXT_BUDGET_LIMIT }
+}
+
+// One row per plugin identity (name+marketplace) — plugin_registry is one-to-many on install,
+// so per-install fields (scope, install_path, timestamps) collapse into `installs[]` while
+// identity-level fields (version, repo, disabled_reason) are read via MAX(), which is a no-op
+// tie-break: every install of one identity is stamped identically by the same scan pass.
+export function listPlugins(db: Database.Database): PluginRow[] {
+  const identities = db
+    .prepare(
+      `SELECT
+         name, marketplace,
+         MAX(marketplace_repo) AS marketplace_repo,
+         MAX(installed_version) AS installed_version,
+         MAX(disabled_reason) AS disabled_reason,
+         (SELECT COUNT(*) FROM skills
+          WHERE skills.plugin_name = plugin_registry.name || '@' || plugin_registry.marketplace
+         ) AS skill_count
+       FROM plugin_registry
+       GROUP BY name, marketplace`
+    )
+    .all() as Omit<PluginRow, 'installs'>[]
+
+  const installs = db
+    .prepare(
+      `SELECT name, marketplace, scope, install_path, installed_at, last_updated, git_commit_sha
+       FROM plugin_registry`
+    )
+    .all() as (PluginInstall & { name: string; marketplace: string })[]
+
+  return identities.map((identity) => ({
+    ...identity,
+    installs: installs
+      .filter((row) => row.name === identity.name && row.marketplace === identity.marketplace)
+      .map(({ scope, install_path, installed_at, last_updated, git_commit_sha }) => ({
+        scope,
+        install_path,
+        installed_at,
+        last_updated,
+        git_commit_sha
+      }))
+  }))
+}
+
+export function getPluginDetail(
+  db: Database.Database,
+  name: string,
+  marketplace: string
+): PluginDetailResult | null {
+  const plugin = listPlugins(db).find((p) => p.name === name && p.marketplace === marketplace)
+  if (!plugin) return null
+
+  const skills = db
+    .prepare(`SELECT * FROM (${SKILLS_WITH_USAGE_SELECT}) WHERE plugin_name = ?`)
+    .all(`${name}@${marketplace}`) as SkillRow[]
+
+  return {
+    plugin,
+    skills,
+    totalInvocations: skills.reduce((sum, s) => sum + s.total_invocations, 0),
+    errorCount: skills.reduce((sum, s) => sum + s.error_count, 0),
+    warningCount: skills.reduce((sum, s) => sum + s.warning_count, 0)
+  }
 }

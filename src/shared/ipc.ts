@@ -8,7 +8,15 @@ export const IPC_CHANNELS = {
   listAllowedPaths: 'folders:list',
   pickAndAddFolders: 'folders:pickAndAdd',
   revokeAllowedPath: 'folders:revoke',
-  openExternal: 'shell:openExternal'
+  openExternal: 'shell:openExternal',
+  listPlugins: 'plugins:list',
+  getPluginDetail: 'plugins:detail',
+  enablePlugin: 'plugins:enable',
+  disablePlugin: 'plugins:disable',
+  updatePlugin: 'plugins:update',
+  uninstallPlugin: 'plugins:uninstall',
+  getInitialSection: 'app:getInitialSection',
+  setLastSection: 'app:setLastSection'
 } as const
 
 export interface AllowedPathRow {
@@ -126,3 +134,44 @@ export interface OpenSkillMetaResult {
 }
 
 export type Theme = 'light' | 'dark'
+
+export type PluginScope = 'user' | 'project'
+
+export interface PluginInstall {
+  scope: PluginScope
+  install_path: string
+  installed_at: string | null
+  last_updated: string | null
+  git_commit_sha: string | null
+}
+
+export interface PluginRow {
+  name: string
+  marketplace: string
+  marketplace_repo: string | null
+  installed_version: string
+  disabled_reason: string | null
+  skill_count: number
+  installs: PluginInstall[]
+}
+
+export interface PluginDetailResult {
+  plugin: PluginRow
+  skills: SkillRow[]
+  totalInvocations: number
+  errorCount: number
+  warningCount: number
+}
+
+export interface PluginActionResult {
+  ok: boolean
+  stderr?: string
+}
+
+export interface PluginActionInput {
+  name: string
+  marketplace: string
+  scope: PluginScope
+}
+
+export type AppSection = 'skills' | 'plugins'

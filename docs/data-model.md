@@ -217,11 +217,20 @@ Not all of these reach the UI. `metadata_json` and `modified_at` are selected in
 "Metadata" badge section and a "Modified" stat). `license` deliberately is not added to
 `SkillRow` — it already renders today via a separate, older path: `SkillDetail.tsx`
 re-parses raw `SKILL.md` client-side (`parseExtraFrontmatterFields`) and shows any
-unrecognized scalar frontmatter key, including `license`, as a badge. `created_at` and the
-three new `plugin_registry` columns are captured but not yet surfaced anywhere — the former
-because it's near-always identical to `modified_at`, the latter because `plugin_registry` has
-no query or IPC channel at all yet (deferred, larger slice: install/update provenance for
-plugin-sourced skills).
+unrecognized scalar frontmatter key, including `license`, as a badge. `created_at` is captured
+but not surfaced — it's near-always identical to `modified_at`.
+
+**Plugin management (added 2026-08-24)**: `plugin_registry` gained `disabled_reason` (same two
+values as `skills.disabled_reason`; stamped by `scanPluginRegistry` from the same
+`disabledPlugins` lookup already used for that plugin's skill rows, so a zero-skill,
+MCP-only plugin now reports its own enabled/disabled state instead of having none). The table
+now backs `listPlugins`/`getPluginDetail` in `queries.ts` and the `plugins:list`/`plugins:detail`
+IPC channels — the "no query or IPC channel at all" gap above is closed. `installed_at` /
+`last_updated` / `git_commit_sha` (previously captured but unsurfaced) are exposed per-install
+on `PluginRow.installs[]`. Management actions (enable/disable/update/uninstall) shell out to the
+`claude plugin <verb>` CLI (`src/main/plugin-actions.ts`) rather than writing to
+`plugin_registry` directly — the table stays a read-only scan cache like every other table here;
+a successful action triggers the normal full-rescan-and-broadcast path to pick up the result.
 
 ## Why SQLite
 

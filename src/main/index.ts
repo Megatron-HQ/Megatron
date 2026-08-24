@@ -9,14 +9,22 @@ import {
   deleteSkillsForProjectRoot,
   getContextBudget,
   getLintFindingsForSkill,
+  getPluginDetail,
   getSkillById,
   getSkillUsageDetail,
   listAllowedPaths,
+  listPlugins,
   listSkills,
   removeAllowedPath
 } from './db/queries'
 import { grantPath, revokePath } from './permissions'
-import { resolveInitialTheme, setStoredTheme, type ThemeStore } from './theme'
+import {
+  resolveInitialSection,
+  resolveInitialTheme,
+  setStoredSection,
+  setStoredTheme,
+  type ThemeStore
+} from './theme'
 import { scanSkills } from './ingest/skills-scanner'
 import { scanPluginRegistry } from './ingest/plugin-registry'
 import { scanTranscripts } from './ingest/transcript-scanner'
@@ -24,10 +32,13 @@ import { runAllScans } from './ingest/scan-all'
 import { runLinter } from './linter'
 import { readSkillFiles, readSkillMd } from './skill-files'
 import { openSafeExternal } from './shell'
+import { disablePlugin, enablePlugin, uninstallPlugin, updatePlugin } from './plugin-actions'
 import {
   IPC_CHANNELS,
+  type AppSection,
   type OpenSkillMetaResult,
   type OpenSkillResult,
+  type PluginActionInput,
   type Theme
 } from '../shared/ipc'
 
@@ -195,6 +206,44 @@ app.whenReady().then(() => {
     openSafeExternal(url, (safeUrl) => {
       void shell.openExternal(safeUrl)
     })
+  })
+
+  ipcMain.handle(IPC_CHANNELS.listPlugins, () => listPlugins(getDb()))
+
+  ipcMain.handle(IPC_CHANNELS.getPluginDetail, (_event, name: string, marketplace: string) =>
+    getPluginDetail(getDb(), name, marketplace)
+  )
+
+  ipcMain.handle(IPC_CHANNELS.enablePlugin, async (_event, input: PluginActionInput) => {
+    const result = await enablePlugin(input)
+    if (result.ok) scanAndNotify()
+    return result
+  })
+
+  ipcMain.handle(IPC_CHANNELS.disablePlugin, async (_event, input: PluginActionInput) => {
+    const result = await disablePlugin(input)
+    if (result.ok) scanAndNotify()
+    return result
+  })
+
+  ipcMain.handle(IPC_CHANNELS.updatePlugin, async (_event, input: PluginActionInput) => {
+    const result = await updatePlugin(input)
+    if (result.ok) scanAndNotify()
+    return result
+  })
+
+  ipcMain.handle(IPC_CHANNELS.uninstallPlugin, async (_event, input: PluginActionInput) => {
+    const result = await uninstallPlugin(input)
+    if (result.ok) scanAndNotify()
+    return result
+  })
+
+  ipcMain.on(IPC_CHANNELS.getInitialSection, (event) => {
+    event.returnValue = resolveInitialSection(themeStore)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.setLastSection, (_event, section: AppSection) => {
+    setStoredSection(themeStore, section)
   })
 
   createWindow()

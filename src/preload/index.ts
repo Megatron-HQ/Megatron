@@ -3,8 +3,13 @@ import { electronAPI } from '@electron-toolkit/preload'
 import {
   IPC_CHANNELS,
   type AllowedPathRow,
+  type AppSection,
   type OpenSkillMetaResult,
   type OpenSkillResult,
+  type PluginActionInput,
+  type PluginActionResult,
+  type PluginDetailResult,
+  type PluginRow,
   type SkillsListResult,
   type Theme
 } from '../shared/ipc'
@@ -25,6 +30,20 @@ const api = {
   revokeAllowedPath: (path: string): Promise<AllowedPathRow[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.revokeAllowedPath, path),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.openExternal, url),
+  listPlugins: (): Promise<PluginRow[]> => ipcRenderer.invoke(IPC_CHANNELS.listPlugins),
+  getPluginDetail: (name: string, marketplace: string): Promise<PluginDetailResult | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.getPluginDetail, name, marketplace),
+  enablePlugin: (input: PluginActionInput): Promise<PluginActionResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.enablePlugin, input),
+  disablePlugin: (input: PluginActionInput): Promise<PluginActionResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.disablePlugin, input),
+  updatePlugin: (input: PluginActionInput): Promise<PluginActionResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.updatePlugin, input),
+  uninstallPlugin: (input: PluginActionInput): Promise<PluginActionResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.uninstallPlugin, input),
+  getInitialSection: (): AppSection => ipcRenderer.sendSync(IPC_CHANNELS.getInitialSection),
+  setLastSection: (section: AppSection): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.setLastSection, section),
   onScanComplete: (callback: () => void): (() => void) => {
     const listener = (): void => callback()
     ipcRenderer.on(IPC_CHANNELS.scanComplete, listener)

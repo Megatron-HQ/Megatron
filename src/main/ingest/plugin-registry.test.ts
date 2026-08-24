@@ -23,6 +23,7 @@ interface RegistryRow {
   installed_at: string | null
   last_updated: string | null
   git_commit_sha: string | null
+  disabled_reason: string | null
 }
 
 interface SkillRow {
@@ -292,6 +293,37 @@ describe('scanPluginRegistry', () => {
     scanPluginRegistry(db, pluginsDir, userSettingsPath)
 
     expect(pluginSkills()[0].disabled_reason).toBeNull()
+  })
+
+  it('sets disabled_reason to plugin on the registry row for a disabled zero-skill plugin', () => {
+    const installPath = join(tmpDir, 'install-a')
+    mkdirSync(installPath, { recursive: true })
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+    writeUserSettings({ enabledPlugins: { 'plugin-a@market-1': false } })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(allRegistry()[0].disabled_reason).toBe('plugin')
+  })
+
+  it('leaves disabled_reason NULL on the registry row for an enabled plugin', () => {
+    const installPath = join(tmpDir, 'install-a')
+    mkdirSync(installPath, { recursive: true })
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(allRegistry()[0].disabled_reason).toBeNull()
   })
 
   it('preserves plugin skills whose install directory becomes unavailable', () => {

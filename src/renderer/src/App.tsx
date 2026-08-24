@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { AppRail } from '@/components/AppRail'
 import { CommandPalette } from '@/components/CommandPalette'
 import { ManageFoldersDialog } from '@/components/ManageFoldersDialog'
 import { Sidebar } from '@/components/Sidebar'
@@ -9,10 +10,14 @@ import { matchesFilter, type SourceFilter } from '@/lib/source-filter'
 import { SkillDetail } from './views/SkillDetail'
 import { SkillInventory } from './views/SkillInventory'
 import { SkillFileViewer } from './views/SkillFileViewer'
-import type { ContextBudget, Theme } from '../../shared/ipc'
+import { PluginDetail } from './views/PluginDetail'
+import { PluginInventory } from './views/PluginInventory'
+import type { AppSection, ContextBudget, Theme } from '../../shared/ipc'
 
 type View =
   { kind: 'list' } | { kind: 'detail'; skillId: number } | { kind: 'files'; skillId: number }
+
+type PluginView = { kind: 'list' } | { kind: 'detail'; name: string; marketplace: string }
 
 // Real value always arrives from the listSkills IPC round-trip almost immediately; this only
 // covers the brief pre-response instant, so it deliberately doesn't guess at the real limit
@@ -31,6 +36,8 @@ function App(): React.JSX.Element {
   )
   const [filter, setFilter] = useState<SourceFilter>({ kind: 'all' })
   const [view, setView] = useState<View>({ kind: 'list' })
+  const [section, setSection] = useState<AppSection>(() => window.api.getInitialSection())
+  const [pluginView, setPluginView] = useState<PluginView>({ kind: 'list' })
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [foldersDialogOpen, setFoldersDialogOpen] = useState(false)
   const [treeWidth, setTreeWidth] = useState(TREE_WIDTH_DEFAULT)
@@ -46,6 +53,11 @@ function App(): React.JSX.Element {
     queryFn: () => window.api.listAllowedPaths()
   })
 
+  const { data: pluginsData, isPending: pluginsPending } = useQuery({
+    queryKey: ['plugins'],
+    queryFn: () => window.api.listPlugins()
+  })
+
   useEffect(
     () =>
       window.api.onScanComplete(() => {
@@ -53,6 +65,8 @@ function App(): React.JSX.Element {
         void queryClient.invalidateQueries({ queryKey: ['folders'] })
         void queryClient.invalidateQueries({ queryKey: ['skill-meta'] })
         void queryClient.invalidateQueries({ queryKey: ['skill-files'] })
+        void queryClient.invalidateQueries({ queryKey: ['plugins'] })
+        void queryClient.invalidateQueries({ queryKey: ['plugin-detail'] })
       }),
     [queryClient]
   )
@@ -70,6 +84,7 @@ function App(): React.JSX.Element {
 
   const skills = useMemo(() => data?.skills ?? [], [data])
   const folders = useMemo(() => foldersData ?? [], [foldersData])
+  const plugins = useMemo(() => pluginsData ?? [], [pluginsData])
   const scanComplete = data?.scanComplete ?? false
   const contextBudget = data?.contextBudget ?? DEFAULT_CONTEXT_BUDGET
 
@@ -85,6 +100,26 @@ function App(): React.JSX.Element {
 
   function openDetail(skillId: number): void {
     setView({ kind: 'detail', skillId })
+  }
+
+  function handleSectionChange(next: AppSection): void {
+    setSection(next)
+    void window.api.setLastSection(next)
+  }
+
+  function openPluginDetail(name: string, marketplace: string): void {
+    setPluginView({ kind: 'detail', name, marketplace })
+  }
+
+  function selectPluginFromPalette(name: string, marketplace: string): void {
+    handleSectionChange('plugins')
+    openPluginDetail(name, marketplace)
+  }
+
+  function handleViewSkillsForPlugin(pluginName: string): void {
+    handleSectionChange('skills')
+    setFilter({ kind: 'plugin', pluginName })
+    setView({ kind: 'list' })
   }
 
   function toggleTheme(): void {
@@ -119,41 +154,61 @@ function App(): React.JSX.Element {
           </div>
         )}
         <div className="flex min-h-0 flex-1">
-          <Sidebar
-            filter={filter}
-            onFilterChange={handleFilterChange}
-            theme={theme}
-            onToggleTheme={toggleTheme}
-            contextBudget={contextBudget}
-            onSelectSkill={openDetail}
-            skills={skills}
-            folders={folders}
-          />
-          {view.kind === 'detail' ? (
-            <SkillDetail
-              key={view.skillId}
-              skillId={view.skillId}
-              onBack={() => setView({ kind: 'list' })}
-              onViewFiles={() => setView({ kind: 'files', skillId: view.skillId })}
-              onNavigate={openDetail}
-            />
-          ) : view.kind === 'files' ? (
-            <SkillFileViewer
-              key={view.skillId}
-              skillId={view.skillId}
-              treeWidth={treeWidth}
-              onTreeWidthChange={setTreeWidth}
-              onBack={() => setView({ kind: 'detail', skillId: view.skillId })}
+          <AppRail section={section} onSectionChange={handleSectionChange} />
+          {section === 'skills' ? (
+            <>
+              <Sidebar
+                filter={filter}
+                onFilterChange={handleFilterChange}
+                theme={theme}
+                onToggleTheme={toggleTheme}
+                contextBudget={contextBudget}
+                onSelectSkill={openDetail}
+                skills={skills}
+                folders={folders}
+              />
+              {view.kind === 'detail' ? (
+                <SkillDetail
+                  key={view.skillId}
+                  skillId={view.skillId}
+                  onBack={() => setView({ kind: 'list' })}
+                  onViewFiles={() => setView({ kind: 'files', skillId: view.skillId })}
+                  onNavigate={openDetail}
+                />
+              ) : view.kind === 'files' ? (
+                <SkillFileViewer
+                  key={view.skillId}
+                  skillId={view.skillId}
+                  treeWidth={treeWidth}
+                  onTreeWidthChange={setTreeWidth}
+                  onBack={() => setView({ kind: 'detail', skillId: view.skillId })}
+                />
+              ) : (
+                <SkillInventory
+                  skills={filteredSkills}
+                  loading={!skills.length && !scanComplete}
+                  filter={filter}
+                  onSelect={openDetail}
+                  onOpenSearch={() => setPaletteOpen(true)}
+                  onManageFolders={() => setFoldersDialogOpen(true)}
+                  onGrantFolder={handleAddFolders}
+                />
+              )}
+            </>
+          ) : pluginView.kind === 'detail' ? (
+            <PluginDetail
+              key={`${pluginView.name}@${pluginView.marketplace}`}
+              name={pluginView.name}
+              marketplace={pluginView.marketplace}
+              onBack={() => setPluginView({ kind: 'list' })}
+              onViewSkills={handleViewSkillsForPlugin}
             />
           ) : (
-            <SkillInventory
-              skills={filteredSkills}
-              loading={!skills.length && !scanComplete}
-              filter={filter}
-              onSelect={openDetail}
+            <PluginInventory
+              plugins={plugins}
+              loading={pluginsPending}
+              onSelect={(plugin) => openPluginDetail(plugin.name, plugin.marketplace)}
               onOpenSearch={() => setPaletteOpen(true)}
-              onManageFolders={() => setFoldersDialogOpen(true)}
-              onGrantFolder={handleAddFolders}
             />
           )}
         </div>
@@ -163,6 +218,8 @@ function App(): React.JSX.Element {
         onOpenChange={setPaletteOpen}
         skills={skills}
         onSelect={openDetail}
+        plugins={plugins}
+        onSelectPlugin={selectPluginFromPalette}
       />
       <ManageFoldersDialog
         open={foldersDialogOpen}

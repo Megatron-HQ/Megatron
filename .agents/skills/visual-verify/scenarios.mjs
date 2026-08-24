@@ -40,9 +40,22 @@ async function openFirstSkillFileView(window) {
 /** Command palette → search by name → open the matching skill's detail page. */
 async function openSkillViaCommandPalette(window, searchTerm, optionNamePattern) {
   await window.keyboard.press('Meta+k')
-  await window.getByPlaceholder(/search skills by name/i).fill(searchTerm)
+  await window.getByPlaceholder(/search skills/i).fill(searchTerm)
   await window.getByRole('option', { name: optionNamePattern }).first().click()
   await window.getByRole('button', { name: 'Back to skills' }).waitFor()
+}
+
+/** Rail click → Plugins section, landing on the inventory table. */
+async function openPluginsSection(window) {
+  await window.getByRole('button', { name: 'Plugins' }).click()
+  await window.locator('tbody tr').first().waitFor()
+}
+
+/** Plugins table row click → PluginDetail, the common opening move below. */
+async function openFirstPluginDetail(window) {
+  await openPluginsSection(window)
+  await window.locator('tbody tr').first().click()
+  await window.getByRole('button', { name: 'Back to plugins' }).waitFor()
 }
 
 /** @type {Scenario[]} */
@@ -287,6 +300,42 @@ export const scenarios = [
       await window.getByRole('button', { name: /EST\. tokens$/i }).click()
       await window.getByRole('button', { name: 'View disabled skills' }).click()
       await window.getByText('Disabled Skills').waitFor()
+    }
+  },
+  {
+    // The new persistent AppRail's Plugins destination: full-width inventory table,
+    // no Sidebar. Real ~/.claude data on this machine has multiple plugins installed
+    // (github/playwright/context7 official, ponytail/impeccable community), so this
+    // is never the empty state.
+    name: 'plugins-inventory-open',
+    async run(window) {
+      await openPluginsSection(window)
+    }
+  },
+  {
+    name: 'plugin-detail-open',
+    async run(window) {
+      await openFirstPluginDetail(window)
+    }
+  },
+  {
+    // The uninstall confirmation Dialog, opened but not confirmed — proves the
+    // destructive action is gated and names the plugin/scope before it runs.
+    name: 'plugin-detail-uninstall-confirm',
+    async run(window) {
+      await openFirstPluginDetail(window)
+      await window.getByRole('button', { name: 'Uninstall' }).first().click()
+      await window.getByText(/^Uninstall .+\?$/).waitFor()
+    }
+  },
+  {
+    // Command palette now lists a Plugins group alongside Skills — same modal, no
+    // new UI surface.
+    name: 'command-palette-plugin-search',
+    async run(window) {
+      await window.keyboard.press('Meta+k')
+      await window.getByPlaceholder(/search skills, plugins/i).fill('ponytail')
+      await window.getByRole('option', { name: /^ponytail/ }).first().waitFor()
     }
   }
 ]

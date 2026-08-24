@@ -174,9 +174,10 @@ src/
 ├── main/                    # app lifecycle, ipc handlers, db, permissions
 │   ├── index.ts
 │   ├── permissions.ts       # isPathAllowed(), grantPath(), getGrantedPaths()
-│   ├── theme.ts             # electron-store-backed theme persistence
+│   ├── theme.ts             # electron-store-backed theme + last-section persistence
 │   ├── shell.ts             # shell:openExternal, scheme-validated
 │   ├── skill-files.ts       # skills:open / skills:openMeta (file viewer content)
+│   ├── plugin-actions.ts    # enable/disable/update/uninstall — shells out to `claude plugin <verb>`
 │   ├── db/
 │   │   ├── index.ts
 │   │   ├── schema.ts
@@ -193,9 +194,11 @@ src/
 │       └── rules/            # one file per static rule (see Linter rule set above)
 ├── preload/                 # narrow typed bridge (contextBridge + ipcRenderer.invoke)
 ├── renderer/src/
-│   ├── views/                # SkillInventory.tsx, SkillDetail.tsx, SkillFileViewer.tsx
-│   └── components/           # Sidebar.tsx, ManageFoldersDialog.tsx, CommandPalette.tsx,
-│                             # FileTree.tsx, MarkdownView.tsx, LintFindingsPanel.tsx, ui/ (shadcn)
+│   ├── views/                # SkillInventory.tsx, SkillDetail.tsx, SkillFileViewer.tsx,
+│   │                         # PluginInventory.tsx, PluginDetail.tsx
+│   └── components/           # AppRail.tsx, Sidebar.tsx, ManageFoldersDialog.tsx, CommandPalette.tsx,
+│                             # FileTree.tsx, MarkdownView.tsx, LintFindingsPanel.tsx,
+│                             # PluginBadges.tsx, ui/ (shadcn)
 └── shared/                  # ipc.ts — IPC channel names and shared row types
 ```
 
@@ -207,7 +210,7 @@ budget are all live in the app today.
 
 | #   | Name                | What                                                                                                                                     |
 | --- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| M6  | Plugin remediation  | Version-compare against the marketplace cache for "Check for update"; deep-link to the marketplace repo's GitHub issues for "Report."   |
+| M6  | Plugin remediation  | Version-compare against the marketplace cache for "Check for update"; deep-link to the marketplace repo's GitHub issues for "Report." The Plugins page (added 2026-08-24) ships this milestone's first slice: per-install `update` (shells out to `claude plugin update`) and version display, plus enable/disable/uninstall. The marketplace-cache version-compare and GitHub-issues deep-link are still open. |
 | M7  | Ship                | Code-sign, notarize, DMG. No App Store submission lane. (`electron-builder.yml` currently has `notarize: false`.)                       |
 
 ## Deferred, on purpose
@@ -224,6 +227,7 @@ budget are all live in the app today.
 | Windows / Linux builds                              | No audience OS data yet                                                                                                                                                                                               | Target-user OS split justifies it — Electron keeps this a CI change, not a rewrite                        |
 | Cost analytics, MCP dashboard, knowledge graph, journal, coach, marketplace | Out of scope for this MVP entirely                                                                                                                                                                    | Per original roadmap's Phase 2+                                                                          |
 | Built-in skills as a 4th source                     | Not user-managed state — no file, nothing to lint, no version to track                                                                                                                                                | Not expected to be revisited — cut, not deferred                                                          |
+| Plugin component-inventory / token-cost analysis (Tier 2) | The Plugins page (2026-08-24) ships Tier 1 only — rollups of data already collected (skill count, aggregate invocations, aggregate lint findings). A fuller agents/hooks/MCP/LSP component inventory plus a projected token-cost split needs either `claude plugin details` text-parsing or a new Megatron-side scanner extending `plugin-registry.ts`'s pattern — neither exists yet | Tier 1 rollups prove insufficient for judging a plugin's real footprint |
 
 ## Still open
 

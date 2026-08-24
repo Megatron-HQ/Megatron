@@ -77,9 +77,9 @@ export function scanPluginRegistry(
   const upsertRegistry = db.prepare(`
     INSERT INTO plugin_registry
       (name, marketplace, marketplace_repo, installed_version, scope, install_path, last_scanned_at,
-       installed_at, last_updated, git_commit_sha)
+       installed_at, last_updated, git_commit_sha, disabled_reason)
     VALUES (@name, @marketplace, @marketplace_repo, @installed_version, @scope, @install_path, @last_scanned_at,
-       @installed_at, @last_updated, @git_commit_sha)
+       @installed_at, @last_updated, @git_commit_sha, @disabled_reason)
     ON CONFLICT(name, marketplace, install_path) DO UPDATE SET
       marketplace_repo = CASE
         WHEN @has_marketplace_snapshot = 1 THEN excluded.marketplace_repo
@@ -91,7 +91,8 @@ export function scanPluginRegistry(
       last_scanned_at = excluded.last_scanned_at,
       installed_at = excluded.installed_at,
       last_updated = excluded.last_updated,
-      git_commit_sha = excluded.git_commit_sha
+      git_commit_sha = excluded.git_commit_sha,
+      disabled_reason = excluded.disabled_reason
   `)
 
   const runScan = db.transaction(() => {
@@ -121,6 +122,7 @@ export function scanPluginRegistry(
         const installedAt = typeof entry.installedAt === 'string' ? entry.installedAt : null
         const lastUpdated = typeof entry.lastUpdated === 'string' ? entry.lastUpdated : null
         const gitCommitSha = typeof entry.gitCommitSha === 'string' ? entry.gitCommitSha : null
+        const disabledReason = disabledPlugins.has(`${name}@${marketplace}`) ? 'plugin' : null
 
         upsertRegistry.run({
           name,
@@ -133,12 +135,12 @@ export function scanPluginRegistry(
           has_marketplace_snapshot: hasMarketplaceSnapshot ? 1 : 0,
           installed_at: installedAt,
           last_updated: lastUpdated,
-          git_commit_sha: gitCommitSha
+          git_commit_sha: gitCommitSha,
+          disabled_reason: disabledReason
         })
         seenRegistryKeys.add(registryKey(name, marketplace, installPath))
 
         const hookEvents = readPluginHookEvents(installPath)
-        const disabledReason = disabledPlugins.has(`${name}@${marketplace}`) ? 'plugin' : null
 
         const skillsDir = join(installPath, 'skills')
         const skillsDirectory = readAllowedDirectory(skillsDir)

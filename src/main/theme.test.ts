@@ -3,7 +3,14 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { getStoredTheme, resolveInitialTheme, setStoredTheme, type ThemeStore } from './theme'
+import {
+  getStoredTheme,
+  resolveInitialSection,
+  setStoredSection,
+  setStoredTheme,
+  resolveInitialTheme,
+  type ThemeStore
+} from './theme'
 
 let tempDir: string
 let store: ThemeStore
@@ -40,5 +47,16 @@ describe('resolveInitialTheme', () => {
 
   it('falls back to light when nothing is stored and the OS prefers light', () => {
     expect(resolveInitialTheme(store, false)).toBe('light')
+  })
+})
+
+describe('resolveInitialSection', () => {
+  it('defaults to skills when nothing has been stored', () => {
+    expect(resolveInitialSection(store)).toBe('skills')
+  })
+
+  it('returns the previously stored section', () => {
+    setStoredSection(store, 'plugins')
+    expect(resolveInitialSection(store)).toBe('plugins')
   })
 })

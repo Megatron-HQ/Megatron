@@ -6,9 +6,12 @@ import {
   addAllowedPath,
   deleteSkillsForProjectRoot,
   getContextBudget,
+  getPluginDetail,
   getSkillById,
   getSkillUsageDetail,
+  insertLintFindings,
   listAllowedPaths,
+  listPlugins,
   listSkills,
   removeAllowedPath,
   writeSkillScan,
@@ -59,6 +62,38 @@ function insertSkill(
     overrides.disabled_reason ?? null
   )
   return (db.prepare('SELECT last_insert_rowid() AS id').get() as { id: number }).id
+}
+
+function insertPluginRegistry(overrides: {
+  name: string
+  marketplace: string
+  marketplace_repo?: string | null
+  installed_version?: string
+  scope?: 'user' | 'project'
+  install_path?: string
+  installed_at?: string | null
+  last_updated?: string | null
+  git_commit_sha?: string | null
+  disabled_reason?: string | null
+}): void {
+  db.prepare(
+    `INSERT INTO plugin_registry
+       (name, marketplace, marketplace_repo, installed_version, scope, install_path,
+        last_scanned_at, installed_at, last_updated, git_commit_sha, disabled_reason)
+     VALUES (@name, @marketplace, @marketplace_repo, @installed_version, @scope, @install_path,
+        '2026-08-14T00:00:00.000Z', @installed_at, @last_updated, @git_commit_sha, @disabled_reason)`
+  ).run({
+    name: overrides.name,
+    marketplace: overrides.marketplace,
+    marketplace_repo: overrides.marketplace_repo ?? null,
+    installed_version: overrides.installed_version ?? '1.0.0',
+    scope: overrides.scope ?? 'user',
+    install_path: overrides.install_path ?? `/plugins/${overrides.name}`,
+    installed_at: overrides.installed_at ?? null,
+    last_updated: overrides.last_updated ?? null,
+    git_commit_sha: overrides.git_commit_sha ?? null,
+    disabled_reason: overrides.disabled_reason ?? null
+  })
 }
 
 function insertSession(sessionId: string, cwd = '/repo'): void {
@@ -1199,5 +1234,137 @@ describe('getContextBudget', () => {
       excludedTokens: 0,
       excludedCount: 0
     })
+  })
+})
+
+describe('listPlugins', () => {
+  it('returns an empty array when no plugins are registered', () => {
+    expect(listPlugins(db)).toEqual([])
+  })
+
+  it('groups multiple installs of the same plugin identity into one row', () => {
+    insertPluginRegistry({
+      name: 'plugin-a',
+      marketplace: 'market-1',
+      scope: 'user',
+      install_path: '/user/plugin-a'
+    })
+    insertPluginRegistry({
+      name: 'plugin-a',
+      marketplace: 'market-1',
+      scope: 'project',
+      install_path: '/project/plugin-a'
+    })
+
+    const rows = listPlugins(db)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].installs).toHaveLength(2)
+    expect(rows[0].installs.map((i) => i.scope).sort()).toEqual(['project', 'user'])
+  })
+
+  it('keeps two different plugin identities as separate rows', () => {
+    insertPluginRegistry({ name: 'plugin-a', marketplace: 'market-1' })
+    insertPluginRegistry({ name: 'plugin-b', marketplace: 'market-1' })
+
+    expect(listPlugins(db)).toHaveLength(2)
+  })
+
+  it('reports skill_count from skills joined by plugin_name, scoped to this plugin only', () => {
+    insertPluginRegistry({ name: 'plugin-a', marketplace: 'market-1' })
+    insertPluginRegistry({ name: 'plugin-b', marketplace: 'market-1' })
+    insertSkill('sub-1', { source_type: 'plugin', source_path: '/p/sub-1' })
+    db.prepare('UPDATE skills SET plugin_name = ? WHERE name = ?').run('plugin-a@market-1', 'sub-1')
+    insertSkill('sub-2', { source_type: 'plugin', source_path: '/p/sub-2' })
+    db.prepare('UPDATE skills SET plugin_name = ? WHERE name = ?').run('plugin-b@market-1', 'sub-2')
+
+    const rows = listPlugins(db)
+    const pluginA = rows.find((r) => r.name === 'plugin-a')
+    const pluginB = rows.find((r) => r.name === 'plugin-b')
+    expect(pluginA?.skill_count).toBe(1)
+    expect(pluginB?.skill_count).toBe(1)
+  })
+
+  it('reports skill_count of 0 for a plugin with no skills', () => {
+    insertPluginRegistry({ name: 'plugin-a', marketplace: 'market-1' })
+
+    expect(listPlugins(db)[0].skill_count).toBe(0)
+  })
+
+  it('reports the marketplace_repo, installed_version, and disabled_reason from the registry', () => {
+    insertPluginRegistry({
+      name: 'plugin-a',
+      marketplace: 'market-1',
+      marketplace_repo: 'org/repo',
+      installed_version: '1.2.3',
+      disabled_reason: 'plugin'
+    })
+
+    expect(listPlugins(db)[0]).toMatchObject({
+      marketplace_repo: 'org/repo',
+      installed_version: '1.2.3',
+      disabled_reason: 'plugin'
+    })
+  })
+})
+
+describe('getPluginDetail', () => {
+  it('returns null when the plugin identity is not registered', () => {
+    expect(getPluginDetail(db, 'nope', 'nowhere')).toBeNull()
+  })
+
+  it('returns the plugin row with its installs', () => {
+    insertPluginRegistry({
+      name: 'plugin-a',
+      marketplace: 'market-1',
+      scope: 'user',
+      install_path: '/user/plugin-a'
+    })
+
+    const detail = getPluginDetail(db, 'plugin-a', 'market-1')
+    expect(detail?.plugin.name).toBe('plugin-a')
+    expect(detail?.plugin.installs).toHaveLength(1)
+  })
+
+  it('returns only the skills belonging to this plugin identity', () => {
+    insertPluginRegistry({ name: 'plugin-a', marketplace: 'market-1' })
+    insertPluginRegistry({ name: 'plugin-b', marketplace: 'market-1' })
+    insertSkill('sub-1', { source_type: 'plugin', source_path: '/p/sub-1' })
+    db.prepare('UPDATE skills SET plugin_name = ? WHERE name = ?').run('plugin-a@market-1', 'sub-1')
+    insertSkill('sub-2', { source_type: 'plugin', source_path: '/p/sub-2' })
+    db.prepare('UPDATE skills SET plugin_name = ? WHERE name = ?').run('plugin-b@market-1', 'sub-2')
+
+    const detail = getPluginDetail(db, 'plugin-a', 'market-1')
+    expect(detail?.skills.map((s) => s.name)).toEqual(['sub-1'])
+  })
+
+  it('sums invocations across all of this plugin identity skills', () => {
+    insertPluginRegistry({ name: 'plugin-a', marketplace: 'market-1' })
+    const skillId = insertSkill('plugin-a:sub-1', {
+      source_type: 'plugin',
+      source_path: '/p/sub-1'
+    })
+    db.prepare('UPDATE skills SET plugin_name = ? WHERE id = ?').run('plugin-a@market-1', skillId)
+    insertSession('sess-1')
+    insertInvocation({ source_uuid: 'inv-1', session_id: 'sess-1', skill_name: 'plugin-a:sub-1' })
+    insertInvocation({ source_uuid: 'inv-2', session_id: 'sess-1', skill_name: 'plugin-a:sub-1' })
+
+    expect(getPluginDetail(db, 'plugin-a', 'market-1')?.totalInvocations).toBe(2)
+  })
+
+  it('sums lint finding counts across all of this plugin identity skills', () => {
+    insertPluginRegistry({ name: 'plugin-a', marketplace: 'market-1' })
+    const skillId = insertSkill('plugin-a:sub-1', {
+      source_type: 'plugin',
+      source_path: '/p/sub-1'
+    })
+    db.prepare('UPDATE skills SET plugin_name = ? WHERE id = ?').run('plugin-a@market-1', skillId)
+    insertLintFindings(db, skillId, [
+      { rule_id: 'r1', severity: 'error', message: 'bad' },
+      { rule_id: 'r2', severity: 'warning', message: 'meh' }
+    ])
+
+    const detail = getPluginDetail(db, 'plugin-a', 'market-1')
+    expect(detail?.errorCount).toBe(1)
+    expect(detail?.warningCount).toBe(1)
   })
 })
