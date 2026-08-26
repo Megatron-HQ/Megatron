@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AppRail } from '@/components/AppRail'
 import { CommandPalette } from '@/components/CommandPalette'
 import { ManageFoldersDialog } from '@/components/ManageFoldersDialog'
+import { PluginActionToasts, type PluginActionToast } from '@/components/PluginActionToasts'
 import { Sidebar } from '@/components/Sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { TREE_WIDTH_DEFAULT } from '@/lib/file-tree'
@@ -28,6 +29,8 @@ const DEFAULT_CONTEXT_BUDGET: ContextBudget = {
   excludedTokens: 0,
   excludedCount: 0
 }
+const SUCCESS_TOAST_DURATION_MS = 3_000
+const MAX_SUCCESS_TOASTS = 3
 
 function App(): React.JSX.Element {
   const queryClient = useQueryClient()
@@ -41,6 +44,8 @@ function App(): React.JSX.Element {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [foldersDialogOpen, setFoldersDialogOpen] = useState(false)
   const [treeWidth, setTreeWidth] = useState(TREE_WIDTH_DEFAULT)
+  const [pluginActionToasts, setPluginActionToasts] = useState<PluginActionToast[]>([])
+  const nextToastId = useRef(0)
 
   const { data } = useQuery({
     queryKey: ['skills'],
@@ -145,6 +150,14 @@ function App(): React.JSX.Element {
     ])
   }
 
+  function showPluginActionToast(message: string): void {
+    const id = nextToastId.current++
+    setPluginActionToasts((toasts) => [...toasts, { id, message }].slice(-MAX_SUCCESS_TOASTS))
+    window.setTimeout(() => {
+      setPluginActionToasts((toasts) => toasts.filter((toast) => toast.id !== id))
+    }, SUCCESS_TOAST_DURATION_MS)
+  }
+
   return (
     <TooltipProvider>
       <div className="flex h-screen flex-col">
@@ -202,6 +215,7 @@ function App(): React.JSX.Element {
               marketplace={pluginView.marketplace}
               onBack={() => setPluginView({ kind: 'list' })}
               onViewSkills={handleViewSkillsForPlugin}
+              onActionSuccess={showPluginActionToast}
             />
           ) : (
             <PluginInventory
@@ -227,6 +241,12 @@ function App(): React.JSX.Element {
         folders={folders}
         onAddFolders={handleAddFolders}
         onRevokeFolder={handleRevokeFolder}
+      />
+      <PluginActionToasts
+        toasts={pluginActionToasts}
+        onDismiss={(id) =>
+          setPluginActionToasts((toasts) => toasts.filter((toast) => toast.id !== id))
+        }
       />
     </TooltipProvider>
   )

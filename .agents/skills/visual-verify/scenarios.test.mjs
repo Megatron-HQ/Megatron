@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { scenarios } from './scenarios.mjs'
+
+const DISABLED_SCENARIO_NAMES = [
+  'table-disabled-icon-tooltip',
+  'skill-detail-disabled',
+  'context-budget-dialog-view-disabled'
+]
+
+function scenarioByName(name) {
+  return scenarios.find((scenario) => scenario.name === name)
+}
+
+function windowWithDisabledSkillCount(count) {
+  return {
+    locator: () => ({ count: async () => count })
+  }
+}
+
+test('skips disabled-skill scenarios only when no disabled skill is available', async () => {
+  for (const name of DISABLED_SCENARIO_NAMES) {
+    const scenario = scenarioByName(name)
+    const skipWhenMissing = await scenario?.shouldSkip?.(windowWithDisabledSkillCount(0))
+    const skipWhenPresent = await scenario?.shouldSkip?.(windowWithDisabledSkillCount(1))
+
+    assert.equal(skipWhenMissing, 'no disabled skills found locally', name)
+    assert.equal(skipWhenPresent, null, name)
+  }
+})

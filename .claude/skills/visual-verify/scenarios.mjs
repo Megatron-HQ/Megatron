@@ -11,13 +11,14 @@
 //
 // A few scenarios below (skill-detail-with-usage-history,
 // skill-detail-with-metadata, skill-detail-without-metadata) target specific
-// skills by name — grill-me, design, ponytail — because they need to hit
+// skills by name — grill-me, agent-reach, ponytail — because they need to hit
 // specific real data states (usage history present, metadata present,
 // metadata absent) in this developer's own ~/.claude. Those names are
 // load-bearing: renaming or removing one of those skills breaks the matching
-// scenario. Update the scenario alongside any such rename.
+// scenario. Disabled-skill scenarios instead find any local disabled skill and
+// explicitly skip when none exists.
 
-/** @typedef {{ name: string, run(window: import('playwright-core').Page): Promise<void> }} Scenario */
+/** @typedef {{ name: string, shouldSkip?: (window: import('playwright-core').Page) => Promise<string | null>, run(window: import('playwright-core').Page): Promise<void> }} Scenario */
 
 // JS-driven spring/fade motion isn't a CSS transition Playwright can
 // auto-wait on — this is how long a scenario waits for one to settle before
@@ -56,6 +57,11 @@ async function openFirstPluginDetail(window) {
   await openPluginsSection(window)
   await window.locator('tbody tr').first().click()
   await window.getByRole('button', { name: 'Back to plugins' }).waitFor()
+}
+
+async function skipWithoutDisabledSkills(window) {
+  const disabledSkillCount = await window.locator('tbody tr svg.lucide-power').count()
+  return disabledSkillCount === 0 ? 'no disabled skills found locally' : null
 }
 
 /** @type {Scenario[]} */
@@ -249,17 +255,16 @@ export const scenarios = [
   {
     // The table Name column's disabled-skill indicator: a red Power icon (promoted
     // from a neutral CircleSlash to its own flag color — see DESIGN.md's Disabled
-    // Flag entry). design-taste-frontend-v1 is disabled via skillOverrides in this
-    // developer's own ~/.claude/settings.json, so its row carries the icon without
-    // any UI action needed to induce the state.
+    // Flag entry). Real local data may have no disabled skills, in which case this
+    // scenario is visibly skipped rather than failing the rest of verification.
     name: 'table-disabled-icon-tooltip',
+    shouldSkip: skipWithoutDisabledSkills,
     async run(window) {
       await window
-        .locator('tbody tr', { hasText: 'design-taste-frontend-v1' })
+        .locator('tbody tr:has(svg.lucide-power) svg.lucide-power')
         .first()
-        .locator('svg.lucide-power')
         .hover()
-      await window.getByText(/Disabled via \/skills/).waitFor()
+      await window.getByText(/Disabled via/).waitFor()
     }
   },
   {
@@ -267,12 +272,10 @@ export const scenarios = [
     // the skill name. Confirms it renders there too, while the "Disabled" Stat
     // further down the page stays plain text (deliberately left unchanged).
     name: 'skill-detail-disabled',
+    shouldSkip: skipWithoutDisabledSkills,
     async run(window) {
-      await openSkillViaCommandPalette(
-        window,
-        'design-taste-frontend-v1',
-        /^design-taste-frontend-v1/
-      )
+      await window.locator('tbody tr:has(svg.lucide-power)').first().click()
+      await window.getByRole('button', { name: 'Back to skills' }).waitFor()
     }
   },
   {
@@ -296,6 +299,7 @@ export const scenarios = [
     // "View disabled skills" link in the dialog closes it and filters the table down to
     // exactly the disabled global/plugin skills behind the excludedCount sentence above it.
     name: 'context-budget-dialog-view-disabled',
+    shouldSkip: skipWithoutDisabledSkills,
     async run(window) {
       await window.getByRole('button', { name: /EST\. tokens$/i }).click()
       await window.getByRole('button', { name: 'View disabled skills' }).click()

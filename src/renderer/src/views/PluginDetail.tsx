@@ -22,13 +22,15 @@ interface PluginDetailProps {
   marketplace: string
   onBack: () => void
   onViewSkills: (pluginName: string) => void
+  onActionSuccess: (message: string) => void
 }
 
 export function PluginDetail({
   name,
   marketplace,
   onBack,
-  onViewSkills
+  onViewSkills,
+  onActionSuccess
 }: PluginDetailProps): React.JSX.Element {
   const queryClient = useQueryClient()
   const queryKey = ['plugin-detail', name, marketplace]
@@ -68,6 +70,7 @@ export function PluginDetail({
         queryClient.invalidateQueries({ queryKey }),
         queryClient.invalidateQueries({ queryKey: ['plugins'] })
       ])
+      onActionSuccess(`${name} ${pastTenseVerb(verb)}`)
     } catch (error) {
       setActionError({
         scope: install.scope,
@@ -203,6 +206,15 @@ export function PluginDetail({
       </Dialog>
     </div>
   )
+}
+
+function pastTenseVerb(verb: ActionVerb): string {
+  return {
+    enable: 'enabled',
+    disable: 'disabled',
+    update: 'updated',
+    uninstall: 'uninstalled'
+  }[verb]
 }
 
 function InstallRow({

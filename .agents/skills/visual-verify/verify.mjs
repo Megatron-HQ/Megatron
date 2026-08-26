@@ -154,6 +154,7 @@ function registerDefectListeners(window, defects) {
 
 async function captureAll(app, window, outDir) {
   const written = []
+  const skipped = []
   const defects = { consoleErrors: [], pageErrors: [], overflow: [] }
   const diff = { new: [], changed: [], unchanged: [] }
   registerDefectListeners(window, defects)
@@ -169,6 +170,14 @@ async function captureAll(app, window, outDir) {
       await window.reload()
       await waitForSettle(window)
       await resizeWindow(app, size.width, size.height)
+      const name = `${scenario.name}--${size.label}.png`
+      const skipReason = await scenario.shouldSkip?.(window)
+      if (skipReason) {
+        console.log(`[visual-verify]   skipping ${name}: ${skipReason}`)
+        skipped.push({ name, reason: skipReason })
+        producedNames.add(name)
+        continue
+      }
       // _electron opens a real OS window, so CSS :hover responds to the real
       // system cursor's actual screen position — not a virtual one Playwright
       // controls — and that position is whatever it happened to be left at,
@@ -181,7 +190,6 @@ async function captureAll(app, window, outDir) {
       await scenario.run(window)
       await finishTransitions(window)
 
-      const name = `${scenario.name}--${size.label}.png`
       console.log(`[visual-verify]   capturing ${name}...`)
       const path = join(outDir, name)
       await window.screenshot({ path })
@@ -198,10 +206,10 @@ async function captureAll(app, window, outDir) {
 
   const orphanBaselines = await findOrphanBaselines(producedNames)
 
-  return { written, defects, diff, orphanBaselines }
+  return { written, skipped, defects, diff, orphanBaselines }
 }
 
-function printSummary(written, defects, diff, orphanBaselines) {
+function printSummary(written, skipped, defects, diff, orphanBaselines) {
   console.log('[visual-verify] wrote:')
   for (const path of written) console.log(`  ${path}`)
 
@@ -215,6 +223,10 @@ function printSummary(written, defects, diff, orphanBaselines) {
   if (diff.changed.length > 0) {
     console.log('[visual-verify] CHANGED (differs from accepted baseline — review):')
     for (const name of diff.changed) console.log(`  ${name}`)
+  }
+  if (skipped.length > 0) {
+    console.log('[visual-verify] SKIPPED (local data did not provide this state):')
+    for (const { name, reason } of skipped) console.log(`  ${name}: ${reason}`)
   }
   if (orphanBaselines.length > 0) {
     console.log(
@@ -277,8 +289,12 @@ async function main() {
     // guessing at a wait long enough to outlast an unreliable frame rate.
     await window.emulateMedia({ reducedMotion: 'reduce' })
 
-    const { written, defects, diff, orphanBaselines } = await captureAll(app, window, OUT_DIR)
-    printSummary(written, defects, diff, orphanBaselines)
+    const { written, skipped, defects, diff, orphanBaselines } = await captureAll(
+      app,
+      window,
+      OUT_DIR
+    )
+    printSummary(written, skipped, defects, diff, orphanBaselines)
   } finally {
     await app?.close()
     await rm(userDataDir, { recursive: true, force: true })
