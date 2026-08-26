@@ -183,7 +183,7 @@ export function SkillDetail({
               id="skill-summary-heading"
               className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
             >
-              At a glance
+              Skill metrics
             </p>
             <Card className="shadow-none py-4">
               <CardContent className="grid grid-cols-2 gap-x-6 gap-y-4 px-4 min-[1100px]:grid-cols-3 min-[1350px]:grid-cols-4">
