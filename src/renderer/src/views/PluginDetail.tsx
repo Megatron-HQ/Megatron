@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Loader2, Power, RefreshCw, Trash2 } from 'lucide-react'
 import { MarketplaceBadge, PluginStatusBadge } from '@/components/PluginBadges'
@@ -38,13 +38,17 @@ export function PluginDetail({
   })
 
   const [pendingKey, setPendingKey] = useState<string | null>(null)
+  const pendingActionRef = useRef(false)
   const [actionError, setActionError] = useState<{ scope: PluginScope; message: string } | null>(
     null
   )
   const [uninstallTarget, setUninstallTarget] = useState<PluginInstall | null>(null)
 
   async function runAction(verb: ActionVerb, install: PluginInstall): Promise<void> {
+    if (pendingActionRef.current) return
+
     const key = `${install.scope}:${verb}`
+    pendingActionRef.current = true
     setPendingKey(key)
     setActionError(null)
     const input = { name, marketplace, scope: install.scope }
@@ -54,16 +58,25 @@ export function PluginDetail({
       update: window.api.updatePlugin,
       uninstall: window.api.uninstallPlugin
     }[verb]
-    const result = await apiFn(input)
-    setPendingKey(null)
-    if (!result.ok) {
-      setActionError({ scope: install.scope, message: result.stderr ?? 'Action failed.' })
-      return
+    try {
+      const result = await apiFn(input)
+      if (!result.ok) {
+        setActionError({ scope: install.scope, message: result.stderr ?? 'Action failed.' })
+        return
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey }),
+        queryClient.invalidateQueries({ queryKey: ['plugins'] })
+      ])
+    } catch (error) {
+      setActionError({
+        scope: install.scope,
+        message: error instanceof Error ? error.message : 'Action failed unexpectedly. Try again.'
+      })
+    } finally {
+      pendingActionRef.current = false
+      setPendingKey(null)
     }
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey }),
-      queryClient.invalidateQueries({ queryKey: ['plugins'] })
-    ])
   }
 
   if (isPending) {
@@ -176,6 +189,7 @@ export function PluginDetail({
             <Button
               type="button"
               variant="destructive"
+              disabled={pendingKey !== null}
               onClick={async () => {
                 const target = uninstallTarget
                 setUninstallTarget(null)
@@ -211,7 +225,7 @@ function InstallRow({
   onUninstallRequest: () => void
 }): React.JSX.Element {
   const isPending = (verb: ActionVerb): boolean => pendingKey === `${install.scope}:${verb}`
-  const anyPending = pendingKey?.startsWith(`${install.scope}:`) ?? false
+  const anyPending = pendingKey !== null
 
   return (
     <div className="flex flex-col gap-2 rounded-md border border-border p-3">
