@@ -2,8 +2,8 @@
 
 <div align="center">
 
-**The local-first desktop control center for Claude Code skills.**  
-Inventory, inspect, lint, and track usage across all your global, project, and plugin skills.
+**The local-first desktop control center for Claude Code skills and plugins.**<br />
+Inventory, inspect, lint, and track usage across all your global, project, and plugin skills. Manage user-scoped plugins without leaving the app.
 
 [![Node.js Version](https://img.shields.io/badge/node-22.x-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Electron](https://img.shields.io/badge/Electron-43-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
@@ -27,12 +27,13 @@ When using **Claude Code**, capabilities expand rapidly across multiple environm
 
 **Megatron** gives developers complete visibility and confidence over their agent capabilities. It scans your skill ecosystem in milliseconds, indexes metadata in a local SQLite database, lints skill definitions against 5 deterministic rules, allows instant code exploration, and classifies how your skills are triggered during real coding sessions.
 
-Megatron is strictly **read-only in v1**—it discovers and analyzes disk state without mutating your `~/.claude` directory.
+Megatron is read-only for skill inventory and analysis. Its only scoped write capability is managing user-scoped Claude Code plugins through the Claude CLI's own enable, disable, update, and uninstall commands.
 
 ### Scope and platform
 
 - **Claude Code only**: Megatron inventories and analyzes Claude Code skills and transcripts; it does not track skills from Codex or other agent tools.
 - **macOS distribution**: v1 ships as a direct, notarized macOS DMG. Windows is supported for development and CI verification, not as a distributable target.
+- **Plugin management**: Enable, disable, update, and uninstall are available for user-scoped Claude Code plugins. Project-scoped plugin actions are not yet supported end to end.
 
 ---
 
@@ -68,6 +69,14 @@ Megatron is strictly **read-only in v1**—it discovers and analyzes disk state 
 - **Invocation Analytics**: Real-time breakdown of total uses, manual vs. auto vs. subagent invocations, and per-project usage distribution.
 - **Plugin Hooks Manifest Detection**: Displays declared hook event subscriptions (e.g. `SessionStart`) parsed from `.claude-plugin/plugin.json`.
 
+### 🧩 Plugin Inventory & Management
+
+- Dedicated plugin inventory with marketplace, installed version, scope, skill count, and enabled or disabled status.
+- Plugin detail view rolls up the skills it provides, their usage, and lint health.
+- Enable, disable, update, or uninstall user-scoped plugins through the local Claude CLI; Megatron refreshes the inventory after each successful action.
+- Version-aware update feedback clearly distinguishes a plugin already at the latest version from one updated to a newer version.
+- Success confirmations appear in a compact bottom-right stack for three seconds, can be dismissed manually, and keep up to three recent actions visible.
+
 ### 🛡️ Tier-2 Repo Folder Management
 
 - Explicit permission boundary: auto-trusts Tier 1 (`~/.claude/*`) while requiring explicit user consent (Tier 2) to scan project repositories.
@@ -81,7 +90,7 @@ Megatron is strictly **read-only in v1**—it discovers and analyzes disk state 
 
 ### ⚡ Spotlight Command Palette (`⌘K` / `Ctrl+K`)
 
-- Instant fuzzy search across skill names, descriptions, project names, and plugin marketplaces.
+- Instant fuzzy search across skill names, descriptions, project names, plugin names, and plugin marketplaces.
 - Jump directly into any skill detail or file from anywhere in the app.
 
 ### 📊 Transcript Ingestion & Trigger Classification
@@ -106,7 +115,8 @@ Megatron follows a secure multi-process Electron architecture:
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │                                       RENDERER                                         │
 │   React 19  •  TanStack Query / Table / Virtual  •  Tailwind CSS v4                    │
-│   Views: SkillInventory  •  SkillDetail  •  SkillFileViewer  •  ManageFoldersDialog    │
+│   Views: SkillInventory  •  SkillDetail  •  PluginInventory  •  PluginDetail           │
+│          SkillFileViewer  •  ManageFoldersDialog                                        │
 └───────────────────────────────────────────┬────────────────────────────────────────────┘
                                             │ (Typed IPC via contextBridge)
 ┌───────────────────────────────────────────▼────────────────────────────────────────────┐
@@ -124,7 +134,8 @@ Megatron follows a secure multi-process Electron architecture:
 │              │                                          │                              │
 │  ┌───────────▼──────────────────────────────────────────▼───────────────────────────┐  │
 │  │ Ingestion & Analysis Engine                                                      │  │
-│  │ • Skills Scanner        • Plugin Registry        • Transcript Ingest             │  │
+│  │ • Skills Scanner        • Plugin Registry        • Plugin Actions (Claude CLI)   │  │
+│  │ • Transcript Ingest                                                               │  │
 │  │ • Deterministic Linter (5 static rules + MCP config resolver)                    │  │
 │  └──────────────────────────────────────────────────────────────────────────────────┘  │
 └────────────────────────────────────────────────────────────────────────────────────────┘
@@ -133,7 +144,7 @@ Megatron follows a secure multi-process Electron architecture:
 ### Security & Privacy
 
 - **Single Permission Chokepoint**: Every filesystem access routes strictly through `isPathAllowed()`.
-- **Zero API Key Requirement**: All linting, parsing, and trigger analysis is 100% deterministic (no external LLM calls, zero telemetry, zero data egress).
+- **Local Analysis**: Linting, parsing, and trigger analysis are deterministic and local, with no external LLM calls or Megatron telemetry. Plugin actions are delegated to the user's local Claude CLI.
 - **Transient Local Index**: The SQLite database (`megatron.db`) is purely a regenerable cache; deleting it causes zero data loss.
 
 ---
@@ -164,6 +175,7 @@ src/
 │   │   ├── mcp-config.ts          # Global & project MCP config reader
 │   │   └── index.ts               # Orchestrator & multi-skill runner
 │   ├── index.ts                   # Application lifecycle and IPC handlers
+│   ├── plugin-actions.ts           # Cross-platform Claude CLI plugin actions
 │   ├── permissions.ts             # Path validation and permission chokepoint
 │   ├── shell.ts                   # Protocol validation and safe external link opener
 │   ├── skill-files.ts             # Recursive directory walk and file preview reader
@@ -173,7 +185,7 @@ src/
 │   └── index.d.ts                 # Global TypeScript declarations
 ├── renderer/src/                  # React application
 │   ├── components/                # Reusable UI components (ContextBudgetDialog, LintFindingsPanel, etc.)
-│   ├── views/                     # Main view routers (SkillInventory, SkillDetail, SkillFileViewer)
+│   ├── views/                     # Main view routers (skills, plugins, and file explorer)
 │   ├── lib/                       # Pure utility helpers (file-tree, source-name, glide-highlight)
 │   └── App.tsx                    # Root application component
 └── shared/                        # Shared contracts between Main, Preload, and Renderer
