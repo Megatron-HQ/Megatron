@@ -20,6 +20,7 @@ import pixelmatch from 'pixelmatch'
 import { PNG } from 'pngjs'
 import { _electron as electron } from 'playwright-core'
 import { scenarios } from './scenarios.mjs'
+import { evaluateMainProcess, getWindowSizes } from './window-sizes.mjs'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../..')
 const OUT_DIR = join(REPO_ROOT, '.visual-verify')
@@ -134,25 +135,9 @@ async function findOrphanBaselines(producedNames) {
   return existing.filter((file) => !producedNames.has(file))
 }
 
-// Electron windows aren't a Playwright "viewport" — there's no
-// page.setViewportSize() for _electron, resizing goes through the real
-// BrowserWindow. Reading its real minimum back (rather than hardcoding it)
-// keeps this in sync with src/main/index.ts's window config for free.
-async function getWindowSizes(app) {
-  const [minWidth, minHeight] = await app.evaluate(({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows()[0].getMinimumSize()
-  )
-  const { width, height } = await app.evaluate(({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows()[0].getBounds()
-  )
-  return [
-    { label: 'default', width, height },
-    { label: 'min', width: minWidth, height: minHeight }
-  ]
-}
-
 async function resizeWindow(app, width, height) {
-  await app.evaluate(
+  await evaluateMainProcess(
+    app,
     ({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setSize(w, h),
     [width, height]
   )

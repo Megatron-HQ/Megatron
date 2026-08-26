@@ -176,7 +176,7 @@ export const scenarios = [
     // populated `modified_at`, to exercise the Modified stat + Metadata badge section.
     name: 'skill-detail-with-metadata',
     async run(window) {
-      await openSkillViaCommandPalette(window, 'design', /^design\s/)
+      await openSkillViaCommandPalette(window, 'agent-reach', /^agent-reach/)
     }
   },
   {
@@ -335,7 +335,10 @@ export const scenarios = [
     async run(window) {
       await window.keyboard.press('Meta+k')
       await window.getByPlaceholder(/search skills, plugins/i).fill('ponytail')
-      await window.getByRole('option', { name: /^ponytail/ }).first().waitFor()
+      await window
+        .getByRole('option', { name: /^ponytail/ })
+        .first()
+        .waitFor()
     }
   }
 ]

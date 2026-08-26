@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, ArrowLeft, FolderOpen, Power } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Bot, FolderOpen, GitFork, Power, UserRound } from 'lucide-react'
 import { LintFindingsPanel } from '@/components/LintFindingsPanel'
 import { LintStatusBadge } from '@/components/LintStatusBadge'
 import { SourceBadge } from '@/components/SourceBadge'
@@ -143,73 +143,121 @@ export function SkillDetail({
       <LintFindingsPanel key={skillId} skill={skill} findings={findings} />
 
       <div className="flex-1 overflow-y-auto">
-        <div className="flex flex-col gap-4 px-4 py-4 pl-10">
-          <p className="truncate font-mono text-xs text-muted-foreground" title={skill.source_path}>
-            {skill.source_path}
-          </p>
-
-          {skill.description && (
-            <p className="max-w-[72ch] text-[13px] text-muted-foreground">{skill.description}</p>
-          )}
-
-          {extraFrontmatterFields.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {extraFrontmatterFields.map(([key, value]) => (
-                <Badge key={key} variant="outline" className="font-normal">
-                  {key}: <span className="font-mono">{String(value)}</span>
-                </Badge>
-              ))}
-            </div>
-          )}
-
-          <Card className="shadow-none py-4">
-            <CardContent className="grid grid-cols-2 gap-x-6 gap-y-4 px-4 sm:grid-cols-4">
-              <Stat label="Est. tokens" value={skill.est_listing_tokens.toLocaleString()} mono />
-              <Stat
-                label="Uses"
-                value={
-                  skill.total_invocations === 0 ? 'Never' : skill.total_invocations.toLocaleString()
-                }
-                mono
-              />
-              {skill.hook_events !== null && (
-                <Stat label="Hooks" value={hookEvents} title={hookEvents} />
-              )}
-              {skill.disabled_reason !== null && (
-                <Stat
-                  label="Disabled"
-                  value={skill.disabled_reason === 'plugin' ? 'Plugin' : '/skills override'}
-                />
-              )}
-              <Stat
-                label="Last used"
-                value={
-                  skill.last_invoked_at ? new Date(skill.last_invoked_at).toLocaleDateString() : '—'
-                }
-              />
-              {skill.modified_at && (
-                <Stat label="Modified" value={new Date(skill.modified_at).toLocaleDateString()} />
-              )}
-              <Stat label="Path" value={skill.source_path} mono title={skill.source_path} />
-            </CardContent>
-          </Card>
-
-          {metadataEntries.length > 0 && (
-            <div>
+        <div className="flex flex-col gap-6 px-4 py-5">
+          <section className="space-y-4" aria-label="Skill details">
+            <div className="space-y-2">
               <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-                Metadata
+                Path
               </p>
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {metadataEntries.map(([key, value]) => (
-                  <Badge key={key} variant="outline" className="font-normal">
-                    {key}: <span className="font-mono">{formatMetadataValue(value)}</span>
-                  </Badge>
-                ))}
+              <div className="w-full rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground">
+                <p className="break-all" title={skill.source_path}>
+                  {skill.source_path}
+                </p>
               </div>
             </div>
-          )}
 
-          <UsageBreakdown usage={usage} />
+            <div className="space-y-2" aria-labelledby="skill-information-heading">
+              <p
+                id="skill-information-heading"
+                className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
+              >
+                Skill information
+              </p>
+              <div className="w-full rounded-lg border border-border bg-muted/40 px-3 py-2 text-[13px] leading-relaxed text-muted-foreground">
+                {skill.description ?? 'No description provided.'}
+              </div>
+              {extraFrontmatterFields.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {extraFrontmatterFields.map(([key, value]) => (
+                    <Badge key={key} variant="outline" className="max-w-full font-normal">
+                      {key}: <span className="min-w-0 truncate font-mono">{String(value)}</span>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="space-y-2" aria-labelledby="skill-summary-heading">
+            <p
+              id="skill-summary-heading"
+              className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
+            >
+              At a glance
+            </p>
+            <Card className="shadow-none py-4">
+              <CardContent className="grid grid-cols-2 gap-x-6 gap-y-4 px-4 min-[1100px]:grid-cols-3 min-[1350px]:grid-cols-4">
+                <Stat
+                  label="Est. listing tokens"
+                  value={skill.est_listing_tokens.toLocaleString()}
+                  mono
+                />
+                <Stat
+                  label="Uses"
+                  value={
+                    skill.total_invocations === 0
+                      ? 'Never'
+                      : skill.total_invocations.toLocaleString()
+                  }
+                  mono
+                />
+                <Stat
+                  label="Last used"
+                  value={
+                    skill.last_invoked_at
+                      ? new Date(skill.last_invoked_at).toLocaleDateString()
+                      : '—'
+                  }
+                  title={
+                    skill.last_invoked_at
+                      ? new Date(skill.last_invoked_at).toLocaleString()
+                      : undefined
+                  }
+                />
+                {skill.modified_at && (
+                  <Stat
+                    label="Modified"
+                    value={new Date(skill.modified_at).toLocaleDateString()}
+                    title={new Date(skill.modified_at).toLocaleString()}
+                  />
+                )}
+                {skill.hook_events !== null && (
+                  <Stat label="Hooks" value={hookEvents} title={hookEvents} />
+                )}
+                {skill.disabled_reason !== null && (
+                  <Stat
+                    label="Disabled"
+                    value={skill.disabled_reason === 'plugin' ? 'Plugin' : '/skills override'}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          </section>
+
+          <div className="flex flex-col gap-6">
+            {metadataEntries.length > 0 && (
+              <section className="space-y-2" aria-labelledby="skill-metadata-heading">
+                <p
+                  id="skill-metadata-heading"
+                  className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
+                >
+                  Metadata
+                </p>
+                <div className="rounded-lg border border-border p-4">
+                  <div className="flex flex-col gap-1.5 text-[13px] text-muted-foreground">
+                    {metadataEntries.map(([key, value]) => (
+                      <p key={key} className="min-w-0 break-all">
+                        <span className="font-medium text-foreground">{key}:</span>{' '}
+                        <span className="font-mono text-xs">{formatMetadataValue(value)}</span>
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            )}
+
+            <UsageBreakdown usage={usage} />
+          </div>
         </div>
       </div>
     </div>
@@ -258,71 +306,122 @@ function Stat({
   )
 }
 
-function UsageBreakdown({ usage }: { usage: SkillUsageDetail }): React.JSX.Element | null {
-  if (usage.byTriggerType.length === 0) return null
-
+function UsageBreakdown({ usage }: { usage: SkillUsageDetail }): React.JSX.Element {
+  const hasUsage = usage.byTriggerType.length > 0
   return (
-    <div className="flex flex-col gap-3">
-      <div>
-        <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-          Trigger breakdown
-        </p>
-        <p className="font-mono text-xs tabular-nums text-muted-foreground">
-          {usage.byTriggerType.map((t) => `${t.trigger_type}: ${t.count}`).join(' · ')}
-        </p>
-      </div>
+    <section className="space-y-2" aria-labelledby="skill-usage-heading">
+      <p
+        id="skill-usage-heading"
+        className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
+      >
+        Usage
+      </p>
 
-      {usage.byProject.length > 0 && (
-        <div>
-          <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-            By project
-          </p>
-          {usage.byProject.map((p) => (
-            <p key={p.cwd} className="truncate font-mono text-xs text-muted-foreground">
-              {p.cwd} — {p.count}
-            </p>
-          ))}
-        </div>
-      )}
-
-      {usage.recentTriggers.length > 0 && (
-        <div className="space-y-1.5">
-          <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-            Recent triggers
-          </p>
-          <div className="space-y-1">
-            {usage.recentTriggers.map((trigger, index) => (
-              <div key={index} className="flex items-center gap-2 text-[13px]">
-                <span
-                  className={cn(
-                    'shrink-0 rounded px-1.5 py-0.2 font-mono text-[10px] uppercase tracking-wider font-medium',
+      <div className="rounded-lg border border-border p-4">
+        {!hasUsage ? (
+          <p className="text-[13px] text-muted-foreground">No recorded uses yet.</p>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <div>
+              <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                Trigger breakdown
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {usage.byTriggerType.map((trigger) => {
+                  const Icon =
                     trigger.trigger_type === 'user_invoked'
-                      ? 'bg-accent-lime/25 text-foreground'
+                      ? UserRound
                       : trigger.trigger_type === 'subagent'
-                        ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400'
-                        : 'bg-muted text-muted-foreground'
-                  )}
-                >
-                  {trigger.trigger_type === 'user_invoked'
-                    ? 'Manual'
-                    : trigger.trigger_type === 'subagent'
-                      ? 'Subagent'
-                      : 'Auto'}
-                </span>
-                <span
-                  className={cn(
-                    'truncate text-muted-foreground',
-                    trigger.preceding_user_text.startsWith('/') && 'font-mono text-xs'
-                  )}
-                  title={trigger.preceding_user_text}
-                >
-                  {trigger.preceding_user_text}
-                </span>
+                        ? GitFork
+                        : Bot
+                  const label =
+                    trigger.trigger_type === 'user_invoked'
+                      ? 'Manual'
+                      : trigger.trigger_type === 'subagent'
+                        ? 'Subagent'
+                        : 'Auto'
+                  return (
+                    <Badge
+                      key={trigger.trigger_type}
+                      variant="outline"
+                      className="gap-1.5 font-normal"
+                    >
+                      <Icon className="size-3" />
+                      {label}: <span className="font-mono tabular-nums">{trigger.count}</span>
+                    </Badge>
+                  )
+                })}
               </div>
-            ))}
+            </div>
+
+            {usage.byProject.length > 0 && (
+              <div>
+                <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                  By project
+                </p>
+                <div className="mt-2 space-y-1">
+                  {usage.byProject.map((project) => (
+                    <p
+                      key={project.cwd}
+                      className="truncate font-mono text-xs text-muted-foreground"
+                    >
+                      {project.cwd} — {project.count}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {usage.recentTriggers.length > 0 && (
+              <div>
+                <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                  Recent triggers
+                </p>
+                <div className="mt-2 divide-y divide-border">
+                  {usage.recentTriggers.map((trigger, index) => {
+                    const Icon =
+                      trigger.trigger_type === 'user_invoked'
+                        ? UserRound
+                        : trigger.trigger_type === 'subagent'
+                          ? GitFork
+                          : Bot
+                    const label =
+                      trigger.trigger_type === 'user_invoked'
+                        ? 'Manual'
+                        : trigger.trigger_type === 'subagent'
+                          ? 'Subagent'
+                          : 'Auto'
+                    return (
+                      <div key={index} className="flex items-center gap-2 py-2 text-[13px]">
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+                          <Icon className="size-3" />
+                          {label}
+                        </span>
+                        <span
+                          className={cn(
+                            'min-w-0 flex-1 truncate text-muted-foreground',
+                            trigger.preceding_user_text.startsWith('/') && 'font-mono text-xs'
+                          )}
+                          title={trigger.preceding_user_text}
+                        >
+                          {trigger.preceding_user_text}
+                        </span>
+                        <time
+                          className="shrink-0 text-[11px] text-muted-foreground"
+                          dateTime={trigger.invoked_at}
+                          title={new Date(trigger.invoked_at).toLocaleString()}
+                        >
+                          {new Date(trigger.invoked_at).toLocaleDateString()}
+                        </time>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </section>
   )
 }
