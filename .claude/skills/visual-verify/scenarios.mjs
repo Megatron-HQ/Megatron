@@ -260,10 +260,7 @@ export const scenarios = [
     name: 'table-disabled-icon-tooltip',
     shouldSkip: skipWithoutDisabledSkills,
     async run(window) {
-      await window
-        .locator('tbody tr:has(svg.lucide-power) svg.lucide-power')
-        .first()
-        .hover()
+      await window.locator('tbody tr:has(svg.lucide-power) svg.lucide-power').first().hover()
       await window.getByText(/Disabled via/).waitFor()
     }
   },

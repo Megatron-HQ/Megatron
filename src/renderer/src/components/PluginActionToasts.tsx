@@ -25,7 +25,7 @@ export function PluginActionToasts({
           className="pointer-events-auto flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 shadow-lg"
         >
           <CircleCheck className="size-4 shrink-0 text-success" />
-          <p className="min-w-0 flex-1 truncate text-sm font-medium">{toast.message}</p>
+          <p className="min-w-0 flex-1 text-sm leading-5 font-medium">{toast.message}</p>
           <Button
             type="button"
             variant="ghost"

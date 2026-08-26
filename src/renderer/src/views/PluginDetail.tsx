@@ -49,6 +49,7 @@ export function PluginDetail({
   async function runAction(verb: ActionVerb, install: PluginInstall): Promise<void> {
     if (pendingActionRef.current) return
 
+    const previousVersion = data?.plugin.installed_version ?? 'unknown'
     const key = `${install.scope}:${verb}`
     pendingActionRef.current = true
     setPendingKey(key)
@@ -70,7 +71,13 @@ export function PluginDetail({
         queryClient.invalidateQueries({ queryKey }),
         queryClient.invalidateQueries({ queryKey: ['plugins'] })
       ])
-      onActionSuccess(`${name} ${pastTenseVerb(verb)}`)
+      if (verb === 'update') {
+        const updatedPlugin = await window.api.getPluginDetail(name, marketplace)
+        const latestVersion = updatedPlugin?.plugin.installed_version ?? previousVersion
+        onActionSuccess(updateSuccessMessage(name, previousVersion, latestVersion))
+      } else {
+        onActionSuccess(`${name} ${pastTenseVerb(verb)}`)
+      }
     } catch (error) {
       setActionError({
         scope: install.scope,
@@ -215,6 +222,16 @@ function pastTenseVerb(verb: ActionVerb): string {
     update: 'updated',
     uninstall: 'uninstalled'
   }[verb]
+}
+
+function updateSuccessMessage(
+  name: string,
+  previousVersion: string,
+  latestVersion: string
+): string {
+  return previousVersion === latestVersion
+    ? `${name} already in the latest version ${latestVersion}`
+    : `${name} updated to the latest version ${latestVersion}`
 }
 
 function InstallRow({
