@@ -78,7 +78,9 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
-      if (event.key === 'k' && (event.metaKey || event.ctrlKey)) {
+      // `!event.repeat` — a held Cmd+K otherwise toggles the palette on every
+      // key-repeat, landing it open or closed at random depending on parity.
+      if (event.key === 'k' && (event.metaKey || event.ctrlKey) && !event.repeat) {
         event.preventDefault()
         setPaletteOpen((open) => !open)
       }
@@ -104,6 +106,10 @@ function App(): React.JSX.Element {
   }
 
   function openDetail(skillId: number): void {
+    // Opening a skill detail always means "show me the Skills section" — without
+    // this, selecting a skill from the command palette while on the Plugins tab
+    // sets the view but leaves the Plugins branch rendered, so nothing happens.
+    handleSectionChange('skills')
     setView({ kind: 'detail', skillId })
   }
 

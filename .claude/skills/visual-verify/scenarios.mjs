@@ -11,7 +11,7 @@
 //
 // A few scenarios below (skill-detail-with-usage-history,
 // skill-detail-with-metadata, skill-detail-without-metadata) target specific
-// skills by name — grill-me, agent-reach, ponytail — because they need to hit
+// skills by name — grill-me, banner-design, ponytail — because they need to hit
 // specific real data states (usage history present, metadata present,
 // metadata absent) in this developer's own ~/.claude. Those names are
 // load-bearing: renaming or removing one of those skills breaks the matching
@@ -182,7 +182,7 @@ export const scenarios = [
     // populated `modified_at`, to exercise the Modified stat + Metadata badge section.
     name: 'skill-detail-with-metadata',
     async run(window) {
-      await openSkillViaCommandPalette(window, 'agent-reach', /^agent-reach/)
+      await openSkillViaCommandPalette(window, 'banner-design', /^banner-design/)
     }
   },
   {
@@ -340,6 +340,18 @@ export const scenarios = [
         .getByRole('option', { name: /^ponytail/ })
         .first()
         .waitFor()
+    }
+  },
+  {
+    // Regression guard: picking a skill from the command palette while the Plugins
+    // section is active must switch back to Skills and render the detail.
+    // openDetail() used to set the view without the section, so the palette closed
+    // and nothing appeared. openSkillViaCommandPalette's wait for "Back to skills"
+    // is the assertion — it times out if the section switch is missing.
+    name: 'command-palette-skill-from-plugins-section',
+    async run(window) {
+      await openPluginsSection(window)
+      await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
     }
   }
 ]

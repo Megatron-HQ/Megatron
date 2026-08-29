@@ -199,7 +199,7 @@ A single radius scale rooted at 10px (`--radius: 0.625rem`), applied identically
 - **Keyboard:** `↓`/`↑` moves selection, `Enter`/`Space` opens the fullscreen file viewer; the focus ring is the same shared `{colors.focus-ring}` token, applied inset.
 
 ### Rail (section switcher)
-- 48px wide, icon-only, `Tooltip`-labeled (`AppRail.tsx`), 32px square targets, rounded-md, sitting left of everything else behind a single rule-line border — no shadow, per the Ledger-Lies-Flat Rule. Two sections today: Skills and Plugins.
+- 48px wide, icon-only, `Tooltip`-labeled (`AppRail.tsx`), 32px square targets, rounded-md, sitting left of everything else behind a single rule-line border — no shadow, per the Ledger-Lies-Flat Rule. Two sections today: Skills (`BrainCircuit`) and Plugins (`Blocks` — the same plugin mark the source badge uses; `BrainCircuit` stands in for Skills because `Blocks` on a non-plugin section would collide with that meaning).
 - **Active state is ink-fill, not lime:** `Surface Muted` background + `Ledger Ink` icon color, inactive items sit at `Ink, Muted` with the standard hover treatment. The rail switches which *section* is showing, not which item within a section is selected — that distinction is what the Sidebar's own lime-filter nav still owns, and is why the rail deliberately sits outside the One Stamp Rule's scope rather than adding a second lime instance.
 
 ### Sidebar Navigation

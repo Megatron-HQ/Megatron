@@ -9,7 +9,7 @@ import {
   useTable
 } from '@tanstack/react-table'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
-import { Puzzle, Search } from 'lucide-react'
+import { Blocks, Search } from 'lucide-react'
 import { motion } from 'motion/react'
 import { MarketplaceBadge, PluginStatusBadge } from '@/components/PluginBadges'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -207,7 +207,7 @@ export function PluginInventory({
   } else if (rows.length === 0) {
     body = (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
-        <Puzzle className="size-8 text-muted-foreground" />
+        <Blocks className="size-8 text-muted-foreground" />
         <p className="text-sm font-medium">No plugins installed</p>
         <p className="max-w-[360px] text-sm text-muted-foreground">
           Plugins are discovered from your installed Claude Code plugins.

@@ -1,14 +1,14 @@
-import { Puzzle, Sparkles } from 'lucide-react'
+import { Blocks, BrainCircuit } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { AppSection } from '../../../shared/ipc'
 
-// Sparkles (not Blocks) for Skills — Blocks already means "plugin source" at the skill-filter
-// level inside the Skills sidebar (SourceBadge.tsx), so reusing it here for the section itself
-// would collide with that meaning.
-const SECTIONS: { section: AppSection; label: string; Icon: typeof Puzzle }[] = [
-  { section: 'skills', label: 'Skills', Icon: Sparkles },
-  { section: 'plugins', label: 'Plugins', Icon: Puzzle }
+// Blocks is the app-wide plugin mark — the source badge (SourceBadge.tsx) and the Skills
+// sidebar's plugin filter already use it, so the Plugins section carries the same icon.
+// Skills takes BrainCircuit: Blocks on a non-plugin section would collide with that meaning.
+const SECTIONS: { section: AppSection; label: string; Icon: typeof Blocks }[] = [
+  { section: 'skills', label: 'Skills', Icon: BrainCircuit },
+  { section: 'plugins', label: 'Plugins', Icon: Blocks }
 ]
 
 interface AppRailProps {

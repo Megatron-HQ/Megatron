@@ -1,4 +1,4 @@
-import { Puzzle } from 'lucide-react'
+import { Blocks } from 'lucide-react'
 import { SOURCE_ICON, SYNCED_ICON } from '@/lib/source-icon'
 import { getSourceDisplayName } from '@/lib/source-name'
 import {
@@ -48,7 +48,7 @@ export function CommandPalette({
                 onOpenChange(false)
               }}
             >
-              <Puzzle className="size-4" />
+              <Blocks className="size-4" />
               <div className="flex flex-1 flex-col overflow-hidden">
                 <div className="flex items-center gap-2">
                   <span className="truncate">{plugin.name}</span>
