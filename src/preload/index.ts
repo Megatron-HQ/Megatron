@@ -11,7 +11,7 @@ import {
   type PluginDetailResult,
   type PluginRow,
   type SkillsListResult,
-  type Theme
+  type ThemePreference
 } from '../shared/ipc'
 
 // Custom APIs for renderer
@@ -21,8 +21,9 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.openSkill, id),
   openSkillMeta: (id: number): Promise<OpenSkillMetaResult | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.openSkillMeta, id),
-  getInitialTheme: (): Theme => ipcRenderer.sendSync(IPC_CHANNELS.getInitialTheme),
-  setTheme: (theme: Theme): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.setTheme, theme),
+  getInitialTheme: (): ThemePreference => ipcRenderer.sendSync(IPC_CHANNELS.getInitialTheme),
+  setTheme: (theme: ThemePreference): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.setTheme, theme),
   listAllowedPaths: (): Promise<AllowedPathRow[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.listAllowedPaths),
   pickAndAddFolders: (): Promise<AllowedPathRow[]> =>

@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron'
+import { app, shell, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'path'
 import Store from 'electron-store'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -39,7 +39,7 @@ import {
   type OpenSkillMetaResult,
   type OpenSkillResult,
   type PluginActionInput,
-  type Theme
+  type ThemePreference
 } from '../shared/ipc'
 
 const themeStore: ThemeStore = new Store({ name: 'preferences' })
@@ -150,10 +150,10 @@ app.whenReady().then(() => {
   })
 
   ipcMain.on(IPC_CHANNELS.getInitialTheme, (event) => {
-    event.returnValue = resolveInitialTheme(themeStore, nativeTheme.shouldUseDarkColors)
+    event.returnValue = resolveInitialTheme(themeStore)
   })
 
-  ipcMain.handle(IPC_CHANNELS.setTheme, (_event, theme: Theme) => {
+  ipcMain.handle(IPC_CHANNELS.setTheme, (_event, theme: ThemePreference) => {
     setStoredTheme(themeStore, theme)
   })
 

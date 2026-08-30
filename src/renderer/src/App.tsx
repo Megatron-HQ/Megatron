@@ -13,7 +13,7 @@ import { SkillInventory } from './views/SkillInventory'
 import { SkillFileViewer } from './views/SkillFileViewer'
 import { PluginDetail } from './views/PluginDetail'
 import { PluginInventory } from './views/PluginInventory'
-import type { AppSection, ContextBudget, Theme } from '../../shared/ipc'
+import type { AppSection, ContextBudget, ThemePreference } from '../../shared/ipc'
 
 type View =
   { kind: 'list' } | { kind: 'detail'; skillId: number } | { kind: 'files'; skillId: number }
@@ -34,8 +34,8 @@ const MAX_SUCCESS_TOASTS = 3
 
 function App(): React.JSX.Element {
   const queryClient = useQueryClient()
-  const [theme, setTheme] = useState<Theme>(() =>
-    document.documentElement.classList.contains('dark') ? 'dark' : 'light'
+  const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
+    window.api.getInitialTheme()
   )
   const [filter, setFilter] = useState<SourceFilter>({ kind: 'all' })
   const [view, setView] = useState<View>({ kind: 'list' })
@@ -89,6 +89,19 @@ function App(): React.JSX.Element {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+    const applyTheme = (): void => {
+      const useDarkTheme =
+        themePreference === 'dark' || (themePreference === 'system' && mediaQuery.matches)
+      document.documentElement.classList.toggle('dark', useDarkTheme)
+    }
+
+    applyTheme()
+    mediaQuery.addEventListener('change', applyTheme)
+    return () => mediaQuery.removeEventListener('change', applyTheme)
+  }, [themePreference])
+
   const skills = useMemo(() => data?.skills ?? [], [data])
   const folders = useMemo(() => foldersData ?? [], [foldersData])
   const plugins = useMemo(() => pluginsData ?? [], [pluginsData])
@@ -133,10 +146,8 @@ function App(): React.JSX.Element {
     setView({ kind: 'list' })
   }
 
-  function toggleTheme(): void {
-    const next: Theme = theme === 'dark' ? 'light' : 'dark'
-    setTheme(next)
-    document.documentElement.classList.toggle('dark', next === 'dark')
+  function handleThemeChange(next: ThemePreference): void {
+    setThemePreference(next)
     void window.api.setTheme(next)
   }
 
@@ -173,14 +184,17 @@ function App(): React.JSX.Element {
           </div>
         )}
         <div className="flex min-h-0 flex-1">
-          <AppRail section={section} onSectionChange={handleSectionChange} />
+          <AppRail
+            section={section}
+            onSectionChange={handleSectionChange}
+            themePreference={themePreference}
+            onThemeChange={handleThemeChange}
+          />
           {section === 'skills' ? (
             <>
               <Sidebar
                 filter={filter}
                 onFilterChange={handleFilterChange}
-                theme={theme}
-                onToggleTheme={toggleTheme}
                 contextBudget={contextBudget}
                 onSelectSkill={openDetail}
                 skills={skills}

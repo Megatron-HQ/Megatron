@@ -75,7 +75,26 @@ export const scenarios = [
   {
     name: 'inventory-other-theme',
     async run(window) {
-      await window.getByRole('button', { name: /mode$/i }).click()
+      const usesDarkTheme = await window
+        .locator('html')
+        .evaluate((element) => element.classList.contains('dark'))
+      await window.getByRole('button', { name: 'Appearance' }).click()
+      await window.getByRole('menuitemradio', { name: usesDarkTheme ? 'Light' : 'Dark' }).click()
+    }
+  },
+  {
+    name: 'appearance-menu-open',
+    async run(window) {
+      await window.getByRole('button', { name: 'Appearance' }).click()
+      await window.getByRole('menuitemradio', { name: 'System' }).waitFor()
+    }
+  },
+  {
+    name: 'plugins-appearance-menu-open',
+    async run(window) {
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'Appearance' }).click()
+      await window.getByRole('menuitemradio', { name: 'System' }).waitFor()
     }
   },
   {

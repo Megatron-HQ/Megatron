@@ -134,7 +134,7 @@ describe('budgetStatus', () => {
     expect(budgetStatus(makeBudget({ used: 1600, limit: 2000 }))).toBe('ok')
   })
 
-  it('is warning, not over, exactly at the limit — matches ContextBudgetDialog\'s strict `over` check', () => {
+  it("is warning, not over, exactly at the limit — matches ContextBudgetDialog's strict `over` check", () => {
     expect(budgetStatus(makeBudget({ used: 2000, limit: 2000 }))).toBe('warning')
   })
 

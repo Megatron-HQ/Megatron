@@ -134,6 +134,7 @@ export interface OpenSkillMetaResult {
 }
 
 export type Theme = 'light' | 'dark'
+export type ThemePreference = Theme | 'system'
 
 export type PluginScope = 'user' | 'project'
 

@@ -9,15 +9,15 @@ import type {
   PluginDetailResult,
   PluginRow,
   SkillsListResult,
-  Theme
+  ThemePreference
 } from '../shared/ipc'
 
 interface Api {
   listSkills: () => Promise<SkillsListResult>
   openSkill: (id: number) => Promise<OpenSkillResult | null>
   openSkillMeta: (id: number) => Promise<OpenSkillMetaResult | null>
-  getInitialTheme: () => Theme
-  setTheme: (theme: Theme) => Promise<void>
+  getInitialTheme: () => ThemePreference
+  setTheme: (theme: ThemePreference) => Promise<void>
   listAllowedPaths: () => Promise<AllowedPathRow[]>
   pickAndAddFolders: () => Promise<AllowedPathRow[]>
   revokeAllowedPath: (path: string) => Promise<AllowedPathRow[]>

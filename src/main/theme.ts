@@ -1,18 +1,18 @@
 import type Store from 'electron-store'
-import type { AppSection, Theme } from '../shared/ipc'
+import type { AppSection, ThemePreference } from '../shared/ipc'
 
-export type ThemeStore = Store<{ theme?: Theme; lastSection?: AppSection }>
+export type ThemeStore = Store<{ theme?: ThemePreference; lastSection?: AppSection }>
 
-export function getStoredTheme(store: ThemeStore): Theme | undefined {
+export function getStoredTheme(store: ThemeStore): ThemePreference | undefined {
   return store.get('theme')
 }
 
-export function setStoredTheme(store: ThemeStore, theme: Theme): void {
+export function setStoredTheme(store: ThemeStore, theme: ThemePreference): void {
   store.set('theme', theme)
 }
 
-export function resolveInitialTheme(store: ThemeStore, osPrefersDark: boolean): Theme {
-  return getStoredTheme(store) ?? (osPrefersDark ? 'dark' : 'light')
+export function resolveInitialTheme(store: ThemeStore): ThemePreference {
+  return getStoredTheme(store) ?? 'system'
 }
 
 export function setStoredSection(store: ThemeStore, section: AppSection): void {

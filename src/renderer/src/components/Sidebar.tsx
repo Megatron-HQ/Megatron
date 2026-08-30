@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Blocks, ChevronRight, FolderGit2, Globe, List, Moon, Sun } from 'lucide-react'
+import { Blocks, ChevronRight, FolderGit2, Globe, List } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { ContextBudgetDialog } from '@/components/ContextBudgetDialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -7,13 +7,11 @@ import { budgetStatus } from '@/lib/context-budget'
 import { cn } from '@/lib/utils'
 import { getFolderBasename, getPluginBareName, getProjectNameFromPath } from '@/lib/source-name'
 import type { SourceFilter } from '@/lib/source-filter'
-import type { AllowedPathRow, ContextBudget, SkillRow, Theme } from '../../../shared/ipc'
+import type { AllowedPathRow, ContextBudget, SkillRow } from '../../../shared/ipc'
 
 interface SidebarProps {
   filter: SourceFilter
   onFilterChange: (filter: SourceFilter) => void
-  theme: Theme
-  onToggleTheme: () => void
   contextBudget: ContextBudget
   onSelectSkill: (id: number) => void
   skills?: SkillRow[]
@@ -35,8 +33,6 @@ interface PluginSidebarItem {
 export function Sidebar({
   filter,
   onFilterChange,
-  theme,
-  onToggleTheme,
   contextBudget,
   onSelectSkill,
   skills = [],
@@ -354,17 +350,6 @@ export function Sidebar({
         onSelectSkill={onSelectSkill}
         onViewDisabled={() => onFilterChange({ kind: 'disabled' })}
       />
-
-      <div className="border-t border-border p-2">
-        <button
-          type="button"
-          onClick={onToggleTheme}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-        >
-          {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
-          {theme === 'dark' ? 'Light mode' : 'Dark mode'}
-        </button>
-      </div>
     </div>
   )
 }

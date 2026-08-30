@@ -6,7 +6,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
 
 // Read synchronously, before first paint, to avoid a flash of the wrong theme.
-document.documentElement.classList.toggle('dark', window.api.getInitialTheme() === 'dark')
+const initialTheme = window.api.getInitialTheme()
+document.documentElement.classList.toggle(
+  'dark',
+  initialTheme === 'dark' ||
+    (initialTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+)
 
 const queryClient = new QueryClient()
 

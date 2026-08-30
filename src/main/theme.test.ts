@@ -33,20 +33,21 @@ describe('getStoredTheme', () => {
     setStoredTheme(store, 'dark')
     expect(getStoredTheme(store)).toBe('dark')
   })
+
+  it('returns the stored system preference', () => {
+    setStoredTheme(store, 'system')
+    expect(getStoredTheme(store)).toBe('system')
+  })
 })
 
 describe('resolveInitialTheme', () => {
   it('prefers the stored override over the OS preference', () => {
     setStoredTheme(store, 'light')
-    expect(resolveInitialTheme(store, true)).toBe('light')
+    expect(resolveInitialTheme(store)).toBe('light')
   })
 
-  it('falls back to dark when nothing is stored and the OS prefers dark', () => {
-    expect(resolveInitialTheme(store, true)).toBe('dark')
-  })
-
-  it('falls back to light when nothing is stored and the OS prefers light', () => {
-    expect(resolveInitialTheme(store, false)).toBe('light')
+  it('defaults to the system preference when nothing is stored', () => {
+    expect(resolveInitialTheme(store)).toBe('system')
   })
 })
 
