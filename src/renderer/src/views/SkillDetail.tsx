@@ -1,46 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import {
-  AlertTriangle,
-  ArrowLeft,
-  Bot,
-  BotOff,
-  ChevronDown,
-  ChevronRight,
-  FolderOpen,
-  GitFork,
-  Power,
-  UserRound,
-  Webhook
-} from 'lucide-react'
+import { AlertTriangle, ArrowLeft, BotOff, FolderOpen, Power, Webhook } from 'lucide-react'
+import { InvocationRow } from '@/components/InvocationRow'
 import { LintFindingsPanel } from '@/components/LintFindingsPanel'
 import { LintStatusBadge } from '@/components/LintStatusBadge'
+import { SkillActivityDialog } from '@/components/SkillActivityDialog'
 import { SourceBadge } from '@/components/SourceBadge'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { parseHookEvents } from '@/lib/hook-events'
 import { hasDisableModelInvocationFrontmatter, parseExtraFrontmatterFields } from '@/lib/markdown'
-import { formatRelativeTime } from '@/lib/relative-time'
 import { getFolderBasename } from '@/lib/source-name'
+import { TRIGGER_META } from '@/lib/trigger-meta'
 import { cn } from '@/lib/utils'
-import type {
-  ProjectCount,
-  RecentTrigger,
-  SkillUsageDetail,
-  TriggerType
-} from '../../../shared/ipc'
+import type { ProjectCount, SkillRow, SkillUsageDetail, TriggerType } from '../../../shared/ipc'
 
 interface SkillDetailProps {
   skillId: number
   onBack: () => void
   onViewFiles: () => void
   onNavigate: (id: number) => void
-}
-
-const TRIGGER_META: Record<TriggerType, { label: string; Icon: typeof UserRound }> = {
-  user_invoked: { label: 'Manual', Icon: UserRound },
-  autonomous: { label: 'Auto', Icon: Bot },
-  subagent: { label: 'Subagent', Icon: GitFork }
 }
 
 // Fixed render order + texture fill for each trigger-mix segment. The bar stays monochrome
@@ -277,7 +256,7 @@ export function SkillDetail({
             </p>
           </section>
 
-          <UsageSection usage={usage} isProjectSkill={skill.source_type === 'project'} />
+          <UsageSection usage={usage} skill={skill} />
 
           <section className="space-y-2" aria-labelledby="skill-details-heading">
             <p
@@ -408,11 +387,13 @@ function DetailRow({
 
 function UsageSection({
   usage,
-  isProjectSkill
+  skill
 }: {
   usage: SkillUsageDetail
-  isProjectSkill: boolean
+  skill: SkillRow
 }): React.JSX.Element {
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const isProjectSkill = skill.source_type === 'project'
   const hasUsage = usage.byTriggerType.length > 0
   const total = usage.byTriggerType.reduce((sum, t) => sum + t.count, 0)
   const countFor = (type: TriggerType): number =>
@@ -474,74 +455,31 @@ function UsageSection({
                 Recent activity
               </p>
               <div className="divide-y divide-border">
-                {usage.recentTriggers.map((trigger, index) => (
-                  <RecentTriggerRow key={index} trigger={trigger} />
+                {usage.recentTriggers.map((entry, index) => (
+                  <InvocationRow key={index} entry={entry} />
                 ))}
               </div>
+              {skill.total_invocations > usage.recentTriggers.length && (
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(true)}
+                  className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase hover:text-foreground"
+                >
+                  View all {skill.total_invocations.toLocaleString()}
+                </button>
+              )}
             </div>
           )}
         </div>
       )}
+
+      <SkillActivityDialog
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        skillId={skill.id}
+        skillName={skill.name}
+      />
     </section>
-  )
-}
-
-// Kept inline and self-contained: PR 2 lifts this row out into a shared, searchable
-// lifetime-history surface once a second consumer exists.
-function RecentTriggerRow({ trigger }: { trigger: RecentTrigger }): React.JSX.Element {
-  const [expanded, setExpanded] = useState(false)
-  const { label, Icon } = TRIGGER_META[trigger.trigger_type]
-  const isCommand = trigger.preceding_user_text.startsWith('/')
-  const Chevron = expanded ? ChevronDown : ChevronRight
-
-  return (
-    <div className="py-2 text-[13px]">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-        className="flex w-full items-start gap-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-      >
-        <Chevron className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-        <Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-label={label} />
-        <span
-          className={cn(
-            'min-w-0 flex-1 text-foreground',
-            !expanded && 'line-clamp-2',
-            isCommand && 'font-mono text-xs'
-          )}
-        >
-          {trigger.preceding_user_text}
-        </span>
-        <time
-          className="mt-px shrink-0 text-[11px] text-muted-foreground"
-          dateTime={trigger.invoked_at}
-          title={new Date(trigger.invoked_at).toLocaleString()}
-        >
-          {formatRelativeTime(trigger.invoked_at)}
-        </time>
-      </button>
-
-      {expanded && (
-        <dl className="mt-2 grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-3 gap-y-1 pl-[3.25rem] text-[11px]">
-          <dt className="text-muted-foreground">Project</dt>
-          <dd className="min-w-0 break-words text-foreground">
-            {getFolderBasename(trigger.cwd) || trigger.cwd}
-            {trigger.git_branch !== null && (
-              <span className="text-muted-foreground"> · {trigger.git_branch}</span>
-            )}
-          </dd>
-          <dt className="text-muted-foreground">When</dt>
-          <dd className="text-foreground">{new Date(trigger.invoked_at).toLocaleString()}</dd>
-          {trigger.trigger_type === 'subagent' && trigger.agent_id !== null && (
-            <>
-              <dt className="text-muted-foreground">Subagent</dt>
-              <dd className="min-w-0 break-words font-mono text-foreground">{trigger.agent_id}</dd>
-            </>
-          )}
-        </dl>
-      )}
-    </div>
   )
 }
 

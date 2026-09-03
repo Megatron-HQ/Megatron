@@ -10,7 +10,7 @@ import type {
   PluginInstall,
   PluginRow,
   ProjectCount,
-  RecentTrigger,
+  SkillInvocationEntry,
   SkillRow,
   SkillUsageDetail,
   SourceType,
@@ -391,10 +391,43 @@ export function getSkillUsageDetail(db: Database.Database, skill: SkillRow): Ski
     )
     .all(params) as ProjectCount[]
 
-  // 9% of recovered preceding_user_text values are image-caption placeholders like
-  // "[Image: original 2438x1460...]" — real, common, and visibly broken if shown as
-  // "triggered by". Filtered at query time; storage stays raw as a historical fact.
-  const recentTriggers = db
+  return {
+    byTriggerType,
+    byProject,
+    recentTriggers: getSkillInvocationLog(db, skill, RECENT_TRIGGERS_LIMIT)
+  }
+}
+
+// Backs both the recent-five list on the Detail page (pass RECENT_TRIGGERS_LIMIT) and the full
+// lifetime log behind SkillActivityDialog (omit `limit`). One function, not two, so the three
+// correctness behaviours below can't drift apart between the two surfaces:
+//   1. a shadowed project skill has no history of its own — the global one ran (see the
+//      precedence note on SKILLS_WITH_USAGE_SELECT), so return [] to match its forced-0 count;
+//   2. a non-shadowed project skill is scoped to sessions under its own project_root, so two
+//      repos with a same-named skill don't cross-contaminate;
+//   3. a null preceding_user_text falls back to the reconstructed slash command.
+//
+// preceding_user_text is returned verbatim — image-caption placeholders included. That string
+// ("[Image: original 2438x1460, ...]") is a coordinate-mapping note Claude Code writes into its
+// own transcript, not a file reference, so nothing breaks when the image is gone. It renders as
+// a labelled row client-side (invocation-prompt.ts). Filtering it here dropped 44% of all rows
+// and 83% of visual-verify's — storage and this payload both stay raw.
+export function getSkillInvocationLog(
+  db: Database.Database,
+  skill: SkillRow,
+  limit?: number
+): SkillInvocationEntry[] {
+  if (skill.shadowed_by_skill_id !== null) return []
+
+  const scoped = skill.source_type === 'project' && skill.project_root !== null
+  const scopeClause = scoped ? `AND ${PARAMETERIZED_PROJECT_PATH_SCOPE}` : ''
+  const limitClause = limit === undefined ? '' : 'LIMIT @limit'
+
+  const params: Record<string, string | number> = { skillName: skill.name }
+  if (scoped) params.root = skill.project_root as string
+  if (limit !== undefined) params.limit = limit
+
+  return db
     .prepare(
       `SELECT COALESCE(
                 si.preceding_user_text,
@@ -410,14 +443,11 @@ export function getSkillUsageDetail(db: Database.Database, skill: SkillRow): Ski
               si.agent_id
        FROM skill_invocations si
        JOIN sessions_meta sm ON sm.session_id = si.session_id
-       WHERE si.skill_name = @skillName
-         AND (si.preceding_user_text IS NULL OR si.preceding_user_text NOT LIKE '[Image:%') ${scopeClause}
+       WHERE si.skill_name = @skillName ${scopeClause}
        ORDER BY si.invoked_at DESC
-       LIMIT ${RECENT_TRIGGERS_LIMIT}`
+       ${limitClause}`
     )
-    .all(params) as RecentTrigger[]
-
-  return { byTriggerType, byProject, recentTriggers }
+    .all(params) as SkillInvocationEntry[]
 }
 
 // Claude Code's real truncation threshold is 8,000 characters — from its compiled binary:

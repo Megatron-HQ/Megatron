@@ -15,6 +15,7 @@ import {
   getLintFindingsForSkill,
   getPluginDetail,
   getSkillById,
+  getSkillInvocationLog,
   getSkillUsageDetail,
   listAllowedPaths,
   listPlugins,
@@ -43,6 +44,7 @@ import {
   type OpenSkillMetaResult,
   type OpenSkillResult,
   type PluginActionInput,
+  type SkillInvocationEntry,
   type ThemePreference
 } from '../shared/ipc'
 
@@ -151,6 +153,11 @@ app.whenReady().then(() => {
       skillMdContent: skillMd?.status === 'ok' ? skillMd.content : null,
       findings
     }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.openSkillHistory, (_event, id: number): SkillInvocationEntry[] => {
+    const skill = getSkillById(getDb(), id)
+    return skill ? getSkillInvocationLog(getDb(), skill) : []
   })
 
   ipcMain.on(IPC_CHANNELS.getInitialTheme, (event) => {

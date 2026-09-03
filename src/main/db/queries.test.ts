@@ -8,6 +8,7 @@ import {
   getContextBudget,
   getPluginDetail,
   getSkillById,
+  getSkillInvocationLog,
   getSkillUsageDetail,
   insertLintFindings,
   listAllowedPaths,
@@ -1167,25 +1168,30 @@ describe('getSkillUsageDetail', () => {
     ])
   })
 
-  it('excludes image-caption-stub trigger text', () => {
+  it('includes image-caption placeholder trigger text (rendered, not filtered)', () => {
     const id = insertSkill('grill-me')
     insertSession('sess-1')
     insertInvocation({
       source_uuid: 'uuid-1',
       session_id: 'sess-1',
       skill_name: 'grill-me',
+      invoked_at: '2026-08-01T00:00:00.000Z',
       preceding_user_text: '[Image: original 2438x1460, displayed at 2000x1198]'
     })
     insertInvocation({
       source_uuid: 'uuid-2',
       session_id: 'sess-1',
       skill_name: 'grill-me',
+      invoked_at: '2026-08-02T00:00:00.000Z',
       preceding_user_text: 'a real message'
     })
 
     const detail = getSkillUsageDetail(db, getSkillById(db, id)!)
 
-    expect(detail.recentTriggers.map((t) => t.preceding_user_text)).toEqual(['a real message'])
+    expect(detail.recentTriggers.map((t) => t.preceding_user_text)).toEqual([
+      'a real message',
+      '[Image: original 2438x1460, displayed at 2000x1198]'
+    ])
   })
 
   it('returns empty usage detail for a shadowed project skill', () => {
@@ -1233,6 +1239,127 @@ describe('getSkillUsageDetail', () => {
 
     expect(detail.byProject).toEqual([{ cwd: '/repo-a', count: 1 }])
     expect(detail.recentTriggers.map((t) => t.preceding_user_text)).toEqual(['from repo a'])
+  })
+})
+
+describe('getSkillInvocationLog', () => {
+  it('returns every invocation when no limit is given, most-recent-first', () => {
+    const id = insertSkill('grill-me')
+    insertSession('sess-1')
+    for (const day of ['01', '10', '05']) {
+      insertInvocation({
+        source_uuid: `u-${day}`,
+        session_id: 'sess-1',
+        skill_name: 'grill-me',
+        invoked_at: `2026-08-${day}T00:00:00.000Z`,
+        preceding_user_text: `msg ${day}`
+      })
+    }
+
+    const log = getSkillInvocationLog(db, getSkillById(db, id)!)
+
+    expect(log.map((e) => e.preceding_user_text)).toEqual(['msg 10', 'msg 05', 'msg 01'])
+  })
+
+  it('caps the result set at `limit` rows', () => {
+    const id = insertSkill('grill-me')
+    insertSession('sess-1')
+    for (let i = 1; i <= 5; i++) {
+      insertInvocation({
+        source_uuid: `u-${i}`,
+        session_id: 'sess-1',
+        skill_name: 'grill-me',
+        invoked_at: `2026-08-0${i}T00:00:00.000Z`,
+        preceding_user_text: `msg ${i}`
+      })
+    }
+
+    expect(getSkillInvocationLog(db, getSkillById(db, id)!, 2)).toHaveLength(2)
+  })
+
+  it('includes image-caption placeholder rows — no [Image:% filter', () => {
+    const caption =
+      '[Image: original 2438x1460, displayed at 2000x1198. Multiply coordinates by 1.22 to map to original image.]'
+    const id = insertSkill('visual-verify')
+    insertSession('sess-1')
+    insertInvocation({
+      source_uuid: 'u-1',
+      session_id: 'sess-1',
+      skill_name: 'visual-verify',
+      invoked_at: '2026-08-01T00:00:00.000Z',
+      preceding_user_text: caption
+    })
+    insertInvocation({
+      source_uuid: 'u-2',
+      session_id: 'sess-1',
+      skill_name: 'visual-verify',
+      invoked_at: '2026-08-02T00:00:00.000Z',
+      preceding_user_text: 'a real message'
+    })
+
+    const log = getSkillInvocationLog(db, getSkillById(db, id)!)
+
+    expect(log.map((e) => e.preceding_user_text)).toEqual(['a real message', caption])
+  })
+
+  it('falls back to the slash command when preceding_user_text is null', () => {
+    const id = insertSkill('deploy')
+    insertSession('sess-1')
+    insertInvocation({
+      source_uuid: 'u-1',
+      session_id: 'sess-1',
+      skill_name: 'deploy',
+      args_text: 'production --force',
+      preceding_user_text: null
+    })
+
+    expect(getSkillInvocationLog(db, getSkillById(db, id)!)[0].preceding_user_text).toBe(
+      '/deploy production --force'
+    )
+  })
+
+  it('scopes a project skill to sessions under its own project_root', () => {
+    const idA = insertSkill('visual-verify', {
+      source_type: 'project',
+      project_root: '/repo-a',
+      source_path: '/repo-a/.claude/skills/visual-verify'
+    })
+    insertSkill('visual-verify', {
+      source_type: 'project',
+      project_root: '/repo-b',
+      source_path: '/repo-b/.claude/skills/visual-verify'
+    })
+    insertSession('sess-a', '/repo-a')
+    insertSession('sess-b', '/repo-b')
+    insertInvocation({
+      source_uuid: 'u-a',
+      session_id: 'sess-a',
+      skill_name: 'visual-verify',
+      preceding_user_text: 'from a'
+    })
+    insertInvocation({
+      source_uuid: 'u-b',
+      session_id: 'sess-b',
+      skill_name: 'visual-verify',
+      preceding_user_text: 'from b'
+    })
+
+    const log = getSkillInvocationLog(db, getSkillById(db, idA)!)
+
+    expect(log.map((e) => e.preceding_user_text)).toEqual(['from a'])
+  })
+
+  it('returns an empty log for a shadowed project skill', () => {
+    insertSkill('deploy', { source_type: 'global' })
+    const projectId = insertSkill('deploy', {
+      source_type: 'project',
+      project_root: '/repo',
+      source_path: '/repo/.claude/skills/deploy'
+    })
+    insertSession('sess-1', '/repo')
+    insertInvocation({ source_uuid: 'u-1', session_id: 'sess-1', skill_name: 'deploy' })
+
+    expect(getSkillInvocationLog(db, getSkillById(db, projectId)!)).toEqual([])
   })
 })
 

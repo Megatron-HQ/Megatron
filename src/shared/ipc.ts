@@ -2,6 +2,7 @@ export const IPC_CHANNELS = {
   listSkills: 'skills:list',
   openSkill: 'skills:open',
   openSkillMeta: 'skills:openMeta',
+  openSkillHistory: 'skills:openHistory',
   getInitialTheme: 'theme:getInitial',
   setTheme: 'theme:set',
   scanComplete: 'scan:complete',
@@ -119,7 +120,9 @@ export interface ProjectCount {
   count: number
 }
 
-export interface RecentTrigger {
+// One row of a skill's invocation history — serves both the recent-five list on the detail
+// page and the full lifetime log behind SkillActivityDialog, hence the source-neutral name.
+export interface SkillInvocationEntry {
   preceding_user_text: string
   invoked_at: string
   trigger_type: TriggerType
@@ -131,7 +134,8 @@ export interface RecentTrigger {
 export interface SkillUsageDetail {
   byTriggerType: TriggerTypeCount[]
   byProject: ProjectCount[]
-  recentTriggers: RecentTrigger[]
+  // The recent five, specifically — the full log comes from openSkillHistory.
+  recentTriggers: SkillInvocationEntry[]
 }
 
 export interface OpenSkillResult {

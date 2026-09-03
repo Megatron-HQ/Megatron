@@ -8,6 +8,7 @@ import type {
   PluginActionResult,
   PluginDetailResult,
   PluginRow,
+  SkillInvocationEntry,
   SkillsListResult,
   ThemePreference
 } from '../shared/ipc'
@@ -16,6 +17,7 @@ interface Api {
   listSkills: () => Promise<SkillsListResult>
   openSkill: (id: number) => Promise<OpenSkillResult | null>
   openSkillMeta: (id: number) => Promise<OpenSkillMetaResult | null>
+  openSkillHistory: (id: number) => Promise<SkillInvocationEntry[]>
   getInitialTheme: () => ThemePreference
   setTheme: (theme: ThemePreference) => Promise<void>
   listAllowedPaths: () => Promise<AllowedPathRow[]>

@@ -10,6 +10,7 @@ import {
   type PluginActionResult,
   type PluginDetailResult,
   type PluginRow,
+  type SkillInvocationEntry,
   type SkillsListResult,
   type ThemePreference
 } from '../shared/ipc'
@@ -21,6 +22,8 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.openSkill, id),
   openSkillMeta: (id: number): Promise<OpenSkillMetaResult | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.openSkillMeta, id),
+  openSkillHistory: (id: number): Promise<SkillInvocationEntry[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.openSkillHistory, id),
   getInitialTheme: (): ThemePreference => ipcRenderer.sendSync(IPC_CHANNELS.getInitialTheme),
   setTheme: (theme: ThemePreference): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.setTheme, theme),
