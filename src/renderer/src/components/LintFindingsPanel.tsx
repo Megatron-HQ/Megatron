@@ -76,7 +76,7 @@ export function LintFindingsPanel({ findings, skill }: LintFindingsPanelProps): 
       <button
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
-        className="flex w-full items-center justify-between px-4 py-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="flex w-full items-center justify-between px-4 py-2.5 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
         <div className="flex items-center gap-2">
           {isExpanded ? (
@@ -86,7 +86,7 @@ export function LintFindingsPanel({ findings, skill }: LintFindingsPanelProps): 
           )}
 
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               Lint Status:
             </span>
             {hasIssues ? (

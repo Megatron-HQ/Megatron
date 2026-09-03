@@ -9,6 +9,14 @@
 // Implementing a UI change that adds a new screen, nav destination, or major
 // state includes adding its scenario here in the same change — see SKILL.md.
 //
+// Every scenario carries a `screen` — one of the nine names in SKILL.md's "Scope
+// the run" table (skill-inventory, skill-detail, skill-file-viewer, sidebar,
+// command-palette, context-budget-dialog, settings-dialog, plugin-inventory,
+// plugin-detail), tagged by what the screenshot is actually testing. It's what
+// `npm run verify:visual -- --only <screen>` filters on. The two interaction
+// guards (sidebar-filter-closes-open-detail, command-palette-skill-from-plugins-
+// section) list both screens they span. A new scenario MUST have one.
+//
 // A few scenarios below (skill-detail-with-usage-history,
 // skill-detail-with-metadata, skill-detail-without-metadata) target specific
 // skills by name — grill-me, banner-design, ponytail — because they need to hit
@@ -18,7 +26,7 @@
 // scenario. Disabled-skill scenarios instead find any local disabled skill and
 // explicitly skip when none exists.
 
-/** @typedef {{ name: string, shouldSkip?: (window: import('playwright-core').Page) => Promise<string | null>, run(window: import('playwright-core').Page): Promise<void> }} Scenario */
+/** @typedef {{ name: string, screen: string | string[], shouldSkip?: (window: import('playwright-core').Page) => Promise<string | null>, run(window: import('playwright-core').Page): Promise<void> }} Scenario */
 
 // JS-driven spring/fade motion isn't a CSS transition Playwright can
 // auto-wait on — this is how long a scenario waits for one to settle before
@@ -44,6 +52,15 @@ async function openSkillViaCommandPalette(window, searchTerm, optionNamePattern)
   await window.getByPlaceholder(/search skills/i).fill(searchTerm)
   await window.getByRole('option', { name: optionNamePattern }).first().click()
   await window.getByRole('button', { name: 'Back to skills' }).waitFor()
+}
+
+/** Expand the first Recent-activity row so a screenshot carries the accordion's open state
+ *  (full prompt + Project / When / Subagent) alongside its still-collapsed siblings. */
+async function expandFirstRecentTrigger(window) {
+  await window.getByText('Recent activity', { exact: true }).waitFor()
+  // Each recent-activity row is the only kind of button on this page that wraps a <time>.
+  await window.locator('button:has(time)').first().click()
+  await window.locator('button:has(time)[aria-expanded="true"]').first().waitFor()
 }
 
 /** Rail click → Plugins section, landing on the inventory table. */
@@ -104,6 +121,7 @@ function skipWithoutNamedSkill(skillName) {
 export const scenarios = [
   {
     name: 'inventory-default-theme',
+    screen: 'skill-inventory',
     async run() {
       // Nothing to do — the reloaded baseline itself is what we want to capture.
     }
@@ -111,6 +129,7 @@ export const scenarios = [
   {
     // The rail's one-click light↔dark toggle (skiper4-adapted sun/moon morph, motion-driven).
     name: 'inventory-other-theme',
+    screen: 'skill-inventory',
     async run(window) {
       await window.getByRole('button', { name: /Switch to (dark|light) mode/ }).click()
       // The morph is a JS-driven motion tween, not a CSS transition Playwright auto-waits on.
@@ -121,6 +140,7 @@ export const scenarios = [
     // The Cmd+, / rail-gear Settings dialog, which now owns the three-way appearance choice
     // (segmented control, ink-fill active) plus rescan / folders / about.
     name: 'settings-dialog-open',
+    screen: 'settings-dialog',
     async run(window) {
       await window.getByRole('button', { name: 'Settings' }).click()
       await window.getByRole('radio', { name: 'System' }).waitFor()
@@ -128,6 +148,7 @@ export const scenarios = [
   },
   {
     name: 'plugins-settings-dialog-open',
+    screen: 'settings-dialog',
     async run(window) {
       await openPluginsSection(window)
       await window.getByRole('button', { name: 'Settings' }).click()
@@ -138,18 +159,21 @@ export const scenarios = [
     // Clicking a row now lands on the SkillDetail page (metadata only) — the file
     // tree/content view is a separate page, one click further via "View files".
     name: 'skill-detail-open',
+    screen: 'skill-detail',
     async run(window) {
       await openFirstSkillDetail(window)
     }
   },
   {
     name: 'project-filter-empty-state',
+    screen: 'skill-inventory',
     async run(window) {
       await window.getByRole('button', { name: 'Project', exact: true }).click()
     }
   },
   {
     name: 'sidebar-filter-closes-open-detail',
+    screen: ['sidebar', 'skill-detail'],
     async run(window) {
       await openFirstSkillDetail(window)
       await window.getByRole('button', { name: 'Global' }).click()
@@ -157,6 +181,7 @@ export const scenarios = [
   },
   {
     name: 'command-palette-open',
+    screen: 'command-palette',
     async run(window) {
       await window.keyboard.press('Meta+k')
       await window.getByPlaceholder(/search skills/i).waitFor()
@@ -166,6 +191,7 @@ export const scenarios = [
     // Keyboard path is covered by command-palette-open above — this covers the
     // visible header button separately, since it's a distinct entry point.
     name: 'command-palette-via-header-button',
+    screen: 'command-palette',
     async run(window) {
       await window.getByRole('button', { name: /search skills/i }).click()
       await window.getByPlaceholder(/search skills/i).waitFor()
@@ -175,6 +201,7 @@ export const scenarios = [
     // The dedicated entry point onto the trimmed file tree/content page: Detail's
     // "View files" button. Its own back arrow returns to Detail, not the table.
     name: 'skill-files-open',
+    screen: 'skill-file-viewer',
     async run(window) {
       await openFirstSkillFileView(window)
     }
@@ -183,6 +210,7 @@ export const scenarios = [
     // skill-files-open above already captures the tree's default (all-collapsed)
     // state — this one exercises expand, the direct fix for the crowded-tree bug.
     name: 'file-viewer-tree-expanded',
+    screen: 'skill-file-viewer',
     async run(window) {
       await openFirstSkillFileView(window)
       await window.locator('[role="treeitem"][aria-expanded]').first().click()
@@ -196,6 +224,7 @@ export const scenarios = [
   },
   {
     name: 'file-viewer-tree-search',
+    screen: 'skill-file-viewer',
     async run(window) {
       await openFirstSkillFileView(window)
       // Every skill has a SKILL.md, so this is guaranteed to match regardless
@@ -206,6 +235,7 @@ export const scenarios = [
   {
     // The sidebar nav's hover-glide pill (motion, mirrors the file tree's).
     name: 'sidebar-nav-hover',
+    screen: 'sidebar',
     async run(window) {
       await window.getByRole('button', { name: 'Global' }).hover()
       // JS-driven spring, not a CSS transition Playwright can auto-wait on.
@@ -215,6 +245,7 @@ export const scenarios = [
   {
     // The skills table's hover-glide pill (motion, mirrors the file tree's).
     name: 'table-row-hover',
+    screen: 'skill-inventory',
     async run(window) {
       await window.locator('tbody tr').nth(1).hover()
       await window.waitForTimeout(MOTION_SETTLE_MS)
@@ -227,8 +258,44 @@ export const scenarios = [
     // depends on real usage existing — same real-~/.claude-data assumption every other scenario
     // here already makes (e.g. project-filter-empty-state assumes zero grants). Also exercises
     // the command-palette entry point landing on Detail, same as a table-row click would.
+    // Left unexpanded so this capture keeps covering the monochrome pattern-fill trigger bar
+    // and the non-clickable by-project rows near the top of the section; the accordion's open
+    // state has its own scenario below.
     name: 'skill-detail-with-usage-history',
+    screen: 'skill-detail',
     async run(window) {
+      await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
+    }
+  },
+  {
+    // PR 1, item 5: a Recent-activity row expanded — full (unclamped) prompt plus the
+    // Project / When / Subagent detail list. Expanding scrolls the trigger bar out of frame,
+    // which is why it's a separate scenario from skill-detail-with-usage-history rather than
+    // a step added to it.
+    name: 'skill-detail-recent-activity-expanded',
+    screen: 'skill-detail',
+    async run(window) {
+      await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
+      await expandFirstRecentTrigger(window)
+    }
+  },
+  {
+    // The trigger bar is monochrome by design (DESIGN.md forbids color-as-category), so the
+    // three trigger types are told apart by texture — solid / faint hatch / faint dot grid.
+    // This confirms the texture stays resolvable at h-3 in dark mode, where the old ink-shade
+    // treatment went nearly invisible. Left unexpanded so the bar stays in frame.
+    name: 'skill-detail-usage-history-dark',
+    screen: 'skill-detail',
+    async run(window) {
+      // Runner resets theme to 'system' before each scenario; check the class rather than
+      // trust the toggle's label so this holds on a dark-mode host too.
+      const isDark = () =>
+        window.evaluate(() => document.documentElement.classList.contains('dark'))
+      if (!(await isDark())) {
+        await window.getByRole('button', { name: /Switch to dark mode/ }).click()
+      }
+      await window.waitForFunction(() => document.documentElement.classList.contains('dark'))
+      await window.waitForTimeout(MOTION_SETTLE_MS)
       await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
     }
   },
@@ -237,7 +304,11 @@ export const scenarios = [
     // this depends on real data — a skill whose frontmatter has a `metadata:` block and a
     // populated `modified_at`, to exercise the Modified stat + Metadata badge section.
     name: 'skill-detail-with-metadata',
+<<<<<<< HEAD
     shouldSkip: skipWithoutNamedSkill('banner-design'),
+=======
+    screen: 'skill-detail',
+>>>>>>> d16d1cf (feat: redesign skill detail with usage insights)
     async run(window) {
       await openSkillViaCommandPalette(window, 'banner-design', /^banner-design/)
     }
@@ -248,6 +319,7 @@ export const scenarios = [
     // provenance instead — see docs/data-model.md). Confirms the Modified stat and
     // Metadata section are both correctly omitted, not rendered empty/broken.
     name: 'skill-detail-without-metadata',
+    screen: 'skill-detail',
     async run(window) {
       // Namespaced as "ponytail:ponytail" (plugin-name:skill-name — see
       // docs/data-model.md), not the bare "ponytail" this used to match pre-namespacing.
@@ -262,13 +334,18 @@ export const scenarios = [
     // as skill-detail-with-metadata: `handoff` is one of this developer's user-invocable-only
     // command skills.
     name: 'skill-detail-model-invocable-no',
+<<<<<<< HEAD
     shouldSkip: skipWithoutNamedSkill('handoff'),
+=======
+    screen: 'skill-detail',
+>>>>>>> d16d1cf (feat: redesign skill detail with usage insights)
     async run(window) {
       await openSkillViaCommandPalette(window, 'handoff', /^handoff/)
     }
   },
   {
     name: 'sidebar-projects-expanded',
+    screen: 'sidebar',
     async run(window) {
       await window.getByRole('button', { name: 'Project', exact: true }).click()
       await window.waitForTimeout(MOTION_SETTLE_MS)
@@ -276,6 +353,7 @@ export const scenarios = [
   },
   {
     name: 'sidebar-plugins-expanded',
+    screen: 'sidebar',
     async run(window) {
       await window.getByRole('button', { name: 'Plugin', exact: true }).click()
       await window.waitForTimeout(MOTION_SETTLE_MS)
@@ -286,6 +364,7 @@ export const scenarios = [
     // the P0 filter/expand click-coupling finding) — this proves the sublist can
     // open while the active filter stays put, rather than jumping to Project.
     name: 'sidebar-projects-expanded-via-chevron',
+    screen: 'sidebar',
     async run(window) {
       await window.getByRole('button', { name: 'Global' }).click()
       await window.getByRole('button', { name: 'Expand project list' }).click()
@@ -300,6 +379,7 @@ export const scenarios = [
     // "tooltip-trigger" on the merged element (harmless: nothing else in the app
     // selects on data-slot="badge"), but data-variant survives untouched.
     name: 'source-badge-tooltip',
+    screen: 'skill-inventory',
     async run(window) {
       await window.locator('tbody tr').first().locator('[data-variant="outline"]').hover()
       await window.waitForTimeout(MOTION_SETTLE_MS)
@@ -311,6 +391,7 @@ export const scenarios = [
     // via the sidebar so the icon's row is guaranteed on-screen, then hovers it to
     // reveal the tooltip's real event-name list (skills.hook_events, not a placeholder).
     name: 'table-hook-driven-icon-tooltip',
+    screen: 'skill-inventory',
     async run(window) {
       await window.getByRole('button', { name: 'Plugin', exact: true }).click()
       await window.getByRole('button', { name: /^ponytail/ }).click()
@@ -328,6 +409,7 @@ export const scenarios = [
     // Flag entry). Real local data may have no disabled skills, in which case this
     // scenario is visibly skipped rather than failing the rest of verification.
     name: 'table-disabled-icon-tooltip',
+    screen: 'skill-inventory',
     shouldSkip: skipWithoutDisabledSkills,
     async run(window) {
       // The table focuses its first row and starts the glide highlight on mount; hovering into
@@ -349,6 +431,7 @@ export const scenarios = [
     // flag-colored) BotOff icon, reading as a deliberate config beside the flag-colored
     // Power. Real local data may have none, in which case this scenario is skipped.
     name: 'table-user-invocable-only-icon-tooltip',
+    screen: 'skill-inventory',
     shouldSkip: skipWithoutUserInvocableOnlySkills,
     async run(window) {
       await window.locator('tbody tr svg.lucide-bot-off').first().hover()
@@ -360,6 +443,7 @@ export const scenarios = [
     // exactly the user-invocable-only global/plugin skills behind the sentence above it —
     // the row count must match budget.userInvocableOnlyCount.
     name: 'context-budget-dialog-view-user-invocable-only',
+    screen: 'context-budget-dialog',
     shouldSkip: skipWithoutUserInvocableOnlySkills,
     async run(window) {
       await window.getByRole('button', { name: /EST\. tokens$/i }).click()
@@ -372,6 +456,7 @@ export const scenarios = [
     // the skill name. Confirms it renders there too, while the "Disabled" Stat
     // further down the page stays plain text (deliberately left unchanged).
     name: 'skill-detail-disabled',
+    screen: 'skill-detail',
     shouldSkip: skipWithoutDisabledSkills,
     async run(window) {
       await window.locator('tbody tr:has(svg.lucide-power)').first().click()
@@ -380,6 +465,7 @@ export const scenarios = [
   },
   {
     name: 'skill-detail-lint-panel-expanded',
+    screen: 'skill-detail',
     async run(window) {
       await openFirstSkillDetail(window)
       await window.getByRole('button', { name: /Lint Status:/i }).click()
@@ -390,6 +476,7 @@ export const scenarios = [
     // Sidebar's "N EST. tokens" readout button → the explainer modal (stat, budget
     // derivation, heaviest-skills breakdown).
     name: 'context-budget-dialog-open',
+    screen: 'context-budget-dialog',
     async run(window) {
       await window.getByRole('button', { name: /EST\. tokens$/i }).click()
       await window.getByText('Never used, heaviest first').waitFor()
@@ -399,6 +486,7 @@ export const scenarios = [
     // "View disabled skills" link in the dialog closes it and filters the table down to
     // exactly the disabled global/plugin skills behind the excludedCount sentence above it.
     name: 'context-budget-dialog-view-disabled',
+    screen: 'context-budget-dialog',
     shouldSkip: skipWithoutDisabledSkills,
     async run(window) {
       await window.getByRole('button', { name: /EST\. tokens$/i }).click()
@@ -411,6 +499,7 @@ export const scenarios = [
     // the inventory table. Real ~/.claude data on this machine has plugins at all three
     // scopes, so this is never the empty state.
     name: 'plugins-inventory-open',
+    screen: 'plugin-inventory',
     async run(window) {
       await openPluginsSection(window)
     }
@@ -452,6 +541,7 @@ export const scenarios = [
   },
   {
     name: 'plugin-detail-open',
+    screen: 'plugin-detail',
     async run(window) {
       await openFirstPluginDetail(window)
     }
@@ -461,6 +551,7 @@ export const scenarios = [
     // destructive action is gated and names the plugin/scope before it runs.
     // Pinned to a user-scope plugin: project/local installs have Uninstall disabled.
     name: 'plugin-detail-uninstall-confirm',
+    screen: 'plugin-detail',
     async run(window) {
       await openPluginDetailByName(window, 'ponytail')
       await window.getByRole('button', { name: 'Uninstall' }).first().click()
@@ -483,6 +574,7 @@ export const scenarios = [
     // Command palette now lists a Plugins group alongside Skills — same modal, no
     // new UI surface.
     name: 'command-palette-plugin-search',
+    screen: 'command-palette',
     async run(window) {
       await window.keyboard.press('Meta+k')
       await window.getByPlaceholder(/search skills, plugins/i).fill('ponytail')
@@ -499,6 +591,7 @@ export const scenarios = [
     // and nothing appeared. openSkillViaCommandPalette's wait for "Back to skills"
     // is the assertion — it times out if the section switch is missing.
     name: 'command-palette-skill-from-plugins-section',
+    screen: ['command-palette', 'plugin-inventory'],
     async run(window) {
       await openPluginsSection(window)
       await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)

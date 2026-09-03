@@ -102,11 +102,15 @@ function insertPluginRegistry(overrides: {
   })
 }
 
-function insertSession(sessionId: string, cwd = '/repo'): void {
+function insertSession(
+  sessionId: string,
+  cwd = '/repo',
+  overrides: { git_branch?: string | null } = {}
+): void {
   db.prepare(
     `INSERT INTO sessions_meta (session_id, cwd, git_branch, started_at, message_count, source_mtime_ms)
-     VALUES (?, ?, NULL, '2026-08-14T00:00:00.000Z', 0, 0)`
-  ).run(sessionId, cwd)
+     VALUES (?, ?, ?, '2026-08-14T00:00:00.000Z', 0, 0)`
+  ).run(sessionId, cwd, overrides.git_branch ?? null)
 }
 
 function insertInvocation(overrides: {
@@ -116,12 +120,13 @@ function insertInvocation(overrides: {
   args_text?: string | null
   invoked_at?: string
   trigger_type?: string
+  agent_id?: string | null
   preceding_user_text?: string | null
 }): void {
   db.prepare(
     `INSERT INTO skill_invocations
        (source_uuid, session_id, skill_name, args_text, invoked_at, trigger_type, agent_id, preceding_user_text)
-     VALUES (@source_uuid, @session_id, @skill_name, @args_text, @invoked_at, @trigger_type, NULL, @preceding_user_text)`
+     VALUES (@source_uuid, @session_id, @skill_name, @args_text, @invoked_at, @trigger_type, @agent_id, @preceding_user_text)`
   ).run({
     source_uuid: overrides.source_uuid,
     session_id: overrides.session_id,
@@ -129,6 +134,7 @@ function insertInvocation(overrides: {
     args_text: overrides.args_text ?? null,
     invoked_at: overrides.invoked_at ?? '2026-08-14T00:00:00.000Z',
     trigger_type: overrides.trigger_type ?? 'autonomous',
+    agent_id: overrides.agent_id ?? null,
     preceding_user_text: overrides.preceding_user_text ?? null
   })
 }
@@ -1114,8 +1120,50 @@ describe('getSkillUsageDetail', () => {
       {
         preceding_user_text: '/deploy production --force',
         invoked_at: '2026-08-01T00:00:00.000Z',
-        trigger_type: 'user_invoked'
+        trigger_type: 'user_invoked',
+        cwd: '/repo',
+        git_branch: null,
+        agent_id: null
       }
+    ])
+  })
+
+  it('carries cwd, git_branch, and agent_id on each recent-trigger row, including nulls', () => {
+    const id = insertSkill('grill-me')
+    insertSession('sess-branch', '/repo/on-a-branch', { git_branch: 'feat/x' })
+    insertSession('sess-detached', '/tmp/scratch')
+    insertInvocation({
+      source_uuid: 'uuid-1',
+      session_id: 'sess-branch',
+      skill_name: 'grill-me',
+      invoked_at: '2026-08-10T00:00:00.000Z',
+      trigger_type: 'subagent',
+      agent_id: 'code-reviewer',
+      preceding_user_text: 'from a repo on a branch, via subagent'
+    })
+    insertInvocation({
+      source_uuid: 'uuid-2',
+      session_id: 'sess-detached',
+      skill_name: 'grill-me',
+      invoked_at: '2026-08-05T00:00:00.000Z',
+      preceding_user_text: 'from a non-repo cwd, main session'
+    })
+
+    const detail = getSkillUsageDetail(db, getSkillById(db, id)!)
+
+    expect(detail.recentTriggers).toEqual([
+      expect.objectContaining({
+        preceding_user_text: 'from a repo on a branch, via subagent',
+        cwd: '/repo/on-a-branch',
+        git_branch: 'feat/x',
+        agent_id: 'code-reviewer'
+      }),
+      expect.objectContaining({
+        preceding_user_text: 'from a non-repo cwd, main session',
+        cwd: '/tmp/scratch',
+        git_branch: null,
+        agent_id: null
+      })
     ])
   })
 

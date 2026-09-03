@@ -404,7 +404,10 @@ export function getSkillUsageDetail(db: Database.Database, skill: SkillRow): Ski
                 END
               ) AS preceding_user_text,
               si.invoked_at,
-              si.trigger_type
+              si.trigger_type,
+              sm.cwd,
+              sm.git_branch,
+              si.agent_id
        FROM skill_invocations si
        JOIN sessions_meta sm ON sm.session_id = si.session_id
        WHERE si.skill_name = @skillName

@@ -18,6 +18,16 @@ function windowWithDisabledSkillCount(count) {
   }
 }
 
+test('every scenario has a non-empty screen tag', () => {
+  for (const { name, screen } of scenarios) {
+    const tags = [].concat(screen)
+    assert.ok(
+      tags.length > 0 && tags.every((s) => typeof s === 'string' && s.length > 0),
+      `${name}: screen must be a non-empty string or non-empty string[] (got ${JSON.stringify(screen)})`
+    )
+  }
+})
+
 test('skips disabled-skill scenarios only when no disabled skill is available', async () => {
   for (const name of DISABLED_SCENARIO_NAMES) {
     const scenario = scenarioByName(name)

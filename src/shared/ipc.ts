@@ -123,6 +123,9 @@ export interface RecentTrigger {
   preceding_user_text: string
   invoked_at: string
   trigger_type: TriggerType
+  cwd: string // from sessions_meta
+  git_branch: string | null // NULL when cwd isn't a git repo
+  agent_id: string | null // subagent filename stem; NULL for main-session invocations
 }
 
 export interface SkillUsageDetail {

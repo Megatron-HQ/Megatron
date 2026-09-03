@@ -20,6 +20,7 @@ import pixelmatch from 'pixelmatch'
 import { PNG } from 'pngjs'
 import { _electron as electron } from 'playwright-core'
 import { scenarios } from './scenarios.mjs'
+import { parseOnly, selectScenarios } from './select-scenarios.mjs'
 import { evaluateMainProcess, getWindowSizes } from './window-sizes.mjs'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../..')
@@ -152,7 +153,7 @@ function registerDefectListeners(window, defects) {
   })
 }
 
-async function captureAll(app, window, outDir) {
+async function captureAll(app, window, outDir, activeScenarios, scoped) {
   const written = []
   const skipped = []
   const defects = { consoleErrors: [], pageErrors: [], overflow: [] }
@@ -162,7 +163,7 @@ async function captureAll(app, window, outDir) {
   const sizes = await getWindowSizes(app)
   const producedNames = new Set()
 
-  for (const scenario of scenarios) {
+  for (const scenario of activeScenarios) {
     for (const size of sizes) {
       // Reload back to the default baseline before every (scenario, size) pair
       // — scenarios describe "how to get from default to the state I want",
@@ -211,12 +212,48 @@ async function captureAll(app, window, outDir) {
     }
   }
 
-  const orphanBaselines = await findOrphanBaselines(producedNames)
+  // A scoped run only produces a subset of names, so every unrun scenario's
+  // baseline would look "orphaned" — noise at best, a nudge to delete a valid
+  // baseline at worst. Orphan detection only means something on a full run.
+  const orphanBaselines = scoped ? [] : await findOrphanBaselines(producedNames)
 
   return { written, skipped, defects, diff, orphanBaselines }
 }
 
-function printSummary(written, skipped, defects, diff, orphanBaselines) {
+/**
+ * Bookends the summary on a `--only` run so neither the top nor the tail of the
+ * log (where "no overflow or console/page errors detected" lands) can be misread
+ * as a clean full audit. `scope` is null on a full run — nothing printed.
+ */
+function printScopeBanner(scope, { closing } = {}) {
+  if (!scope) return
+  const { only, activeCount, totalCount, baselineCount } = scope
+
+  if (baselineCount === 0) {
+    // Nothing to diff against yet, so the no-baseline rule pulled in everything
+    // regardless of --only — say so instead of a misleading "N of N scenarios".
+    if (!closing) {
+      console.log(
+        `[visual-verify] --only ${only.join(',')} given, but no baselines exist yet — captured all ${activeCount} scenarios.`
+      )
+    }
+    return
+  }
+
+  if (closing) {
+    console.log(
+      '[visual-verify] SCOPED RUN — not a full audit. Run `npm run verify:visual` with no --only before the feature is done.'
+    )
+    return
+  }
+  console.log(
+    `[visual-verify] SCOPED RUN — ${activeCount} of ${totalCount} scenarios · --only ${only.join(',')}`
+  )
+  console.log(`[visual-verify]   ${totalCount - activeCount} scenarios NOT captured this run`)
+}
+
+function printSummary(written, skipped, defects, diff, orphanBaselines, scope) {
+  printScopeBanner(scope)
   console.log('[visual-verify] wrote:')
   for (const path of written) console.log(`  ${path}`)
 
@@ -261,9 +298,31 @@ function printSummary(written, skipped, defects, diff, orphanBaselines) {
   ) {
     console.log('[visual-verify] no overflow or console/page errors detected.')
   }
+
+  printScopeBanner(scope, { closing: true })
 }
 
 async function main() {
+  const only = parseOnly(process.argv.slice(2))
+
+  // Never wiped, unlike OUT_DIR below — the persistent "last accepted" cache
+  // diffing compares against. Read it now: resolving the scenario set BEFORE the
+  // build makes a typo in --only fail in well under a second instead of after a
+  // full typecheck + electron-vite build.
+  await mkdir(BASELINE_DIR, { recursive: true })
+  const baselineNames = await readdir(BASELINE_DIR)
+  const active = selectScenarios(scenarios, only, baselineNames)
+  const scoped = only !== null && active.length < scenarios.length
+  const scope =
+    only === null
+      ? null
+      : {
+          only,
+          activeCount: active.length,
+          totalCount: scenarios.length,
+          baselineCount: baselineNames.length
+        }
+
   console.log('[visual-verify] building...')
   execSync('npm run build', { cwd: REPO_ROOT, stdio: 'inherit' })
 
@@ -272,9 +331,6 @@ async function main() {
   // removed scenario's old PNG lingers forever instead of going away with it.
   await rm(OUT_DIR, { recursive: true, force: true })
   await mkdir(OUT_DIR, { recursive: true })
-  // Never wiped, unlike OUT_DIR above — this is the persistent "last accepted"
-  // cache that diffing compares against.
-  await mkdir(BASELINE_DIR, { recursive: true })
 
   let app
   try {
@@ -299,9 +355,11 @@ async function main() {
     const { written, skipped, defects, diff, orphanBaselines } = await captureAll(
       app,
       window,
-      OUT_DIR
+      OUT_DIR,
+      active,
+      scoped
     )
-    printSummary(written, skipped, defects, diff, orphanBaselines)
+    printSummary(written, skipped, defects, diff, orphanBaselines, scope)
   } finally {
     await app?.close()
     await rm(userDataDir, { recursive: true, force: true })

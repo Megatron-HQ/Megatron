@@ -92,6 +92,39 @@
   --radius-xl: calc(var(--radius) + 4px);
   --font-sans: 'Geist Sans', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'Geist Mono', ui-monospace, monospace;
+  /* SkillDetail's usage bar eases open on mount — CSS only, and skipped under reduced motion. */
+  --animate-bar-grow: bar-grow 0.5s ease-out;
+}
+
+@keyframes bar-grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+/* SkillDetail's trigger-mix bar is monochrome by design (DESIGN.md forbids color-as-category):
+   the three trigger types are told apart by texture over one shared ink fill, not by hue. The
+   pattern is deliberately low-contrast against its base — a faint grid line drawn in the page
+   ground, which inverts with the theme so the effect stays subtle in both. */
+.trigger-fill-solid {
+  background-color: var(--foreground);
+}
+.trigger-fill-hatch {
+  background-color: var(--foreground);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent 0 4px,
+    color-mix(in srgb, var(--background) 20%, transparent) 4px 5.5px
+  );
+}
+.trigger-fill-dots {
+  background-color: var(--foreground);
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--background) 22%, transparent) 1px,
+    transparent 1.5px
+  );
+  background-size: 5px 5px;
 }
 
 @layer base {

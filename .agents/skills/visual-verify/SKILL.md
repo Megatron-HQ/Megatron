@@ -14,6 +14,48 @@ against the actual request.
 
 ## Process
 
+### Scope the run
+
+By default, capture only the screens your change can reach — not all 37 scenarios. The full sweep
+is one flag away, and still required before you wrap up (see "Before wrapping up").
+
+Run the **full sweep** — `npm run verify:visual`, no `--only` — when any of these hold:
+
+- `git diff --name-only` touches a globally shared surface: `src/renderer/src/assets/main.css`,
+  `src/renderer/src/components/ui/**`, `src/renderer/src/App.tsx`, or
+  `src/renderer/src/components/AppRail.tsx`. These restyle or wrap every screen — this **overrides
+  the table below**.
+- the change is under `src/main/` or `src/shared/` in a way that alters what a screen displays.
+- the user asked for a full audit.
+- you're not certain which screens the change reaches.
+
+Otherwise **scope it** — `npm run verify:visual -- --only <screen>,<screen>` — mapping your changed
+files to screens:
+
+| Changed file(s)                                                                       | `--only` screen(s)               |
+| ------------------------------------------------------------------------------------- | -------------------------------- |
+| `views/SkillInventory.tsx`, `components/ClaudeIcon.tsx`                               | `skill-inventory`                |
+| `views/SkillDetail.tsx`                                                               | `skill-detail`                   |
+| `views/SkillFileViewer.tsx`, `components/FileTree.tsx`, `components/MarkdownView.tsx` | `skill-file-viewer`              |
+| `components/SourceBadge.tsx`, `components/LintStatusBadge.tsx`                        | `skill-inventory,skill-detail`   |
+| `components/LintFindingsPanel.tsx`                                                    | `skill-detail,skill-file-viewer` |
+| `components/Sidebar.tsx`                                                              | `sidebar`                        |
+| `components/ContextBudgetDialog.tsx`                                                  | `context-budget-dialog`          |
+| `components/CommandPalette.tsx`                                                       | `command-palette`                |
+| `components/SettingsDialog.tsx`, `components/ThemeToggle.tsx`                         | `settings-dialog`                |
+| `views/PluginInventory.tsx`                                                           | `plugin-inventory`               |
+| `views/PluginDetail.tsx`                                                              | `plugin-detail`                  |
+| `components/PluginBadges.tsx`                                                         | `plugin-inventory,plugin-detail` |
+
+A changed file **not in this table → run the full sweep.** (`ManageFoldersDialog.tsx` and
+`PluginActionToasts.tsx` have no scenario at all — a pre-existing coverage gap, not something
+scoping introduced.) A scenario you added this change runs even if you don't name its screen (it
+has no baseline yet), but name its screen in `--only` anyway.
+
+The runner validates `--only` before it builds: an unknown screen name exits immediately with the
+valid list. A scoped run prints a `SCOPED RUN` banner at both ends of its summary and suppresses the
+orphaned-baseline check (which only means something on a full run).
+
 **1. Restate the requirement.** Before running anything, write down — in your own words, from the
 conversation — exactly what UI change you just implemented. This is the yardstick everything below
 gets checked against. Skipping this turns step 3 into "eyeball it and hope," which isn't the point.
@@ -21,12 +63,14 @@ gets checked against. Skipping this turns step 3 into "eyeball it and hope," whi
 **2. Run it.**
 
 ```
-npm run verify:visual
+npm run verify:visual -- --only <screen>,<screen>   # scoped — the default (see "Scope the run")
+npm run verify:visual                               # full sweep
 ```
 
 This builds (typecheck included — a build failure is itself a finding, stop and read it), launches
-the packaged app in a throwaway profile, and for every scenario in `scenarios.mjs` at every window
-size Megatron supports, writes `.visual-verify/<scenario-name>--<size-label>.png`. Sizes are read
+the packaged app in a throwaway profile, and for every scenario in scope (all of `scenarios.mjs`,
+unless you passed `--only`) at every window size Megatron supports, writes
+`.visual-verify/<scenario-name>--<size-label>.png`. Sizes are read
 live from the real `BrowserWindow` config (`default` = initial launch size, `min` =
 `getMinimumSize()`), not hardcoded, so they can't drift out of sync with `src/main/index.ts`. It also
 prints a summary of any horizontal overflow (a real bug on this desktop app, always) and any console
@@ -55,10 +99,11 @@ font-rendering jitter. `2000` clears that with real margin. Each screenshot land
   even match the baseline (e.g. a DPI change) and no pixel comparison was possible. Always review.
 - **unchanged** — matches the accepted baseline. Nothing new here — skip reading it.
 
-The runner also prints any **orphaned baselines** — files in `.visual-verify-baselines/` with no
-matching scenario in this run (a sign a scenario was renamed or removed). Nothing is deleted
-automatically: an automated sweep can't reliably tell a rename from a deletion, so it's surfaced for
-you to deal with by hand if it's worth the five minutes.
+On a **full** run the runner also prints any **orphaned baselines** — files in
+`.visual-verify-baselines/` with no matching scenario (a sign a scenario was renamed or removed).
+Nothing is deleted automatically: an automated sweep can't reliably tell a rename from a deletion, so
+it's surfaced for you to deal with by hand if it's worth the five minutes. A scoped run skips this
+check — it can't tell an orphan from a screen it simply didn't capture.
 
 **3. Read everything and judge against the requirement from step 1.**
 
@@ -68,7 +113,7 @@ you to deal with by hand if it's worth the five minutes.
   they already matched a state you (or a prior session) already judged correct.
 - **`unchanged` means "nothing new to look at," never "verified."** The diff has no idea whether a
   change matches what was actually asked for — it only knows pixels didn't move. Don't let a clean
-  diff summary become a reason to skip judgment on the screenshots that *are* flagged.
+  diff summary become a reason to skip judgment on the screenshots that _are_ flagged.
 - **Watch for data drift, not just UI drift.** Scenarios read real `~/.claude` data, not fixtures —
   a skill count, a last-used timestamp, or a recency-sorted list can shift between two runs with zero
   code change in between. If a flagged diff is confined to that kind of live content rather than
@@ -79,13 +124,15 @@ you to deal with by hand if it's worth the five minutes.
   of its diff status.
 - **Check both sizes, not just default.** Megatron is user-resizable down to its real minimum; a
   layout that only works at the default size is broken, not passing.
-- **Check screens the current change didn't touch, not just the one it did.** Every scenario runs
-  every time specifically so a shared-component or token change shows up here even though the edit
-  was somewhere else — the diff against baseline is what makes this cheap to keep doing as scenario
-  count grows: an untouched screen that really didn't change costs nothing to skip.
+- **Check every screen your change can reach, not just the one you edited.** A scoped run captures
+  the screen you changed plus any screen a shared component you touched renders on (the `--only`
+  table) — and deliberately skips the rest. The closing full run ("Before wrapping up") is what
+  re-checks those for a shared-component or token regression. On a full run every scenario is
+  captured, and the baseline diff keeps that cheap by flagging only what actually moved.
 
 **4. If you find a real defect caused by this change, fix it — once.** Fix the specific issue, then
-re-run `npm run verify:visual` one more time to confirm. Whether the recheck comes back clean or not,
+re-run the same command (scoped or full, whichever you ran) one more time to confirm. Whether the
+recheck comes back clean or not,
 **stop there** — one fix-and-reverify cycle, full stop — and report the outcome with specifics rather
 than continuing to iterate. This mirrors Impeccable's own bounded-pass principle (`SKILL.src.md:17`:
 "Verify in bounded passes, not a loop... Open-ended self-QA burns the user's money doing worse what
@@ -110,15 +157,26 @@ local, ephemeral evidence for this one cycle, not a deliverable — the next run
 you're about to hand the screenshots to a deliberate `/impeccable critique` pass (see Scope below),
 keep them until that's finished too.
 
+## Before wrapping up
+
+If any run this cycle was scoped (`--only`), do **one full `npm run verify:visual`** before calling
+the UI change done — it's the single look a shared-component or token regression on an untouched
+screen gets before it ships. Read the newly-flagged screenshots and promote as usual. Skip this only
+if the change never went near a shared surface (per "Scope the run") — in which case you were
+running full the whole time anyway.
+
 ## Keeping coverage current
 
 **Implementing a UI change that adds a new screen, nav destination, or major state includes adding
 its scenario to `scenarios.mjs` in the same change** — this is part of "done," not a follow-up. Each
-entry is `{ name, run(window) }`: describe how to get from the app's default baseline state to the
-state you want screenshotted (the runner reloads back to baseline before every scenario, so don't
-assume another scenario ran first — see the comment at the top of `scenarios.mjs`). A renamed or
-removed scenario's old baseline shows up in the next run's orphaned-baselines report (step 2) — no
-action required, it's just visibility, not a cleanup obligation.
+entry is `{ name, screen, run(window) }`: `screen` is one of the nine names in the "Scope the run"
+table (or an array, for a scenario guarding an interaction between two screens); `run` describes how
+to get from the app's default baseline state to the state you want screenshotted (the runner reloads
+back to baseline before every scenario, so don't assume another scenario ran first — see the comment
+at the top of `scenarios.mjs`). A scenario with no `screen` is invisible to `--only` —
+`scenarios.test.mjs` fails if one is missing. A renamed or removed scenario's old baseline shows up
+in the next **full** run's orphaned-baselines report — no action required, it's just visibility, not
+a cleanup obligation.
 
 ## Scope — read this before reaching for more
 
