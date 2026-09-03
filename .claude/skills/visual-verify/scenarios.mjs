@@ -304,11 +304,8 @@ export const scenarios = [
     // this depends on real data — a skill whose frontmatter has a `metadata:` block and a
     // populated `modified_at`, to exercise the Modified stat + Metadata badge section.
     name: 'skill-detail-with-metadata',
-<<<<<<< HEAD
     shouldSkip: skipWithoutNamedSkill('banner-design'),
-=======
     screen: 'skill-detail',
->>>>>>> d16d1cf (feat: redesign skill detail with usage insights)
     async run(window) {
       await openSkillViaCommandPalette(window, 'banner-design', /^banner-design/)
     }
@@ -334,11 +331,8 @@ export const scenarios = [
     // as skill-detail-with-metadata: `handoff` is one of this developer's user-invocable-only
     // command skills.
     name: 'skill-detail-model-invocable-no',
-<<<<<<< HEAD
     shouldSkip: skipWithoutNamedSkill('handoff'),
-=======
     screen: 'skill-detail',
->>>>>>> d16d1cf (feat: redesign skill detail with usage insights)
     async run(window) {
       await openSkillViaCommandPalette(window, 'handoff', /^handoff/)
     }
@@ -508,6 +502,7 @@ export const scenarios = [
     // Project group expanded: one child row per project root holding a project-scope install,
     // with its plugin count. Confirms the group both filters and expands on one click.
     name: 'plugins-sidebar-project-expanded',
+    screen: 'plugin-inventory',
     async run(window) {
       await openPluginsSection(window)
       await window.getByRole('button', { name: 'Project', exact: true }).click()
@@ -519,6 +514,7 @@ export const scenarios = [
     // A single project selected under Local. The Scope column is deliberately dropped once a
     // scope is chosen — the sidebar already states it, and the table needs the width.
     name: 'plugins-sidebar-local-project-selected',
+    screen: 'plugin-inventory',
     shouldSkip: (window) => skipWithoutScopedPlugin(window, 'Local'),
     async run(window) {
       await openPluginsSection(window)
@@ -533,6 +529,7 @@ export const scenarios = [
     // User scope: no expander, since a user install isn't anchored to a project. Also the
     // narrowest the table gets — five columns beside a 220px sidebar.
     name: 'plugins-sidebar-user-selected',
+    screen: 'plugin-inventory',
     async run(window) {
       await openPluginsSection(window)
       await window.getByRole('button', { name: 'User', exact: true }).click()
@@ -563,6 +560,7 @@ export const scenarios = [
     // reads Unknown because verify runs in a throwaway profile with no folder grants,
     // and the three actions are disabled pending the CLI-cwd follow-up.
     name: 'plugin-detail-project-scope',
+    screen: 'plugin-detail',
     shouldSkip: (window) => skipWithoutScopedPlugin(window, 'Project'),
     async run(window) {
       await openPluginsSection(window)
