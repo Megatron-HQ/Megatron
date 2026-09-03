@@ -167,6 +167,13 @@ async function captureAll(app, window, outDir) {
       // Reload back to the default baseline before every (scenario, size) pair
       // — scenarios describe "how to get from default to the state I want",
       // not a chain that depends on execution order. See scenarios.mjs.
+      // Section and theme are persisted (electron-store) and survive the reload,
+      // so a scenario that ends on the Plugins section or flips the theme would
+      // otherwise poison every scenario after it — reset both before reloading.
+      await window.evaluate(async () => {
+        await window.api.setLastSection('skills')
+        await window.api.setTheme('system')
+      })
       await window.reload()
       await waitForSettle(window)
       await resizeWindow(app, size.width, size.height)
