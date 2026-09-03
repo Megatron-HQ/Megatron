@@ -30,6 +30,9 @@ interface Api {
   uninstallPlugin: (input: PluginActionInput) => Promise<PluginActionResult>
   getInitialSection: () => AppSection
   setLastSection: (section: AppSection) => Promise<void>
+  rescan: () => Promise<void>
+  revealDataFolder: () => Promise<void>
+  getVersion: () => string
   onScanComplete: (callback: () => void) => () => void
 }
 

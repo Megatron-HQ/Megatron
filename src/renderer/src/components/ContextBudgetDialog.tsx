@@ -17,6 +17,7 @@ interface ContextBudgetDialogProps {
   skills: SkillRow[]
   onSelectSkill: (id: number) => void
   onViewDisabled: () => void
+  onViewUserInvocableOnly: () => void
 }
 
 export function ContextBudgetDialog({
@@ -25,7 +26,8 @@ export function ContextBudgetDialog({
   budget,
   skills,
   onSelectSkill,
-  onViewDisabled
+  onViewDisabled,
+  onViewUserInvocableOnly
 }: ContextBudgetDialogProps): React.JSX.Element {
   const heaviest = heaviestBudgetSkills(skills)
   const over = budget.limit > 0 && budget.used > budget.limit
@@ -90,13 +92,25 @@ export function ContextBudgetDialog({
             </p>
           )}
           {budget.userInvocableOnlyCount > 0 && (
-            <p className="max-w-[72ch] text-left text-[13px] leading-relaxed text-muted-foreground">
-              {budget.userInvocableOnlyCount.toLocaleString()}{' '}
-              {budget.userInvocableOnlyCount === 1
-                ? 'user-invocable-only skill'
-                : 'user-invocable-only skills'}{' '}
-              ({budget.userInvocableOnlyTokens.toLocaleString()} tokens) not listed — Claude Code
-              keeps their descriptions out of context because only you can invoke them.
+            <p className="flex flex-wrap items-center gap-x-1.5 text-[13px] text-muted-foreground">
+              <span>
+                {budget.userInvocableOnlyCount.toLocaleString()}{' '}
+                {budget.userInvocableOnlyCount === 1
+                  ? 'user-invocable-only skill'
+                  : 'user-invocable-only skills'}{' '}
+                ({budget.userInvocableOnlyTokens.toLocaleString()} tokens) not listed — Claude Code
+                keeps their descriptions out of context because only you can invoke them.
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  onViewUserInvocableOnly()
+                  onOpenChange(false)
+                }}
+                className="font-medium text-foreground underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+              >
+                View these skills
+              </button>
             </p>
           )}
         </div>

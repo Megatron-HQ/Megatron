@@ -1,6 +1,15 @@
 import { useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, ArrowLeft, Bot, FolderOpen, GitFork, Power, UserRound } from 'lucide-react'
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Bot,
+  BotOff,
+  FolderOpen,
+  GitFork,
+  Power,
+  UserRound
+} from 'lucide-react'
 import { LintFindingsPanel } from '@/components/LintFindingsPanel'
 import { LintStatusBadge } from '@/components/LintStatusBadge'
 import { SourceBadge } from '@/components/SourceBadge'
@@ -9,7 +18,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { parseHookEvents } from '@/lib/hook-events'
-import { parseExtraFrontmatterFields } from '@/lib/markdown'
+import { hasDisableModelInvocationFrontmatter, parseExtraFrontmatterFields } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
 import type { SkillUsageDetail } from '../../../shared/ipc'
 
@@ -75,6 +84,19 @@ export function SkillDetail({
 
   const { skill, usage, findings = [] } = data
 
+  // Mechanism is derived client-side from the SKILL.md the page already loaded — no schema field
+  // backs it. skillMdContent === null (unreadable) means we can't tell, so we say nothing.
+  const invocationMechanism =
+    data.skillMdContent === null
+      ? null
+      : hasDisableModelInvocationFrontmatter(data.skillMdContent)
+        ? 'via SKILL.md frontmatter'
+        : 'via your /skills override'
+  const invocationStatValue =
+    invocationMechanism === null
+      ? 'User-invocable only'
+      : `User-invocable only · ${invocationMechanism}`
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
@@ -98,6 +120,19 @@ export function SkillDetail({
                 {skill.disabled_reason === 'plugin'
                   ? 'Plugin is disabled — not loaded into context.'
                   : 'Disabled via /skills — not loaded into context.'}
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {skill.model_invocable === 0 && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                {/* Neutral trait, not a flag: muted ink, explicitly not text-disabled-flag, so it
+                    reads as a deliberate config beside the flag-colored Power icon. */}
+                <BotOff className="size-4 shrink-0 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent>
+                User-invocable only — Claude won&apos;t auto-invoke this. Run it with{' '}
+                <span className="font-mono">/{skill.name}</span>.
               </TooltipContent>
             </Tooltip>
           )}
@@ -188,7 +223,11 @@ export function SkillDetail({
             <Card className="shadow-none py-4">
               <CardContent className="grid grid-cols-2 gap-x-6 gap-y-4 px-4 min-[1100px]:grid-cols-3 min-[1350px]:grid-cols-4">
                 <Stat
-                  label="Est. listing tokens"
+                  label={
+                    skill.model_invocable === 0
+                      ? 'Est. listing tokens if listed'
+                      : 'Est. listing tokens'
+                  }
                   value={skill.est_listing_tokens.toLocaleString()}
                   mono
                 />
@@ -224,7 +263,14 @@ export function SkillDetail({
                 {skill.hook_events !== null && (
                   <Stat label="Hooks" value={hookEvents} title={hookEvents} />
                 )}
-                {skill.model_invocable === 0 && <Stat label="Model-invocable" value="No" />}
+                {skill.model_invocable === 0 && (
+                  <Stat
+                    label="Invocation"
+                    value={invocationStatValue}
+                    title={invocationStatValue}
+                    wrapValue
+                  />
+                )}
                 {skill.disabled_reason !== null && (
                   <Stat
                     label="Disabled"
@@ -285,12 +331,16 @@ function Stat({
   label,
   value,
   mono,
-  title
+  title,
+  wrapValue
 }: {
   label: string
   value: string
   mono?: boolean
   title?: string
+  // Lets a multi-word value wrap to a second line instead of truncating — for the Invocation
+  // stat, whose folded "User-invocable only · via …" value is wider than a metrics column.
+  wrapValue?: boolean
 }): React.JSX.Element {
   return (
     <div className="min-w-0">
@@ -298,7 +348,11 @@ function Stat({
         {label}
       </p>
       <p
-        className={cn('truncate text-[13px]', mono && 'font-mono text-xs tabular-nums')}
+        className={cn(
+          'text-[13px]',
+          wrapValue ? 'break-words' : 'truncate',
+          mono && 'font-mono text-xs tabular-nums'
+        )}
         title={title}
       >
         {value}

@@ -7,6 +7,7 @@ export type SourceFilter =
   | { kind: 'project'; projectRoot?: string }
   | { kind: 'plugin'; pluginName?: string }
   | { kind: 'disabled' }
+  | { kind: 'user-invocable-only' }
 
 export function isFilterEqual(a: SourceFilter, b: SourceFilter): boolean {
   if (a.kind !== b.kind) return false
@@ -27,6 +28,18 @@ export function matchesFilter(skill: SkillRow, filter: SourceFilter): boolean {
     // it never counted toward the budget, so it can't appear in this filter's results either.
     return (
       skill.disabled_reason !== null &&
+      (skill.source_type === 'global' || skill.source_type === 'plugin')
+    )
+  }
+  if (filter.kind === 'user-invocable-only') {
+    // disabled_reason === null is required, not defensive: getContextBudget() in
+    // queries.ts makes the disabled and user-invocable-only audit buckets mutually exclusive
+    // (a disabled skill that is also model_invocable = 0 counts only as disabled). Without it,
+    // this filter's row count wouldn't match the userInvocableOnlyCount shown in the dialog.
+    // The global/plugin restriction mirrors the budget query for the same reason.
+    return (
+      skill.model_invocable === 0 &&
+      skill.disabled_reason === null &&
       (skill.source_type === 'global' || skill.source_type === 'plugin')
     )
   }
@@ -65,6 +78,8 @@ export function getFilterHeaderTitle(filter: SourceFilter): string {
         : 'Plugin Skills'
     case 'disabled':
       return 'Disabled Skills'
+    case 'user-invocable-only':
+      return 'User-Invocable Only Skills'
   }
 }
 
@@ -79,6 +94,8 @@ export function shouldShowSourceColumn(filter: SourceFilter): boolean {
     case 'plugin':
       return !filter.pluginName
     case 'disabled':
+      return true
+    case 'user-invocable-only':
       return true
   }
 }

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { parseExtraFrontmatterFields, resolveInternalLink, splitFrontmatter } from './markdown'
+import {
+  hasDisableModelInvocationFrontmatter,
+  parseExtraFrontmatterFields,
+  resolveInternalLink,
+  splitFrontmatter
+} from './markdown'
 
 describe('splitFrontmatter', () => {
   it('splits a normal frontmatter block from the body', () => {
@@ -110,5 +115,44 @@ describe('parseExtraFrontmatterFields', () => {
     const content =
       '---\nname: x\ntags:\n  - a\n  - b\nnested:\n  key: value\ncount: 3\n---\nBody\n'
     expect(parseExtraFrontmatterFields(content)).toEqual([['count', 3]])
+  })
+
+  it('drops disable-model-invocation — it is surfaced as its own stat, not a raw badge', () => {
+    const content = '---\nname: x\ndisable-model-invocation: true\nlicense: MIT\n---\nBody\n'
+    expect(parseExtraFrontmatterFields(content)).toEqual([['license', 'MIT']])
+  })
+})
+
+describe('hasDisableModelInvocationFrontmatter', () => {
+  it('is true for a bare boolean true', () => {
+    expect(
+      hasDisableModelInvocationFrontmatter(
+        '---\nname: x\ndisable-model-invocation: true\n---\nBody\n'
+      )
+    ).toBe(true)
+  })
+
+  it('is false for the quoted string "true" — mirrors the scanner\'s strict === true', () => {
+    expect(
+      hasDisableModelInvocationFrontmatter(
+        '---\nname: x\ndisable-model-invocation: "true"\n---\nBody\n'
+      )
+    ).toBe(false)
+  })
+
+  it('is false when the field is absent, false, or there is no frontmatter', () => {
+    expect(hasDisableModelInvocationFrontmatter('---\nname: x\n---\nBody\n')).toBe(false)
+    expect(
+      hasDisableModelInvocationFrontmatter(
+        '---\nname: x\ndisable-model-invocation: false\n---\nBody\n'
+      )
+    ).toBe(false)
+    expect(hasDisableModelInvocationFrontmatter('# No frontmatter\n')).toBe(false)
+  })
+
+  it('is false when the frontmatter fails to parse', () => {
+    expect(hasDisableModelInvocationFrontmatter('---\nname: [unterminated\n---\nBody\n')).toBe(
+      false
+    )
   })
 })

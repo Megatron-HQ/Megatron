@@ -349,6 +349,7 @@ export function Sidebar({
         skills={skills}
         onSelectSkill={onSelectSkill}
         onViewDisabled={() => onFilterChange({ kind: 'disabled' })}
+        onViewUserInvocableOnly={() => onFilterChange({ kind: 'user-invocable-only' })}
       />
     </div>
   )
@@ -358,12 +359,14 @@ function ContextBudgetReadout({
   budget,
   skills,
   onSelectSkill,
-  onViewDisabled
+  onViewDisabled,
+  onViewUserInvocableOnly
 }: {
   budget: ContextBudget
   skills: SkillRow[]
   onSelectSkill: (id: number) => void
   onViewDisabled: () => void
+  onViewUserInvocableOnly: () => void
 }): React.JSX.Element {
   const [dialogOpen, setDialogOpen] = useState(false)
   const status = budgetStatus(budget)
@@ -404,6 +407,7 @@ function ContextBudgetReadout({
         skills={skills}
         onSelectSkill={onSelectSkill}
         onViewDisabled={onViewDisabled}
+        onViewUserInvocableOnly={onViewUserInvocableOnly}
       />
     </div>
   )

@@ -16,7 +16,10 @@ export const IPC_CHANNELS = {
   updatePlugin: 'plugins:update',
   uninstallPlugin: 'plugins:uninstall',
   getInitialSection: 'app:getInitialSection',
-  setLastSection: 'app:setLastSection'
+  setLastSection: 'app:setLastSection',
+  rescan: 'app:rescan',
+  revealDataFolder: 'app:revealDataFolder',
+  getVersion: 'app:getVersion'
 } as const
 
 export interface AllowedPathRow {

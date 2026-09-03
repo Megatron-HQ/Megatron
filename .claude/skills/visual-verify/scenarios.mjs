@@ -64,6 +64,11 @@ async function skipWithoutDisabledSkills(window) {
   return disabledSkillCount === 0 ? 'no disabled skills found locally' : null
 }
 
+async function skipWithoutUserInvocableOnlySkills(window) {
+  const count = await window.locator('tbody tr svg.lucide-bot-off').count()
+  return count === 0 ? 'no user-invocable-only skills found locally' : null
+}
+
 /** @type {Scenario[]} */
 export const scenarios = [
   {
@@ -73,28 +78,29 @@ export const scenarios = [
     }
   },
   {
+    // The rail's one-click light↔dark toggle (skiper4-adapted sun/moon morph, motion-driven).
     name: 'inventory-other-theme',
     async run(window) {
-      const usesDarkTheme = await window
-        .locator('html')
-        .evaluate((element) => element.classList.contains('dark'))
-      await window.getByRole('button', { name: 'Appearance' }).click()
-      await window.getByRole('menuitemradio', { name: usesDarkTheme ? 'Light' : 'Dark' }).click()
+      await window.getByRole('button', { name: /Switch to (dark|light) mode/ }).click()
+      // The morph is a JS-driven motion tween, not a CSS transition Playwright auto-waits on.
+      await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
   {
-    name: 'appearance-menu-open',
+    // The Cmd+, / rail-gear Settings dialog, which now owns the three-way appearance choice
+    // (segmented control, ink-fill active) plus rescan / folders / about.
+    name: 'settings-dialog-open',
     async run(window) {
-      await window.getByRole('button', { name: 'Appearance' }).click()
-      await window.getByRole('menuitemradio', { name: 'System' }).waitFor()
+      await window.getByRole('button', { name: 'Settings' }).click()
+      await window.getByRole('radio', { name: 'System' }).waitFor()
     }
   },
   {
-    name: 'plugins-appearance-menu-open',
+    name: 'plugins-settings-dialog-open',
     async run(window) {
       await openPluginsSection(window)
-      await window.getByRole('button', { name: 'Appearance' }).click()
-      await window.getByRole('menuitemradio', { name: 'System' }).waitFor()
+      await window.getByRole('button', { name: 'Settings' }).click()
+      await window.getByRole('radio', { name: 'System' }).waitFor()
     }
   },
   {
@@ -218,9 +224,11 @@ export const scenarios = [
   },
   {
     // A skill whose frontmatter carries `disable-model-invocation: true` — Detail
-    // shows the "Model-invocable: No" stat beside Hooks/Disabled. Named skill, same
-    // real-~/.claude-data assumption as skill-detail-with-metadata: `handoff` is one
-    // of this developer's user-invocable-only command skills.
+    // shows the neutral BotOff icon in the header and an "Invocation" stat reading
+    // "User-invocable only · via SKILL.md frontmatter", with the token stat relabeled
+    // "Est. listing tokens if listed". Named skill, same real-~/.claude-data assumption
+    // as skill-detail-with-metadata: `handoff` is one of this developer's user-invocable-only
+    // command skills.
     name: 'skill-detail-model-invocable-no',
     async run(window) {
       await openSkillViaCommandPalette(window, 'handoff', /^handoff/)
@@ -291,6 +299,29 @@ export const scenarios = [
     async run(window) {
       await window.locator('tbody tr:has(svg.lucide-power) svg.lucide-power').first().hover()
       await window.getByText(/Disabled via/).waitFor()
+    }
+  },
+  {
+    // The table Name column's user-invocable-only indicator: a neutral (muted-ink, NOT
+    // flag-colored) BotOff icon, reading as a deliberate config beside the flag-colored
+    // Power. Real local data may have none, in which case this scenario is skipped.
+    name: 'table-user-invocable-only-icon-tooltip',
+    shouldSkip: skipWithoutUserInvocableOnlySkills,
+    async run(window) {
+      await window.locator('tbody tr svg.lucide-bot-off').first().hover()
+      await window.getByText(/User-invocable only/).waitFor()
+    }
+  },
+  {
+    // "View these skills" in the budget dialog closes it and filters the table down to
+    // exactly the user-invocable-only global/plugin skills behind the sentence above it —
+    // the row count must match budget.userInvocableOnlyCount.
+    name: 'context-budget-dialog-view-user-invocable-only',
+    shouldSkip: skipWithoutUserInvocableOnlySkills,
+    async run(window) {
+      await window.getByRole('button', { name: /EST\. tokens$/i }).click()
+      await window.getByRole('button', { name: 'View these skills' }).click()
+      await window.getByText('User-Invocable Only Skills').waitFor()
     }
   },
   {

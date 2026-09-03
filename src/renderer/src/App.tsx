@@ -4,6 +4,7 @@ import { AppRail } from '@/components/AppRail'
 import { CommandPalette } from '@/components/CommandPalette'
 import { ManageFoldersDialog } from '@/components/ManageFoldersDialog'
 import { PluginActionToasts, type PluginActionToast } from '@/components/PluginActionToasts'
+import { SettingsDialog } from '@/components/SettingsDialog'
 import { Sidebar } from '@/components/Sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { TREE_WIDTH_DEFAULT } from '@/lib/file-tree'
@@ -39,11 +40,16 @@ function App(): React.JSX.Element {
   const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
     window.api.getInitialTheme()
   )
+  // main.tsx applies the resolved theme class before first paint, so the DOM is the source
+  // of truth on mount; the applyTheme effect below keeps this in sync afterwards.
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'))
+  const [version] = useState(() => window.api.getVersion())
   const [filter, setFilter] = useState<SourceFilter>({ kind: 'all' })
   const [view, setView] = useState<View>({ kind: 'list' })
   const [section, setSection] = useState<AppSection>(() => window.api.getInitialSection())
   const [pluginView, setPluginView] = useState<PluginView>({ kind: 'list' })
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [foldersDialogOpen, setFoldersDialogOpen] = useState(false)
   const [treeWidth, setTreeWidth] = useState(TREE_WIDTH_DEFAULT)
   const [pluginActionToasts, setPluginActionToasts] = useState<PluginActionToast[]>([])
@@ -86,6 +92,10 @@ function App(): React.JSX.Element {
         event.preventDefault()
         setPaletteOpen((open) => !open)
       }
+      if (event.key === ',' && (event.metaKey || event.ctrlKey) && !event.repeat) {
+        event.preventDefault()
+        setSettingsOpen((open) => !open)
+      }
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
@@ -97,6 +107,7 @@ function App(): React.JSX.Element {
       const useDarkTheme =
         themePreference === 'dark' || (themePreference === 'system' && mediaQuery.matches)
       document.documentElement.classList.toggle('dark', useDarkTheme)
+      setIsDark(useDarkTheme)
     }
 
     applyTheme()
@@ -153,6 +164,11 @@ function App(): React.JSX.Element {
     void window.api.setTheme(next)
   }
 
+  function handleToggleTheme(): void {
+    // From System mode this resolves to the explicit opposite of what's currently showing.
+    handleThemeChange(isDark ? 'light' : 'dark')
+  }
+
   async function handleAddFolders(): Promise<void> {
     await window.api.pickAndAddFolders()
     await Promise.all([
@@ -189,8 +205,9 @@ function App(): React.JSX.Element {
           <AppRail
             section={section}
             onSectionChange={handleSectionChange}
-            themePreference={themePreference}
-            onThemeChange={handleThemeChange}
+            isDark={isDark}
+            onToggleTheme={handleToggleTheme}
+            onOpenSettings={() => setSettingsOpen(true)}
           />
           {section === 'skills' ? (
             <>
@@ -256,6 +273,17 @@ function App(): React.JSX.Element {
         onSelect={openDetail}
         plugins={plugins}
         onSelectPlugin={selectPluginFromPalette}
+      />
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        themePreference={themePreference}
+        onThemeChange={handleThemeChange}
+        version={version}
+        onManageFolders={() => {
+          setSettingsOpen(false)
+          setFoldersDialogOpen(true)
+        }}
       />
       <ManageFoldersDialog
         open={foldersDialogOpen}

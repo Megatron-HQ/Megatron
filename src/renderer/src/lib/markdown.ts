@@ -46,8 +46,30 @@ export function parseExtraFrontmatterFields(content: string): ScalarFrontmatterF
     (entry): entry is ScalarFrontmatterField =>
       entry[0] !== 'name' &&
       entry[0] !== 'description' &&
+      // First-class on the detail page now (surfaced as the Invocation stat) — don't also echo
+      // it as a raw frontmatter badge.
+      entry[0] !== 'disable-model-invocation' &&
       ['string', 'number', 'boolean'].includes(typeof entry[1])
   )
+}
+
+// True only when SKILL.md's frontmatter carries `disable-model-invocation: true` as a bare
+// boolean. Mirrors skill-parser.ts's strict `=== true` check exactly: a quoted "true", a number,
+// or any other value is not the opt-out and the scanner ignores it, so this must too — otherwise
+// the detail page would credit "SKILL.md frontmatter" for a skill the scanner never flagged.
+export function hasDisableModelInvocationFrontmatter(content: string): boolean {
+  const { frontmatter } = splitFrontmatter(content)
+  if (frontmatter === null) return false
+
+  let parsed: unknown
+  try {
+    parsed = parse(frontmatter)
+  } catch {
+    return false
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return false
+
+  return (parsed as Record<string, unknown>)['disable-model-invocation'] === true
 }
 
 const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i

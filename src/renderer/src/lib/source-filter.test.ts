@@ -68,6 +68,10 @@ describe('source-filter helpers', () => {
       ).toBe(false)
       expect(isFilterEqual({ kind: 'disabled' }, { kind: 'disabled' })).toBe(true)
       expect(isFilterEqual({ kind: 'disabled' }, { kind: 'all' })).toBe(false)
+      expect(isFilterEqual({ kind: 'user-invocable-only' }, { kind: 'user-invocable-only' })).toBe(
+        true
+      )
+      expect(isFilterEqual({ kind: 'user-invocable-only' }, { kind: 'disabled' })).toBe(false)
     })
   })
 
@@ -171,6 +175,37 @@ describe('source-filter helpers', () => {
       // past the number the user saw in the dialog.
       expect(matchesFilter(disabledProject, filter)).toBe(false)
     })
+
+    it('matches user-invocable-only global and plugin skills, excluding disabled and project ones', () => {
+      const filter: SourceFilter = { kind: 'user-invocable-only' }
+      const uioGlobal = makeSkill({ id: 8, source_type: 'global', model_invocable: 0 })
+      const uioPlugin = makeSkill({
+        id: 9,
+        source_type: 'plugin',
+        plugin_name: 'designer@official',
+        model_invocable: 0
+      })
+      const uioProject = makeSkill({
+        id: 10,
+        source_type: 'project',
+        project_root: '/repos/alpha',
+        model_invocable: 0
+      })
+      // Disabled AND model_invocable = 0 — the budget query counts this only as disabled, so
+      // this filter must not claim it, or its row count drifts past the dialog's number.
+      const disabledAndUio = makeSkill({
+        id: 11,
+        source_type: 'global',
+        model_invocable: 0,
+        disabled_reason: 'override'
+      })
+
+      expect(matchesFilter(uioGlobal, filter)).toBe(true)
+      expect(matchesFilter(uioPlugin, filter)).toBe(true)
+      expect(matchesFilter(uioProject, filter)).toBe(false)
+      expect(matchesFilter(disabledAndUio, filter)).toBe(false)
+      expect(matchesFilter(globalSkill, filter)).toBe(false)
+    })
   })
 
   describe('getFilterHeaderTitle', () => {
@@ -186,6 +221,9 @@ describe('source-filter helpers', () => {
         'Plugin / frontend-design Skills'
       )
       expect(getFilterHeaderTitle({ kind: 'disabled' })).toBe('Disabled Skills')
+      expect(getFilterHeaderTitle({ kind: 'user-invocable-only' })).toBe(
+        'User-Invocable Only Skills'
+      )
     })
   })
 
@@ -202,6 +240,7 @@ describe('source-filter helpers', () => {
         false
       )
       expect(shouldShowSourceColumn({ kind: 'disabled' })).toBe(true)
+      expect(shouldShowSourceColumn({ kind: 'user-invocable-only' })).toBe(true)
     })
   })
 })

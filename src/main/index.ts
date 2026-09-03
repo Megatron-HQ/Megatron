@@ -1,5 +1,9 @@
 import { app, shell, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'path'
+// Bundled at build time so it always matches package.json — app.getVersion() returns the
+// Electron executable's version under `electron-vite dev` (the app has no package.json on
+// disk there), not this app's.
+import { version as appVersion } from '../../package.json'
 import Store from 'electron-store'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -244,6 +248,20 @@ app.whenReady().then(() => {
 
   ipcMain.handle(IPC_CHANNELS.setLastSection, (_event, section: AppSection) => {
     setStoredSection(themeStore, section)
+  })
+
+  // runAllScans is fully synchronous, so scanAndNotify blocks until every scan and the
+  // linter finish — the renderer's await on this invoke is the completion signal, and the
+  // scan:complete broadcast it fires drives the query invalidation in App.tsx.
+  ipcMain.handle(IPC_CHANNELS.rescan, () => scanAndNotify())
+
+  // openPath on the data folder rather than showItemInFolder on the db file: the folder
+  // always exists (the index may have been deleted), and the documented recovery path also
+  // removes the -wal/-shm siblings, which the folder view shows.
+  ipcMain.handle(IPC_CHANNELS.revealDataFolder, () => shell.openPath(app.getPath('userData')))
+
+  ipcMain.on(IPC_CHANNELS.getVersion, (event) => {
+    event.returnValue = appVersion
   })
 
   createWindow()

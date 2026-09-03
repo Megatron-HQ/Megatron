@@ -45,6 +45,9 @@ const api = {
   getInitialSection: (): AppSection => ipcRenderer.sendSync(IPC_CHANNELS.getInitialSection),
   setLastSection: (section: AppSection): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.setLastSection, section),
+  rescan: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.rescan),
+  revealDataFolder: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.revealDataFolder),
+  getVersion: (): string => ipcRenderer.sendSync(IPC_CHANNELS.getVersion),
   onScanComplete: (callback: () => void): (() => void) => {
     const listener = (): void => callback()
     ipcRenderer.on(IPC_CHANNELS.scanComplete, listener)

@@ -9,7 +9,7 @@ import {
   useTable
 } from '@tanstack/react-table'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
-import { AlertTriangle, FolderOpen, Power, Search, Webhook } from 'lucide-react'
+import { AlertTriangle, BotOff, FolderOpen, Power, Search, Webhook } from 'lucide-react'
 import { motion } from 'motion/react'
 import { ClaudeIcon } from '@/components/ClaudeIcon'
 import { LintStatusBadge } from '@/components/LintStatusBadge'
@@ -86,6 +86,17 @@ const nameColumn = columnHelper.accessor('name', {
             </TooltipTrigger>
             <TooltipContent>
               Also runs via hooks: {parseHookEvents(row.hook_events).join(', ')}
+            </TooltipContent>
+          </Tooltip>
+        )}
+        {row.model_invocable === 0 && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <BotOff className="size-3 shrink-0 text-muted-foreground" />
+            </TooltipTrigger>
+            <TooltipContent>
+              User-invocable only — Claude won&apos;t auto-invoke this. Run it with{' '}
+              <span className="font-mono">/{row.name}</span>.
             </TooltipContent>
           </Tooltip>
         )}
@@ -503,6 +514,10 @@ function EmptyState({
       title = 'No plugin skills found'
       message = 'Plugin skills are discovered from your installed Claude Code plugins.'
     }
+  } else if (filter.kind === 'user-invocable-only') {
+    title = 'No user-invocable-only skills'
+    message =
+      'Every global and plugin skill is model-invocable — Claude can route to all of them on its own.'
   }
 
   return (
