@@ -45,13 +45,15 @@ function insertSkill(
     project_root?: string | null
     is_synced?: number
     disabled_reason?: string | null
+    model_invocable?: number
   } = {}
 ): number {
   db.prepare(
     `INSERT INTO skills
        (name, source_type, source_path, plugin_name, description, last_scanned_at,
-        est_listing_tokens, est_body_tokens, project_root, is_synced, disabled_reason)
-     VALUES (?, ?, ?, NULL, NULL, '2026-08-14T00:00:00.000Z', ?, 0, ?, ?, ?)`
+        est_listing_tokens, est_body_tokens, project_root, is_synced, disabled_reason,
+        model_invocable)
+     VALUES (?, ?, ?, NULL, NULL, '2026-08-14T00:00:00.000Z', ?, 0, ?, ?, ?, ?)`
   ).run(
     name,
     overrides.source_type ?? 'global',
@@ -59,7 +61,8 @@ function insertSkill(
     overrides.est_listing_tokens ?? 0,
     overrides.project_root ?? null,
     overrides.is_synced ?? 0,
-    overrides.disabled_reason ?? null
+    overrides.disabled_reason ?? null,
+    overrides.model_invocable ?? 1
   )
   return (db.prepare('SELECT last_insert_rowid() AS id').get() as { id: number }).id
 }
@@ -1192,7 +1195,9 @@ describe('getContextBudget', () => {
       used: 1200,
       limit: 2666,
       excludedTokens: 0,
-      excludedCount: 0
+      excludedCount: 0,
+      userInvocableOnlyTokens: 0,
+      userInvocableOnlyCount: 0
     })
   })
 
@@ -1201,7 +1206,9 @@ describe('getContextBudget', () => {
       used: 0,
       limit: 2666,
       excludedTokens: 0,
-      excludedCount: 0
+      excludedCount: 0,
+      userInvocableOnlyTokens: 0,
+      userInvocableOnlyCount: 0
     })
   })
 
@@ -1217,7 +1224,9 @@ describe('getContextBudget', () => {
       used: 500,
       limit: 2666,
       excludedTokens: 700,
-      excludedCount: 1
+      excludedCount: 1,
+      userInvocableOnlyTokens: 0,
+      userInvocableOnlyCount: 0
     })
   })
 
@@ -1232,7 +1241,45 @@ describe('getContextBudget', () => {
       used: 0,
       limit: 2666,
       excludedTokens: 0,
-      excludedCount: 0
+      excludedCount: 0,
+      userInvocableOnlyTokens: 0,
+      userInvocableOnlyCount: 0
+    })
+  })
+
+  it('excludes a model_invocable=0 skill from used and reports it under the user-invocable-only counters', () => {
+    insertSkill('a', { source_type: 'global', est_listing_tokens: 500 })
+    insertSkill('b', {
+      source_type: 'global',
+      est_listing_tokens: 300,
+      model_invocable: 0
+    })
+
+    expect(getContextBudget(db)).toEqual({
+      used: 500,
+      limit: 2666,
+      excludedTokens: 0,
+      excludedCount: 0,
+      userInvocableOnlyTokens: 300,
+      userInvocableOnlyCount: 1
+    })
+  })
+
+  it('counts a skill that is both disabled and model_invocable=0 only under excluded, not user-invocable-only', () => {
+    insertSkill('a', {
+      source_type: 'plugin',
+      est_listing_tokens: 700,
+      disabled_reason: 'plugin',
+      model_invocable: 0
+    })
+
+    expect(getContextBudget(db)).toEqual({
+      used: 0,
+      limit: 2666,
+      excludedTokens: 700,
+      excludedCount: 1,
+      userInvocableOnlyTokens: 0,
+      userInvocableOnlyCount: 0
     })
   })
 })

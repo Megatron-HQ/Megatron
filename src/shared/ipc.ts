@@ -64,6 +64,10 @@ export interface SkillRow {
   // Claude Code unloads the whole plugin). 'override' when settings.json's skillOverrides has
   // this skill set to "off" (plugin skills can't carry this one, only 'plugin' applies to them).
   disabled_reason: string | null
+  // 0 when Claude Code keeps this skill's description out of its skill listing (user-invocable
+  // only — set by frontmatter `disable-model-invocation: true` or settings.json skillOverrides
+  // `<name>: user-invocable-only`), so it costs 0 listing tokens. The skill still runs via /name.
+  model_invocable: number
   total_invocations: number
   last_invoked_at: string | null
   // Non-null only for a project skill that's permanently shadowed by a global skill of the
@@ -81,6 +85,11 @@ export interface ContextBudget {
   // because disabled_reason is set — the audit line under the budget in ContextBudgetDialog.
   excludedTokens: number
   excludedCount: number
+  // Same, for skills excluded because model_invocable = 0 (user-invocable only — Claude Code
+  // keeps their descriptions out of the listing). Mutually exclusive with excluded*: a skill
+  // that is both counts only under excluded*.
+  userInvocableOnlyTokens: number
+  userInvocableOnlyCount: number
 }
 
 export interface SkillsListResult {

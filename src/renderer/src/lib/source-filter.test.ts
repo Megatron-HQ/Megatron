@@ -25,6 +25,7 @@ function makeSkill(overrides: Partial<SkillRow> = {}): SkillRow {
     is_synced: 0,
     hook_events: null,
     disabled_reason: null,
+    model_invocable: 1,
     total_invocations: 0,
     last_invoked_at: null,
     shadowed_by_skill_id: null,

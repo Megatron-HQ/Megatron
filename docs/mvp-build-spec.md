@@ -143,6 +143,11 @@ distinct from and unaffected by our `CHARS_PER_TOKEN`) divided by the same `CHAR
 above, so the over/warning/ok comparison against real truncation risk is exactly as correct as it
 was before the recalibration — only the displayed numbers changed.
 
+`used` (`getContextBudget`) sums `est_listing_tokens` only over rows with `disabled_reason IS NULL
+AND model_invocable = 1` — a disabled skill or a user-invocable-only one (`model_invocable = 0`,
+see `docs/data-model.md`) contributes nothing to Claude Code's listing, so it contributes nothing
+here either.
+
 **All of these — `4`, `0.01`, `200000`, `1536` — are undocumented internal detail from one
 point-in-time build of Claude Code, not a public contract.** Corroboration for Megatron's own
 heuristic, not something Megatron depends on staying fixed.

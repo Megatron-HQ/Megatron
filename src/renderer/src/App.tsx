@@ -27,7 +27,9 @@ const DEFAULT_CONTEXT_BUDGET: ContextBudget = {
   used: 0,
   limit: 0,
   excludedTokens: 0,
-  excludedCount: 0
+  excludedCount: 0,
+  userInvocableOnlyTokens: 0,
+  userInvocableOnlyCount: 0
 }
 const SUCCESS_TOAST_DURATION_MS = 3_000
 const MAX_SUCCESS_TOASTS = 3

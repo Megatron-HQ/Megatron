@@ -19,6 +19,7 @@ function makeSkill(overrides: Partial<SkillRow> = {}): SkillRow {
     is_synced: 0,
     hook_events: null,
     disabled_reason: null,
+    model_invocable: 1,
     total_invocations: 0,
     last_invoked_at: null,
     shadowed_by_skill_id: null,
@@ -115,10 +116,31 @@ describe('heaviestBudgetSkills', () => {
     ]
     expect(heaviestBudgetSkills(skills).map((s) => s.id)).toEqual([2])
   })
+
+  it('excludes an unused user-invocable-only skill, even when heaviest — it costs 0 listing tokens', () => {
+    const skills = [
+      makeSkill({
+        id: 1,
+        name: 'user-invocable-only-skill',
+        est_listing_tokens: 999,
+        model_invocable: 0
+      }),
+      makeSkill({ id: 2, name: 'small-and-unused', est_listing_tokens: 10 })
+    ]
+    expect(heaviestBudgetSkills(skills).map((s) => s.id)).toEqual([2])
+  })
 })
 
 function makeBudget(overrides: Partial<ContextBudget> = {}): ContextBudget {
-  return { used: 0, limit: 2000, excludedTokens: 0, excludedCount: 0, ...overrides }
+  return {
+    used: 0,
+    limit: 2000,
+    excludedTokens: 0,
+    excludedCount: 0,
+    userInvocableOnlyTokens: 0,
+    userInvocableOnlyCount: 0,
+    ...overrides
+  }
 }
 
 describe('budgetStatus', () => {

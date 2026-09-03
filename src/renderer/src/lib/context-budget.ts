@@ -29,6 +29,10 @@ export function budgetStatus(budget: ContextBudget): ContextBudgetStatus {
 //
 // A skill with disabled_reason set is excluded too: it already costs 0 tokens (getContextBudget
 // skips it the same way), so "disable this" is advice for something already disabled.
+//
+// A skill with model_invocable = 0 (user-invocable only) is excluded for the same reason: Claude
+// Code keeps its description out of the listing, so it already contributes 0 listing tokens —
+// "disable this heavy unused skill" is wrong advice for something that costs nothing.
 export function heaviestBudgetSkills(
   skills: SkillRow[],
   limit = HEAVIEST_SKILLS_LIMIT
@@ -38,7 +42,8 @@ export function heaviestBudgetSkills(
       (skill) =>
         (skill.source_type === 'global' || skill.source_type === 'plugin') &&
         skill.hook_events === null &&
-        skill.disabled_reason === null
+        skill.disabled_reason === null &&
+        skill.model_invocable === 1
     )
     .sort((a, b) => {
       const aUnused = a.total_invocations === 0

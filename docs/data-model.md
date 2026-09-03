@@ -148,6 +148,20 @@ is `false` (Claude Code unloads the whole plugin), `'override'` when `settings.j
 `docs/skill-scanner.md`). `getContextBudget()` excludes any row with `disabled_reason` set from
 `used`, and reports its tokens/count separately as `excludedTokens`/`excludedCount`.
 
+**`model_invocable` (added 2026-09-03)**: `INTEGER NOT NULL DEFAULT 1` on `skills`, stamped at
+Scan time. `0` means Claude Code keeps this skill's description **out of its skill listing**, so it
+costs `0` listing tokens — set by either the frontmatter flag `disable-model-invocation: true`
+(all three sources) or `settings.json`'s `skillOverrides` `"<name>": "user-invocable-only"`
+(global/project only; plugin skills ignore `skillOverrides`, consistent with `disabled_reason`).
+Deliberately **not** a third `disabled_reason` value: a `model_invocable = 0` skill still works —
+`/name` runs it and its body loads — so listing it under "Disabled Skills" would misread it as
+broken. Same reasoning as `hook_events` getting its own column. `getContextBudget()` excludes
+`model_invocable = 0` rows from `used` and reports them as `userInvocableOnlyTokens` /
+`userInvocableOnlyCount`; that bucket is mutually exclusive with `excludedTokens`/`excludedCount`
+(a row that is both disabled and `model_invocable = 0` counts only as disabled). `skillOverrides`
+`"name-only"` is a documented residual — it keeps the name, drops only the description, and is
+still counted (accounting for it needs a name-token estimator that does not exist yet).
+
 **Skill name collisions (added 2026-08-16)**: two same-named skills are always two separate
 `skills` rows (identity is `source_path`, already `UNIQUE`) — never merged. What changed is how
 `total_invocations`/`last_invoked_at` attribute a name's invocations across those rows, per the

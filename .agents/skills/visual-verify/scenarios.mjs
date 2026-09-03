@@ -217,6 +217,16 @@ export const scenarios = [
     }
   },
   {
+    // A skill whose frontmatter carries `disable-model-invocation: true` — Detail
+    // shows the "Model-invocable: No" stat beside Hooks/Disabled. Named skill, same
+    // real-~/.claude-data assumption as skill-detail-with-metadata: `handoff` is one
+    // of this developer's user-invocable-only command skills.
+    name: 'skill-detail-model-invocable-no',
+    async run(window) {
+      await openSkillViaCommandPalette(window, 'handoff', /^handoff/)
+    }
+  },
+  {
     name: 'sidebar-projects-expanded',
     async run(window) {
       await window.getByRole('button', { name: 'Project', exact: true }).click()

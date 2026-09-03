@@ -22,11 +22,17 @@ CREATE TABLE IF NOT EXISTS skills (
                                         -- hooks manifest (.claude-plugin/plugin.json's "hooks"
                                         -- field); NULL for global/project skills and for plugin
                                         -- skills whose plugin declares no hooks
-  disabled_reason TEXT                 -- NULL when enabled. 'plugin' when the owning plugin's
+  disabled_reason TEXT,                -- NULL when enabled. 'plugin' when the owning plugin's
                                         -- settings.json enabledPlugins entry is false (Claude Code
                                         -- unloads the whole plugin). 'override' when settings.json
                                         -- skillOverrides has this skill set to "off" (plugin skills
                                         -- can't carry this one — see docs/skill-scanner.md)
+  model_invocable INTEGER NOT NULL DEFAULT 1  -- 0 when Claude Code keeps this skill's description
+                                        -- out of its skill listing (user-invocable only, so it
+                                        -- costs 0 listing tokens). Set by frontmatter
+                                        -- 'disable-model-invocation: true' or settings.json
+                                        -- skillOverrides '<name>: user-invocable-only'. Distinct
+                                        -- from disabled_reason: the skill still runs via /name.
 );
 
 CREATE TABLE IF NOT EXISTS sessions_meta (

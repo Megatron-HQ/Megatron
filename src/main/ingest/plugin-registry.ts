@@ -171,7 +171,10 @@ export function scanPluginRegistry(
             created_at: null,
             modified_at: null,
             hook_events: hookEvents,
-            disabled_reason: disabledReason
+            disabled_reason: disabledReason,
+            // Frontmatter only — plugin skills already ignore skillOverrides (see
+            // docs/skill-scanner.md), and their rows have no project_root to scope it.
+            model_invocable: parsed.disableModelInvocation ? 0 : 1
           })
         }
       }

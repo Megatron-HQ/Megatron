@@ -129,7 +129,12 @@ function scanSkillEntry(
     modified_at: stats?.mtime.toISOString() ?? null,
     // better-sqlite3 only binds numbers/strings/bigints/buffers/null, not booleans.
     is_synced: isSynced ? 1 : 0,
-    disabled_reason: overrides.get(parsed.name) === 'off' ? 'override' : null
+    disabled_reason: overrides.get(parsed.name) === 'off' ? 'override' : null,
+    // ponytail: skillOverrides 'name-only' keeps the name and drops the description — a partial
+    // exclusion — but is deliberately still counted toward the budget here (model_invocable = 1).
+    // Accounting for it would need a separate name-token estimator; see TODO out-of-scope note.
+    model_invocable:
+      parsed.disableModelInvocation || overrides.get(parsed.name) === 'user-invocable-only' ? 0 : 1
   }
 }
 

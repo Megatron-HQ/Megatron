@@ -35,6 +35,7 @@ describe('parseSkillDirectory', () => {
       description: 'Does a thing',
       license: null,
       metadata_json: null,
+      disableModelInvocation: false,
       est_listing_tokens: 7,
       est_body_tokens: 18
     })
@@ -67,6 +68,7 @@ describe('parseSkillDirectory', () => {
       description: 'A skill',
       license: null,
       metadata_json: null,
+      disableModelInvocation: false,
       est_listing_tokens: 5,
       est_body_tokens: 11
     })
@@ -79,6 +81,7 @@ describe('parseSkillDirectory', () => {
       description: null,
       license: null,
       metadata_json: null,
+      disableModelInvocation: false,
       est_listing_tokens: 3,
       est_body_tokens: 11
     })
@@ -95,6 +98,7 @@ describe('parseSkillDirectory', () => {
       description: null,
       license: null,
       metadata_json: null,
+      disableModelInvocation: false,
       est_listing_tokens: 3,
       est_body_tokens: 19
     })
@@ -107,6 +111,7 @@ describe('parseSkillDirectory', () => {
       description: null,
       license: null,
       metadata_json: null,
+      disableModelInvocation: false,
       est_listing_tokens: 3,
       est_body_tokens: 9
     })
@@ -124,6 +129,7 @@ describe('parseSkillDirectory', () => {
       description: 'A skill',
       license: null,
       metadata_json: null,
+      disableModelInvocation: false,
       est_listing_tokens: 5,
       est_body_tokens: 14
     })
@@ -137,6 +143,7 @@ describe('parseSkillDirectory', () => {
       description: null,
       license: null,
       metadata_json: null,
+      disableModelInvocation: false,
       est_listing_tokens: 0,
       est_body_tokens: 0
     })
@@ -149,6 +156,7 @@ describe('parseSkillDirectory', () => {
       description: null,
       license: null,
       metadata_json: null,
+      disableModelInvocation: false,
       est_listing_tokens: 3,
       est_body_tokens: 11
     })
@@ -161,6 +169,7 @@ describe('parseSkillDirectory', () => {
       description: null,
       license: null,
       metadata_json: null,
+      disableModelInvocation: false,
       est_listing_tokens: 3,
       est_body_tokens: 8
     })
@@ -173,6 +182,7 @@ describe('parseSkillDirectory', () => {
       description: null,
       license: null,
       metadata_json: null,
+      disableModelInvocation: false,
       est_listing_tokens: 3,
       est_body_tokens: 14
     })
@@ -189,6 +199,7 @@ describe('parseSkillDirectory', () => {
       description: 'A skill',
       license: null,
       metadata_json: null,
+      disableModelInvocation: false,
       est_listing_tokens: 5,
       est_body_tokens: 23
     })
@@ -205,6 +216,7 @@ describe('parseSkillDirectory', () => {
       description: null,
       license: null,
       metadata_json: null,
+      disableModelInvocation: false,
       est_listing_tokens: 0,
       est_body_tokens: 0
     })
@@ -220,6 +232,7 @@ describe('parseSkillDirectory', () => {
       description: null,
       license: null,
       metadata_json: null,
+      disableModelInvocation: false,
       est_listing_tokens: 3,
       est_body_tokens: 20
     })
@@ -307,5 +320,42 @@ describe('parseSkillDirectory', () => {
       '---\nname: my-skill\nmetadata:\n  - one\n  - two\n---\nBody'
     )
     expect(parseSkillDirectory(dirPath).metadata_json).toBeNull()
+  })
+
+  it('reads disable-model-invocation: true as true', () => {
+    const dirPath = writeSkill(
+      'my-skill',
+      '---\nname: my-skill\ndisable-model-invocation: true\n---\nBody'
+    )
+    expect(parseSkillDirectory(dirPath).disableModelInvocation).toBe(true)
+  })
+
+  it('treats an absent disable-model-invocation as false', () => {
+    const dirPath = writeSkill('my-skill', '---\nname: my-skill\n---\nBody')
+    expect(parseSkillDirectory(dirPath).disableModelInvocation).toBe(false)
+  })
+
+  it('reads disable-model-invocation: false as false', () => {
+    const dirPath = writeSkill(
+      'my-skill',
+      '---\nname: my-skill\ndisable-model-invocation: false\n---\nBody'
+    )
+    expect(parseSkillDirectory(dirPath).disableModelInvocation).toBe(false)
+  })
+
+  it('treats a non-boolean disable-model-invocation value as false', () => {
+    const dirPath = writeSkill(
+      'my-skill',
+      '---\nname: my-skill\ndisable-model-invocation: "true"\n---\nBody'
+    )
+    expect(parseSkillDirectory(dirPath).disableModelInvocation).toBe(false)
+  })
+
+  it('treats disable-model-invocation as false when the frontmatter is malformed', () => {
+    const dirPath = writeSkill(
+      'my-skill',
+      '---\nname: my-skill\ndescription: Use when X: do Y\ndisable-model-invocation: true\n---\nBody'
+    )
+    expect(parseSkillDirectory(dirPath).disableModelInvocation).toBe(false)
   })
 })

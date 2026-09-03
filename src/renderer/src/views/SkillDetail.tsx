@@ -224,6 +224,7 @@ export function SkillDetail({
                 {skill.hook_events !== null && (
                   <Stat label="Hooks" value={hookEvents} title={hookEvents} />
                 )}
+                {skill.model_invocable === 0 && <Stat label="Model-invocable" value="No" />}
                 {skill.disabled_reason !== null && (
                   <Stat
                     label="Disabled"

@@ -29,6 +29,7 @@ interface SkillRow {
   modified_at: string | null
   is_synced: number
   disabled_reason: string | null
+  model_invocable: number
 }
 
 function allSkills(): SkillRow[] {
@@ -476,6 +477,62 @@ describe('scanSkills disabled_reason via skillOverrides', () => {
     scanSkills(db, [{ dir: root, sourceType: 'project', projectRoot: repoRoot }], userSettingsPath)
 
     expect(allSkills()[0].disabled_reason).toBe('override')
+  })
+})
+
+describe('scanSkills model_invocable', () => {
+  it('sets model_invocable to 0 for a skill with disable-model-invocation: true in frontmatter', () => {
+    const root = join(tmpDir, 'skills')
+    writeSkillDir(
+      root,
+      'skill-a',
+      '---\nname: skill-a\ndescription: First\ndisable-model-invocation: true\n---\nBody'
+    )
+
+    scanSkills(db, [{ dir: root, sourceType: 'global' }], userSettingsPath)
+
+    expect(allSkills()[0].model_invocable).toBe(0)
+  })
+
+  it('sets model_invocable to 0 for a global skill overridden to user-invocable-only', () => {
+    const root = join(tmpDir, 'skills')
+    writeSkillDir(root, 'skill-a', '---\nname: skill-a\ndescription: First\n---\nBody')
+    writeUserSettings({ skillOverrides: { 'skill-a': 'user-invocable-only' } })
+
+    scanSkills(db, [{ dir: root, sourceType: 'global' }], userSettingsPath)
+
+    expect(allSkills()[0].model_invocable).toBe(0)
+  })
+
+  it('leaves model_invocable at 1 for a global skill overridden to name-only', () => {
+    const root = join(tmpDir, 'skills')
+    writeSkillDir(root, 'skill-a', '---\nname: skill-a\ndescription: First\n---\nBody')
+    writeUserSettings({ skillOverrides: { 'skill-a': 'name-only' } })
+
+    scanSkills(db, [{ dir: root, sourceType: 'global' }], userSettingsPath)
+
+    expect(allSkills()[0].model_invocable).toBe(1)
+  })
+
+  it('leaves model_invocable at 1 for a skill overridden to off, which only sets disabled_reason', () => {
+    const root = join(tmpDir, 'skills')
+    writeSkillDir(root, 'skill-a', '---\nname: skill-a\ndescription: First\n---\nBody')
+    writeUserSettings({ skillOverrides: { 'skill-a': 'off' } })
+
+    scanSkills(db, [{ dir: root, sourceType: 'global' }], userSettingsPath)
+
+    const row = allSkills()[0]
+    expect(row.disabled_reason).toBe('override')
+    expect(row.model_invocable).toBe(1)
+  })
+
+  it('leaves model_invocable at 1 for a plain skill with no flag or override', () => {
+    const root = join(tmpDir, 'skills')
+    writeSkillDir(root, 'skill-a', '---\nname: skill-a\ndescription: First\n---\nBody')
+
+    scanSkills(db, [{ dir: root, sourceType: 'global' }], userSettingsPath)
+
+    expect(allSkills()[0].model_invocable).toBe(1)
   })
 })
 

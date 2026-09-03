@@ -66,7 +66,7 @@ const SKILLS_WITH_USAGE_SELECT = `
     s.id, s.name, s.source_type, s.source_path, s.plugin_name, s.description,
     s.last_scanned_at, s.est_listing_tokens, s.est_body_tokens, s.project_root,
     s.metadata_json, s.modified_at,
-    s.is_synced, s.hook_events, s.disabled_reason, s.shadowed_by_skill_id,
+    s.is_synced, s.hook_events, s.disabled_reason, s.model_invocable, s.shadowed_by_skill_id,
     COALESCE(SUM(CASE WHEN lf.severity = 'error' THEN 1 ELSE 0 END), 0) AS error_count,
     COALESCE(SUM(CASE WHEN lf.severity = 'warning' THEN 1 ELSE 0 END), 0) AS warning_count,
     CASE
@@ -199,6 +199,7 @@ export interface SkillScanRow {
   is_synced?: number
   hook_events?: string | null
   disabled_reason?: string | null
+  model_invocable?: number
 }
 
 // Upserts `rows` as `sourceType`, then deletes existing `sourceType` rows that
@@ -215,11 +216,11 @@ function writeSkillRows(
       INSERT INTO skills
         (name, source_type, source_path, plugin_name, description, last_scanned_at,
          est_listing_tokens, est_body_tokens, project_root, license, metadata_json,
-         created_at, modified_at, is_synced, hook_events, disabled_reason)
+         created_at, modified_at, is_synced, hook_events, disabled_reason, model_invocable)
       VALUES
         (@name, @source_type, @source_path, @plugin_name, @description, @last_scanned_at,
          @est_listing_tokens, @est_body_tokens, @project_root, @license, @metadata_json,
-         @created_at, @modified_at, @is_synced, @hook_events, @disabled_reason)
+         @created_at, @modified_at, @is_synced, @hook_events, @disabled_reason, @model_invocable)
       ON CONFLICT(source_path) DO UPDATE SET
         name = excluded.name,
         source_type = excluded.source_type,
@@ -235,7 +236,8 @@ function writeSkillRows(
         modified_at = excluded.modified_at,
         is_synced = excluded.is_synced,
         hook_events = excluded.hook_events,
-        disabled_reason = excluded.disabled_reason
+        disabled_reason = excluded.disabled_reason,
+        model_invocable = excluded.model_invocable
     `)
     const now = new Date().toISOString()
     for (const row of rows) {
@@ -255,7 +257,8 @@ function writeSkillRows(
         modified_at: row.modified_at ?? null,
         is_synced: row.is_synced ?? 0,
         hook_events: row.hook_events ?? null,
-        disabled_reason: row.disabled_reason ?? null
+        disabled_reason: row.disabled_reason ?? null,
+        model_invocable: row.model_invocable ?? 1
       })
     }
 
@@ -425,16 +428,29 @@ export function getSkillUsageDetail(db: Database.Database, skill: SkillRow): Ski
 export const CONTEXT_BUDGET_LIMIT = Math.floor(Math.floor(200000 * 4 * 0.01) / CHARS_PER_TOKEN)
 
 export function getContextBudget(db: Database.Database): ContextBudget {
+  // The two audit buckets are mutually exclusive: a disabled skill that is also
+  // model_invocable = 0 counts only under excluded* — disabled is the stronger statement.
   const row = db
     .prepare(
       `SELECT
-         COALESCE(SUM(CASE WHEN disabled_reason IS NULL THEN est_listing_tokens END), 0) AS used,
+         COALESCE(SUM(CASE WHEN disabled_reason IS NULL AND model_invocable = 1
+                           THEN est_listing_tokens END), 0) AS used,
          COALESCE(SUM(CASE WHEN disabled_reason IS NOT NULL THEN est_listing_tokens END), 0)
            AS excludedTokens,
-         COALESCE(SUM(CASE WHEN disabled_reason IS NOT NULL THEN 1 END), 0) AS excludedCount
+         COALESCE(SUM(CASE WHEN disabled_reason IS NOT NULL THEN 1 END), 0) AS excludedCount,
+         COALESCE(SUM(CASE WHEN disabled_reason IS NULL AND model_invocable = 0
+                           THEN est_listing_tokens END), 0) AS userInvocableOnlyTokens,
+         COALESCE(SUM(CASE WHEN disabled_reason IS NULL AND model_invocable = 0 THEN 1 END), 0)
+           AS userInvocableOnlyCount
        FROM skills WHERE source_type IN ('global', 'plugin')`
     )
-    .get() as { used: number; excludedTokens: number; excludedCount: number }
+    .get() as {
+    used: number
+    excludedTokens: number
+    excludedCount: number
+    userInvocableOnlyTokens: number
+    userInvocableOnlyCount: number
+  }
   return { ...row, limit: CONTEXT_BUDGET_LIMIT }
 }
 

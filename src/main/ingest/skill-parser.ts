@@ -7,6 +7,10 @@ export interface ParsedSkill {
   description: string | null
   license: string | null
   metadata_json: string | null
+  // frontmatter `disable-model-invocation: true` — the skill's description is kept out of
+  // Claude Code's skill listing (user-invocable only). Anything but the bare boolean `true`
+  // (absent, a string, a malformed block) is `false`.
+  disableModelInvocation: boolean
   est_listing_tokens: number
   est_body_tokens: number
 }
@@ -42,23 +46,31 @@ interface ParsedFrontmatter {
   description: string | null
   license: string | null
   metadata_json: string | null
+  disableModelInvocation: boolean
 }
 
 function parseFrontmatter(content: string, fallbackName: string): ParsedFrontmatter {
+  const defaults = {
+    name: fallbackName,
+    description: null,
+    license: null,
+    metadata_json: null,
+    disableModelInvocation: false
+  }
   const block = extractFrontmatterBlock(content)
   if (block === null) {
-    return { name: fallbackName, description: null, license: null, metadata_json: null }
+    return defaults
   }
 
   let parsed: unknown
   try {
     parsed = parse(block)
   } catch {
-    return { name: fallbackName, description: null, license: null, metadata_json: null }
+    return defaults
   }
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    return { name: fallbackName, description: null, license: null, metadata_json: null }
+    return defaults
   }
 
   const record = parsed as Record<string, unknown>
@@ -74,8 +86,11 @@ function parseFrontmatter(content: string, fallbackName: string): ParsedFrontmat
     !Array.isArray(record.metadata)
       ? JSON.stringify(record.metadata)
       : null
+  // Strict `=== true`: YAML parses the bare `true` token as a boolean; a quoted "true", a
+  // number, or any other value is not the opt-out.
+  const disableModelInvocation = record['disable-model-invocation'] === true
 
-  return { name, description, license, metadata_json }
+  return { name, description, license, metadata_json, disableModelInvocation }
 }
 
 export function parseSkillDirectory(dirPath: string): ParsedSkill {
@@ -89,19 +104,24 @@ export function parseSkillDirectory(dirPath: string): ParsedSkill {
       description: null,
       license: null,
       metadata_json: null,
+      disableModelInvocation: false,
       est_listing_tokens: 0,
       est_body_tokens: 0
     }
   }
 
   const content = fileContents.toString('utf8')
-  const { name, description, license, metadata_json } = parseFrontmatter(content, fallbackName)
+  const { name, description, license, metadata_json, disableModelInvocation } = parseFrontmatter(
+    content,
+    fallbackName
+  )
 
   return {
     name,
     description,
     license,
     metadata_json,
+    disableModelInvocation,
     est_listing_tokens: estimateListingTokens(name, description),
     est_body_tokens: estimateTokens(content)
   }

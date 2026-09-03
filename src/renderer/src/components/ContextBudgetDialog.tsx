@@ -40,14 +40,15 @@ export function ContextBudgetDialog({
           </DialogTitle>
           <DialogDescription>What this number means?</DialogDescription>
           <p className="max-w-[72ch] text-left text-[13px] leading-relaxed text-muted-foreground">
-            Sum of every <em>enabled</em> global and plugin skill&apos;s name and description: the
-            part of a skill Claude Code always keeps in context, whether or not the skill ever runs.
-            Claude Code budgets this listing at{' '}
+            Sum of every <em>enabled, model-invocable</em> global and plugin skill&apos;s name and
+            description: the part of a skill Claude Code always keeps in context, whether or not the
+            skill ever runs. Claude Code budgets this listing at{' '}
             <span className="font-mono tabular-nums text-foreground">
               {budget.limit.toLocaleString()}
             </span>{' '}
-            tokens, roughly 1% of a 200K-token reference window. Project skills aren&apos;t counted
-            here; they only load inside their own repo.
+            tokens, roughly 1% of a 200K-token reference window. Skills only you can invoke
+            aren&apos;t in the listing, and project skills aren&apos;t counted here; they only load
+            inside their own repo.
           </p>
         </DialogHeader>
 
@@ -86,6 +87,16 @@ export function ContextBudgetDialog({
               >
                 View disabled skills
               </button>
+            </p>
+          )}
+          {budget.userInvocableOnlyCount > 0 && (
+            <p className="max-w-[72ch] text-left text-[13px] leading-relaxed text-muted-foreground">
+              {budget.userInvocableOnlyCount.toLocaleString()}{' '}
+              {budget.userInvocableOnlyCount === 1
+                ? 'user-invocable-only skill'
+                : 'user-invocable-only skills'}{' '}
+              ({budget.userInvocableOnlyTokens.toLocaleString()} tokens) not listed — Claude Code
+              keeps their descriptions out of context because only you can invoke them.
             </p>
           )}
         </div>

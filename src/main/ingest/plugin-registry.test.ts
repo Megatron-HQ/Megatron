@@ -39,6 +39,7 @@ interface SkillRow {
   modified_at: string | null
   hook_events: string | null
   disabled_reason: string | null
+  model_invocable: number
 }
 
 function allRegistry(): RegistryRow[] {
@@ -682,6 +683,56 @@ describe('scanPluginRegistry', () => {
       '@scope/pkg@market-2',
       'pkg@market-1'
     ])
+  })
+
+  it('sets model_invocable to 0 for a plugin skill with disable-model-invocation: true', () => {
+    const installPath = join(tmpDir, 'install-a')
+    writePluginSkill(
+      installPath,
+      'sub-skill',
+      '---\nname: sub-skill\ndisable-model-invocation: true\n---\nBody'
+    )
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir)
+
+    expect(pluginSkills()[0].model_invocable).toBe(0)
+  })
+
+  it('leaves model_invocable at 1 for a plugin skill without the frontmatter flag', () => {
+    const installPath = join(tmpDir, 'install-a')
+    writePluginSkill(installPath, 'sub-skill', '---\nname: sub-skill\n---\nBody')
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir)
+
+    expect(pluginSkills()[0].model_invocable).toBe(1)
+  })
+
+  it('does not consult skillOverrides for a plugin skill — a user-invocable-only entry leaves model_invocable at 1', () => {
+    const installPath = join(tmpDir, 'install-a')
+    writePluginSkill(installPath, 'sub-skill', '---\nname: sub-skill\n---\nBody')
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+    writeUserSettings({ skillOverrides: { 'plugin-a:sub-skill': 'user-invocable-only' } })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(pluginSkills()[0].model_invocable).toBe(1)
   })
 
   it('does not contain NUL bytes in plugin-registry.ts source code', () => {
