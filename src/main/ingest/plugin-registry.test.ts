@@ -24,6 +24,7 @@ interface RegistryRow {
   last_updated: string | null
   git_commit_sha: string | null
   disabled_reason: string | null
+  project_path: string
 }
 
 interface SkillRow {
@@ -733,6 +734,389 @@ describe('scanPluginRegistry', () => {
     scanPluginRegistry(db, pluginsDir, userSettingsPath)
 
     expect(pluginSkills()[0].model_invocable).toBe(1)
+  })
+
+  it('records a local-scope install rather than skipping it as out-of-enum', () => {
+    const installPath = join(tmpDir, 'install-a')
+    const projectRoot = join(tmpDir, 'repo')
+    mkdirSync(projectRoot, { recursive: true })
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          { scope: 'local', projectPath: projectRoot, installPath, version: '1.0.0' }
+        ]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    const rows = allRegistry()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].scope).toBe('local')
+  })
+
+  it("captures a project install's projectPath as project_path", () => {
+    const projectRoot = join(tmpDir, 'repo')
+    mkdirSync(projectRoot, { recursive: true })
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          {
+            scope: 'project',
+            projectPath: projectRoot,
+            installPath: join(tmpDir, 'install-a'),
+            version: '1.0.0'
+          }
+        ]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(allRegistry()[0].project_path).toBe(projectRoot)
+  })
+
+  it("captures a local install's projectPath as project_path", () => {
+    const projectRoot = join(tmpDir, 'repo')
+    mkdirSync(projectRoot, { recursive: true })
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          {
+            scope: 'local',
+            projectPath: projectRoot,
+            installPath: join(tmpDir, 'install-a'),
+            version: '1.0.0'
+          }
+        ]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(allRegistry()[0].project_path).toBe(projectRoot)
+  })
+
+  it('leaves project_path empty for a user install', () => {
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          { scope: 'user', installPath: join(tmpDir, 'install-a'), version: '1.0.0' }
+        ]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(allRegistry()[0].project_path).toBe('')
+  })
+
+  // Dropping the install would lose a real, discoverable plugin; showing it without project
+  // context is the lesser failure.
+  it('still records a project install whose entry omits projectPath', () => {
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          { scope: 'project', installPath: join(tmpDir, 'install-a'), version: '1.0.0' }
+        ]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    const rows = allRegistry()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ scope: 'project', project_path: '' })
+  })
+
+  // Claude Code's cache path is version-addressed, so both installs report one installPath.
+  it('keeps a user and a project install sharing one install_path as two rows', () => {
+    const installPath = join(tmpDir, 'cache', 'plugin-a', '1.0.0')
+    const projectRoot = join(tmpDir, 'repo')
+    mkdirSync(projectRoot, { recursive: true })
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          { scope: 'user', installPath, version: '1.0.0' },
+          { scope: 'project', projectPath: projectRoot, installPath, version: '1.0.0' }
+        ]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(
+      allRegistry()
+        .map((row) => row.scope)
+        .sort()
+    ).toEqual(['project', 'user'])
+  })
+
+  it('keeps two projects installing one plugin at the same version as two rows', () => {
+    const installPath = join(tmpDir, 'cache', 'plugin-a', '1.0.0')
+    const repoA = join(tmpDir, 'repo-a')
+    const repoB = join(tmpDir, 'repo-b')
+    mkdirSync(repoA, { recursive: true })
+    mkdirSync(repoB, { recursive: true })
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          { scope: 'project', projectPath: repoA, installPath, version: '1.0.0' },
+          { scope: 'project', projectPath: repoB, installPath, version: '1.0.0' }
+        ]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(
+      allRegistry()
+        .map((row) => row.project_path)
+        .sort()
+    ).toEqual([repoA, repoB])
+  })
+
+  it('is idempotent across two scans for a project install', () => {
+    const projectRoot = join(tmpDir, 'repo')
+    mkdirSync(projectRoot, { recursive: true })
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          {
+            scope: 'project',
+            projectPath: projectRoot,
+            installPath: join(tmpDir, 'install-a'),
+            version: '1.0.0'
+          }
+        ]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(allRegistry()).toHaveLength(1)
+  })
+
+  it('prunes a removed project install while leaving the user install of the same plugin', () => {
+    const installPath = join(tmpDir, 'cache', 'plugin-a', '1.0.0')
+    const projectRoot = join(tmpDir, 'repo')
+    mkdirSync(projectRoot, { recursive: true })
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          { scope: 'user', installPath, version: '1.0.0' },
+          { scope: 'project', projectPath: projectRoot, installPath, version: '1.0.0' }
+        ]
+      }
+    })
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    const rows = allRegistry()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].scope).toBe('user')
+  })
+
+  it("reads a project install's disabled state from that project's settings.json", () => {
+    const projectRoot = join(tmpDir, 'repo')
+    mkdirSync(join(projectRoot, '.claude'), { recursive: true })
+    writeFileSync(
+      join(projectRoot, '.claude', 'settings.json'),
+      JSON.stringify({ enabledPlugins: { 'plugin-a@market-1': false } })
+    )
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          {
+            scope: 'project',
+            projectPath: projectRoot,
+            installPath: join(tmpDir, 'install-a'),
+            version: '1.0.0'
+          }
+        ]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(allRegistry()[0].disabled_reason).toBe('plugin')
+  })
+
+  it("reads a local install's disabled state from that project's settings.local.json", () => {
+    const projectRoot = join(tmpDir, 'repo')
+    mkdirSync(join(projectRoot, '.claude'), { recursive: true })
+    writeFileSync(
+      join(projectRoot, '.claude', 'settings.local.json'),
+      JSON.stringify({ enabledPlugins: { 'plugin-a@market-1': false } })
+    )
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          {
+            scope: 'local',
+            projectPath: projectRoot,
+            installPath: join(tmpDir, 'install-a'),
+            version: '1.0.0'
+          }
+        ]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(allRegistry()[0].disabled_reason).toBe('plugin')
+  })
+
+  it('lets a project re-enable a plugin the user scope disabled, per install', () => {
+    const installPath = join(tmpDir, 'cache', 'plugin-a', '1.0.0')
+    const projectRoot = join(tmpDir, 'repo')
+    mkdirSync(join(projectRoot, '.claude'), { recursive: true })
+    writeFileSync(
+      join(projectRoot, '.claude', 'settings.json'),
+      JSON.stringify({ enabledPlugins: { 'plugin-a@market-1': true } })
+    )
+    writeUserSettings({ enabledPlugins: { 'plugin-a@market-1': false } })
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          { scope: 'user', installPath, version: '1.0.0' },
+          { scope: 'project', projectPath: projectRoot, installPath, version: '1.0.0' }
+        ]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    const byScope = Object.fromEntries(allRegistry().map((row) => [row.scope, row.disabled_reason]))
+    expect(byScope).toEqual({ user: 'plugin', project: null })
+  })
+
+  // Two installs at one version share an installPath, therefore one set of skills rows, so the
+  // skill's state is genuinely ambiguous. "Enabled somewhere" is the honest reading.
+  it('leaves a plugin skill enabled when one install is disabled and another is not', () => {
+    const installPath = join(tmpDir, 'cache', 'plugin-a', '1.0.0')
+    const projectRoot = join(tmpDir, 'repo')
+    mkdirSync(join(projectRoot, '.claude'), { recursive: true })
+    writeFileSync(
+      join(projectRoot, '.claude', 'settings.json'),
+      JSON.stringify({ enabledPlugins: { 'plugin-a@market-1': true } })
+    )
+    writePluginSkill(installPath, 'sub-skill', '---\nname: sub-skill\n---\nBody')
+    writeUserSettings({ enabledPlugins: { 'plugin-a@market-1': false } })
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          { scope: 'user', installPath, version: '1.0.0' },
+          { scope: 'project', projectPath: projectRoot, installPath, version: '1.0.0' }
+        ]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(pluginSkills()[0].disabled_reason).toBeNull()
+  })
+
+  it('disables a plugin skill only when every install of its plugin is disabled', () => {
+    const installPath = join(tmpDir, 'cache', 'plugin-a', '1.0.0')
+    const projectRoot = join(tmpDir, 'repo')
+    mkdirSync(join(projectRoot, '.claude'), { recursive: true })
+    writeFileSync(
+      join(projectRoot, '.claude', 'settings.json'),
+      JSON.stringify({ enabledPlugins: { 'plugin-a@market-1': false } })
+    )
+    writePluginSkill(installPath, 'sub-skill', '---\nname: sub-skill\n---\nBody')
+    writeUserSettings({ enabledPlugins: { 'plugin-a@market-1': false } })
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          { scope: 'user', installPath, version: '1.0.0' },
+          { scope: 'project', projectPath: projectRoot, installPath, version: '1.0.0' }
+        ]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(pluginSkills()[0].disabled_reason).toBe('plugin')
+  })
+
+  it('records different versions for a user and a project install of one plugin', () => {
+    const projectRoot = join(tmpDir, 'repo')
+    mkdirSync(projectRoot, { recursive: true })
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          {
+            scope: 'user',
+            installPath: join(tmpDir, 'cache', 'plugin-a', '1.0.0'),
+            version: '1.0.0'
+          },
+          {
+            scope: 'project',
+            projectPath: projectRoot,
+            installPath: join(tmpDir, 'cache', 'plugin-a', '2.0.0'),
+            version: '2.0.0'
+          }
+        ]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    const byScope = Object.fromEntries(
+      allRegistry().map((row) => [row.scope, row.installed_version])
+    )
+    expect(byScope).toEqual({ user: '1.0.0', project: '2.0.0' })
+  })
+
+  it('does not read a project install enablement from an ungranted root', () => {
+    const ungrantedRoot = mkdtempSync(join(tmpdir(), 'megatron-ungranted-project-'))
+    const installPath = join(tmpDir, 'install-a')
+    try {
+      mkdirSync(join(ungrantedRoot, '.claude'), { recursive: true })
+      writeFileSync(
+        join(ungrantedRoot, '.claude', 'settings.json'),
+        JSON.stringify({ enabledPlugins: { 'plugin-a@market-1': false } })
+      )
+      writeInstalledPlugins({
+        version: 2,
+        plugins: {
+          'plugin-a@market-1': [
+            { scope: 'project', projectPath: ungrantedRoot, installPath, version: '1.0.0' }
+          ]
+        }
+      })
+
+      scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+      expect(allRegistry()[0].disabled_reason).toBeNull()
+    } finally {
+      rmSync(ungrantedRoot, { recursive: true, force: true })
+    }
   })
 
   it('does not contain NUL bytes in plugin-registry.ts source code', () => {

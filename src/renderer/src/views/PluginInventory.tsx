@@ -11,7 +11,12 @@ import {
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Blocks, Search } from 'lucide-react'
 import { motion } from 'motion/react'
-import { MarketplaceBadge, PluginStatusBadge } from '@/components/PluginBadges'
+import { MarketplaceBadge, PluginScopeLabel, PluginStatusBadge } from '@/components/PluginBadges'
+import {
+  getPluginFilterHeaderTitle,
+  shouldShowScopeColumn,
+  type PluginFilter
+} from '@/lib/plugin-filter'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
@@ -23,7 +28,7 @@ import {
 } from '@/components/ui/table'
 import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
-import type { PluginRow } from '../../../shared/ipc'
+import type { PluginRow, PluginScope } from '../../../shared/ipc'
 
 const ROW_HEIGHT = 40
 const HEADER_HEIGHT = 40
@@ -38,9 +43,45 @@ function pluginKey(plugin: PluginRow): string {
   return `${plugin.name}@${plugin.marketplace}`
 }
 
-function scopesLabel(plugin: PluginRow): string {
-  const scopes = [...new Set(plugin.installs.map((install) => install.scope))].sort()
-  return scopes.join(', ')
+const SCOPE_SORT_ORDER: Record<PluginScope, number> = { user: 0, project: 1, local: 2 }
+
+// One entry per distinct scope+project pair, so two projects installing the same plugin each
+// get their own line rather than collapsing into a single ambiguous "project".
+function distinctInstallScopes(
+  plugin: PluginRow
+): { scope: PluginScope; projectPath: string | null }[] {
+  const seen = new Map<string, { scope: PluginScope; projectPath: string | null }>()
+  for (const install of plugin.installs) {
+    seen.set(`${install.scope}:${install.project_path ?? ''}`, {
+      scope: install.scope,
+      projectPath: install.project_path
+    })
+  }
+  return [...seen.values()].sort(
+    (a, b) =>
+      SCOPE_SORT_ORDER[a.scope] - SCOPE_SORT_ORDER[b.scope] ||
+      (a.projectPath ?? '').localeCompare(b.projectPath ?? '')
+  )
+}
+
+function scopeSortKey(plugin: PluginRow): string {
+  return distinctInstallScopes(plugin)
+    .map((entry) => `${SCOPE_SORT_ORDER[entry.scope]}${entry.projectPath ?? ''}`)
+    .join(',')
+}
+
+// The single Version column can only be the whole truth when every install agrees; a user
+// install at one version alongside a project install at another is a real state the issue calls
+// out, and showing just the highest would quietly hide it.
+function versionLabel(plugin: PluginRow): string {
+  const versions = [...new Set(plugin.installs.map((install) => install.installed_version))]
+  return versions.length > 1 ? 'Mixed' : (versions[0] ?? plugin.installed_version)
+}
+
+// Unknown only when nothing is knowable — one readable install is enough to state the plugin's
+// status, so a granted project alongside an ungranted one still reports a real answer.
+function enablementKnown(plugin: PluginRow): boolean {
+  return plugin.installs.length === 0 || plugin.installs.some((install) => install.enablement_known)
 }
 
 const columnHelper = createColumnHelper<typeof features, PluginRow>()
@@ -57,21 +98,37 @@ const marketplaceColumn = columnHelper.accessor('marketplace', {
   cell: (info) => <MarketplaceBadge marketplace={info.getValue()} />
 })
 
-const versionColumn = columnHelper.accessor('installed_version', {
+const versionColumn = columnHelper.accessor(versionLabel, {
+  id: 'installed_version',
   header: 'Version',
   sortFn: 'text',
   cell: (info) => (
-    <span className="block font-mono text-xs tabular-nums text-muted-foreground">
+    <span className="block truncate font-mono text-xs tabular-nums text-muted-foreground">
       {info.getValue()}
     </span>
   )
 })
 
-const scopeColumn = columnHelper.accessor(scopesLabel, {
+const scopeColumn = columnHelper.accessor(scopeSortKey, {
   id: 'scope',
   header: 'Scope',
   sortFn: 'text',
-  cell: (info) => <span className="text-muted-foreground">{info.getValue()}</span>
+  // First install only, plus a count of the rest. Rows are a fixed 40px — the glide highlight
+  // positions itself arithmetically off ROW_HEIGHT — so the cell can't grow to stack them; the
+  // detail view is where every install is listed in full.
+  cell: (info) => {
+    const scopes = distinctInstallScopes(info.row.original)
+    const [first, ...rest] = scopes
+    if (first === undefined) return null
+    return (
+      <div className="flex min-w-0 items-center gap-1">
+        <PluginScopeLabel scope={first.scope} projectPath={first.projectPath} />
+        {rest.length > 0 && (
+          <span className="shrink-0 text-xs text-muted-foreground">+{rest.length}</span>
+        )}
+      </div>
+    )
+  }
 })
 
 const skillCountColumn = columnHelper.accessor('skill_count', {
@@ -92,7 +149,12 @@ const statusColumn = columnHelper.accessor('disabled_reason', {
     const bVal = rowB.original.disabled_reason === null ? 0 : 1
     return aVal - bVal
   },
-  cell: (info) => <PluginStatusBadge disabledReason={info.getValue()} />
+  cell: (info) => (
+    <PluginStatusBadge
+      disabledReason={info.getValue()}
+      known={enablementKnown(info.row.original)}
+    />
+  )
 })
 
 const columns: ColumnDef<typeof features, PluginRow, unknown>[] = columnHelper.columns([
@@ -104,18 +166,53 @@ const columns: ColumnDef<typeof features, PluginRow, unknown>[] = columnHelper.c
   statusColumn
 ])
 
+const columnsWithoutScope: ColumnDef<typeof features, PluginRow, unknown>[] = columnHelper.columns([
+  nameColumn,
+  marketplaceColumn,
+  versionColumn,
+  skillCountColumn,
+  statusColumn
+])
+
 const COLUMN_WIDTH: Record<string, string> = {
-  name: 'w-[200px]',
-  marketplace: 'w-[140px]',
+  // Name is the flexible column, absorbing whatever the fixed ones leave. Marketplace follows
+  // the skills table's Description precedent and drops out below 1000px: with a 220px sidebar
+  // beside it, six fixed columns don't fit the 860px minimum window, and Marketplace is the
+  // one carrying least — usually a single "Official" badge, and always shown on the detail page.
+  name: 'min-w-0',
+  marketplace: 'w-[140px] max-[1000px]:hidden',
   installed_version: 'w-[100px]',
   scope: 'w-[140px]',
   skill_count: 'w-[80px]',
   status: 'w-[110px]'
 }
 
+// "All Plugins" being empty means nothing is installed at all; any other filter being empty means
+// this scope has nothing, which is an ordinary state rather than a setup problem.
+function emptyTitle(filter: PluginFilter): string {
+  if (filter.kind === 'all') return 'No plugins installed'
+  if (filter.kind === 'user') return 'No user-scope plugins'
+  if (filter.projectPath) return `No ${filter.kind}-scope plugins in this project`
+  return `No ${filter.kind}-scope plugins`
+}
+
+function emptyDetail(filter: PluginFilter): string {
+  switch (filter.kind) {
+    case 'all':
+      return 'Plugins are discovered from your installed Claude Code plugins.'
+    case 'user':
+      return 'User-scope plugins are installed for you across every project.'
+    case 'project':
+      return 'Project-scope plugins are installed by a repo, in its .claude/settings.json.'
+    case 'local':
+      return 'Local-scope plugins are installed for one project on this machine, in its .claude/settings.local.json.'
+  }
+}
+
 interface PluginInventoryProps {
   plugins: PluginRow[]
   loading: boolean
+  filter: PluginFilter
   onSelect: (plugin: PluginRow) => void
   onOpenSearch: () => void
 }
@@ -123,6 +220,7 @@ interface PluginInventoryProps {
 export function PluginInventory({
   plugins,
   loading,
+  filter,
   onSelect,
   onOpenSearch
 }: PluginInventoryProps): React.JSX.Element {
@@ -131,10 +229,11 @@ export function PluginInventory({
   const containerRef = useRef<HTMLDivElement>(null)
   const { hoveredId, setHoveredId, onMouseLeave, reduceMotion, transition } =
     useGlideHighlight<string>()
+  const showScope = shouldShowScopeColumn(filter)
 
   const table = useTable({
     features,
-    columns,
+    columns: showScope ? columns : columnsWithoutScope,
     data: plugins,
     state: { sorting },
     onSortingChange: setSorting
@@ -169,10 +268,12 @@ export function PluginInventory({
         <Table className="table-fixed">
           <TableHeadGroup>
             <TableRow className="h-10">
-              <TableHead className="w-[200px] px-3 py-2">Name</TableHead>
-              <TableHead className="w-[140px] px-3 py-2">Marketplace</TableHead>
+              <TableHead className="min-w-0 px-3 py-2">Name</TableHead>
+              <TableHead className={cn('px-3 py-2', COLUMN_WIDTH.marketplace)}>
+                Marketplace
+              </TableHead>
               <TableHead className="w-[100px] px-3 py-2">Version</TableHead>
-              <TableHead className="w-[140px] px-3 py-2">Scope</TableHead>
+              {showScope && <TableHead className="w-[140px] px-3 py-2">Scope</TableHead>}
               <TableHead className="w-[80px] px-3 py-2">Skills</TableHead>
               <TableHead className="w-[110px] px-3 py-2">Status</TableHead>
             </TableRow>
@@ -183,15 +284,17 @@ export function PluginInventory({
                 <TableCell className="px-3 py-2">
                   <Skeleton className="h-4 w-32" />
                 </TableCell>
-                <TableCell className="px-3 py-2">
+                <TableCell className={cn('px-3 py-2', COLUMN_WIDTH.marketplace)}>
                   <Skeleton className="h-4 w-20" />
                 </TableCell>
                 <TableCell className="px-3 py-2">
                   <Skeleton className="h-4 w-12" />
                 </TableCell>
-                <TableCell className="px-3 py-2">
-                  <Skeleton className="h-4 w-16" />
-                </TableCell>
+                {showScope && (
+                  <TableCell className="px-3 py-2">
+                    <Skeleton className="h-4 w-16" />
+                  </TableCell>
+                )}
                 <TableCell className="px-3 py-2">
                   <Skeleton className="ml-auto h-4 w-8" />
                 </TableCell>
@@ -208,10 +311,8 @@ export function PluginInventory({
     body = (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
         <Blocks className="size-8 text-muted-foreground" />
-        <p className="text-sm font-medium">No plugins installed</p>
-        <p className="max-w-[360px] text-sm text-muted-foreground">
-          Plugins are discovered from your installed Claude Code plugins.
-        </p>
+        <p className="text-sm font-medium">{emptyTitle(filter)}</p>
+        <p className="max-w-[360px] text-sm text-muted-foreground">{emptyDetail(filter)}</p>
       </div>
     )
   } else {
@@ -300,7 +401,7 @@ export function PluginInventory({
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-4">
         <h2 className="truncate text-[13px] font-semibold">
-          Plugins
+          {getPluginFilterHeaderTitle(filter)}
           {!loading && <span className="font-normal text-muted-foreground"> · {rows.length}</span>}
         </h2>
         <button

@@ -48,7 +48,9 @@ async function openSkillViaCommandPalette(window, searchTerm, optionNamePattern)
 
 /** Rail click → Plugins section, landing on the inventory table. */
 async function openPluginsSection(window) {
-  await window.getByRole('button', { name: 'Plugins' }).click()
+  // `exact` matters: the section's own sidebar has an "All Plugins" row, and after a scenario
+  // leaves the app on Plugins the reload-to-baseline lands there with that row already rendered.
+  await window.getByRole('button', { name: 'Plugins', exact: true }).click()
   await window.locator('tbody tr').first().waitFor()
 }
 
@@ -59,6 +61,23 @@ async function openFirstPluginDetail(window) {
   await window.getByRole('button', { name: 'Back to plugins' }).waitFor()
 }
 
+/**
+ * PluginDetail for one named plugin. Scope now changes what the detail page offers — a
+ * project/local install's actions are disabled (see docs/data-model.md) — so scenarios that
+ * depend on an action being clickable can't take whichever row happens to sort first.
+ */
+async function openPluginDetailByName(window, pluginName) {
+  await openPluginsSection(window)
+  await window.locator(`tbody tr:has-text("${pluginName}")`).first().click()
+  await window.getByRole('button', { name: 'Back to plugins' }).waitFor()
+}
+
+async function skipWithoutScopedPlugin(window, scopeLabel) {
+  await openPluginsSection(window)
+  const count = await window.locator(`tbody tr:has-text("${scopeLabel}")`).count()
+  return count === 0 ? `no ${scopeLabel.toLowerCase()}-scope plugin installed locally` : null
+}
+
 async function skipWithoutDisabledSkills(window) {
   const disabledSkillCount = await window.locator('tbody tr svg.lucide-power').count()
   return disabledSkillCount === 0 ? 'no disabled skills found locally' : null
@@ -67,6 +86,18 @@ async function skipWithoutDisabledSkills(window) {
 async function skipWithoutUserInvocableOnlySkills(window) {
   const count = await window.locator('tbody tr svg.lucide-bot-off').count()
   return count === 0 ? 'no user-invocable-only skills found locally' : null
+}
+
+/**
+ * Scenarios pinned to a skill by name (see the header note above) hard-fail the whole run when
+ * that skill is no longer installed, taking every later scenario down with them. Skipping is the
+ * same trade already made for disabled-skill scenarios: visible, and scoped to the one scenario.
+ */
+function skipWithoutNamedSkill(skillName) {
+  return async (window) => {
+    const count = await window.locator(`tbody tr:has-text("${skillName}")`).count()
+    return count === 0 ? `no skill named "${skillName}" installed locally` : null
+  }
 }
 
 /** @type {Scenario[]} */
@@ -206,6 +237,7 @@ export const scenarios = [
     // this depends on real data — a skill whose frontmatter has a `metadata:` block and a
     // populated `modified_at`, to exercise the Modified stat + Metadata badge section.
     name: 'skill-detail-with-metadata',
+    shouldSkip: skipWithoutNamedSkill('banner-design'),
     async run(window) {
       await openSkillViaCommandPalette(window, 'banner-design', /^banner-design/)
     }
@@ -230,6 +262,7 @@ export const scenarios = [
     // as skill-detail-with-metadata: `handoff` is one of this developer's user-invocable-only
     // command skills.
     name: 'skill-detail-model-invocable-no',
+    shouldSkip: skipWithoutNamedSkill('handoff'),
     async run(window) {
       await openSkillViaCommandPalette(window, 'handoff', /^handoff/)
     }
@@ -297,8 +330,18 @@ export const scenarios = [
     name: 'table-disabled-icon-tooltip',
     shouldSkip: skipWithoutDisabledSkills,
     async run(window) {
+      // The table focuses its first row and starts the glide highlight on mount; hovering into
+      // that still-moving layout intermittently lands outside the icon and no tooltip opens.
+      await window.waitForTimeout(MOTION_SETTLE_MS)
       await window.locator('tbody tr:has(svg.lucide-power) svg.lucide-power').first().hover()
-      await window.getByText(/Disabled via/).waitFor()
+      // Matches both tooltip variants — the icon carries "Plugin is disabled" for a
+      // disabled plugin's skill and "Disabled via /skills" for a skillOverrides "off".
+      // Waiting on the latter alone breaks on a machine whose only disabled skills are
+      // plugin-disabled, which skipWithoutDisabledSkills above still counts as present.
+      await window
+        .getByText(/not loaded into context/)
+        .first()
+        .waitFor()
     }
   },
   {
@@ -364,13 +407,47 @@ export const scenarios = [
     }
   },
   {
-    // The new persistent AppRail's Plugins destination: full-width inventory table,
-    // no Sidebar. Real ~/.claude data on this machine has multiple plugins installed
-    // (github/playwright/context7 official, ponytail/impeccable community), so this
-    // is never the empty state.
+    // The AppRail's Plugins destination: PluginSidebar (All / User / Project / Local) beside
+    // the inventory table. Real ~/.claude data on this machine has plugins at all three
+    // scopes, so this is never the empty state.
     name: 'plugins-inventory-open',
     async run(window) {
       await openPluginsSection(window)
+    }
+  },
+  {
+    // Project group expanded: one child row per project root holding a project-scope install,
+    // with its plugin count. Confirms the group both filters and expands on one click.
+    name: 'plugins-sidebar-project-expanded',
+    async run(window) {
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'Project', exact: true }).click()
+      await window.getByText('Project Plugins').waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // A single project selected under Local. The Scope column is deliberately dropped once a
+    // scope is chosen — the sidebar already states it, and the table needs the width.
+    name: 'plugins-sidebar-local-project-selected',
+    shouldSkip: (window) => skipWithoutScopedPlugin(window, 'Local'),
+    async run(window) {
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'Local', exact: true }).click()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+      await window.locator('nav button').filter({ hasText: 'Megatron' }).first().click()
+      // Unanchored: the header renders the title followed by a " · N" count span.
+      await window.getByText(/Local \/ .+ Plugins/).waitFor()
+    }
+  },
+  {
+    // User scope: no expander, since a user install isn't anchored to a project. Also the
+    // narrowest the table gets — five columns beside a 220px sidebar.
+    name: 'plugins-sidebar-user-selected',
+    async run(window) {
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'User', exact: true }).click()
+      await window.getByText('User Plugins').waitFor()
     }
   },
   {
@@ -382,11 +459,24 @@ export const scenarios = [
   {
     // The uninstall confirmation Dialog, opened but not confirmed — proves the
     // destructive action is gated and names the plugin/scope before it runs.
+    // Pinned to a user-scope plugin: project/local installs have Uninstall disabled.
     name: 'plugin-detail-uninstall-confirm',
     async run(window) {
-      await openFirstPluginDetail(window)
+      await openPluginDetailByName(window, 'ponytail')
       await window.getByRole('button', { name: 'Uninstall' }).first().click()
       await window.getByText(/^Uninstall .+\?$/).waitFor()
+    }
+  },
+  {
+    // A project-scope install: the Scope cell carries the owning project, the status
+    // reads Unknown because verify runs in a throwaway profile with no folder grants,
+    // and the three actions are disabled pending the CLI-cwd follow-up.
+    name: 'plugin-detail-project-scope',
+    shouldSkip: (window) => skipWithoutScopedPlugin(window, 'Project'),
+    async run(window) {
+      await openPluginsSection(window)
+      await window.locator('tbody tr:has-text("Project")').first().click()
+      await window.getByRole('button', { name: 'Back to plugins' }).waitFor()
     }
   },
   {

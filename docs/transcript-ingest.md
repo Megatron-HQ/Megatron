@@ -10,7 +10,7 @@ Implementation: `src/main/ingest/transcript-scanner.ts`. Table shapes live in
 ## Locked decisions
 
 | Area                    | Decision                                                                                                                                                            |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Transcript double-count | Filter `isSidechain === false` on a **main** transcript's own lines; a dedicated `subagents/*.jsonl` file is read in full instead, tagged `trigger_type='subagent'` |
 
 **Why**: `isSidechain` marks inline sidechain records interleaved in a main transcript (excluded
@@ -49,7 +49,7 @@ Three detection paths, all populating `skill_name`/`trigger_type`/`args_text`:
    `/grill-me`) → `user_invoked`; else → `autonomous`.
 2. **Harness-native slash command.** A plain `user` record whose string content is
    `<command-message>...</command-message><command-name>/skill-name</command-name>
-   <command-args>...</command-args>` never produces a `Skill` tool_use block at all — this shape
+<command-args>...</command-args>` never produces a `Skill` tool_use block at all — this shape
    has no `tool_use` step to attach a classification to, so it needs its own detection path. The
    reliable signal (verified against all local transcripts, 21 real skill commands / 71 built-ins
    / 0 false positives): a genuine skill command's own **direct child** (`parentUuid` match, not

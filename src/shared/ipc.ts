@@ -148,7 +148,9 @@ export interface OpenSkillMetaResult {
 export type Theme = 'light' | 'dark'
 export type ThemePreference = Theme | 'system'
 
-export type PluginScope = 'user' | 'project'
+// 'project' is the repo's committed .claude/settings.json; 'local' is that developer's own
+// .claude/settings.local.json. Both are anchored to a project root; 'user' never is.
+export type PluginScope = 'user' | 'project' | 'local'
 
 export interface PluginInstall {
   scope: PluginScope
@@ -156,13 +158,29 @@ export interface PluginInstall {
   installed_at: string | null
   last_updated: string | null
   git_commit_sha: string | null
+  // Owning project root for a project/local install; NULL for user scope, and also for a
+  // project/local entry that Claude Code wrote without a projectPath.
+  project_path: string | null
+  // Per-install, because two scopes of one plugin can be installed at different versions.
+  installed_version: string
+  // Per-install, resolved against this install's own scope: a plugin can be enabled for a
+  // project and disabled at user scope, or the reverse.
+  disabled_reason: string | null
+  // false when this install's enabled/disabled state could not be determined — a project/local
+  // install whose owning project root has not been granted, so its .claude/settings*.json is
+  // unreadable. Renders as an Unknown status rather than a confidently wrong Enabled.
+  enablement_known: boolean
 }
 
 export interface PluginRow {
   name: string
   marketplace: string
   marketplace_repo: string | null
+  // Highest version across installs. Installs can disagree, so the inventory reads
+  // installs[].installed_version to decide whether to show this or "Mixed".
   installed_version: string
+  // Identity-level rollup meaning disabled *everywhere* — non-null only when every install is
+  // disabled. Per-install state lives on installs[].disabled_reason.
   disabled_reason: string | null
   skill_count: number
   installs: PluginInstall[]
@@ -185,6 +203,9 @@ export interface PluginActionInput {
   name: string
   marketplace: string
   scope: PluginScope
+  // The install's owning project root, used as the CLI's working directory — that's how
+  // `claude plugin <verb>` resolves a project/local install. Always null for user scope.
+  projectPath: string | null
 }
 
 export type AppSection = 'skills' | 'plugins'

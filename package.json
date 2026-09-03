@@ -24,8 +24,8 @@
     "prepare": "git config core.hooksPath .githooks",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:mac": "npm run build && electron-builder --mac",
-    "db": "open -a 'DB Browser for SQLite' \"$HOME/Library/Application Support/megatron/megatron.db\"",
-    "db:reset": "rm -f \"$HOME/Library/Application Support/megatron/megatron.db\"*"
+    "db": "node scripts/db.mjs open",
+    "db:reset": "node scripts/db.mjs reset"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

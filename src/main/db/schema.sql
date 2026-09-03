@@ -68,15 +68,32 @@ CREATE TABLE IF NOT EXISTS plugin_registry (
   marketplace TEXT NOT NULL,
   marketplace_repo TEXT,              -- resolved from known_marketplaces.json; NULL if absent
   installed_version TEXT NOT NULL,    -- can literally be the string "unknown"
-  scope TEXT NOT NULL CHECK (scope IN ('user', 'project')),
+  scope TEXT NOT NULL CHECK (scope IN ('user', 'project', 'local')),
+                                       -- 'project' is committed to the repo (.claude/settings.json),
+                                       -- 'local' is that developer's own (.claude/settings.local.json)
   install_path TEXT NOT NULL,
   last_scanned_at TEXT NOT NULL,
   installed_at TEXT,                  -- from installed_plugins.json; NULL if absent
   last_updated TEXT,                  -- from installed_plugins.json; NULL if absent
   git_commit_sha TEXT,                -- absent on semver-pinned installs
-  disabled_reason TEXT,               -- NULL when enabled. 'plugin' when settings.json's
-                                       -- enabledPlugins has this name@marketplace set to false
-  PRIMARY KEY (name, marketplace, install_path)
+  disabled_reason TEXT,               -- NULL when enabled. 'plugin' when the enabledPlugins map
+                                       -- resolved for THIS install's scope has name@marketplace
+                                       -- set to false. Per-install, not per-identity: two scopes
+                                       -- of one plugin can genuinely disagree.
+  project_path TEXT NOT NULL DEFAULT '',
+                                       -- owning project root for a project/local install, '' for
+                                       -- user scope. NOT NULL with an empty-string sentinel rather
+                                       -- than nullable because it is part of the primary key:
+                                       -- SQLite does not enforce NOT NULL on a non-integer PK, and
+                                       -- ON CONFLICT never matches a NULL, so a nullable column
+                                       -- here would make every scan insert a duplicate row for
+                                       -- every user-scope install. Read back as NULLIF(...,'').
+  PRIMARY KEY (name, marketplace, scope, install_path, project_path)
+                                       -- install_path alone can't separate installs: Claude Code's
+                                       -- cache path is version-addressed
+                                       -- (cache/<marketplace>/<plugin>/<version>), so the same
+                                       -- plugin at the same version installed for two scopes, or
+                                       -- for two different projects, shares one path.
 );
 
 CREATE TABLE IF NOT EXISTS allowed_paths (

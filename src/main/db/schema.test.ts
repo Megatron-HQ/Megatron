@@ -196,6 +196,90 @@ describe('applySchema', () => {
     expect(row.agent_id).toBe('agent-abc123')
   })
 
+  it('accepts local as a plugin_registry.scope', () => {
+    applySchema(db)
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO plugin_registry
+             (name, marketplace, marketplace_repo, installed_version, scope, install_path, last_scanned_at)
+           VALUES ('plugin-a', 'market-1', NULL, '1.0.0', 'local', '/path', ?)`
+        )
+        .run(new Date().toISOString())
+    ).not.toThrow()
+  })
+
+  it('rejects an out-of-enum plugin_registry.scope', () => {
+    applySchema(db)
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO plugin_registry
+             (name, marketplace, marketplace_repo, installed_version, scope, install_path, last_scanned_at)
+           VALUES ('plugin-a', 'market-1', NULL, '1.0.0', 'global', '/path', ?)`
+        )
+        .run(new Date().toISOString())
+    ).toThrow()
+  })
+
+  // Claude Code's install path is version-addressed (cache/<marketplace>/<plugin>/<version>), so
+  // one plugin installed at the same version for two scopes shares a single installPath.
+  it('keeps a user and a project install sharing one install_path as two rows', () => {
+    applySchema(db)
+    const insert = db.prepare(
+      `INSERT INTO plugin_registry
+         (name, marketplace, marketplace_repo, installed_version, scope, install_path, last_scanned_at, project_path)
+       VALUES ('plugin-a', 'market-1', NULL, '1.0.0', ?, '/cache/plugin-a/1.0.0', ?, ?)`
+    )
+    const now = new Date().toISOString()
+    insert.run('user', now, '')
+    insert.run('project', now, '/repo')
+
+    expect(db.prepare('SELECT COUNT(*) AS count FROM plugin_registry').get()).toEqual({ count: 2 })
+  })
+
+  it('keeps two projects installing one plugin at the same version as two rows', () => {
+    applySchema(db)
+    const insert = db.prepare(
+      `INSERT INTO plugin_registry
+         (name, marketplace, marketplace_repo, installed_version, scope, install_path, last_scanned_at, project_path)
+       VALUES ('plugin-a', 'market-1', NULL, '1.0.0', 'project', '/cache/plugin-a/1.0.0', ?, ?)`
+    )
+    const now = new Date().toISOString()
+    insert.run(now, '/repo-a')
+    insert.run(now, '/repo-b')
+
+    expect(db.prepare('SELECT COUNT(*) AS count FROM plugin_registry').get()).toEqual({ count: 2 })
+  })
+
+  // project_path is NOT NULL DEFAULT '' rather than nullable because SQLite does not enforce
+  // NOT NULL on a non-integer PRIMARY KEY, and ON CONFLICT never matches a NULL — a nullable
+  // column here would make every scan insert a fresh duplicate row for every user-scope install.
+  it('rejects a second user install differing only by an absent project_path', () => {
+    applySchema(db)
+    const insert = db.prepare(
+      `INSERT INTO plugin_registry
+         (name, marketplace, marketplace_repo, installed_version, scope, install_path, last_scanned_at)
+       VALUES ('plugin-a', 'market-1', NULL, '1.0.0', 'user', '/path', ?)`
+    )
+    const now = new Date().toISOString()
+    insert.run(now)
+    expect(() => insert.run(now)).toThrow()
+  })
+
+  it('defaults project_path to the empty string when the insert omits it', () => {
+    applySchema(db)
+    db.prepare(
+      `INSERT INTO plugin_registry
+         (name, marketplace, marketplace_repo, installed_version, scope, install_path, last_scanned_at)
+       VALUES ('plugin-a', 'market-1', NULL, '1.0.0', 'user', '/path', ?)`
+    ).run(new Date().toISOString())
+
+    expect(db.prepare('SELECT project_path FROM plugin_registry').get()).toEqual({
+      project_path: ''
+    })
+  })
+
   it('accepts a project_root value on a skills row', () => {
     applySchema(db)
     db.prepare(

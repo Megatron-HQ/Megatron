@@ -184,9 +184,12 @@ app.whenReady().then(() => {
     }
     try {
       scanSkills(db)
+      // The grant is what makes a project's .claude/settings*.json readable, so its plugin
+      // installs can only resolve their enabled/disabled state on a rescan after it lands.
+      scanPluginRegistry(db)
       runLinter(db)
     } catch (err) {
-      console.error('[ingest] scanSkills/runLinter failed after grant', err)
+      console.error('[ingest] scanSkills/scanPluginRegistry/runLinter failed after grant', err)
     }
     notifyScanComplete()
     return listAllowedPaths(db)
@@ -198,9 +201,12 @@ app.whenReady().then(() => {
     removeAllowedPath(db, path)
     deleteSkillsForProjectRoot(db, path)
     try {
+      // Mirrors the grant path: the revoke takes that project's settings back out of reach, so
+      // its plugin installs have to drop back to an unknown enablement state.
+      scanPluginRegistry(db)
       runLinter(db)
     } catch (err) {
-      console.error('[ingest] runLinter failed after revoke', err)
+      console.error('[ingest] scanPluginRegistry/runLinter failed after revoke', err)
     }
     notifyScanComplete()
     return listAllowedPaths(db)

@@ -4,10 +4,12 @@ import { AppRail } from '@/components/AppRail'
 import { CommandPalette } from '@/components/CommandPalette'
 import { ManageFoldersDialog } from '@/components/ManageFoldersDialog'
 import { PluginActionToasts, type PluginActionToast } from '@/components/PluginActionToasts'
+import { PluginSidebar } from '@/components/PluginSidebar'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { Sidebar } from '@/components/Sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { TREE_WIDTH_DEFAULT } from '@/lib/file-tree'
+import { matchesPluginFilter, type PluginFilter } from '@/lib/plugin-filter'
 import { matchesFilter, type SourceFilter } from '@/lib/source-filter'
 import { SkillDetail } from './views/SkillDetail'
 import { SkillInventory } from './views/SkillInventory'
@@ -48,6 +50,7 @@ function App(): React.JSX.Element {
   const [view, setView] = useState<View>({ kind: 'list' })
   const [section, setSection] = useState<AppSection>(() => window.api.getInitialSection())
   const [pluginView, setPluginView] = useState<PluginView>({ kind: 'list' })
+  const [pluginFilter, setPluginFilter] = useState<PluginFilter>({ kind: 'all' })
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [foldersDialogOpen, setFoldersDialogOpen] = useState(false)
@@ -126,9 +129,19 @@ function App(): React.JSX.Element {
     [skills, filter]
   )
 
+  const filteredPlugins = useMemo(
+    () => plugins.filter((plugin) => matchesPluginFilter(plugin, pluginFilter)),
+    [plugins, pluginFilter]
+  )
+
   function handleFilterChange(next: SourceFilter): void {
     setView({ kind: 'list' })
     setFilter(next)
+  }
+
+  function handlePluginFilterChange(next: PluginFilter): void {
+    setPluginView({ kind: 'list' })
+    setPluginFilter(next)
   }
 
   function openDetail(skillId: number): void {
@@ -150,6 +163,9 @@ function App(): React.JSX.Element {
 
   function selectPluginFromPalette(name: string, marketplace: string): void {
     handleSectionChange('plugins')
+    // The palette searches every plugin, so a narrowed sidebar filter would otherwise send you
+    // "back" from the detail page to a list that doesn't contain what you just opened.
+    setPluginFilter({ kind: 'all' })
     openPluginDetail(name, marketplace)
   }
 
@@ -247,22 +263,33 @@ function App(): React.JSX.Element {
                 />
               )}
             </>
-          ) : pluginView.kind === 'detail' ? (
-            <PluginDetail
-              key={`${pluginView.name}@${pluginView.marketplace}`}
-              name={pluginView.name}
-              marketplace={pluginView.marketplace}
-              onBack={() => setPluginView({ kind: 'list' })}
-              onViewSkills={handleViewSkillsForPlugin}
-              onActionSuccess={showPluginActionToast}
-            />
           ) : (
-            <PluginInventory
-              plugins={plugins}
-              loading={pluginsPending}
-              onSelect={(plugin) => openPluginDetail(plugin.name, plugin.marketplace)}
-              onOpenSearch={() => setPaletteOpen(true)}
-            />
+            <>
+              <PluginSidebar
+                plugins={plugins}
+                filter={pluginFilter}
+                onFilterChange={handlePluginFilterChange}
+              />
+              {pluginView.kind === 'detail' ? (
+                <PluginDetail
+                  key={`${pluginView.name}@${pluginView.marketplace}`}
+                  name={pluginView.name}
+                  marketplace={pluginView.marketplace}
+                  onBack={() => setPluginView({ kind: 'list' })}
+                  onViewSkills={handleViewSkillsForPlugin}
+                  onActionSuccess={showPluginActionToast}
+                  onManageFolders={() => setFoldersDialogOpen(true)}
+                />
+              ) : (
+                <PluginInventory
+                  plugins={filteredPlugins}
+                  loading={pluginsPending}
+                  filter={pluginFilter}
+                  onSelect={(plugin) => openPluginDetail(plugin.name, plugin.marketplace)}
+                  onOpenSearch={() => setPaletteOpen(true)}
+                />
+              )}
+            </>
           )}
         </div>
       </div>

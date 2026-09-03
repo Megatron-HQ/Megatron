@@ -6,15 +6,15 @@ are locked here, and this doc is where they are argued.
 
 ## Locked decisions
 
-| Area                     | Decision                                                                                | Why                                                                                                                                                                                                                       |
-| ------------------------ | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SQLite driver            | `better-sqlite3`, not `node:sqlite`                                                     | `node:sqlite` is still experimental/evolving; wrong risk for the core data layer. `better-sqlite3` v13 ships N-API prebuilds (`prebuilds/darwin-arm64.node` etc.) — no native rebuild needed on install for this platform |
-| `skill_invocations` join | Text `skill_name`, **no FK** to `skills.id`                                             | Invocations can reference skills no scan will ever find (built-ins, deleted skills, ungranted repos) — join is best-effort at query time, not enforced. Marked in `schema.sql` itself as a locked decision                |
-| Built-in skills          | **Not a skill source, permanently.** No `builtin-skills.json`, no `source: builtin` tag | Not user-managed state — no file to point at, nothing to lint, no path to go stale, no version to track. `source_type` is a 3-way enum: `global` \| `project` \| `plugin`. Cut, not deferred                              |
-| Plugin identity          | Key on the composite `name@marketplace`, not bare name                                  | `installed_plugins.json` keys this way; also handles `"version": "unknown"` (non-semver)                                                                                                                                  |
-| Plugin → install         | One-to-**many** (array), with a `scope` field (`user` / `project`)                      | `installed_plugins.json` values are arrays, not single objects                                                                                                                                                            |
-| Marketplace repo         | Read from `known_marketplaces.json` (separate file), not `installed_plugins.json`       | This is what makes the plugin-remediation milestone's "Report" deep-link to the marketplace's GitHub repo resolvable — see `docs/mvp-build-spec.md` for milestone numbering                                               |
-| Schema changes           | Delete the local index and let it rebuild — no migration code                         | The index is 100% derived from `~/.claude/`; nothing in it is user-authored. See "Schema changes: delete, don't migrate" below                                                                                            |
+| Area                     | Decision                                                                                                   | Why                                                                                                                                                                                                                       |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SQLite driver            | `better-sqlite3`, not `node:sqlite`                                                                        | `node:sqlite` is still experimental/evolving; wrong risk for the core data layer. `better-sqlite3` v13 ships N-API prebuilds (`prebuilds/darwin-arm64.node` etc.) — no native rebuild needed on install for this platform |
+| `skill_invocations` join | Text `skill_name`, **no FK** to `skills.id`                                                                | Invocations can reference skills no scan will ever find (built-ins, deleted skills, ungranted repos) — join is best-effort at query time, not enforced. Marked in `schema.sql` itself as a locked decision                |
+| Built-in skills          | **Not a skill source, permanently.** No `builtin-skills.json`, no `source: builtin` tag                    | Not user-managed state — no file to point at, nothing to lint, no path to go stale, no version to track. `source_type` is a 3-way enum: `global` \| `project` \| `plugin`. Cut, not deferred                              |
+| Plugin identity          | Key on the composite `name@marketplace`, not bare name                                                     | `installed_plugins.json` keys this way; also handles `"version": "unknown"` (non-semver)                                                                                                                                  |
+| Plugin → install         | One-to-**many** (array), with a `scope` field (`user` / `project` / `local`) and the owning `project_path` | `installed_plugins.json` values are arrays, not single objects. See "Plugin install identity" below for why `install_path` alone can't key them                                                                           |
+| Marketplace repo         | Read from `known_marketplaces.json` (separate file), not `installed_plugins.json`                          | This is what makes the plugin-remediation milestone's "Report" deep-link to the marketplace's GitHub repo resolvable — see `docs/mvp-build-spec.md` for milestone numbering                                               |
+| Schema changes           | Delete the local index and let it rebuild — no migration code                                              | The index is 100% derived from `~/.claude/`; nothing in it is user-authored. See "Schema changes: delete, don't migrate" below                                                                                            |
 
 ## Index schema
 
@@ -75,10 +75,11 @@ CREATE TABLE IF NOT EXISTS plugin_registry (
   marketplace TEXT NOT NULL,
   marketplace_repo TEXT,              -- resolved from known_marketplaces.json; NULL if absent
   installed_version TEXT NOT NULL,    -- can literally be the string "unknown"
-  scope TEXT NOT NULL CHECK (scope IN ('user', 'project')),
+  scope TEXT NOT NULL CHECK (scope IN ('user', 'project', 'local')),
   install_path TEXT NOT NULL,
   last_scanned_at TEXT NOT NULL,
-  PRIMARY KEY (name, marketplace, install_path)
+  project_path TEXT NOT NULL DEFAULT '',  -- owning project root; '' for user scope
+  PRIMARY KEY (name, marketplace, scope, install_path, project_path)
 );
 
 CREATE TABLE IF NOT EXISTS allowed_paths (
@@ -129,8 +130,9 @@ separately means a rescan that drops a skill row drops its findings too. See
   `source_uuid` from the transcript line itself is the dedup key, so the transcript-scanner
   just does `INSERT OR IGNORE`. No update/delete reconciliation needed for this table beyond
   the cascade-on-vanished-session case above.
-- `plugin_registry` upserts on `(name, marketplace, install_path)`, preserving each installed
-  scope/location listed under a plugin key.
+- `plugin_registry` upserts on `(name, marketplace, scope, install_path, project_path)`,
+  preserving each installed scope/location listed under a plugin key. See "Plugin install
+  identity" below for why the last three columns are all load-bearing.
 
 **Usage stats (M5) are computed live, never stored.** `total_invocations`, `last_invoked_at`, and
 the trigger-type/per-project/recent-trigger breakdowns in `getSkillUsageDetail` are all aggregate
@@ -246,6 +248,63 @@ on `PluginRow.installs[]`. Management actions (enable/disable/update/uninstall) 
 `claude plugin <verb>` CLI (`src/main/plugin-actions.ts`) rather than writing to
 `plugin_registry` directly — the table stays a read-only scan cache like every other table here;
 a successful action triggers the normal full-rescan-and-broadcast path to pick up the result.
+
+**Plugin install identity and project scope (added 2026-09-03)**: Claude Code installs a plugin at
+one of three scopes, and `installed_plugins.json` records all of them in the same array under one
+`name@marketplace` key. `user` is `~/.claude/settings.json`; `project` is the repo's committed
+`.claude/settings.json`; `local` is that developer's own `.claude/settings.local.json`. The last
+two carry a `projectPath`, captured as `project_path`.
+
+- **`install_path` cannot key an install.** The cache path is version-addressed
+  (`cache/<marketplace>/<plugin>/<version>`), so one plugin at one version installed for two
+  scopes — or for two different projects — reports a single `installPath` for every one of those
+  installs. The old `(name, marketplace, install_path)` primary key collapsed them into one row
+  with one arbitrary scope. `scope` and `project_path` join the key to separate them.
+- **`project_path` is `NOT NULL DEFAULT ''`, not nullable**, because it is part of that key.
+  SQLite does not enforce `NOT NULL` on a non-integer primary key, and `ON CONFLICT` never
+  matches a `NULL`, so a nullable column here would make every scan insert a fresh duplicate row
+  for every user-scope install. Queries read it back as `NULLIF(project_path, '')`, so nothing
+  above the data layer sees the sentinel.
+- **`disabled_reason` is per-install, not per-identity.** `readPluginEnablement`
+  (`ingest/claude-settings.ts`) resolves each install against its own scope, merging
+  local > project > user — the same precedence and file list `readSkillOverrides` uses. A plugin
+  disabled at user scope but re-enabled for a project is genuinely two different states.
+  `listPlugins`'s identity-level `disabled_reason` therefore stopped being a `MAX()` and became
+  "disabled everywhere" (`COUNT(*) = COUNT(disabled_reason)`); the old `MAX()`, justified above as
+  a no-op tie-break, would have reported a plugin as disabled on the strength of one install.
+- **A plugin skill's `disabled_reason` follows the whole identity, not one install.** Two installs
+  at one version share an `install_path`, therefore one set of `skills` rows, so the skill's state
+  is genuinely ambiguous. It is stamped `'plugin'` only when _every_ install is disabled — "still
+  loads somewhere" is the honest reading of a split. Known ceiling: a skill enabled for one
+  project and disabled everywhere else reads as plainly enabled.
+- **Enablement can be unknowable.** A project/local install's settings live under its project
+  root, which is Tier 2 — readable only once granted. An ungranted root reads as `'missing'`
+  rather than `'unavailable'` (`isPathAllowed()` gates `allowedExistsSync()` as well as the read),
+  so `readJson`'s status can't tell "no settings file" apart from "not allowed to look"; the
+  permission check is the only honest signal. The scanner refuses to guess and leaves
+  `disabled_reason` NULL, and `listPlugins` reports `installs[].enablement_known` from a
+  `LEFT JOIN allowed_paths ON allowed_paths.path = plugin_registry.project_path`. That's derived
+  at read time rather than stamped at scan time so it can't go stale when a grant changes between
+  scans — `permissions.ts` seeds its in-memory grant set from that same table at startup, so the
+  two always agree. `folders:pickAndAdd` and `folders:revoke` now run `scanPluginRegistry`
+  alongside `scanSkills` for the same reason: the grant is what makes the settings readable.
+- **Actions run from the install's own project directory.** `claude plugin <verb>` resolves a
+  project/local install entirely from its working directory — verified against the real CLI, where
+  `claude plugin list` run inside a project reports its plugins enabled and the identical command
+  run from `$HOME` reports the same installs disabled. `plugin-actions.ts` therefore passes
+  `cwd: project_path` for any non-`user` scope, and no cwd at all for `user`. `cwd` is an
+  `execFile` option rather than part of the command line, so it never reaches the `cmd.exe`
+  parsing that `shell: true` enables on Windows.
+- **A project/local action requires its folder to be granted.** Not only for consistency with the
+  permission model: without the grant the project's settings are unreadable, so `enablement_known`
+  is false and the UI is showing **Unknown** — offering Enable/Disable there would be toggling a
+  switch whose current position Megatron has just said it can't read. `PluginDetail` disables the
+  buttons and links to Manage Folders; `plugin-actions.ts` re-checks `isPathAllowed()` so a
+  renderer bug can't route around it.
+- **The in-flight action guard keys on the install, not the identity.** `name@marketplace` alone
+  would make disabling a project install block the user install of the same plugin, and would
+  serialize two projects that each installed it. The key is
+  `name@marketplace` + `scope` + `project_path`.
 
 ## Why SQLite
 

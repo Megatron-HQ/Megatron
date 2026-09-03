@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Loader2, Power, RefreshCw, Trash2 } from 'lucide-react'
-import { MarketplaceBadge, PluginStatusBadge } from '@/components/PluginBadges'
+import { MarketplaceBadge, PluginScopeLabel, PluginStatusBadge } from '@/components/PluginBadges'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
@@ -13,7 +13,13 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
-import type { PluginInstall, PluginScope } from '../../../shared/ipc'
+import type { PluginInstall } from '../../../shared/ipc'
+
+// Identifies one install within a plugin. Scope alone isn't enough — two projects can each hold
+// a project-scope install of the same plugin, and they act independently.
+function installKey(install: PluginInstall): string {
+  return `${install.scope}:${install.project_path ?? ''}`
+}
 
 type ActionVerb = 'enable' | 'disable' | 'update' | 'uninstall'
 
@@ -23,6 +29,7 @@ interface PluginDetailProps {
   onBack: () => void
   onViewSkills: (pluginName: string) => void
   onActionSuccess: (message: string) => void
+  onManageFolders: () => void
 }
 
 export function PluginDetail({
@@ -30,7 +37,8 @@ export function PluginDetail({
   marketplace,
   onBack,
   onViewSkills,
-  onActionSuccess
+  onActionSuccess,
+  onManageFolders
 }: PluginDetailProps): React.JSX.Element {
   const queryClient = useQueryClient()
   const queryKey = ['plugin-detail', name, marketplace]
@@ -41,20 +49,23 @@ export function PluginDetail({
 
   const [pendingKey, setPendingKey] = useState<string | null>(null)
   const pendingActionRef = useRef(false)
-  const [actionError, setActionError] = useState<{ scope: PluginScope; message: string } | null>(
-    null
-  )
+  const [actionError, setActionError] = useState<{ install: string; message: string } | null>(null)
   const [uninstallTarget, setUninstallTarget] = useState<PluginInstall | null>(null)
 
   async function runAction(verb: ActionVerb, install: PluginInstall): Promise<void> {
     if (pendingActionRef.current) return
 
-    const previousVersion = data?.plugin.installed_version ?? 'unknown'
-    const key = `${install.scope}:${verb}`
+    const previousVersion = install.installed_version
+    const target = installKey(install)
     pendingActionRef.current = true
-    setPendingKey(key)
+    setPendingKey(`${target}:${verb}`)
     setActionError(null)
-    const input = { name, marketplace, scope: install.scope }
+    const input = {
+      name,
+      marketplace,
+      scope: install.scope,
+      projectPath: install.project_path
+    }
     const apiFn = {
       enable: window.api.enablePlugin,
       disable: window.api.disablePlugin,
@@ -64,7 +75,7 @@ export function PluginDetail({
     try {
       const result = await apiFn(input)
       if (!result.ok) {
-        setActionError({ scope: install.scope, message: result.stderr ?? 'Action failed.' })
+        setActionError({ install: target, message: result.stderr ?? 'Action failed.' })
         return
       }
       await Promise.all([
@@ -73,14 +84,16 @@ export function PluginDetail({
       ])
       if (verb === 'update') {
         const updatedPlugin = await window.api.getPluginDetail(name, marketplace)
-        const latestVersion = updatedPlugin?.plugin.installed_version ?? previousVersion
+        const latestVersion =
+          updatedPlugin?.plugin.installs.find((row) => installKey(row) === target)
+            ?.installed_version ?? previousVersion
         onActionSuccess(updateSuccessMessage(name, previousVersion, latestVersion))
       } else {
         onActionSuccess(`${name} ${pastTenseVerb(verb)}`)
       }
     } catch (error) {
       setActionError({
-        scope: install.scope,
+        install: target,
         message: error instanceof Error ? error.message : 'Action failed unexpectedly. Try again.'
       })
     } finally {
@@ -115,7 +128,10 @@ export function PluginDetail({
   }
 
   const { plugin, totalInvocations, errorCount, warningCount } = data
-  const disabled = plugin.disabled_reason !== null
+  // One readable install is enough to state the plugin's status; only report Unknown when no
+  // install's enablement could be resolved at all.
+  const enablementKnown =
+    plugin.installs.length === 0 || plugin.installs.some((install) => install.enablement_known)
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -132,7 +148,7 @@ export function PluginDetail({
         <h2 className="min-w-0 truncate text-base font-semibold">{plugin.name}</h2>
         <MarketplaceBadge marketplace={plugin.marketplace} />
         <span className="font-mono text-xs text-muted-foreground">v{plugin.installed_version}</span>
-        <PluginStatusBadge disabledReason={plugin.disabled_reason} />
+        <PluginStatusBadge disabledReason={plugin.disabled_reason} known={enablementKnown} />
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -162,12 +178,12 @@ export function PluginDetail({
             </p>
             {plugin.installs.map((install) => (
               <InstallRow
-                key={`${install.scope}:${install.install_path}`}
+                key={`${installKey(install)}:${install.install_path}`}
                 install={install}
-                disabled={disabled}
                 pendingKey={pendingKey}
+                onManageFolders={onManageFolders}
                 errorMessage={
-                  actionError?.scope === install.scope ? actionError.message : undefined
+                  actionError?.install === installKey(install) ? actionError.message : undefined
                 }
                 onEnable={() => runAction('enable', install)}
                 onDisable={() => runAction('disable', install)}
@@ -187,8 +203,14 @@ export function PluginDetail({
           <DialogHeader>
             <DialogTitle>Uninstall {plugin.name}?</DialogTitle>
             <DialogDescription>
-              This removes the {uninstallTarget?.scope}-scope install at{' '}
-              <span className="font-mono text-xs">{uninstallTarget?.install_path}</span>. This
+              This removes the {uninstallTarget?.scope}-scope install
+              {uninstallTarget?.project_path != null && (
+                <>
+                  {' '}
+                  for <span className="font-mono text-xs">{uninstallTarget.project_path}</span>
+                </>
+              )}{' '}
+              at <span className="font-mono text-xs">{uninstallTarget?.install_path}</span>. This
               can&apos;t be undone from Megatron.
             </DialogDescription>
           </DialogHeader>
@@ -236,31 +258,48 @@ function updateSuccessMessage(
 
 function InstallRow({
   install,
-  disabled,
   pendingKey,
   errorMessage,
   onEnable,
   onDisable,
   onUpdate,
-  onUninstallRequest
+  onUninstallRequest,
+  onManageFolders
 }: {
   install: PluginInstall
-  disabled: boolean
   pendingKey: string | null
   errorMessage?: string
   onEnable: () => void
   onDisable: () => void
   onUpdate: () => void
   onUninstallRequest: () => void
+  onManageFolders: () => void
 }): React.JSX.Element {
-  const isPending = (verb: ActionVerb): boolean => pendingKey === `${install.scope}:${verb}`
+  const isPending = (verb: ActionVerb): boolean => pendingKey === `${installKey(install)}:${verb}`
   const anyPending = pendingKey !== null
+  // Per-install, not per-plugin: the same plugin can be off at user scope and on for a project.
+  const disabled = install.disabled_reason !== null
+  // A project/local install runs its CLI command from the owning project, so it needs both a
+  // recorded project path and a grant on it. Ungranted, its state shows as Unknown — offering
+  // Disable there would be flipping a switch whose current position we've just said we can't read.
+  const missingProject = install.scope !== 'user' && install.project_path === null
+  const needsGrant = install.scope !== 'user' && !missingProject && !install.enablement_known
+  const actionable = install.scope === 'user' || (!missingProject && !needsGrant)
 
   return (
     <div className="flex flex-col gap-2 rounded-md border border-border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-[13px] font-medium capitalize">{install.scope} scope</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <PluginScopeLabel scope={install.scope} projectPath={install.project_path} />
+            <span className="font-mono text-xs text-muted-foreground">
+              v{install.installed_version}
+            </span>
+            <PluginStatusBadge
+              disabledReason={install.disabled_reason}
+              known={install.enablement_known}
+            />
+          </div>
           <p
             className="truncate font-mono text-[11px] text-muted-foreground"
             title={install.install_path}
@@ -273,7 +312,7 @@ function InstallRow({
             type="button"
             variant="outline"
             size="sm"
-            disabled={anyPending}
+            disabled={anyPending || !actionable}
             onClick={disabled ? onEnable : onDisable}
           >
             {isPending(disabled ? 'enable' : 'disable') ? (
@@ -287,7 +326,7 @@ function InstallRow({
             type="button"
             variant="outline"
             size="sm"
-            disabled={anyPending}
+            disabled={anyPending || !actionable}
             onClick={onUpdate}
           >
             {isPending('update') ? (
@@ -301,7 +340,7 @@ function InstallRow({
             type="button"
             variant="outline"
             size="sm"
-            disabled={anyPending}
+            disabled={anyPending || !actionable}
             onClick={onUninstallRequest}
             className="text-destructive hover:bg-destructive/10 hover:text-destructive"
           >
@@ -314,9 +353,25 @@ function InstallRow({
           </Button>
         </div>
       </div>
-      <p className="text-[11px] text-muted-foreground">
-        Update takes effect after Claude Code restarts.
-      </p>
+      {needsGrant ? (
+        <p className="text-[11px] text-muted-foreground">
+          Grant{' '}
+          <button
+            type="button"
+            onClick={onManageFolders}
+            className="underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {install.project_path}
+          </button>{' '}
+          to see whether this install is enabled and to change it.
+        </p>
+      ) : (
+        <p className="text-[11px] text-muted-foreground">
+          {actionable
+            ? 'Update takes effect after Claude Code restarts.'
+            : "This install doesn't record its project, so Megatron can't run the CLI from the right directory."}
+        </p>
+      )}
       {errorMessage && (
         <p className="rounded border border-destructive/30 bg-destructive/10 px-2 py-1 font-mono text-[11px] text-destructive">
           {errorMessage}

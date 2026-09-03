@@ -454,10 +454,15 @@ export function getContextBudget(db: Database.Database): ContextBudget {
   return { ...row, limit: CONTEXT_BUDGET_LIMIT }
 }
 
-// One row per plugin identity (name+marketplace) — plugin_registry is one-to-many on install,
-// so per-install fields (scope, install_path, timestamps) collapse into `installs[]` while
-// identity-level fields (version, repo, disabled_reason) are read via MAX(), which is a no-op
-// tie-break: every install of one identity is stamped identically by the same scan pass.
+// One row per plugin identity (name+marketplace) — plugin_registry is one-to-many on install, so
+// every per-install field (scope, version, project, enablement, timestamps) collapses into
+// `installs[]`. Only `marketplace_repo` is still read via MAX() as a genuine no-op tie-break;
+// installs of one identity can differ in every other respect once project scope exists.
+//
+// `installed_version` keeps a MAX() at identity level for the inventory's single Version column,
+// which reads installs[].installed_version to decide whether that number is the whole story.
+// `disabled_reason` is deliberately not a MAX(): a plugin disabled at user scope but enabled for
+// a project is not a disabled plugin, so the identity reports it only when every install agrees.
 export function listPlugins(db: Database.Database): PluginRow[] {
   const identities = db
     .prepare(
@@ -465,7 +470,8 @@ export function listPlugins(db: Database.Database): PluginRow[] {
          name, marketplace,
          MAX(marketplace_repo) AS marketplace_repo,
          MAX(installed_version) AS installed_version,
-         MAX(disabled_reason) AS disabled_reason,
+         CASE WHEN COUNT(*) = COUNT(disabled_reason) THEN MAX(disabled_reason) END
+           AS disabled_reason,
          (SELECT COUNT(*) FROM skills
           WHERE skills.plugin_name = plugin_registry.name || '@' || plugin_registry.marketplace
          ) AS skill_count
@@ -474,23 +480,41 @@ export function listPlugins(db: Database.Database): PluginRow[] {
     )
     .all() as Omit<PluginRow, 'installs'>[]
 
+  // enablement_known is joined against allowed_paths rather than stamped at scan time so it can't
+  // go stale when a grant is added or revoked between scans. permissions.ts seeds its in-memory
+  // grant set from this same table at startup, so the two always agree. A user install needs no
+  // grant (~/.claude/settings.json is Tier 1); a project/local install with no project_path has
+  // no root that could ever be granted, so it stays unknown.
   const installs = db
     .prepare(
-      `SELECT name, marketplace, scope, install_path, installed_at, last_updated, git_commit_sha
-       FROM plugin_registry`
+      `SELECT
+         pr.name, pr.marketplace, pr.scope, pr.install_path, pr.installed_at, pr.last_updated,
+         pr.git_commit_sha, pr.installed_version, pr.disabled_reason,
+         NULLIF(pr.project_path, '') AS project_path,
+         CASE WHEN pr.scope = 'user' OR ap.path IS NOT NULL THEN 1 ELSE 0 END AS enablement_known
+       FROM plugin_registry pr
+       LEFT JOIN allowed_paths ap ON ap.path = pr.project_path`
     )
-    .all() as (PluginInstall & { name: string; marketplace: string })[]
+    .all() as (Omit<PluginInstall, 'enablement_known'> & {
+    name: string
+    marketplace: string
+    enablement_known: number
+  })[]
 
   return identities.map((identity) => ({
     ...identity,
     installs: installs
       .filter((row) => row.name === identity.name && row.marketplace === identity.marketplace)
-      .map(({ scope, install_path, installed_at, last_updated, git_commit_sha }) => ({
-        scope,
-        install_path,
-        installed_at,
-        last_updated,
-        git_commit_sha
+      .map((row) => ({
+        scope: row.scope,
+        install_path: row.install_path,
+        installed_at: row.installed_at,
+        last_updated: row.last_updated,
+        git_commit_sha: row.git_commit_sha,
+        project_path: row.project_path,
+        installed_version: row.installed_version,
+        disabled_reason: row.disabled_reason,
+        enablement_known: row.enablement_known === 1
       }))
   }))
 }

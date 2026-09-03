@@ -38,11 +38,11 @@ export default defineConfig(
     }
   },
   {
-    // Skill scripts are plain ESM, not part of the src/ TS project — .mjs can't
+    // Skill and repo scripts are plain ESM, not part of the src/ TS project — .mjs can't
     // express TS return-type syntax, so this rule is structurally inapplicable.
     // Covers .agents/skills/ too — a generated mirror of .claude/skills/ (see
     // "Generated mirrors" in CLAUDE.md's locked decisions), same files, same rule.
-    files: ['.claude/skills/**/*.mjs', '.agents/skills/**/*.mjs'],
+    files: ['.claude/skills/**/*.mjs', '.agents/skills/**/*.mjs', 'scripts/**/*.mjs'],
     rules: {
       '@typescript-eslint/explicit-function-return-type': 'off'
     }

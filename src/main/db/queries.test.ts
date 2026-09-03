@@ -72,19 +72,21 @@ function insertPluginRegistry(overrides: {
   marketplace: string
   marketplace_repo?: string | null
   installed_version?: string
-  scope?: 'user' | 'project'
+  scope?: 'user' | 'project' | 'local'
   install_path?: string
   installed_at?: string | null
   last_updated?: string | null
   git_commit_sha?: string | null
   disabled_reason?: string | null
+  project_path?: string
 }): void {
   db.prepare(
     `INSERT INTO plugin_registry
        (name, marketplace, marketplace_repo, installed_version, scope, install_path,
-        last_scanned_at, installed_at, last_updated, git_commit_sha, disabled_reason)
+        last_scanned_at, installed_at, last_updated, git_commit_sha, disabled_reason, project_path)
      VALUES (@name, @marketplace, @marketplace_repo, @installed_version, @scope, @install_path,
-        '2026-08-14T00:00:00.000Z', @installed_at, @last_updated, @git_commit_sha, @disabled_reason)`
+        '2026-08-14T00:00:00.000Z', @installed_at, @last_updated, @git_commit_sha, @disabled_reason,
+        @project_path)`
   ).run({
     name: overrides.name,
     marketplace: overrides.marketplace,
@@ -95,7 +97,8 @@ function insertPluginRegistry(overrides: {
     installed_at: overrides.installed_at ?? null,
     last_updated: overrides.last_updated ?? null,
     git_commit_sha: overrides.git_commit_sha ?? null,
-    disabled_reason: overrides.disabled_reason ?? null
+    disabled_reason: overrides.disabled_reason ?? null,
+    project_path: overrides.project_path ?? ''
   })
 }
 
@@ -1351,6 +1354,161 @@ describe('listPlugins', () => {
       installed_version: '1.2.3',
       disabled_reason: 'plugin'
     })
+  })
+
+  it('reports project_path per install, and null for a user install', () => {
+    insertPluginRegistry({
+      name: 'plugin-a',
+      marketplace: 'market-1',
+      scope: 'user',
+      install_path: '/cache/plugin-a'
+    })
+    insertPluginRegistry({
+      name: 'plugin-a',
+      marketplace: 'market-1',
+      scope: 'project',
+      install_path: '/cache/plugin-a',
+      project_path: '/repo'
+    })
+
+    const byScope = Object.fromEntries(
+      listPlugins(db)[0].installs.map((install) => [install.scope, install.project_path])
+    )
+    expect(byScope).toEqual({ user: null, project: '/repo' })
+  })
+
+  it('reports installed_version per install when two scopes differ', () => {
+    insertPluginRegistry({
+      name: 'plugin-a',
+      marketplace: 'market-1',
+      scope: 'user',
+      install_path: '/cache/plugin-a/1.0.0',
+      installed_version: '1.0.0'
+    })
+    insertPluginRegistry({
+      name: 'plugin-a',
+      marketplace: 'market-1',
+      scope: 'project',
+      install_path: '/cache/plugin-a/2.0.0',
+      installed_version: '2.0.0',
+      project_path: '/repo'
+    })
+
+    const byScope = Object.fromEntries(
+      listPlugins(db)[0].installs.map((install) => [install.scope, install.installed_version])
+    )
+    expect(byScope).toEqual({ user: '1.0.0', project: '2.0.0' })
+  })
+
+  it('reports disabled_reason per install when two scopes disagree', () => {
+    insertPluginRegistry({
+      name: 'plugin-a',
+      marketplace: 'market-1',
+      scope: 'user',
+      install_path: '/cache/plugin-a',
+      disabled_reason: 'plugin'
+    })
+    insertPluginRegistry({
+      name: 'plugin-a',
+      marketplace: 'market-1',
+      scope: 'project',
+      install_path: '/cache/plugin-a',
+      project_path: '/repo'
+    })
+
+    const byScope = Object.fromEntries(
+      listPlugins(db)[0].installs.map((install) => [install.scope, install.disabled_reason])
+    )
+    expect(byScope).toEqual({ user: 'plugin', project: null })
+  })
+
+  it('leaves the identity disabled_reason null when only some installs are disabled', () => {
+    insertPluginRegistry({
+      name: 'plugin-a',
+      marketplace: 'market-1',
+      scope: 'user',
+      install_path: '/cache/plugin-a',
+      disabled_reason: 'plugin'
+    })
+    insertPluginRegistry({
+      name: 'plugin-a',
+      marketplace: 'market-1',
+      scope: 'project',
+      install_path: '/cache/plugin-a',
+      project_path: '/repo'
+    })
+
+    expect(listPlugins(db)[0].disabled_reason).toBeNull()
+  })
+
+  it('reports the identity disabled_reason when every install is disabled', () => {
+    insertPluginRegistry({
+      name: 'plugin-a',
+      marketplace: 'market-1',
+      scope: 'user',
+      install_path: '/cache/plugin-a',
+      disabled_reason: 'plugin'
+    })
+    insertPluginRegistry({
+      name: 'plugin-a',
+      marketplace: 'market-1',
+      scope: 'project',
+      install_path: '/cache/plugin-a',
+      project_path: '/repo',
+      disabled_reason: 'plugin'
+    })
+
+    expect(listPlugins(db)[0].disabled_reason).toBe('plugin')
+  })
+
+  it('reports enablement_known for a user install, which needs no project grant', () => {
+    insertPluginRegistry({ name: 'plugin-a', marketplace: 'market-1', scope: 'user' })
+
+    expect(listPlugins(db)[0].installs[0].enablement_known).toBe(true)
+  })
+
+  it('reports enablement_known for a project install whose root is granted', () => {
+    addAllowedPath(db, '/repo')
+    insertPluginRegistry({
+      name: 'plugin-a',
+      marketplace: 'market-1',
+      scope: 'project',
+      project_path: resolve('/repo')
+    })
+
+    expect(listPlugins(db)[0].installs[0].enablement_known).toBe(true)
+  })
+
+  // Without the grant its .claude/settings*.json is unreadable, so a null disabled_reason means
+  // "we could not look", not "enabled".
+  it('reports enablement unknown for a project install whose root is not granted', () => {
+    insertPluginRegistry({
+      name: 'plugin-a',
+      marketplace: 'market-1',
+      scope: 'project',
+      project_path: '/ungranted-repo'
+    })
+
+    expect(listPlugins(db)[0].installs[0].enablement_known).toBe(false)
+  })
+
+  it('reports enablement unknown for a local install whose root is not granted', () => {
+    insertPluginRegistry({
+      name: 'plugin-a',
+      marketplace: 'market-1',
+      scope: 'local',
+      project_path: '/ungranted-repo'
+    })
+
+    expect(listPlugins(db)[0].installs[0].enablement_known).toBe(false)
+  })
+
+  // A project/local entry Claude Code wrote without a projectPath has no root to grant, so no
+  // grant could ever make its enablement knowable.
+  it('reports enablement unknown for a project install with no project_path at all', () => {
+    insertPluginRegistry({ name: 'plugin-a', marketplace: 'market-1', scope: 'project' })
+
+    expect(listPlugins(db)[0].installs[0].enablement_known).toBe(false)
   })
 })
 
