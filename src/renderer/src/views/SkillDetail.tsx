@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, ArrowLeft, BotOff, FolderOpen, Power, Webhook } from 'lucide-react'
+import { InvocationGroupRow } from '@/components/InvocationGroupRow'
 import { InvocationRow } from '@/components/InvocationRow'
 import { LintFindingsPanel } from '@/components/LintFindingsPanel'
 import { LintStatusBadge } from '@/components/LintStatusBadge'
-import { SkillActivityDialog } from '@/components/SkillActivityDialog'
+import { SkillActivityDialog, type TriggerFilter } from '@/components/SkillActivityDialog'
 import { SourceBadge } from '@/components/SourceBadge'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { parseHookEvents } from '@/lib/hook-events'
 import { hasDisableModelInvocationFrontmatter, parseExtraFrontmatterFields } from '@/lib/markdown'
+import { groupInvocationEntries } from '@/lib/invocation-grouping'
 import { getFolderBasename } from '@/lib/source-name'
 import { TRIGGER_META } from '@/lib/trigger-meta'
 import { cn } from '@/lib/utils'
@@ -24,13 +26,18 @@ interface SkillDetailProps {
 
 // Fixed render order + texture fill for each trigger-mix segment. The bar stays monochrome
 // (DESIGN.md forbids color-as-category) and tells the three types apart by pattern over one
-// common ink shade — solid / faint diagonal hatch / faint dot grid, defined in main.css. The
-// icon+label+count legend directly beneath it is what keeps this from being texture-alone.
+// common ink shade — solid / faint diagonal hatch / faint dot grid, defined in main.css — plus
+// each segment's own centered TRIGGER_META icon, inverted to read against the ink fill.
 const TRIGGER_BAR: { type: TriggerType; barClass: string }[] = [
   { type: 'user_invoked', barClass: 'trigger-fill-solid' },
   { type: 'autonomous', barClass: 'trigger-fill-hatch' },
   { type: 'subagent', barClass: 'trigger-fill-dots' }
 ]
+
+// Every nonzero segment is floored to this minimum width so a skewed mix (e.g. 2/188/2) never
+// collapses a minority trigger type into an invisible sliver. The dominant segment still shrinks
+// to make room — widths always sum to 100%.
+const SEGMENT_MIN_PERCENT = 8
 
 const PROJECT_ROW_CAP = 6
 
@@ -393,11 +400,16 @@ function UsageSection({
   skill: SkillRow
 }): React.JSX.Element {
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [initialTriggerFilter, setInitialTriggerFilter] = useState<TriggerFilter>('all')
   const isProjectSkill = skill.source_type === 'project'
   const hasUsage = usage.byTriggerType.length > 0
   const total = usage.byTriggerType.reduce((sum, t) => sum + t.count, 0)
   const countFor = (type: TriggerType): number =>
     usage.byTriggerType.find((t) => t.trigger_type === type)?.count ?? 0
+  const openHistory = (filter: TriggerFilter): void => {
+    setInitialTriggerFilter(filter)
+    setHistoryOpen(true)
+  }
 
   return (
     <section className="space-y-3" aria-labelledby="skill-usage-heading">
@@ -413,18 +425,36 @@ function UsageSection({
       ) : (
         <div className="space-y-5">
           <div className="space-y-2">
-            <div className="flex h-3 w-full origin-left overflow-hidden rounded-full bg-muted animate-bar-grow motion-reduce:animate-none">
-              {TRIGGER_BAR.map(({ type, barClass }) => {
-                const count = countFor(type)
-                if (count === 0) return null
-                return (
-                  <div
-                    key={type}
-                    className={cn('h-full', barClass)}
-                    style={{ width: `${(count / total) * 100}%` }}
-                  />
-                )
-              })}
+            <div className="flex h-6 w-full origin-left overflow-hidden rounded-full bg-muted animate-bar-grow motion-reduce:animate-none">
+              {(() => {
+                const nonzero = TRIGGER_BAR.filter(({ type }) => countFor(type) > 0)
+                const remaining = 100 - SEGMENT_MIN_PERCENT * nonzero.length
+                return nonzero.map(({ type, barClass }) => {
+                  const count = countFor(type)
+                  const { label, Icon } = TRIGGER_META[type]
+                  const width = SEGMENT_MIN_PERCENT + (count / total) * remaining
+                  const description = `${count} ${label} ${count === 1 ? 'invocation' : 'invocations'}`
+                  return (
+                    <Tooltip key={type}>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => openHistory(type)}
+                          aria-label={description}
+                          className={cn(
+                            'flex h-full items-center justify-center transition-opacity hover:opacity-90 active:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+                            barClass
+                          )}
+                          style={{ width: `${width}%` }}
+                        >
+                          <Icon className="size-3 shrink-0 text-background animate-icon-fade motion-reduce:animate-none" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">{description}</TooltipContent>
+                    </Tooltip>
+                  )
+                })
+              })()}
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1">
               {TRIGGER_BAR.map(({ type }) => {
@@ -455,14 +485,18 @@ function UsageSection({
                 Recent activity
               </p>
               <div className="divide-y divide-border">
-                {usage.recentTriggers.map((entry, index) => (
-                  <InvocationRow key={index} entry={entry} />
-                ))}
+                {groupInvocationEntries(usage.recentTriggers).map((item, index) =>
+                  item.kind === 'group' ? (
+                    <InvocationGroupRow key={index} entries={item.entries} />
+                  ) : (
+                    <InvocationRow key={index} entry={item.entry} />
+                  )
+                )}
               </div>
               {skill.total_invocations > usage.recentTriggers.length && (
                 <button
                   type="button"
-                  onClick={() => setHistoryOpen(true)}
+                  onClick={() => openHistory('all')}
                   className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase hover:text-foreground"
                 >
                   View all {skill.total_invocations.toLocaleString()}
@@ -478,6 +512,7 @@ function UsageSection({
         onOpenChange={setHistoryOpen}
         skillId={skill.id}
         skillName={skill.name}
+        initialTriggerFilter={initialTriggerFilter}
       />
     </section>
   )

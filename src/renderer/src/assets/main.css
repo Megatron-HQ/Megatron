@@ -94,11 +94,20 @@
   --font-mono: 'Geist Mono', ui-monospace, monospace;
   /* SkillDetail's usage bar eases open on mount — CSS only, and skipped under reduced motion. */
   --animate-bar-grow: bar-grow 0.5s ease-out;
+  /* Each segment's icon fades in only after bar-grow finishes (0.5s delay) — bar-grow scales the
+     bar horizontally, which would visibly squash an icon rendered during that transform. */
+  --animate-icon-fade: icon-fade 0.2s ease-out 0.5s both;
 }
 
 @keyframes bar-grow {
   from {
     transform: scaleX(0);
+  }
+}
+
+@keyframes icon-fade {
+  from {
+    opacity: 0;
   }
 }
 

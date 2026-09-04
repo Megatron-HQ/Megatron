@@ -281,16 +281,21 @@ const columnsWithoutScope: ColumnDef<typeof features, PluginRow, unknown>[] = co
 ])
 
 const COLUMN_WIDTH: Record<string, string> = {
-  // Name is the flexible column, absorbing whatever the fixed ones leave. Marketplace source
-  // drops out below 1000px: with a 220px sidebar beside it, seven fixed columns don't fit the
-  // 860px minimum window, and Marketplace source carries least on the table.
-  name: 'min-w-0',
-  marketplace: 'w-[110px] max-[1000px]:hidden',
-  installed_version: 'w-[125px] max-[1000px]:w-[100px]',
-  marketplace_version: 'w-[140px] max-[1000px]:w-[105px]',
-  scope: 'w-[120px] max-[1000px]:w-[100px]',
-  skill_count: 'w-[50px] max-[1000px]:w-[45px]',
-  status: 'w-[95px] max-[1000px]:w-[90px]'
+  // Percentages above 1000px so a wide window shares its extra width across every column,
+  // instead of table-fixed piling all of it into whichever column lacks an explicit width (Name,
+  // previously). Below 1000px there's no slack to share — percentages of a shrinking table
+  // eventually undercut a badge's own min-content width (the Status pill, first), pushing the
+  // table wider than its pane and reintroducing the horizontal scroll DESIGN.md rules out. Pixel
+  // widths sized to each column's actual content take over instead, same as before this column
+  // shrank Name; Marketplace source drops out entirely there too, since it carries the least
+  // information on this table and a 220px sidebar plus seven columns don't fit an 860px window.
+  name: 'w-[24%] max-[1000px]:w-auto',
+  marketplace: 'w-[14%] max-[1000px]:hidden',
+  installed_version: 'w-[14%] max-[1000px]:w-[100px]',
+  marketplace_version: 'w-[14%] max-[1000px]:w-[105px]',
+  scope: 'w-[18%] max-[1000px]:w-[100px]',
+  skill_count: 'w-[6%] max-[1000px]:w-[45px]',
+  status: 'w-[10%] max-[1000px]:w-[90px]'
 }
 
 // "All Plugins" being empty means nothing is installed at all; any other filter being empty means
@@ -394,7 +399,7 @@ export function PluginInventory({
           <TableBody>
             {Array.from({ length: 6 }).map((_, i) => (
               <TableRow key={i} className="h-10 border-b-0">
-                <TableCell className="px-3 py-2">
+                <TableCell className={cn('px-3 py-2', COLUMN_WIDTH.name)}>
                   <Skeleton className="h-4 w-32" />
                 </TableCell>
                 <TableCell className={cn('px-3 py-2', COLUMN_WIDTH.marketplace)}>

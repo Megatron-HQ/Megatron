@@ -36,7 +36,7 @@ interface InvocationCandidate {
 }
 
 const PRECEDING_TEXT_MAX_CHARS = 2000
-const TRANSCRIPT_PARSER_VERSION = 2
+const TRANSCRIPT_PARSER_VERSION = 3
 
 function truncatePrecedingText(text: string | null): string | null {
   return text === null ? null : text.slice(0, PRECEDING_TEXT_MAX_CHARS)
@@ -110,6 +110,24 @@ const COMMAND_NAME_PATTERN = /<command-name>\/([^<\s]+)<\/command-name>/
 const COMMAND_ARGS_PATTERN = /<command-args>([^<]*)<\/command-args>/
 const BASE_DIRECTORY_MARKER = 'Base directory for this skill:'
 
+// A real chat turn's content is either a plain string, or an array of blocks the human actually
+// authored (text, image). Two other record shapes are also role:user and array-shaped, but
+// aren't a chat turn to attribute to the human, so both mean "skip", matching the pre-existing
+// behavior: a tool_result turn (the harness feeding a tool's output back to the assistant), and
+// a slash command's own base-directory marker child (see hasBaseDirectoryMarker below — same
+// constant, so a turn is never treated as "trigger text" by one check and "marker" by the
+// other). An image-only array (no text block) has nothing to extract either.
+function extractUserTurnText(content: unknown): string | null {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return null
+  if (content.some((block) => isRecord(block) && block.type === 'tool_result')) return null
+  const text = content
+    .filter((block) => isRecord(block) && block.type === 'text' && typeof block.text === 'string')
+    .map((block) => (block as Record<string, unknown>).text as string)
+    .join('')
+  return text === '' || text.includes(BASE_DIRECTORY_MARKER) ? null : text
+}
+
 // A slash-command line only proves a real skill ran (vs. a built-in like /clear or /model) if its
 // own DIRECT child record carries this marker — confirmed against real transcript data: every
 // genuine skill invocation has one, no built-in ever does, and a 3-record lookahead instead of the
@@ -177,8 +195,9 @@ function extractInvocations(
 
     if (record.type === 'user') {
       const message = record.message
-      if (isRecord(message) && typeof message.content === 'string') {
-        const content = message.content
+      const userText = isRecord(message) ? extractUserTurnText(message.content) : null
+      if (userText !== null) {
+        const content = userText
         precedingMessage = content
         userTurn += 1
 

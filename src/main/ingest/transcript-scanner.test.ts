@@ -719,6 +719,35 @@ describe('parseTranscript', () => {
       expect(parseTranscript(filePath).invocations[0].preceding_user_text).toBeNull()
     })
 
+    it('extracts the text block from an array-content user message carrying a real image', () => {
+      const trigger = metaLine({
+        message: {
+          content: [
+            { type: 'text', text: 'for skills icon can we use : [Image #1]' },
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'xyz' } }
+          ]
+        }
+      })
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [trigger, skillInvocationLine()])
+
+      expect(parseTranscript(filePath).invocations[0].preceding_user_text).toBe(
+        'for skills icon can we use : [Image #1]'
+      )
+    })
+
+    it('treats array content with only an image block, no text, as no preceding text', () => {
+      const trigger = metaLine({
+        message: {
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'xyz' } }
+          ]
+        }
+      })
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [trigger, skillInvocationLine()])
+
+      expect(parseTranscript(filePath).invocations[0].preceding_user_text).toBeNull()
+    })
+
     it('truncates to 2000 chars rather than storing the full message', () => {
       const longMessage = 'x'.repeat(2500)
       const trigger = metaLine({ message: { content: longMessage } })

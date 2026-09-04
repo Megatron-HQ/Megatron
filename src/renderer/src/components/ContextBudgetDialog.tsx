@@ -48,9 +48,8 @@ export function ContextBudgetDialog({
             <span className="font-mono tabular-nums text-foreground">
               {budget.limit.toLocaleString()}
             </span>{' '}
-            tokens, roughly 1% of a 200K-token reference window. Skills only you can invoke
-            aren&apos;t in the listing, and project skills aren&apos;t counted here; they only load
-            inside their own repo.
+            tokens, roughly 1% of a 200K-token reference window. Project skills aren&apos;t counted
+            here.
           </p>
         </DialogHeader>
 
@@ -98,8 +97,7 @@ export function ContextBudgetDialog({
                 {budget.userInvocableOnlyCount === 1
                   ? 'user-invocable-only skill'
                   : 'user-invocable-only skills'}{' '}
-                ({budget.userInvocableOnlyTokens.toLocaleString()} tokens) not listed — Claude Code
-                keeps their descriptions out of context because only you can invoke them.
+                ({budget.userInvocableOnlyTokens.toLocaleString()} tokens) excluded.
               </span>
               <button
                 type="button"
@@ -109,7 +107,7 @@ export function ContextBudgetDialog({
                 }}
                 className="font-medium text-foreground underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
               >
-                View these skills
+                View user-invocable skills
               </button>
             </p>
           )}

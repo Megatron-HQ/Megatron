@@ -63,6 +63,20 @@ async function expandFirstRecentTrigger(window) {
   await window.locator('button:has(time)[aria-expanded="true"]').first().waitFor()
 }
 
+/** Expand the first collapsed image-run summary row (InvocationGroupRow) so a screenshot
+ *  carries its per-screenshot timestamp/dimensions breakdown. Matched by its "N screenshots ·
+ *  <range>" text rather than "first row" — unlike expandFirstRecentTrigger, a plain single
+ *  InvocationRow also wraps a <time> and could sort first. */
+async function expandFirstInvocationGroup(window) {
+  const groupRow = window.getByRole('button', { name: /screenshots ·/ }).first()
+  await groupRow.waitFor()
+  await groupRow.click()
+  await window
+    .getByRole('button', { name: /screenshots ·/, expanded: true })
+    .first()
+    .waitFor()
+}
+
 /** Rail click → Plugins section, landing on the inventory table. */
 async function openPluginsSection(window) {
   // `exact` matters: the section's own sidebar has an "All Plugins" row, and after a scenario
@@ -277,6 +291,54 @@ export const scenarios = [
     async run(window) {
       await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
       await expandFirstRecentTrigger(window)
+    }
+  },
+  {
+    // Each usage-bar segment is a button that opens SkillActivityDialog pre-filtered to that
+    // trigger type, with its search box cleared (the dialog stays mounted across closes, so
+    // that reset — not just the filter being settable at all — is the actual behavior under
+    // test). Clicking "Auto" and asserting its filter radio comes up checked is the signal
+    // that the click reached the right initial filter, not just that a dialog opened.
+    name: 'skill-detail-usage-bar-filtered-activity',
+    screen: 'skill-detail',
+    async run(window) {
+      await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
+      await window.getByRole('button', { name: /Auto invocations/ }).click()
+      await window.getByRole('radio', { name: 'Auto', checked: true }).waitFor()
+      // The radio checks synchronously off the click (it's driven by the initialTriggerFilter
+      // prop, not the query), but the row list depends on openSkillHistory's IPC round trip —
+      // wait for an actual row so the capture doesn't land on the query's pre-resolve "0 of 0".
+      await window.locator('[role="dialog"] button:has(time)').first().waitFor()
+    }
+  },
+  {
+    // groupInvocationEntries (invocation-grouping.ts) collapses a run of 2+ consecutive
+    // image-only rows — Claude Code's own coordinate-mapping placeholder, with no distinguishing
+    // signal between them — into one "N screenshots · <range>" summary row. grill-me's own
+    // history has a real five-screenshot run from a single past session (2026-08-21, all within
+    // ~2.5 minutes) buried in its full log by now — append-only data, so it's permanent, unlike
+    // the Detail page's capped 5-row preview, which newer non-image activity has since pushed it
+    // out of. scrollIntoViewIfNeeded rather than an ordering assumption is what makes finding it
+    // robust to that drift. Left unexpanded so this capture covers the collapsed state.
+    name: 'skill-detail-activity-dialog-grouped',
+    screen: 'skill-detail',
+    async run(window) {
+      await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
+      await window.getByRole('button', { name: /View all/ }).click()
+      const groupRow = window.getByRole('button', { name: /screenshots ·/ }).first()
+      await groupRow.scrollIntoViewIfNeeded()
+      await groupRow.waitFor()
+    }
+  },
+  {
+    // The inverse of skill-detail-activity-dialog-grouped: the group's own accordion open,
+    // showing the per-screenshot timestamp/dimensions list that justifies the summary above it.
+    name: 'skill-detail-activity-dialog-group-expanded',
+    screen: 'skill-detail',
+    async run(window) {
+      await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
+      await window.getByRole('button', { name: /View all/ }).click()
+      await expandFirstInvocationGroup(window)
     }
   },
   {
