@@ -19,6 +19,7 @@ import { join, resolve } from 'node:path'
 import pixelmatch from 'pixelmatch'
 import { PNG } from 'pngjs'
 import { _electron as electron } from 'playwright-core'
+import { visualVerifierLaunchArgs } from './electron-launch.mjs'
 import { scenarios } from './scenarios.mjs'
 import { parseOnly, selectScenarios } from './select-scenarios.mjs'
 import { evaluateMainProcess, getWindowSizes } from './window-sizes.mjs'
@@ -337,7 +338,7 @@ async function main() {
     console.log('[visual-verify] launching...')
     app = await electron.launch({
       cwd: REPO_ROOT,
-      args: [join(REPO_ROOT, 'out/main/index.js'), `--user-data-dir=${userDataDir}`]
+      args: visualVerifierLaunchArgs(join(REPO_ROOT, 'out/main/index.js'), userDataDir)
     })
 
     const window = await app.firstWindow()
