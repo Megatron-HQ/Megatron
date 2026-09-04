@@ -11,13 +11,21 @@ import {
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Blocks, Search } from 'lucide-react'
 import { motion } from 'motion/react'
-import { MarketplaceBadge, PluginScopeLabel, PluginStatusBadge } from '@/components/PluginBadges'
+import {
+  MarketplaceBadge,
+  PluginScopeLabel,
+  PluginStatusBadge,
+  PluginUpdateBadge
+} from '@/components/PluginBadges'
+import { pluginUpdateDetails } from '@/lib/plugin-update'
+import { getFolderBasename } from '@/lib/source-name'
 import {
   getPluginFilterHeaderTitle,
   shouldShowScopeColumn,
   type PluginFilter
 } from '@/lib/plugin-filter'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Table,
   TableBody,
@@ -71,11 +79,24 @@ function scopeSortKey(plugin: PluginRow): string {
 }
 
 // The single Version column can only be the whole truth when every install agrees; a user
+function formatVersionDisplay(version: string): string {
+  const normalized = version.trim().replace(/^v/i, '')
+  if (/^[0-9a-f]{12,40}$/i.test(normalized)) {
+    return normalized.slice(0, 7)
+  }
+  return normalized
+}
+
+function displayVersionLabel(version: string): string {
+  return `v${formatVersionDisplay(version)}`
+}
+
 // install at one version alongside a project install at another is a real state the issue calls
 // out, and showing just the highest would quietly hide it.
-function versionLabel(plugin: PluginRow): string {
+function installVersionLabel(plugin: PluginRow): string {
   const versions = [...new Set(plugin.installs.map((install) => install.installed_version))]
-  return versions.length > 1 ? 'Mixed' : (versions[0] ?? plugin.installed_version)
+  if (versions.length > 1) return 'Mixed'
+  return formatVersionDisplay(versions[0] ?? plugin.installed_version)
 }
 
 // Unknown only when nothing is knowable — one readable install is enough to state the plugin's
@@ -89,7 +110,7 @@ const columnHelper = createColumnHelper<typeof features, PluginRow>()
 const nameColumn = columnHelper.accessor('name', {
   header: 'Name',
   sortFn: 'text',
-  cell: (info) => <span className="truncate font-medium">{info.getValue()}</span>
+  cell: (info) => <span className="block truncate font-medium">{info.getValue()}</span>
 })
 
 const marketplaceColumn = columnHelper.accessor('marketplace', {
@@ -98,15 +119,98 @@ const marketplaceColumn = columnHelper.accessor('marketplace', {
   cell: (info) => <MarketplaceBadge marketplace={info.getValue()} />
 })
 
-const versionColumn = columnHelper.accessor(versionLabel, {
+function installedVersionTooltip(
+  plugin: PluginRow,
+  hasUpdate: boolean,
+  availableVersion: string | null
+): string {
+  const versions = [...new Set(plugin.installs.map((i) => i.installed_version))]
+  if (versions.length > 1) {
+    const list = plugin.installs
+      .map(
+        (i) =>
+          `${i.scope}${i.project_path ? ` (${getFolderBasename(i.project_path)})` : ''}: ${displayVersionLabel(i.installed_version)}`
+      )
+      .join(', ')
+    return `Mixed versions: ${list}`
+  }
+  const installed = plugin.installed_version
+  const target = availableVersion ?? plugin.available_version
+  const versionLabel = displayVersionLabel
+  if (hasUpdate && target) {
+    return `Installed: ${versionLabel(installed)} · Update available: ${versionLabel(target)}`
+  }
+  if (target) {
+    return `Installed: ${displayVersionLabel(installed)} (matches marketplace)`
+  }
+  return `Installed: ${displayVersionLabel(installed)}`
+}
+
+function marketplaceVersionTooltip(plugin: PluginRow, hasUpdate: boolean): string {
+  if (!plugin.available_version) {
+    return 'Marketplace version unavailable'
+  }
+  if (hasUpdate) {
+    return `Marketplace version: ${displayVersionLabel(plugin.available_version)} (newer version available)`
+  }
+  return `Marketplace version: ${displayVersionLabel(plugin.available_version)} (up to date)`
+}
+
+const installedVersionColumn = columnHelper.accessor(installVersionLabel, {
   id: 'installed_version',
-  header: 'Version',
-  sortFn: 'text',
-  cell: (info) => (
-    <span className="block truncate font-mono text-xs tabular-nums text-muted-foreground">
-      {info.getValue()}
+  header: () => (
+    <span>
+      Install<span className="max-[1000px]:hidden"> Version</span>
     </span>
-  )
+  ),
+  sortFn: 'text',
+  cell: (info) => {
+    const plugin = info.row.original
+    const { hasUpdate, message, availableVersion: updateTarget } = pluginUpdateDetails(plugin)
+    const availableVersion = plugin.available_version ?? updateTarget
+    const tooltipText = installedVersionTooltip(plugin, hasUpdate, availableVersion)
+    return (
+      <div className="flex items-center gap-1.5 min-w-0">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="shrink-0 font-mono text-xs tabular-nums text-foreground cursor-default">
+              {info.getValue()}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top">{tooltipText}</TooltipContent>
+        </Tooltip>
+        {hasUpdate && (
+          <PluginUpdateBadge availableVersion={availableVersion} tooltipMessage={message} />
+        )}
+      </div>
+    )
+  }
+})
+
+const marketplaceVersionColumn = columnHelper.accessor((plugin) => plugin.available_version ?? '', {
+  id: 'marketplace_version',
+  header: () => (
+    <span>
+      Marketplace<span className="max-[1000px]:hidden"> Version</span>
+    </span>
+  ),
+  sortFn: 'text',
+  cell: (info) => {
+    const plugin = info.row.original
+    const { hasUpdate } = pluginUpdateDetails(plugin)
+    const available = plugin.available_version
+    const tooltipText = marketplaceVersionTooltip(plugin, hasUpdate)
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="block shrink-0 font-mono text-xs tabular-nums text-muted-foreground cursor-default">
+            {available ? formatVersionDisplay(available) : '—'}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top">{tooltipText}</TooltipContent>
+      </Tooltip>
+    )
+  }
 })
 
 const scopeColumn = columnHelper.accessor(scopeSortKey, {
@@ -160,7 +264,8 @@ const statusColumn = columnHelper.accessor('disabled_reason', {
 const columns: ColumnDef<typeof features, PluginRow, unknown>[] = columnHelper.columns([
   nameColumn,
   marketplaceColumn,
-  versionColumn,
+  installedVersionColumn,
+  marketplaceVersionColumn,
   scopeColumn,
   skillCountColumn,
   statusColumn
@@ -169,22 +274,23 @@ const columns: ColumnDef<typeof features, PluginRow, unknown>[] = columnHelper.c
 const columnsWithoutScope: ColumnDef<typeof features, PluginRow, unknown>[] = columnHelper.columns([
   nameColumn,
   marketplaceColumn,
-  versionColumn,
+  installedVersionColumn,
+  marketplaceVersionColumn,
   skillCountColumn,
   statusColumn
 ])
 
 const COLUMN_WIDTH: Record<string, string> = {
-  // Name is the flexible column, absorbing whatever the fixed ones leave. Marketplace follows
-  // the skills table's Description precedent and drops out below 1000px: with a 220px sidebar
-  // beside it, six fixed columns don't fit the 860px minimum window, and Marketplace is the
-  // one carrying least — usually a single "Official" badge, and always shown on the detail page.
+  // Name is the flexible column, absorbing whatever the fixed ones leave. Marketplace source
+  // drops out below 1000px: with a 220px sidebar beside it, seven fixed columns don't fit the
+  // 860px minimum window, and Marketplace source carries least on the table.
   name: 'min-w-0',
-  marketplace: 'w-[140px] max-[1000px]:hidden',
-  installed_version: 'w-[100px]',
-  scope: 'w-[140px]',
-  skill_count: 'w-[80px]',
-  status: 'w-[110px]'
+  marketplace: 'w-[110px] max-[1000px]:hidden',
+  installed_version: 'w-[125px] max-[1000px]:w-[100px]',
+  marketplace_version: 'w-[140px] max-[1000px]:w-[105px]',
+  scope: 'w-[120px] max-[1000px]:w-[100px]',
+  skill_count: 'w-[50px] max-[1000px]:w-[45px]',
+  status: 'w-[95px] max-[1000px]:w-[90px]'
 }
 
 // "All Plugins" being empty means nothing is installed at all; any other filter being empty means
@@ -268,14 +374,21 @@ export function PluginInventory({
         <Table className="table-fixed">
           <TableHeadGroup>
             <TableRow className="h-10">
-              <TableHead className="min-w-0 px-3 py-2">Name</TableHead>
+              <TableHead className={cn('px-3 py-2', COLUMN_WIDTH.name)}>Name</TableHead>
               <TableHead className={cn('px-3 py-2', COLUMN_WIDTH.marketplace)}>
                 Marketplace
               </TableHead>
-              <TableHead className="w-[100px] px-3 py-2">Version</TableHead>
-              {showScope && <TableHead className="w-[140px] px-3 py-2">Scope</TableHead>}
-              <TableHead className="w-[80px] px-3 py-2">Skills</TableHead>
-              <TableHead className="w-[110px] px-3 py-2">Status</TableHead>
+              <TableHead className={cn('px-3 py-2', COLUMN_WIDTH.installed_version)}>
+                Install<span className="max-[1000px]:hidden"> Version</span>
+              </TableHead>
+              <TableHead className={cn('px-3 py-2', COLUMN_WIDTH.marketplace_version)}>
+                Marketplace<span className="max-[1000px]:hidden"> Version</span>
+              </TableHead>
+              {showScope && (
+                <TableHead className={cn('px-3 py-2', COLUMN_WIDTH.scope)}>Scope</TableHead>
+              )}
+              <TableHead className={cn('px-3 py-2', COLUMN_WIDTH.skill_count)}>Skills</TableHead>
+              <TableHead className={cn('px-3 py-2', COLUMN_WIDTH.status)}>Status</TableHead>
             </TableRow>
           </TableHeadGroup>
           <TableBody>
@@ -287,18 +400,21 @@ export function PluginInventory({
                 <TableCell className={cn('px-3 py-2', COLUMN_WIDTH.marketplace)}>
                   <Skeleton className="h-4 w-20" />
                 </TableCell>
-                <TableCell className="px-3 py-2">
+                <TableCell className={cn('px-3 py-2', COLUMN_WIDTH.installed_version)}>
+                  <Skeleton className="h-4 w-12" />
+                </TableCell>
+                <TableCell className={cn('px-3 py-2', COLUMN_WIDTH.marketplace_version)}>
                   <Skeleton className="h-4 w-12" />
                 </TableCell>
                 {showScope && (
-                  <TableCell className="px-3 py-2">
+                  <TableCell className={cn('px-3 py-2', COLUMN_WIDTH.scope)}>
                     <Skeleton className="h-4 w-16" />
                   </TableCell>
                 )}
-                <TableCell className="px-3 py-2">
+                <TableCell className={cn('px-3 py-2', COLUMN_WIDTH.skill_count)}>
                   <Skeleton className="ml-auto h-4 w-8" />
                 </TableCell>
-                <TableCell className="px-3 py-2">
+                <TableCell className={cn('px-3 py-2', COLUMN_WIDTH.status)}>
                   <Skeleton className="h-4 w-16" />
                 </TableCell>
               </TableRow>

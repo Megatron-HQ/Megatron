@@ -17,6 +17,7 @@ function install(scope: PluginScope, projectPath: string | null = null): PluginI
     git_commit_sha: null,
     project_path: projectPath,
     installed_version: '1.0.0',
+    available_version: null,
     disabled_reason: null,
     enablement_known: true
   }
@@ -28,6 +29,7 @@ function plugin(name: string, installs: PluginInstall[]): PluginRow {
     marketplace: 'market-1',
     marketplace_repo: null,
     installed_version: '1.0.0',
+    available_version: null,
     disabled_reason: null,
     skill_count: 0,
     installs

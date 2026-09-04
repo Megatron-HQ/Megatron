@@ -79,14 +79,15 @@ function insertPluginRegistry(overrides: {
   last_updated?: string | null
   git_commit_sha?: string | null
   disabled_reason?: string | null
+  available_version?: string | null
   project_path?: string
 }): void {
   db.prepare(
     `INSERT INTO plugin_registry
        (name, marketplace, marketplace_repo, installed_version, scope, install_path,
-        last_scanned_at, installed_at, last_updated, git_commit_sha, disabled_reason, project_path)
+        last_scanned_at, installed_at, last_updated, git_commit_sha, disabled_reason, available_version, project_path)
      VALUES (@name, @marketplace, @marketplace_repo, @installed_version, @scope, @install_path,
-        '2026-08-14T00:00:00.000Z', @installed_at, @last_updated, @git_commit_sha, @disabled_reason,
+        '2026-08-14T00:00:00.000Z', @installed_at, @last_updated, @git_commit_sha, @disabled_reason, @available_version,
         @project_path)`
   ).run({
     name: overrides.name,
@@ -99,6 +100,7 @@ function insertPluginRegistry(overrides: {
     last_updated: overrides.last_updated ?? null,
     git_commit_sha: overrides.git_commit_sha ?? null,
     disabled_reason: overrides.disabled_reason ?? null,
+    available_version: overrides.available_version ?? null,
     project_path: overrides.project_path ?? ''
   })
 }
@@ -1529,6 +1531,22 @@ describe('listPlugins', () => {
       installed_version: '1.2.3',
       disabled_reason: 'plugin'
     })
+  })
+
+  it('reports available_version at identity level and on each install', () => {
+    insertPluginRegistry({
+      name: 'plugin-a',
+      marketplace: 'market-1',
+      installed_version: '1.0.0',
+      available_version: '1.2.0'
+    })
+
+    const rows = listPlugins(db)
+    expect(rows[0].available_version).toBe('1.2.0')
+    expect(rows[0].installs[0].available_version).toBe('1.2.0')
+    const detail = getPluginDetail(db, 'plugin-a', 'market-1')
+    expect(detail?.plugin.available_version).toBe('1.2.0')
+    expect(detail?.plugin.installs[0].available_version).toBe('1.2.0')
   })
 
   it('reports project_path per install, and null for a user install', () => {

@@ -173,6 +173,8 @@ export interface PluginInstall {
   // Per-install, resolved against this install's own scope: a plugin can be enabled for a
   // project and disabled at user scope, or the reverse.
   disabled_reason: string | null
+  // Latest version available on the marketplace for this install; NULL if unresolvable.
+  available_version: string | null
   // false when this install's enabled/disabled state could not be determined — a project/local
   // install whose owning project root has not been granted, so its .claude/settings*.json is
   // unreadable. Renders as an Unknown status rather than a confidently wrong Enabled.
@@ -186,6 +188,8 @@ export interface PluginRow {
   // Highest version across installs. Installs can disagree, so the inventory reads
   // installs[].installed_version to decide whether to show this or "Mixed".
   installed_version: string
+  // Latest version available on the marketplace; NULL if unresolvable.
+  available_version: string | null
   // Identity-level rollup meaning disabled *everywhere* — non-null only when every install is
   // disabled. Per-install state lives on installs[].disabled_reason.
   disabled_reason: string | null

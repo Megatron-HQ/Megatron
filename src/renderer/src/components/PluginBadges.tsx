@@ -1,9 +1,69 @@
-import { CircleCheck, CircleHelp, Power, ShieldCheck, Store } from 'lucide-react'
+import { ArrowUpCircle, CircleCheck, CircleHelp, Power, ShieldCheck, Store } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getFolderBasename } from '@/lib/source-name'
 import { cn } from '@/lib/utils'
 import type { PluginScope } from '../../../shared/ipc'
+
+function versionLabel(version: string): string {
+  return `v${version.trim().replace(/^v/i, '')}`
+}
+
+export function PluginUpdateBadge({
+  availableVersion,
+  tooltipMessage,
+  className
+}: {
+  availableVersion?: string | null
+  tooltipMessage?: string
+  className?: string
+}): React.JSX.Element {
+  const versionText = availableVersion ? versionLabel(availableVersion) : 'latest'
+  const message = tooltipMessage ?? `Update available: ${versionText}`
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          className={cn(
+            'inline-flex cursor-default items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium text-warning select-none shrink-0',
+            className
+          )}
+        >
+          <ArrowUpCircle className="size-2.5 shrink-0 text-warning" />
+          <span>Update</span>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="top">{message}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+export function PluginUpToDateBadge({
+  availableVersion,
+  className
+}: {
+  availableVersion?: string | null
+  className?: string
+}): React.JSX.Element {
+  const versionText = availableVersion ? versionLabel(availableVersion) : ''
+  const message = versionText ? `Up to date (${versionText})` : 'Up to date with marketplace'
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          className={cn(
+            'inline-flex cursor-default items-center gap-1 rounded-full border border-success/30 bg-success/10 px-1.5 py-0.5 text-[10px] font-medium text-success select-none shrink-0',
+            className
+          )}
+        >
+          <CircleCheck className="size-2.5 shrink-0 text-success" />
+          <span>Up to date</span>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="top">{message}</TooltipContent>
+    </Tooltip>
+  )
+}
 
 // Hardcoded recognition of Anthropic's own marketplace — every other marketplace groups and
 // badges under its own real name.

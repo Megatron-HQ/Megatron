@@ -503,6 +503,7 @@ export function listPlugins(db: Database.Database): PluginRow[] {
          name, marketplace,
          MAX(marketplace_repo) AS marketplace_repo,
          MAX(installed_version) AS installed_version,
+         MAX(available_version) AS available_version,
          CASE WHEN COUNT(*) = COUNT(disabled_reason) THEN MAX(disabled_reason) END
            AS disabled_reason,
          (SELECT COUNT(*) FROM skills
@@ -522,7 +523,7 @@ export function listPlugins(db: Database.Database): PluginRow[] {
     .prepare(
       `SELECT
          pr.name, pr.marketplace, pr.scope, pr.install_path, pr.installed_at, pr.last_updated,
-         pr.git_commit_sha, pr.installed_version, pr.disabled_reason,
+         pr.git_commit_sha, pr.installed_version, pr.available_version, pr.disabled_reason,
          NULLIF(pr.project_path, '') AS project_path,
          CASE WHEN pr.scope = 'user' OR ap.path IS NOT NULL THEN 1 ELSE 0 END AS enablement_known
        FROM plugin_registry pr
@@ -546,6 +547,7 @@ export function listPlugins(db: Database.Database): PluginRow[] {
         git_commit_sha: row.git_commit_sha,
         project_path: row.project_path,
         installed_version: row.installed_version,
+        available_version: row.available_version,
         disabled_reason: row.disabled_reason,
         enablement_known: row.enablement_known === 1
       }))

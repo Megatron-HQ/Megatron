@@ -55,6 +55,8 @@ export function FileTree({
     [tree, expandedIds, matchingIds]
   )
 
+  // TanStack Virtual exposes imperative methods that React Compiler must not memoize.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => containerRef.current,

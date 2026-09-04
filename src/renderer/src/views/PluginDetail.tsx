@@ -1,7 +1,15 @@
 import { useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Loader2, Power, RefreshCw, Trash2 } from 'lucide-react'
-import { MarketplaceBadge, PluginScopeLabel, PluginStatusBadge } from '@/components/PluginBadges'
+import {
+  MarketplaceBadge,
+  PluginScopeLabel,
+  PluginStatusBadge,
+  PluginUpdateBadge,
+  PluginUpToDateBadge
+} from '@/components/PluginBadges'
+import { pluginUpdateDetails } from '@/lib/plugin-update'
+import { isUpdateAvailable } from '../../../shared/version'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
@@ -30,6 +38,18 @@ interface PluginDetailProps {
   onViewSkills: (pluginName: string) => void
   onActionSuccess: (message: string) => void
   onManageFolders: () => void
+}
+
+function formatVersionDisplay(version: string): string {
+  const normalized = version.trim().replace(/^v/i, '')
+  if (/^[0-9a-f]{12,40}$/i.test(normalized)) {
+    return normalized.slice(0, 7)
+  }
+  return normalized
+}
+
+function versionLabel(version: string): string {
+  return `v${formatVersionDisplay(version)}`
 }
 
 export function PluginDetail({
@@ -128,6 +148,7 @@ export function PluginDetail({
   }
 
   const { plugin, totalInvocations, errorCount, warningCount } = data
+  const updateDetails = pluginUpdateDetails(plugin)
   // One readable install is enough to state the plugin's status; only report Unknown when no
   // install's enablement could be resolved at all.
   const enablementKnown =
@@ -147,14 +168,44 @@ export function PluginDetail({
         </Button>
         <h2 className="min-w-0 truncate text-base font-semibold">{plugin.name}</h2>
         <MarketplaceBadge marketplace={plugin.marketplace} />
-        <span className="font-mono text-xs text-muted-foreground">v{plugin.installed_version}</span>
+        <div className="flex shrink-0 items-center gap-1.5 font-mono text-xs text-muted-foreground whitespace-nowrap">
+          <span title={`Installed version: ${versionLabel(plugin.installed_version)}`}>
+            {versionLabel(plugin.installed_version)}
+          </span>
+          {plugin.available_version && (
+            <>
+              <span className="text-border">·</span>
+              <span
+                title={`Marketplace version: ${versionLabel(plugin.available_version)}`}
+                className="text-muted-foreground/80"
+              >
+                mkt: {versionLabel(plugin.available_version)}
+              </span>
+            </>
+          )}
+        </div>
+        {updateDetails.hasUpdate ? (
+          <PluginUpdateBadge
+            availableVersion={updateDetails.availableVersion}
+            tooltipMessage={updateDetails.message}
+          />
+        ) : plugin.available_version ? (
+          <PluginUpToDateBadge availableVersion={plugin.available_version} />
+        ) : null}
         <PluginStatusBadge disabledReason={plugin.disabled_reason} known={enablementKnown} />
       </div>
 
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col gap-4 px-4 py-4">
           <Card className="shadow-none py-4">
-            <CardContent className="grid grid-cols-2 gap-x-6 gap-y-4 px-4 sm:grid-cols-4">
+            <CardContent className="grid grid-cols-2 gap-x-6 gap-y-4 px-4 sm:grid-cols-5">
+              <Stat
+                label="Marketplace"
+                value={
+                  plugin.available_version ? versionLabel(plugin.available_version) : 'Unknown'
+                }
+                mono
+              />
               <Stat
                 label="Skills"
                 value={plugin.skill_count.toLocaleString()}
@@ -180,6 +231,7 @@ export function PluginDetail({
               <InstallRow
                 key={`${installKey(install)}:${install.install_path}`}
                 install={install}
+                fallbackAvailableVersion={plugin.available_version}
                 pendingKey={pendingKey}
                 onManageFolders={onManageFolders}
                 errorMessage={
@@ -258,6 +310,7 @@ function updateSuccessMessage(
 
 function InstallRow({
   install,
+  fallbackAvailableVersion,
   pendingKey,
   errorMessage,
   onEnable,
@@ -267,6 +320,7 @@ function InstallRow({
   onManageFolders
 }: {
   install: PluginInstall
+  fallbackAvailableVersion: string | null
   pendingKey: string | null
   errorMessage?: string
   onEnable: () => void
@@ -286,15 +340,40 @@ function InstallRow({
   const needsGrant = install.scope !== 'user' && !missingProject && !install.enablement_known
   const actionable = install.scope === 'user' || (!missingProject && !needsGrant)
 
+  const availableVersion = install.available_version ?? fallbackAvailableVersion
+  const hasUpdate = isUpdateAvailable(install.installed_version, availableVersion)
+  const installedDisplay = formatVersionDisplay(install.installed_version)
+  const availableDisplay = availableVersion ? formatVersionDisplay(availableVersion) : null
+  const targetLabel = availableDisplay ? versionLabel(availableDisplay) : 'latest'
+
   return (
     <div className="flex flex-col gap-2 rounded-md border border-border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <PluginScopeLabel scope={install.scope} projectPath={install.project_path} />
-            <span className="font-mono text-xs text-muted-foreground">
-              v{install.installed_version}
+            <span
+              className="font-mono text-xs text-muted-foreground"
+              title={`Installed version: ${versionLabel(install.installed_version)}`}
+            >
+              {versionLabel(installedDisplay)}
             </span>
+            {availableVersion && (
+              <span
+                className="font-mono text-xs text-muted-foreground/70"
+                title={`Marketplace version: ${versionLabel(availableVersion)}`}
+              >
+                (mkt: {targetLabel})
+              </span>
+            )}
+            {hasUpdate ? (
+              <PluginUpdateBadge
+                availableVersion={availableVersion}
+                tooltipMessage={`Update available: ${versionLabel(install.installed_version)} → ${targetLabel}`}
+              />
+            ) : availableVersion ? (
+              <PluginUpToDateBadge availableVersion={availableVersion} />
+            ) : null}
             <PluginStatusBadge
               disabledReason={install.disabled_reason}
               known={install.enablement_known}
@@ -328,6 +407,9 @@ function InstallRow({
             size="sm"
             disabled={anyPending || !actionable}
             onClick={onUpdate}
+            className={cn(
+              hasUpdate && 'border-warning/50 text-warning hover:bg-warning/10 hover:text-warning'
+            )}
           >
             {isPending('update') ? (
               <Loader2 className="size-3.5 animate-spin" />
@@ -368,7 +450,11 @@ function InstallRow({
       ) : (
         <p className="text-[11px] text-muted-foreground">
           {actionable
-            ? 'Update takes effect after Claude Code restarts.'
+            ? hasUpdate
+              ? `Update to ${targetLabel} available. Takes effect after Claude Code restarts.`
+              : availableVersion
+                ? `Installed version matches marketplace (${targetLabel}). Update takes effect after Claude Code restarts.`
+                : 'Update takes effect after Claude Code restarts.'
             : "This install doesn't record its project, so Megatron can't run the CLI from the right directory."}
         </p>
       )}

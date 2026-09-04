@@ -2,9 +2,15 @@ import type Database from 'better-sqlite3'
 import { homedir } from 'os'
 import { join, resolve } from 'path'
 import { writeSkillScan, writeSkillScanAuthoritative, type SkillScanRow } from '../db/queries'
-import { allowedExistsSync, readAllowedDirectory } from '../permissions'
+import {
+  allowedExistsSync,
+  allowedReadFileSync,
+  isPathAllowed,
+  readAllowedDirectory
+} from '../permissions'
 import { isRecord, readJson, readPluginEnablement } from './claude-settings'
 import { parseSkillDirectory } from './skill-parser'
+import { isSemanticVersion } from '../../shared/version'
 
 interface PluginInstallEntry {
   scope?: unknown
@@ -18,6 +24,111 @@ interface PluginInstallEntry {
 
 interface MarketplaceEntry {
   source?: { repo?: unknown }
+  installLocation?: unknown
+}
+
+interface MarketplacePluginManifestEntry {
+  name?: unknown
+  version?: unknown
+  source?: unknown
+}
+
+function shortCommitSha(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const sha = value.trim().toLowerCase()
+  return /^[0-9a-f]{12,}$/.test(sha) ? sha.slice(0, 12) : null
+}
+
+function getMarketplaceHeadSha(installLocation: string): string | null {
+  const gcsShaBytes = allowedReadFileSync(join(installLocation, '.gcs-sha'))
+  if (gcsShaBytes) {
+    const sha = gcsShaBytes.toString('utf8').trim().toLowerCase()
+    if (/^[0-9a-f]{12,}$/.test(sha)) {
+      return sha.slice(0, 12)
+    }
+  }
+
+  const gitHeadBytes = allowedReadFileSync(join(installLocation, '.git', 'HEAD'))
+  if (gitHeadBytes) {
+    const headContent = gitHeadBytes.toString('utf8').trim()
+    if (headContent.startsWith('ref: ')) {
+      const refRel = headContent.slice(5).trim()
+      const refBytes = allowedReadFileSync(join(installLocation, '.git', refRel))
+      if (refBytes) {
+        const refSha = refBytes.toString('utf8').trim().toLowerCase()
+        if (/^[0-9a-f]{12,}$/.test(refSha)) {
+          return refSha.slice(0, 12)
+        }
+      }
+      const packedBytes = allowedReadFileSync(join(installLocation, '.git', 'packed-refs'))
+      if (packedBytes) {
+        const packed = packedBytes.toString('utf8')
+        for (const line of packed.split('\n')) {
+          const trimmed = line.trim()
+          if (trimmed.endsWith(' ' + refRel)) {
+            const sha = trimmed.split(' ')[0].trim().toLowerCase()
+            if (/^[0-9a-f]{12,}$/.test(sha)) {
+              return sha.slice(0, 12)
+            }
+          }
+        }
+      }
+    } else if (/^[0-9a-f]{12,}$/.test(headContent.toLowerCase())) {
+      return headContent.toLowerCase().slice(0, 12)
+    }
+  }
+
+  return null
+}
+
+function resolveMarketplaceAvailableVersion(
+  marketplaceInstallLocation: string,
+  pluginName: string
+): string | null {
+  let manifest = readJson(join(marketplaceInstallLocation, '.claude-plugin', 'marketplace.json'))
+  if (manifest.status !== 'ok') {
+    manifest = readJson(join(marketplaceInstallLocation, 'marketplace.json'))
+  }
+  if (manifest.status !== 'ok' || !isRecord(manifest.value)) return null
+
+  const pluginsRaw = manifest.value.plugins
+  if (!Array.isArray(pluginsRaw)) return null
+
+  const entryRaw = pluginsRaw.find((p) => isRecord(p) && p.name === pluginName)
+  if (!isRecord(entryRaw)) return null
+
+  const entry = entryRaw as MarketplacePluginManifestEntry
+
+  // 1. Direct version in marketplace manifest
+  if (typeof entry.version === 'string' && entry.version.trim().length > 0) {
+    return entry.version.trim()
+  }
+
+  // 2. Local source path in marketplace
+  if (typeof entry.source === 'string') {
+    const p1 = readJson(
+      join(marketplaceInstallLocation, entry.source, '.claude-plugin', 'plugin.json')
+    )
+    if (p1.status === 'ok' && isRecord(p1.value) && typeof p1.value.version === 'string') {
+      return p1.value.version.trim()
+    }
+    const p2 = readJson(join(marketplaceInstallLocation, entry.source, 'plugin.json'))
+    if (p2.status === 'ok' && isRecord(p2.value) && typeof p2.value.version === 'string') {
+      return p2.value.version.trim()
+    }
+
+    return getMarketplaceHeadSha(marketplaceInstallLocation)
+  }
+
+  // 3. Object source (git-subdir, url, etc.)
+  if (isRecord(entry.source)) {
+    const src = entry.source as Record<string, unknown>
+    const sha = shortCommitSha(src.sha)
+    if (sha) return sha
+    if (typeof src.ref === 'string' && isSemanticVersion(src.ref)) return src.ref.trim()
+  }
+
+  return null
 }
 
 // One normalized install from installed_plugins.json, with its enablement already resolved
@@ -32,6 +143,7 @@ interface NormalizedInstall {
   lastUpdated: string | null
   gitCommitSha: string | null
   disabledReason: string | null
+  availableVersion: string | null
 }
 
 // Mirrors the table's primary key, which install_path alone cannot: Claude Code's cache path is
@@ -118,9 +230,9 @@ export function scanPluginRegistry(
   const upsertRegistry = db.prepare(`
     INSERT INTO plugin_registry
       (name, marketplace, marketplace_repo, installed_version, scope, install_path, last_scanned_at,
-       installed_at, last_updated, git_commit_sha, disabled_reason, project_path)
+       installed_at, last_updated, git_commit_sha, disabled_reason, available_version, project_path)
     VALUES (@name, @marketplace, @marketplace_repo, @installed_version, @scope, @install_path, @last_scanned_at,
-       @installed_at, @last_updated, @git_commit_sha, @disabled_reason, @project_path)
+       @installed_at, @last_updated, @git_commit_sha, @disabled_reason, @available_version, @project_path)
     ON CONFLICT(name, marketplace, scope, install_path, project_path) DO UPDATE SET
       marketplace_repo = CASE
         WHEN @has_marketplace_snapshot = 1 THEN excluded.marketplace_repo
@@ -133,8 +245,26 @@ export function scanPluginRegistry(
       installed_at = excluded.installed_at,
       last_updated = excluded.last_updated,
       git_commit_sha = excluded.git_commit_sha,
-      disabled_reason = excluded.disabled_reason
+      disabled_reason = excluded.disabled_reason,
+      available_version = excluded.available_version
   `)
+
+  const availableVersionsCache = new Map<string, string | null>()
+  function getAvailableVersion(marketplace: string, name: string): string | null {
+    const cacheKey = `${marketplace}:${name}`
+    if (availableVersionsCache.has(cacheKey)) return availableVersionsCache.get(cacheKey)!
+
+    const mpConfig = marketplaceEntries[marketplace]
+    const loc = typeof mpConfig?.installLocation === 'string' ? mpConfig.installLocation : null
+    if (!loc || !isPathAllowed(loc)) {
+      availableVersionsCache.set(cacheKey, null)
+      return null
+    }
+
+    const ver = resolveMarketplaceAvailableVersion(loc, name)
+    availableVersionsCache.set(cacheKey, ver)
+    return ver
+  }
 
   const runScan = db.transaction(() => {
     const seenRegistryKeys = new Set<string>()
@@ -147,6 +277,7 @@ export function scanPluginRegistry(
       const { name, marketplace } = splitPluginKey(key)
       const marketplaceRepo = marketplaceEntries[marketplace]?.source?.repo
       const repo = typeof marketplaceRepo === 'string' ? marketplaceRepo : null
+      const availableVersion = getAvailableVersion(marketplace, name)
 
       const entries = Array.isArray(entriesRaw) ? entriesRaw : []
       const installs: NormalizedInstall[] = []
@@ -175,7 +306,8 @@ export function scanPluginRegistry(
           gitCommitSha: typeof entry.gitCommitSha === 'string' ? entry.gitCommitSha : null,
           disabledReason: disabledPluginsFor(projectPath).has(`${name}@${marketplace}`)
             ? 'plugin'
-            : null
+            : null,
+          availableVersion
         })
       }
 
@@ -203,6 +335,7 @@ export function scanPluginRegistry(
           last_updated: install.lastUpdated,
           git_commit_sha: install.gitCommitSha,
           disabled_reason: install.disabledReason,
+          available_version: install.availableVersion,
           project_path: install.projectPath
         })
         seenRegistryKeys.add(

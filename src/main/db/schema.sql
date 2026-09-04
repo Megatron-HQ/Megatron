@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS plugin_registry (
                                        -- resolved for THIS install's scope has name@marketplace
                                        -- set to false. Per-install, not per-identity: two scopes
                                        -- of one plugin can genuinely disagree.
+  available_version TEXT,             -- latest version available on the marketplace; NULL if absent/unresolvable
   project_path TEXT NOT NULL DEFAULT '',
                                        -- owning project root for a project/local install, '' for
                                        -- user scope. NOT NULL with an empty-string sentinel rather

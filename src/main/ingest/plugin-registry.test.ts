@@ -24,6 +24,7 @@ interface RegistryRow {
   last_updated: string | null
   git_commit_sha: string | null
   disabled_reason: string | null
+  available_version: string | null
   project_path: string
 }
 
@@ -1117,6 +1118,346 @@ describe('scanPluginRegistry', () => {
     } finally {
       rmSync(ungrantedRoot, { recursive: true, force: true })
     }
+  })
+
+  describe('available_version resolution', () => {
+    it('does not read an external marketplace before its folder is granted', () => {
+      const externalMarketplaceDir = mkdtempSync(join(tmpdir(), 'megatron-external-market-'))
+      try {
+        mkdirSync(join(externalMarketplaceDir, '.claude-plugin'), { recursive: true })
+        writeFileSync(
+          join(externalMarketplaceDir, '.claude-plugin', 'marketplace.json'),
+          JSON.stringify({
+            name: 'market-1',
+            plugins: [{ name: 'plugin-a', version: '1.2.0', source: './plugins/plugin-a' }]
+          })
+        )
+        writeMarketplaces({
+          'market-1': {
+            installLocation: externalMarketplaceDir
+          }
+        })
+        writeInstalledPlugins({
+          version: 2,
+          plugins: {
+            'plugin-a@market-1': [
+              { scope: 'user', installPath: join(tmpDir, 'install-a'), version: '1.0.0' }
+            ]
+          }
+        })
+
+        scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+        expect(allRegistry()[0].available_version).toBeNull()
+      } finally {
+        rmSync(externalMarketplaceDir, { recursive: true, force: true })
+      }
+    })
+
+    it('uses an object source SHA instead of its branch ref as the marketplace version', () => {
+      const marketDir = join(pluginsDir, 'marketplaces', 'market-1')
+      mkdirSync(join(marketDir, '.claude-plugin'), { recursive: true })
+      writeFileSync(
+        join(marketDir, '.claude-plugin', 'marketplace.json'),
+        JSON.stringify({
+          name: 'market-1',
+          plugins: [
+            {
+              name: 'plugin-a',
+              source: {
+                source: 'git-subdir',
+                url: 'https://example.com/repo.git',
+                ref: 'main',
+                sha: '1dd995193ba20bba51ca6c681aa8d3398dbd80a2'
+              }
+            }
+          ]
+        })
+      )
+      writeMarketplaces({
+        'market-1': {
+          installLocation: marketDir
+        }
+      })
+      writeInstalledPlugins({
+        version: 2,
+        plugins: {
+          'plugin-a@market-1': [
+            { scope: 'user', installPath: join(tmpDir, 'install-a'), version: '1dd995193ba2' }
+          ]
+        }
+      })
+
+      scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+      expect(allRegistry()[0].available_version).toBe('1dd995193ba2')
+    })
+
+    it('leaves a branch-only object source without a concrete version unresolved', () => {
+      const marketDir = join(pluginsDir, 'marketplaces', 'market-1')
+      mkdirSync(join(marketDir, '.claude-plugin'), { recursive: true })
+      writeFileSync(
+        join(marketDir, '.claude-plugin', 'marketplace.json'),
+        JSON.stringify({
+          name: 'market-1',
+          plugins: [
+            {
+              name: 'plugin-a',
+              source: { source: 'git-subdir', url: 'https://example.com/repo.git', ref: 'main' }
+            }
+          ]
+        })
+      )
+      writeMarketplaces({
+        'market-1': {
+          installLocation: marketDir
+        }
+      })
+      writeInstalledPlugins({
+        version: 2,
+        plugins: {
+          'plugin-a@market-1': [
+            { scope: 'user', installPath: join(tmpDir, 'install-a'), version: '1dd995193ba2' }
+          ]
+        }
+      })
+
+      scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+      expect(allRegistry()[0].available_version).toBeNull()
+    })
+
+    it('resolves available_version from marketplace entry.version', () => {
+      const marketDir = join(pluginsDir, 'marketplaces', 'market-1')
+      mkdirSync(join(marketDir, '.claude-plugin'), { recursive: true })
+      writeFileSync(
+        join(marketDir, '.claude-plugin', 'marketplace.json'),
+        JSON.stringify({
+          name: 'market-1',
+          plugins: [{ name: 'plugin-a', version: '1.2.0', source: './plugins/plugin-a' }]
+        })
+      )
+      writeMarketplaces({
+        'market-1': {
+          installLocation: marketDir
+        }
+      })
+      writeInstalledPlugins({
+        version: 2,
+        plugins: {
+          'plugin-a@market-1': [
+            { scope: 'user', installPath: join(tmpDir, 'install-a'), version: '1.0.0' }
+          ]
+        }
+      })
+
+      scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+      expect(allRegistry()[0].available_version).toBe('1.2.0')
+    })
+
+    it('resolves available_version from plugin.json at local source when entry.version is absent', () => {
+      const marketDir = join(pluginsDir, 'marketplaces', 'market-1')
+      mkdirSync(join(marketDir, '.claude-plugin'), { recursive: true })
+      const pluginSourceDir = join(marketDir, 'plugins', 'plugin-a', '.claude-plugin')
+      mkdirSync(pluginSourceDir, { recursive: true })
+      writeFileSync(
+        join(marketDir, '.claude-plugin', 'marketplace.json'),
+        JSON.stringify({
+          name: 'market-1',
+          plugins: [{ name: 'plugin-a', source: './plugins/plugin-a' }]
+        })
+      )
+      writeFileSync(
+        join(pluginSourceDir, 'plugin.json'),
+        JSON.stringify({ name: 'plugin-a', version: '2.5.0' })
+      )
+      writeMarketplaces({
+        'market-1': {
+          installLocation: marketDir
+        }
+      })
+      writeInstalledPlugins({
+        version: 2,
+        plugins: {
+          'plugin-a@market-1': [
+            { scope: 'user', installPath: join(tmpDir, 'install-a'), version: '1.0.0' }
+          ]
+        }
+      })
+
+      scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+      expect(allRegistry()[0].available_version).toBe('2.5.0')
+    })
+
+    it('resolves available_version from .gcs-sha (first 12 chars) when no manifest version is present', () => {
+      const marketDir = join(pluginsDir, 'marketplaces', 'market-1')
+      mkdirSync(join(marketDir, '.claude-plugin'), { recursive: true })
+      writeFileSync(
+        join(marketDir, '.claude-plugin', 'marketplace.json'),
+        JSON.stringify({
+          name: 'market-1',
+          plugins: [{ name: 'plugin-a', source: './plugins/plugin-a' }]
+        })
+      )
+      writeFileSync(join(marketDir, '.gcs-sha'), '1dd995193ba20bba51ca6c681aa8d3398dbd80a2\n')
+      writeMarketplaces({
+        'market-1': {
+          installLocation: marketDir
+        }
+      })
+      writeInstalledPlugins({
+        version: 2,
+        plugins: {
+          'plugin-a@market-1': [
+            { scope: 'user', installPath: join(tmpDir, 'install-a'), version: '0120fb83da5d' }
+          ]
+        }
+      })
+
+      scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+      expect(allRegistry()[0].available_version).toBe('1dd995193ba2')
+    })
+
+    it('resolves available_version from .git HEAD when marketplace is a git repo', () => {
+      const marketDir = join(pluginsDir, 'marketplaces', 'market-1')
+      mkdirSync(join(marketDir, '.claude-plugin'), { recursive: true })
+      mkdirSync(join(marketDir, '.git', 'refs', 'heads'), { recursive: true })
+      writeFileSync(
+        join(marketDir, '.claude-plugin', 'marketplace.json'),
+        JSON.stringify({
+          name: 'market-1',
+          plugins: [{ name: 'plugin-a', source: './plugins/plugin-a' }]
+        })
+      )
+      writeFileSync(join(marketDir, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+      writeFileSync(
+        join(marketDir, '.git', 'refs', 'heads', 'main'),
+        '2ed6c52c9d7e5e56942508591085fd45dea277d3\n'
+      )
+      writeMarketplaces({
+        'market-1': {
+          installLocation: marketDir
+        }
+      })
+      writeInstalledPlugins({
+        version: 2,
+        plugins: {
+          'plugin-a@market-1': [
+            { scope: 'user', installPath: join(tmpDir, 'install-a'), version: '1.0.0' }
+          ]
+        }
+      })
+
+      scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+      expect(allRegistry()[0].available_version).toBe('2ed6c52c9d7e')
+    })
+
+    it('resolves available_version from external source.ref or source.sha', () => {
+      const marketDir = join(pluginsDir, 'marketplaces', 'market-1')
+      mkdirSync(join(marketDir, '.claude-plugin'), { recursive: true })
+      writeFileSync(
+        join(marketDir, '.claude-plugin', 'marketplace.json'),
+        JSON.stringify({
+          name: 'market-1',
+          plugins: [
+            {
+              name: 'plugin-a',
+              source: { source: 'git-subdir', url: 'https://example.com/repo.git', ref: 'v1.5.5' }
+            },
+            {
+              name: 'plugin-b',
+              source: {
+                source: 'url',
+                url: 'https://example.com/repo2.git',
+                sha: '30287f5e3f122a646d1ac5ca3ab96e130c52a3ad'
+              }
+            }
+          ]
+        })
+      )
+      writeMarketplaces({
+        'market-1': {
+          installLocation: marketDir
+        }
+      })
+      writeInstalledPlugins({
+        version: 2,
+        plugins: {
+          'plugin-a@market-1': [
+            { scope: 'user', installPath: join(tmpDir, 'install-a'), version: '1.0.0' }
+          ],
+          'plugin-b@market-1': [
+            { scope: 'user', installPath: join(tmpDir, 'install-b'), version: '000000000000' }
+          ]
+        }
+      })
+
+      scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+      const rows = allRegistry()
+      const rowA = rows.find((r) => r.name === 'plugin-a')
+      const rowB = rows.find((r) => r.name === 'plugin-b')
+      expect(rowA?.available_version).toBe('v1.5.5')
+      expect(rowB?.available_version).toBe('30287f5e3f12')
+    })
+
+    it('sets available_version to null when marketplace manifest is missing', () => {
+      writeMarketplaces({
+        'market-1': {
+          installLocation: join(pluginsDir, 'nonexistent')
+        }
+      })
+      writeInstalledPlugins({
+        version: 2,
+        plugins: {
+          'plugin-a@market-1': [
+            { scope: 'user', installPath: join(tmpDir, 'install-a'), version: '1.0.0' }
+          ]
+        }
+      })
+
+      scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+      expect(allRegistry()[0].available_version).toBeNull()
+    })
+
+    it('updates available_version on rescan when marketplace snapshot updates', () => {
+      const marketDir = join(pluginsDir, 'marketplaces', 'market-1')
+      mkdirSync(join(marketDir, '.claude-plugin'), { recursive: true })
+      writeFileSync(
+        join(marketDir, '.claude-plugin', 'marketplace.json'),
+        JSON.stringify({
+          name: 'market-1',
+          plugins: [{ name: 'plugin-a', source: './plugins/plugin-a' }]
+        })
+      )
+      writeFileSync(join(marketDir, '.gcs-sha'), '0120fb83da5d7cdaa52dd11979690f2dc5f76052\n')
+      writeMarketplaces({
+        'market-1': {
+          installLocation: marketDir
+        }
+      })
+      writeInstalledPlugins({
+        version: 2,
+        plugins: {
+          'plugin-a@market-1': [
+            { scope: 'user', installPath: join(tmpDir, 'install-a'), version: '0120fb83da5d' }
+          ]
+        }
+      })
+
+      scanPluginRegistry(db, pluginsDir, userSettingsPath)
+      expect(allRegistry()[0].available_version).toBe('0120fb83da5d')
+
+      // Marketplace updates
+      writeFileSync(join(marketDir, '.gcs-sha'), '1dd995193ba20bba51ca6c681aa8d3398dbd80a2\n')
+      scanPluginRegistry(db, pluginsDir, userSettingsPath)
+      expect(allRegistry()[0].available_version).toBe('1dd995193ba2')
+    })
   })
 
   it('does not contain NUL bytes in plugin-registry.ts source code', () => {

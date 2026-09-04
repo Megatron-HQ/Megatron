@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS plugin_registry (
   install_path TEXT NOT NULL,
   last_scanned_at TEXT NOT NULL,
   project_path TEXT NOT NULL DEFAULT '',  -- owning project root; '' for user scope
+  available_version TEXT,             -- resolved from marketplace cache; NULL if absent
   PRIMARY KEY (name, marketplace, scope, install_path, project_path)
 );
 
@@ -305,6 +306,27 @@ two carry a `projectPath`, captured as `project_path`.
   would make disabling a project install block the user install of the same plugin, and would
   serialize two projects that each installed it. The key is
   `name@marketplace` + `scope` + `project_path`.
+
+**Plugin update availability (added 2026-09-03)**: `plugin_registry` gained `available_version`
+(nullable `TEXT`), resolved during `scanPluginRegistry` against local marketplace cache directories
+in `~/.claude/plugins/marketplaces/`. Zero network requests are made during scanning; the version is
+resolved strictly from local filesystem artifacts (`marketplace.json`, `plugin.json`, `.gcs-sha`,
+`.git/HEAD`, and manifest source refs).
+- **Permission boundary**: a marketplace under `~/.claude/plugins/` is Tier 1 and readable by the
+  scanner. Any marketplace `installLocation` outside that root stays unresolved until its folder is
+  explicitly granted; the scanner never turns a marketplace manifest into an implicit permission grant.
+- **Concrete source identity**: object sources use their validated commit `sha` before a `ref`. A
+  ref is used only when it is a SemVer tag; a moving branch name such as `main` is not a version and
+  therefore leaves `available_version` NULL when no SHA exists.
+- **SemVer vs SHA comparisons**: Version comparison in `isUpdateAvailable` (`src/shared/version.ts`)
+  uses a SemVer-compliant comparator when both versions parse as SemVer (stripping leading `v` and
+  ignoring build metadata). When either version is non-semver (e.g. a 12-char git commit SHA, or
+  `"unknown"`), comparison falls back to an inequality check (`installed !== available &&
+  available !== 'unknown'`).
+- **UI surfacing**: The inventory table flags plugins where any install is behind with an inline
+  amber badge (`PluginUpdateBadge`) in the Version column and a descriptive tooltip. The detail view
+  surfaces the badge in both the header and individual install rows, prompts the user with the target
+  version in the helper note, and accents the Update button.
 
 ## Why SQLite
 
