@@ -502,15 +502,15 @@ export const scenarios = [
     }
   },
   {
-    // "View these skills" in the budget dialog closes it and filters the table down to
-    // exactly the user-invocable-only global/plugin skills behind the sentence above it —
-    // the row count must match budget.userInvocableOnlyCount.
+    // "View user-invocable skills" in the budget dialog closes it and filters the table
+    // down to exactly the user-invocable-only global/plugin skills behind the sentence
+    // above it — the row count must match budget.userInvocableOnlyCount.
     name: 'context-budget-dialog-view-user-invocable-only',
     screen: 'context-budget-dialog',
     shouldSkip: skipWithoutUserInvocableOnlySkills,
     async run(window) {
       await window.getByRole('button', { name: /EST\. tokens$/i }).click()
-      await window.getByRole('button', { name: 'View these skills' }).click()
+      await window.getByRole('button', { name: 'View user-invocable skills' }).click()
       await window.getByText('User-Invocable Only Skills').waitFor()
     }
   },
