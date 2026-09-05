@@ -6,6 +6,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
+import { TextLink } from '@/components/TextLink'
 import { heaviestBudgetSkills } from '@/lib/context-budget'
 import { SOURCE_ICON, SYNCED_ICON } from '@/lib/source-icon'
 import type { ContextBudget, SkillRow } from '../../../shared/ipc'
@@ -78,16 +79,15 @@ export function ContextBudgetDialog({
                 {budget.excludedCount === 1 ? 'disabled skill' : 'disabled skills'} (
                 {budget.excludedTokens.toLocaleString()} tokens) excluded.
               </span>
-              <button
-                type="button"
+              <TextLink
                 onClick={() => {
                   onViewDisabled()
                   onOpenChange(false)
                 }}
-                className="font-medium text-foreground underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+                className="font-medium text-foreground"
               >
                 View disabled skills
-              </button>
+              </TextLink>
             </p>
           )}
           {budget.userInvocableOnlyCount > 0 && (
@@ -99,16 +99,15 @@ export function ContextBudgetDialog({
                   : 'user-invocable-only skills'}{' '}
                 ({budget.userInvocableOnlyTokens.toLocaleString()} tokens) excluded.
               </span>
-              <button
-                type="button"
+              <TextLink
                 onClick={() => {
                   onViewUserInvocableOnly()
                   onOpenChange(false)
                 }}
-                className="font-medium text-foreground underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+                className="font-medium text-foreground"
               >
                 View user-invocable skills
-              </button>
+              </TextLink>
             </p>
           )}
         </div>

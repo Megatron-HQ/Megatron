@@ -7,6 +7,7 @@ import { LintFindingsPanel } from '@/components/LintFindingsPanel'
 import { LintStatusBadge } from '@/components/LintStatusBadge'
 import { SkillActivityDialog, type TriggerFilter } from '@/components/SkillActivityDialog'
 import { SourceBadge } from '@/components/SourceBadge'
+import { TextLink } from '@/components/TextLink'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { parseHookEvents } from '@/lib/hook-events'
@@ -262,13 +263,12 @@ export function SkillDetail({
               {skill.description ?? 'No description provided.'}
             </p>
             {data.skillMdContent !== null && (
-              <button
-                type="button"
+              <TextLink
                 onClick={onViewFiles}
                 className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase hover:text-foreground"
               >
                 View skill.md
-              </button>
+              </TextLink>
             )}
           </section>
 
@@ -503,13 +503,12 @@ function UsageSection({
                 )}
               </div>
               {skill.total_invocations > usage.recentTriggers.length && (
-                <button
-                  type="button"
+                <TextLink
                   onClick={() => openHistory('all')}
                   className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase hover:text-foreground"
                 >
                   View all {skill.total_invocations.toLocaleString()}
-                </button>
+                </TextLink>
               )}
             </div>
           )}

@@ -10,6 +10,7 @@ import {
 } from '@/components/PluginBadges'
 import { pluginUpdateDetails } from '@/lib/plugin-update'
 import { isUpdateAvailable } from '../../../shared/version'
+import { TextLink } from '@/components/TextLink'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
@@ -479,7 +480,9 @@ function Stat({
   onClick?: () => void
 }): React.JSX.Element {
   const content = (
-    <p className={cn('truncate text-[13px]', mono && 'font-mono text-xs tabular-nums')}>{value}</p>
+    <p className={cn('min-w-0 truncate text-[13px]', mono && 'font-mono text-xs tabular-nums')}>
+      {value}
+    </p>
   )
   return (
     <div className="min-w-0">
@@ -487,9 +490,9 @@ function Stat({
         {label}
       </p>
       {onClick ? (
-        <button type="button" onClick={onClick} className="text-left hover:underline">
+        <TextLink onClick={onClick} className="text-left">
           {content}
-        </button>
+        </TextLink>
       ) : (
         content
       )}

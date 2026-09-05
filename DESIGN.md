@@ -95,6 +95,12 @@ components:
     textColor: "{colors.ledger-ink}"
     rounded: "{rounded.full}"
     padding: "2px 8px"
+  text-link:
+    textColor: "inherit"
+    underlineColor: "currentColor"
+    underlineThickness: "1px"
+    underlineOffset: "1.5em"
+    transition: "transform 300ms cubic-bezier(0.4, 0, 0.2, 1)"
 ---
 
 # Design System: Megatron
@@ -188,6 +194,11 @@ A single radius scale rooted at 10px (`--radius: 0.625rem`), applied identically
 - **Lime override:** primary CTAs that need to stand out (e.g. "Grant a folder to scan for skills") swap in acid lime directly on the button rather than through a separate component variant — a targeted override, not a new button kind, per the One Stamp Rule.
 - **Outline / Ghost / Secondary / Destructive:** standard shadcn treatment. Outline for de-emphasized actions; destructive is seeded for a future mutating action (v1 is read-only, so none is live yet).
 - **Hover / Focus:** every hover state dims to 90% of its own fill — never a separate token. Focus uses the shared `{colors.focus-ring}` at a 3px, 50%-alpha ring.
+
+### Text links
+- **`TextLink`** — the one treatment for every inline "View X" / "Reveal X" affordance (an in-app `<button>`, not an `<a>`; v1 has no in-product navigation links). A 1px `currentColor` underline sweeps in left-to-right on **both hover and focus-visible** — keyboard users get the same affordance, and the reveal replaces the default focus ring. Drawn in ink; the lime stamp is never a link, per the One Stamp Rule.
+- **Adapted from Skiper UI's skiper40 "Link001"** — the `before:` pseudo-element geometry and `300ms cubic-bezier(0.4, 0, 0.2, 1)` are lifted verbatim; thickness drops from `0.05em` to 1px (sub-pixel at 11–13px type) and the external-URL arrow is dropped (nothing in scope leaves the app). What was lifted and what changed is recorded in the component's header comment.
+- **Component owns the animation only** — font size, weight, case, and hover ink color stay at each call site, so it composes with any text style. Reduced motion keeps the underline, drops the sweep.
 
 ### Badges / Chips
 - **Source badges** (`SourceBadge`): outline variant, icon + label always paired — `Globe` (global), `FolderGit2` (project), `Blocks` (plugin). No per-tier color; a trailing `Lock` icon marks plugin skills as read-only, with a tooltip on hover.

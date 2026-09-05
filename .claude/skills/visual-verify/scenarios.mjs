@@ -270,6 +270,18 @@ export const scenarios = [
     }
   },
   {
+    // TextLink's underline sweep (CSS `before:` transform). The whole point of the
+    // component is the hover reveal — an at-rest capture shows nothing — so this is the
+    // one screenshot that proves it. finishTransitions() snaps the transform to its end
+    // state after the hover, so no wait is needed.
+    name: 'text-link-hover',
+    screen: 'skill-detail',
+    async run(window) {
+      await openFirstSkillDetail(window)
+      await window.getByRole('button', { name: 'View skill.md' }).hover()
+    }
+  },
+  {
     // M5 usage stats: a skill with real invocation history, rendering the always-expanded
     // trigger-type/per-project/recent-trigger breakdown (no disclosure toggle anymore — the
     // Detail page has room to just show it). Named skill rather than "first row" because this

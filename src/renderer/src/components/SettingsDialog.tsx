@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Folder, Monitor, Moon, RefreshCw, Sun } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { TextLink } from '@/components/TextLink'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { ThemePreference } from '../../../shared/ipc'
@@ -122,13 +123,12 @@ export function SettingsDialog({
 
           <section className="flex items-center justify-between gap-4 border-t border-border pt-3">
             <p className="font-mono text-xs text-muted-foreground">Megatron v{version}</p>
-            <button
-              type="button"
+            <TextLink
               onClick={() => window.api.revealDataFolder()}
-              className="text-xs text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="text-xs text-muted-foreground transition-colors hover:text-foreground"
             >
               Reveal data folder
-            </button>
+            </TextLink>
           </section>
         </div>
       </DialogContent>
