@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, ArrowLeft, BotOff, FolderOpen, Power, Webhook } from 'lucide-react'
+import {
+  AlertTriangle,
+  ArrowLeft,
+  BotOff,
+  FileText,
+  FolderOpen,
+  Power,
+  Webhook
+} from 'lucide-react'
 import { InvocationGroupRow } from '@/components/InvocationGroupRow'
 import { InvocationRow } from '@/components/InvocationRow'
 import { LintFindingsPanel } from '@/components/LintFindingsPanel'
@@ -265,9 +273,10 @@ export function SkillDetail({
             {data.skillMdContent !== null && (
               <TextLink
                 onClick={onViewFiles}
-                className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase hover:text-foreground"
+                className="gap-1.5 text-[13px] font-medium text-foreground"
               >
-                View skill.md
+                <FileText className="size-3.5 shrink-0" />
+                View SKILL.md
               </TextLink>
             )}
           </section>
