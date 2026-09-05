@@ -141,13 +141,17 @@ export const scenarios = [
     }
   },
   {
-    // The rail's one-click light↔dark toggle (skiper4-adapted sun/moon morph, motion-driven).
+    // The inventory in the opposite theme, toggled via the Settings dialog.
     name: 'inventory-other-theme',
     screen: 'skill-inventory',
     async run(window) {
-      await window.getByRole('button', { name: /Switch to (dark|light) mode/ }).click()
-      // The morph is a JS-driven motion tween, not a CSS transition Playwright auto-waits on.
-      await window.waitForTimeout(MOTION_SETTLE_MS)
+      const usesDarkTheme = await window
+        .locator('html')
+        .evaluate((element) => element.classList.contains('dark'))
+      await window.getByRole('button', { name: 'Settings' }).click()
+      await window.getByRole('radio', { name: usesDarkTheme ? 'Light' : 'Dark' }).click()
+      await window.keyboard.press('Escape')
+      await window.getByRole('dialog').waitFor({ state: 'detached' })
     }
   },
   {
@@ -354,7 +358,10 @@ export const scenarios = [
       const isDark = () =>
         window.evaluate(() => document.documentElement.classList.contains('dark'))
       if (!(await isDark())) {
-        await window.getByRole('button', { name: /Switch to dark mode/ }).click()
+        await window.getByRole('button', { name: 'Settings' }).click()
+        await window.getByRole('radio', { name: 'Dark' }).click()
+        await window.keyboard.press('Escape')
+        await window.getByRole('dialog').waitFor({ state: 'detached' })
       }
       await window.waitForFunction(() => document.documentElement.classList.contains('dark'))
       await window.waitForTimeout(MOTION_SETTLE_MS)

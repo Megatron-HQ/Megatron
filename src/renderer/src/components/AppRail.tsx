@@ -1,7 +1,6 @@
 import { Blocks, BrainCircuit, Settings } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { ThemeToggle } from '@/components/ThemeToggle'
 import type { AppSection } from '../../../shared/ipc'
 
 // Blocks is the app-wide plugin mark — the source badge (SourceBadge.tsx) and the Skills
@@ -15,8 +14,6 @@ const SECTIONS: { section: AppSection; label: string; Icon: typeof Blocks }[] = 
 interface AppRailProps {
   section: AppSection
   onSectionChange: (section: AppSection) => void
-  isDark: boolean
-  onToggleTheme: () => void
   onOpenSettings: () => void
 }
 
@@ -25,8 +22,6 @@ interface AppRailProps {
 export function AppRail({
   section,
   onSectionChange,
-  isDark,
-  onToggleTheme,
   onOpenSettings
 }: AppRailProps): React.JSX.Element {
   return (
@@ -69,7 +64,6 @@ export function AppRail({
           </TooltipTrigger>
           <TooltipContent side="right">Settings</TooltipContent>
         </Tooltip>
-        <ThemeToggle isDark={isDark} onToggle={onToggleTheme} />
       </div>
     </div>
   )

@@ -180,7 +180,7 @@ A single radius scale rooted at 10px (`--radius: 0.625rem`), applied identically
 
 ## Components
 
-**Lucide** (`lucide-react`) for every icon in the product — consistent stroke, geometric, monochrome-by-default; matches shadcn's own blocks and the Linear-grade quality bar the shell borrows from. Icon-only or color-alone is never used for a status or identity signal — see the Flags-Aren't-The-Stamp Rule. The one sanctioned non-Lucide mark is the rail's light↔dark toggle (`ThemeToggle.tsx`): a bespoke inline SVG whose sun-ray retract and clip-path crescent are adapted from Skiper UI's skiper4, `motion`-driven and `useReducedMotion`-guarded per the Motion-Earns-Its-Keep Rule, rendered bare in `currentColor` at the same `size-4` as a Lucide icon so it reads as one of the family.
+**Lucide** (`lucide-react`) for every icon in the product — consistent stroke, geometric, monochrome-by-default; matches shadcn's own blocks and the Linear-grade quality bar the shell borrows from. Icon-only or color-alone is never used for a status or identity signal — see the Flags-Aren't-The-Stamp Rule.
 
 ### Buttons
 - **Shape:** rounded-md (8px).
@@ -201,7 +201,7 @@ A single radius scale rooted at 10px (`--radius: 0.625rem`), applied identically
 ### Rail (section switcher)
 - 48px wide, icon-only, `Tooltip`-labeled (`AppRail.tsx`), 32px square targets, rounded-md, sitting left of everything else behind a single rule-line border — no shadow, per the Ledger-Lies-Flat Rule. Two sections today: Skills (`BrainCircuit`) and Plugins (`Blocks` — the same plugin mark the source badge uses; `BrainCircuit` stands in for Skills because `Blocks` on a non-plugin section would collide with that meaning).
 - **Active state is ink-fill, not lime:** `Surface Muted` background + `Ledger Ink` icon color, inactive items sit at `Ink, Muted` with the standard hover treatment. The rail switches which *section* is showing, not which item within a section is selected — that distinction is what the Sidebar's own lime-filter nav still owns, and is why the rail deliberately sits outside the One Stamp Rule's scope rather than adding a second lime instance.
-- **Footer controls** (`mt-auto`): a Settings gear (opens the Settings dialog; also `Cmd+,`) above the light↔dark `ThemeToggle`. Both use the same 32px muted-ink target and hover treatment as the section icons — no lime, no fill. Appearance is a one-click toggle here, not a menu; the three-way Light/Dark/**System** choice lives in Settings, and clicking the toggle while in System mode sets the explicit opposite of what's currently showing.
+- **Footer controls** (`mt-auto`): a Settings gear (opens the Settings dialog; also `Cmd+,`), using the same 32px muted-ink target and hover treatment as the section icons — no lime, no fill. Appearance is configured via the three-way Light/Dark/**System** segmented control inside the Settings dialog.
 
 ### Settings (dialog)
 - Modal `Dialog` (`SettingsDialog.tsx`), opened by the rail gear or `Cmd+,` — not a third rail section. Built on the same vendored `Dialog` primitives and `Button variant="outline" size="sm"` as `ManageFoldersDialog`. Single column, sections separated by 1px `border-t` rule-lines per the Ledger-Lies-Flat Rule; floats above the page so it (via the primitive) may cast a shadow.

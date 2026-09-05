@@ -42,7 +42,7 @@ files to screens:
 | `components/Sidebar.tsx`                                                              | `sidebar`                        |
 | `components/ContextBudgetDialog.tsx`                                                  | `context-budget-dialog`          |
 | `components/CommandPalette.tsx`                                                       | `command-palette`                |
-| `components/SettingsDialog.tsx`, `components/ThemeToggle.tsx`                         | `settings-dialog`                |
+| `components/SettingsDialog.tsx`                                                       | `settings-dialog`                |
 | `views/PluginInventory.tsx`                                                           | `plugin-inventory`               |
 | `views/PluginDetail.tsx`                                                              | `plugin-detail`                  |
 | `components/PluginBadges.tsx`                                                         | `plugin-inventory,plugin-detail` |

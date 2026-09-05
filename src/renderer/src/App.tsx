@@ -42,9 +42,6 @@ function App(): React.JSX.Element {
   const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
     window.api.getInitialTheme()
   )
-  // main.tsx applies the resolved theme class before first paint, so the DOM is the source
-  // of truth on mount; the applyTheme effect below keeps this in sync afterwards.
-  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'))
   const [version] = useState(() => window.api.getVersion())
   const [filter, setFilter] = useState<SourceFilter>({ kind: 'all' })
   const [view, setView] = useState<View>({ kind: 'list' })
@@ -110,7 +107,6 @@ function App(): React.JSX.Element {
       const useDarkTheme =
         themePreference === 'dark' || (themePreference === 'system' && mediaQuery.matches)
       document.documentElement.classList.toggle('dark', useDarkTheme)
-      setIsDark(useDarkTheme)
     }
 
     applyTheme()
@@ -180,11 +176,6 @@ function App(): React.JSX.Element {
     void window.api.setTheme(next)
   }
 
-  function handleToggleTheme(): void {
-    // From System mode this resolves to the explicit opposite of what's currently showing.
-    handleThemeChange(isDark ? 'light' : 'dark')
-  }
-
   async function handleAddFolders(): Promise<void> {
     await window.api.pickAndAddFolders()
     await Promise.all([
@@ -221,8 +212,6 @@ function App(): React.JSX.Element {
           <AppRail
             section={section}
             onSectionChange={handleSectionChange}
-            isDark={isDark}
-            onToggleTheme={handleToggleTheme}
             onOpenSettings={() => setSettingsOpen(true)}
           />
           {section === 'skills' ? (
