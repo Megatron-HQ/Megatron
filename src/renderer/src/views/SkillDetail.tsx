@@ -261,6 +261,15 @@ export function SkillDetail({
             >
               {skill.description ?? 'No description provided.'}
             </p>
+            {data.skillMdContent !== null && (
+              <button
+                type="button"
+                onClick={onViewFiles}
+                className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase hover:text-foreground"
+              >
+                View skill.md
+              </button>
+            )}
           </section>
 
           <UsageSection usage={usage} skill={skill} />
