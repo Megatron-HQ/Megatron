@@ -16,6 +16,7 @@ import { SkillInventory } from './views/SkillInventory'
 import { SkillFileViewer } from './views/SkillFileViewer'
 import { PluginDetail } from './views/PluginDetail'
 import { PluginInventory } from './views/PluginInventory'
+import { UsageView } from './views/UsageView'
 import type { AppSection, ContextBudget, ThemePreference } from '../../shared/ipc'
 
 type View =
@@ -80,6 +81,7 @@ function App(): React.JSX.Element {
         void queryClient.invalidateQueries({ queryKey: ['skill-files'] })
         void queryClient.invalidateQueries({ queryKey: ['plugins'] })
         void queryClient.invalidateQueries({ queryKey: ['plugin-detail'] })
+        void queryClient.invalidateQueries({ queryKey: ['usage'] })
       }),
     [queryClient]
   )
@@ -252,7 +254,7 @@ function App(): React.JSX.Element {
                 />
               )}
             </>
-          ) : (
+          ) : section === 'plugins' ? (
             <>
               <PluginSidebar
                 plugins={plugins}
@@ -279,6 +281,8 @@ function App(): React.JSX.Element {
                 />
               )}
             </>
+          ) : (
+            <UsageView />
           )}
         </div>
       </div>

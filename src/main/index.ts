@@ -11,6 +11,7 @@ import { getDb } from './db'
 import {
   addAllowedPath,
   deleteSkillsForProjectRoot,
+  getActivityStats,
   getContextBudget,
   getLintFindingsForSkill,
   getPluginDetail,
@@ -33,6 +34,7 @@ import {
 import { scanSkills } from './ingest/skills-scanner'
 import { scanPluginRegistry } from './ingest/plugin-registry'
 import { scanTranscripts } from './ingest/transcript-scanner'
+import { scanPromptHistory } from './ingest/prompt-history-scanner'
 import { runAllScans } from './ingest/scan-all'
 import { runLinter } from './linter'
 import { readSkillFiles, readSkillMd } from './skill-files'
@@ -58,9 +60,13 @@ function notifyScanComplete(): void {
 }
 
 function scanAndNotify(): void {
-  runAllScans(getDb(), [scanSkills, scanPluginRegistry, scanTranscripts, runLinter], (error) => {
-    console.error('[ingest] scan failed', error)
-  })
+  runAllScans(
+    getDb(),
+    [scanSkills, scanPluginRegistry, scanTranscripts, scanPromptHistory, runLinter],
+    (error) => {
+      console.error('[ingest] scan failed', error)
+    }
+  )
   scanComplete = true
   notifyScanComplete()
 }
@@ -254,6 +260,12 @@ app.whenReady().then(() => {
     if (result.ok) scanAndNotify()
     return result
   })
+
+  // Composes like skills:list — the renderer polls until scanComplete. PR2 adds a `cost` field.
+  ipcMain.handle(IPC_CHANNELS.usageOverview, () => ({
+    activity: getActivityStats(getDb()),
+    scanComplete
+  }))
 
   ipcMain.on(IPC_CHANNELS.getInitialSection, (event) => {
     event.returnValue = resolveInitialSection(themeStore)

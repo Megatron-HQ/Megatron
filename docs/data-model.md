@@ -99,7 +99,23 @@ CREATE TABLE IF NOT EXISTS lint_findings (
   line_number INTEGER,
   detected_at TEXT NOT NULL           -- ISO8601
 );
+
+CREATE TABLE IF NOT EXISTS prompt_history (
+  session_id TEXT NOT NULL,           -- history.jsonl sessionId; NO FK — spans pruned sessions
+  project TEXT NOT NULL,              -- raw cwd string, matches sessions_meta.cwd
+  typed_at TEXT NOT NULL,             -- history.jsonl timestamp (epoch ms) -> ISO 8601 UTC
+  is_slash_command INTEGER NOT NULL   -- 1 = bare ^/[a-z][\w-]*$ line (/clear, /quit); heuristic,
+                                      -- conflates tool control with a bare skill run (~1%)
+);
+CREATE INDEX IF NOT EXISTS idx_prompt_history_typed_at ON prompt_history(typed_at);
 ```
+
+`prompt_history` (added 2026-09-05, Usage view Phase 2a / PR1) is the mirror of Claude Code's
+`~/.claude/history.jsonl` that backs the Usage view's **Activity** section — see
+`docs/usage-analytics.md`. It carries no prompt text and no FK: `session_id` deliberately spans
+sessions the transcript prune has already aged out (a prompt's row outlives its Session). Populated
+by `scanPromptHistory` (`src/main/ingest/prompt-history-scanner.ts`) in the same Scan as the other
+tables; `getActivityStats` (`src/main/db/queries.ts`) reduces it into both rolling windows in JS.
 
 `allowed_paths` is the Tier-2 grant list the folder picker persists to (`folders:list` /
 `folders:pickAndAdd` / `folders:revoke`) — no separate restart-persistence mechanism, the table
@@ -134,6 +150,14 @@ separately means a rescan that drops a skill row drops its findings too. See
 - `plugin_registry` upserts on `(name, marketplace, scope, install_path, project_path)`,
   preserving each installed scope/location listed under a plugin key. See "Plugin install
   identity" below for why the last three columns are all load-bearing.
+- `prompt_history` has no natural key to reconcile on — `history.jsonl` is itself a
+  wiped-and-reloaded mirror Claude Code caps at `cleanupPeriodDays` (~30d), so `scanPromptHistory`
+  matches it exactly: `DELETE FROM prompt_history` then bulk re-insert, in one transaction
+  (pattern: `replaceAllLintFindings`). A transient read failure returns early and leaves the last
+  good rows in place; an empty `history.jsonl` clears the table. `db:reset` stays lossless — the
+  next Scan rebuilds it from the file, minus whatever the prune has since removed. Long-range
+  prompt history would need an *accumulating* store, explicitly exempt from the derived-cache
+  invariant — a separate feature, see `docs/usage-analytics.md`.
 
 **Usage stats (M5) are computed live, never stored.** `total_invocations`, `last_invoked_at`, and
 the trigger-type/per-project/recent-trigger breakdowns in `getSkillUsageDetail` are all aggregate

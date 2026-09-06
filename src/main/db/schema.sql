@@ -102,6 +102,18 @@ CREATE TABLE IF NOT EXISTS allowed_paths (
   granted_at TEXT NOT NULL            -- ISO8601
 );
 
+CREATE TABLE IF NOT EXISTS prompt_history (
+  session_id TEXT NOT NULL,          -- history.jsonl sessionId; NO FK — spans pruned sessions
+  project TEXT NOT NULL,             -- raw cwd string, matches sessions_meta.cwd
+  typed_at TEXT NOT NULL,            -- history.jsonl timestamp (epoch ms) -> ISO 8601 UTC
+  is_slash_command INTEGER NOT NULL  -- 1 = bare ^/[a-z][\w-]*$ line (/clear, /quit); heuristic,
+                                     -- conflates tool control with a bare skill run (~1%) — see
+                                     -- prompt-history-scanner.ts. Wiped and reloaded each Scan;
+                                     -- mirrors history.jsonl, itself capped at Claude Code's
+                                     -- cleanupPeriodDays prune (~30d default). No prompt text.
+);
+CREATE INDEX IF NOT EXISTS idx_prompt_history_typed_at ON prompt_history(typed_at);
+
 CREATE TABLE IF NOT EXISTS lint_findings (
   id INTEGER PRIMARY KEY,
   skill_id INTEGER NOT NULL REFERENCES skills(id) ON DELETE CASCADE,

@@ -10,7 +10,8 @@ import type {
   PluginRow,
   SkillInvocationEntry,
   SkillsListResult,
-  ThemePreference
+  ThemePreference,
+  UsageOverview
 } from '../shared/ipc'
 
 interface Api {
@@ -30,6 +31,7 @@ interface Api {
   disablePlugin: (input: PluginActionInput) => Promise<PluginActionResult>
   updatePlugin: (input: PluginActionInput) => Promise<PluginActionResult>
   uninstallPlugin: (input: PluginActionInput) => Promise<PluginActionResult>
+  getUsageOverview: () => Promise<UsageOverview>
   getInitialSection: () => AppSection
   setLastSection: (section: AppSection) => Promise<void>
   rescan: () => Promise<void>

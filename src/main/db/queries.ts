@@ -2,6 +2,8 @@ import type Database from 'better-sqlite3'
 import { dirname, join, resolve, sep } from 'path'
 import { CHARS_PER_TOKEN } from '../ingest/skill-parser'
 import type {
+  ActivityStats,
+  ActivityWindow,
   AllowedPathRow,
   ContextBudget,
   LintFindingRow,
@@ -552,6 +554,100 @@ export function listPlugins(db: Database.Database): PluginRow[] {
         enablement_known: row.enablement_known === 1
       }))
   }))
+}
+
+const DAY_MS = 86_400_000
+
+interface PromptHistoryQueryRow {
+  session_id: string
+  project: string
+  typed_at: string
+  is_slash_command: number
+}
+
+function localDateKey(d: Date): string {
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${month}-${day}`
+}
+
+function reduceActivityWindow(
+  rows: PromptHistoryQueryRow[],
+  now: Date,
+  days: 7 | 30
+): ActivityWindow {
+  const cutoff = new Date(now.getTime() - days * DAY_MS)
+  const inWindow = rows.filter((row) => new Date(row.typed_at) >= cutoff)
+  const real = inWindow.filter((row) => row.is_slash_command === 0)
+
+  const byHourWeekday = Array.from({ length: 7 }, () => Array<number>(24).fill(0))
+  const sessions = new Set<string>()
+  const activeDays = new Set<string>()
+  const projectCounts = new Map<string, number>()
+  const dayCounts = new Map<string, number>()
+
+  for (const row of real) {
+    const at = new Date(row.typed_at)
+    const dayKey = localDateKey(at)
+    byHourWeekday[at.getDay()][at.getHours()] += 1
+    sessions.add(row.session_id)
+    activeDays.add(dayKey)
+    projectCounts.set(row.project, (projectCounts.get(row.project) ?? 0) + 1)
+    dayCounts.set(dayKey, (dayCounts.get(dayKey) ?? 0) + 1)
+  }
+
+  const byHour = Array.from({ length: 24 }, (_, hour) =>
+    byHourWeekday.reduce((sum, weekdayRow) => sum + weekdayRow[hour], 0)
+  )
+  const byWeekday = byHourWeekday.map((weekdayRow) => weekdayRow.reduce((sum, n) => sum + n, 0))
+
+  // `days` bars ending on now's local date. A noon anchor keeps setDate() rollback off any
+  // DST-skipped hour.
+  const anchor = new Date(now)
+  anchor.setHours(12, 0, 0, 0)
+  const byDay: ActivityWindow['byDay'] = []
+  for (let offset = days - 1; offset >= 0; offset--) {
+    const d = new Date(anchor)
+    d.setDate(d.getDate() - offset)
+    const date = localDateKey(d)
+    byDay.push({ date, count: dayCounts.get(date) ?? 0, weekday: d.getDay() })
+  }
+
+  const byProject = [...projectCounts.entries()]
+    .map(([project, count]) => ({ project, count }))
+    .sort((a, b) => b.count - a.count || a.project.localeCompare(b.project))
+
+  return {
+    days,
+    activeDays: activeDays.size,
+    sessions: sessions.size,
+    prompts: real.length,
+    slashCommands: inWindow.length - real.length,
+    byHour,
+    byWeekday,
+    byHourWeekday,
+    byProject,
+    byDay
+  }
+}
+
+// One SQL pull of the last 30 days; both windows, both histograms, the project split and every
+// count are reduced from it in JS (plan decision 5). Electron main runs on the user's machine,
+// so JS .getHours()/.getDay() are the user's local time — identical to a
+// datetime(col, 'localtime') bucket in production and deterministic under a pinned TZ in tests.
+export function getActivityStats(db: Database.Database, now: Date = new Date()): ActivityStats {
+  const rows = db
+    .prepare(
+      `SELECT session_id, project, typed_at, is_slash_command
+       FROM prompt_history WHERE typed_at >= ?`
+    )
+    .all(new Date(now.getTime() - 30 * DAY_MS).toISOString()) as PromptHistoryQueryRow[]
+
+  return {
+    last7d: reduceActivityWindow(rows, now, 7),
+    last30d: reduceActivityWindow(rows, now, 30),
+    generatedAt: now.toISOString()
+  }
 }
 
 export function getPluginDetail(

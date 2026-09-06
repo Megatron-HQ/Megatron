@@ -47,6 +47,11 @@ describe('isPathAllowed', () => {
     expect(isPathAllowed(resolve(homedir(), '.claude/settings.json'))).toBe(true)
   })
 
+  it('allows ~/.claude/history.jsonl for the Usage view, but not a sibling path', () => {
+    expect(isPathAllowed(resolve(homedir(), '.claude/history.jsonl'))).toBe(true)
+    expect(isPathAllowed(resolve(homedir(), '.claude/history.jsonlx'))).toBe(false)
+  })
+
   it('rejects traversal that escapes an allowed root', () => {
     expect(isPathAllowed(resolve(homedir(), '.claude/skills/../../etc/passwd'))).toBe(false)
     expect(isPathAllowed(resolve(homedir(), '.claude/skills-evil'))).toBe(false)

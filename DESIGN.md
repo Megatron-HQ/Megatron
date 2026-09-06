@@ -115,6 +115,8 @@ Exactly one stamp of color breaks that quiet: acid lime, reserved for the single
 
 Confirmed rejections: no drop shadows on anything at rest (shadows are reserved for genuinely floating layers), no gradients, no per-source-tier color coding, no hero-scale type anywhere in the product.
 
+The **Usage** section (a retrospective, not an inventory) is a different surface class: its visual decisions — and its five explicit, user-authorised departures from this document (a 960px content cap, a scoped 30px `--usage-stat` numeral step, 13px/600 section headers, two monochrome `--usage-*` chart tokens + a punchcard quantile-opacity scale, and charts that animate on enter/scrub/window-switch) — are owned by **`docs/usage-view-ui-spec.md`**.
+
 **Key Characteristics:**
 - Dense, Linear-style sidebar + list/detail shell, now spanning two sections (Skills, Plugins) behind a persistent icon rail — still a utility, never a spacious admin dashboard
 - One accent (acid lime), used sparingly, never as body text or a link

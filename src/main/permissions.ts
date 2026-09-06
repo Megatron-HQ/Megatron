@@ -10,7 +10,8 @@ const TIER_1_ROOTS = ['skills', 'plugins', 'projects'].map((dir) =>
 // scanners need specific fields out of them. File-only, not the rest of $HOME.
 const TIER_1_FILES = [
   resolve(homedir(), '.claude.json'), // mcpServers, for the MCP linter
-  resolve(homedir(), '.claude/settings.json') // enabledPlugins/skillOverrides, for disabled-skill detection
+  resolve(homedir(), '.claude/settings.json'), // enabledPlugins/skillOverrides, for disabled-skill detection
+  resolve(homedir(), '.claude/history.jsonl') // Prompt History, for the Usage view
 ]
 
 const grantedPaths = new Set<string>()

@@ -20,7 +20,8 @@ export const IPC_CHANNELS = {
   setLastSection: 'app:setLastSection',
   rescan: 'app:rescan',
   revealDataFolder: 'app:revealDataFolder',
-  getVersion: 'app:getVersion'
+  getVersion: 'app:getVersion',
+  usageOverview: 'usage:overview'
 } as const
 
 export interface AllowedPathRow {
@@ -219,4 +220,44 @@ export interface PluginActionInput {
   projectPath: string | null
 }
 
-export type AppSection = 'skills' | 'plugins'
+// The runtime list resolveInitialSection validates a stored value against, plus the derived
+// union — one source so the two can't drift.
+export const APP_SECTIONS = ['skills', 'plugins', 'usage'] as const
+export type AppSection = (typeof APP_SECTIONS)[number]
+
+export interface ActivityProjectCount {
+  project: string // raw cwd string, matches sessions_meta.cwd
+  count: number
+}
+
+export interface ActivityDay {
+  date: string // YYYY-MM-DD, local time
+  count: number
+  weekday: number // 0 = Sunday, server-computed so the renderer never re-parses `date`
+}
+
+export interface ActivityWindow {
+  days: 7 | 30
+  activeDays: number
+  sessions: number
+  prompts: number
+  slashCommands: number
+  byHour: number[] // length 24, local time
+  byWeekday: number[] // length 7, index 0 = Sunday, local time
+  // 7 rows × 24 cols, [weekday][hour], row 0 = Sunday, local time — the punchcard.
+  // byHour / byWeekday are its margins, summed out of it and kept for reuse.
+  byHourWeekday: number[][]
+  byProject: ActivityProjectCount[] // full list, count desc
+  byDay: ActivityDay[] // zero-filled, ascending
+}
+
+export interface ActivityStats {
+  last7d: ActivityWindow
+  last30d: ActivityWindow
+  generatedAt: string
+}
+
+export interface UsageOverview {
+  activity: ActivityStats
+  scanComplete: boolean
+}

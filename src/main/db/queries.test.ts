@@ -1,3 +1,7 @@
+// Pinned before any import so getActivityStats' JS-side .getHours()/.getDay() bucketing is
+// deterministic. Etc/GMT+5 is UTC-5 with no DST, so a UTC instant maps to one fixed local hour.
+process.env.TZ = 'Etc/GMT+5'
+
 import Database from 'better-sqlite3'
 import { resolve } from 'path'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -5,6 +9,7 @@ import { applySchema } from './schema'
 import {
   addAllowedPath,
   deleteSkillsForProjectRoot,
+  getActivityStats,
   getContextBudget,
   getPluginDetail,
   getSkillById,
@@ -1764,5 +1769,163 @@ describe('getPluginDetail', () => {
     const detail = getPluginDetail(db, 'plugin-a', 'market-1')
     expect(detail?.errorCount).toBe(1)
     expect(detail?.warningCount).toBe(1)
+  })
+})
+
+describe('getActivityStats', () => {
+  const NOW = new Date('2026-08-20T12:00:00.000Z') // local Thu 2026-08-20 07:00 (UTC-5)
+
+  function insertPrompt(overrides: {
+    typed_at: string
+    session_id?: string
+    project?: string
+    is_slash_command?: 0 | 1
+  }): void {
+    db.prepare(
+      `INSERT INTO prompt_history (session_id, project, typed_at, is_slash_command)
+       VALUES (@session_id, @project, @typed_at, @is_slash_command)`
+    ).run({
+      session_id: overrides.session_id ?? 's1',
+      project: overrides.project ?? '/repo-a',
+      typed_at: overrides.typed_at,
+      is_slash_command: overrides.is_slash_command ?? 0
+    })
+  }
+
+  // A,B,C,D + slash E land inside the 7-day window; F,G + slash H are 30-day only; I predates
+  // the 30-day SQL bound entirely.
+  function seedFixture(): void {
+    insertPrompt({ typed_at: '2026-08-19T02:00:00.000Z', session_id: 's1', project: '/repo-a' }) // A
+    insertPrompt({ typed_at: '2026-08-19T02:30:00.000Z', session_id: 's1', project: '/repo-a' }) // B
+    insertPrompt({ typed_at: '2026-08-17T15:00:00.000Z', session_id: 's2', project: '/repo-b' }) // C
+    insertPrompt({ typed_at: '2026-08-14T09:00:00.000Z', session_id: 's3', project: '/repo-a' }) // D
+    insertPrompt({
+      typed_at: '2026-08-19T06:00:00.000Z',
+      session_id: 's1',
+      project: '/repo-a',
+      is_slash_command: 1
+    }) // E
+    insertPrompt({ typed_at: '2026-08-01T12:00:00.000Z', session_id: 's4', project: '/repo-c' }) // F
+    insertPrompt({ typed_at: '2026-07-25T12:00:00.000Z', session_id: 's4', project: '/repo-c' }) // G
+    insertPrompt({
+      typed_at: '2026-07-25T13:00:00.000Z',
+      session_id: 's5',
+      project: '/repo-c',
+      is_slash_command: 1
+    }) // H
+    insertPrompt({ typed_at: '2026-07-21T11:59:59.000Z', session_id: 's6', project: '/repo-a' }) // I
+  }
+
+  it('generatedAt is the passed-in now, and both windows carry their day count', () => {
+    const stats = getActivityStats(db, NOW)
+    expect(stats.generatedAt).toBe('2026-08-20T12:00:00.000Z')
+    expect(stats.last7d.days).toBe(7)
+    expect(stats.last30d.days).toBe(30)
+  })
+
+  it('counts real prompts only in the 7-day window, excluding slash commands', () => {
+    seedFixture()
+    const w = getActivityStats(db, NOW).last7d
+    expect(w.prompts).toBe(4)
+    expect(w.slashCommands).toBe(1)
+    expect(w.sessions).toBe(3)
+    expect(w.activeDays).toBe(3)
+  })
+
+  it('widens to the 30-day window: more prompts, sessions, active days, slash commands', () => {
+    seedFixture()
+    const w = getActivityStats(db, NOW).last30d
+    expect(w.prompts).toBe(6)
+    expect(w.slashCommands).toBe(2)
+    expect(w.sessions).toBe(4)
+    expect(w.activeDays).toBe(5)
+  })
+
+  it('includes a prompt exactly at the 7-day cutoff and excludes one a second earlier', () => {
+    insertPrompt({ typed_at: '2026-08-13T12:00:00.000Z' })
+    insertPrompt({ typed_at: '2026-08-13T11:59:59.000Z' })
+    const stats = getActivityStats(db, NOW)
+    expect(stats.last7d.prompts).toBe(1)
+    expect(stats.last30d.prompts).toBe(2)
+  })
+
+  it('excludes prompts older than 30 days', () => {
+    insertPrompt({ typed_at: '2026-07-21T12:00:00.000Z' })
+    insertPrompt({ typed_at: '2026-07-21T11:59:59.000Z' })
+    expect(getActivityStats(db, NOW).last30d.prompts).toBe(1)
+  })
+
+  it('places each prompt in the [weekday][hour] punchcard cell, local time', () => {
+    seedFixture()
+    const w = getActivityStats(db, NOW).last7d
+    expect(w.byHourWeekday).toHaveLength(7)
+    expect(w.byHourWeekday[0]).toHaveLength(24)
+    expect(w.byHourWeekday[2][21]).toBe(2) // A + B: Tue 21:00 local
+    expect(w.byHourWeekday[1][10]).toBe(1) // C: Mon 10:00 local
+    expect(w.byHourWeekday[5][4]).toBe(1) // D: Fri 04:00 local
+    // E (slash) would be Wed 01:00 — not counted
+    expect(w.byHourWeekday[3][1]).toBe(0)
+  })
+
+  it('derives byHour and byWeekday as the margins of byHourWeekday', () => {
+    seedFixture()
+    for (const w of [getActivityStats(db, NOW).last7d, getActivityStats(db, NOW).last30d]) {
+      const hourMargins = Array.from({ length: 24 }, (_, h) =>
+        w.byHourWeekday.reduce((sum, row) => sum + row[h], 0)
+      )
+      const weekdayMargins = w.byHourWeekday.map((row) => row.reduce((sum, n) => sum + n, 0))
+      expect(w.byHour).toEqual(hourMargins)
+      expect(w.byWeekday).toEqual(weekdayMargins)
+      expect(w.byHour.reduce((a, b) => a + b, 0)).toBe(w.prompts)
+      expect(w.byWeekday.reduce((a, b) => a + b, 0)).toBe(w.prompts)
+    }
+  })
+
+  it('ranks byProject by count descending', () => {
+    seedFixture()
+    expect(getActivityStats(db, NOW).last30d.byProject).toEqual([
+      { project: '/repo-a', count: 3 },
+      { project: '/repo-c', count: 2 },
+      { project: '/repo-b', count: 1 }
+    ])
+  })
+
+  it('zero-fills byDay across the window with a server-computed weekday', () => {
+    seedFixture()
+    const { byDay } = getActivityStats(db, NOW).last7d
+    expect(byDay).toHaveLength(7)
+    expect(byDay[0]).toEqual({ date: '2026-08-14', count: 1, weekday: 5 })
+    expect(byDay[6]).toEqual({ date: '2026-08-20', count: 0, weekday: 4 })
+    expect(byDay.find((d) => d.date === '2026-08-18')).toEqual({
+      date: '2026-08-18',
+      count: 2,
+      weekday: 2
+    })
+    expect(byDay.reduce((sum, d) => sum + d.count, 0)).toBe(4)
+  })
+
+  it('spans 30 ascending days for the 30-day window', () => {
+    seedFixture()
+    const { byDay } = getActivityStats(db, NOW).last30d
+    expect(byDay).toHaveLength(30)
+    expect(byDay[0].date).toBe('2026-07-22')
+    expect(byDay[29].date).toBe('2026-08-20')
+    expect(byDay.find((d) => d.date === '2026-07-25')).toEqual({
+      date: '2026-07-25',
+      count: 1,
+      weekday: 6
+    })
+    expect(byDay.reduce((sum, d) => sum + d.count, 0)).toBe(6)
+  })
+
+  it('returns zeroed windows when there is no prompt history', () => {
+    const w = getActivityStats(db, NOW).last7d
+    expect(w.prompts).toBe(0)
+    expect(w.sessions).toBe(0)
+    expect(w.activeDays).toBe(0)
+    expect(w.byProject).toEqual([])
+    expect(w.byHour).toEqual(Array(24).fill(0))
+    expect(w.byWeekday).toEqual(Array(7).fill(0))
+    expect(w.byDay).toHaveLength(7)
   })
 })

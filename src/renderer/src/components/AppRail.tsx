@@ -1,4 +1,4 @@
-import { Blocks, BrainCircuit, Settings } from 'lucide-react'
+import { BarChart3, Blocks, BrainCircuit, Settings } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { AppSection } from '../../../shared/ipc'
@@ -6,9 +6,11 @@ import type { AppSection } from '../../../shared/ipc'
 // Blocks is the app-wide plugin mark — the source badge (SourceBadge.tsx) and the Skills
 // sidebar's plugin filter already use it, so the Plugins section carries the same icon.
 // Skills takes BrainCircuit: Blocks on a non-plugin section would collide with that meaning.
+// Usage takes BarChart3 — a retrospective over the user's own activity, not an inventory.
 const SECTIONS: { section: AppSection; label: string; Icon: typeof Blocks }[] = [
   { section: 'skills', label: 'Skills', Icon: BrainCircuit },
-  { section: 'plugins', label: 'Plugins', Icon: Blocks }
+  { section: 'plugins', label: 'Plugins', Icon: Blocks },
+  { section: 'usage', label: 'Usage', Icon: BarChart3 }
 ]
 
 interface AppRailProps {

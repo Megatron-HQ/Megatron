@@ -9,10 +9,10 @@
 // Implementing a UI change that adds a new screen, nav destination, or major
 // state includes adding its scenario here in the same change — see SKILL.md.
 //
-// Every scenario carries a `screen` — one of the nine names in SKILL.md's "Scope
+// Every scenario carries a `screen` — one of the ten names in SKILL.md's "Scope
 // the run" table (skill-inventory, skill-detail, skill-file-viewer, sidebar,
 // command-palette, context-budget-dialog, settings-dialog, plugin-inventory,
-// plugin-detail), tagged by what the screenshot is actually testing. It's what
+// plugin-detail, usage), tagged by what the screenshot is actually testing. It's what
 // `npm run verify:visual -- --only <screen>` filters on. The two interaction
 // guards (sidebar-filter-closes-open-detail, command-palette-skill-from-plugins-
 // section) list both screens they span. A new scenario MUST have one.
@@ -117,6 +117,12 @@ async function skipWithoutDisabledSkills(window) {
 async function skipWithoutUserInvocableOnlySkills(window) {
   const count = await window.locator('tbody tr svg.lucide-bot-off').count()
   return count === 0 ? 'no user-invocable-only skills found locally' : null
+}
+
+/** Rail click → Usage section, landing on the Activity retrospective. */
+async function openUsageSection(window) {
+  await window.getByRole('button', { name: 'Usage', exact: true }).click()
+  await window.getByRole('heading', { name: 'Activity' }).waitFor()
 }
 
 /**
@@ -674,6 +680,38 @@ export const scenarios = [
     async run(window) {
       await openPluginsSection(window)
       await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
+    }
+  },
+  {
+    // The AppRail's third destination: the Usage retrospective. Default (30-day) window —
+    // stat cells, the by-day strip, the punchcard, and the by-project bar list, all reduced
+    // from this developer's real ~/.claude/history.jsonl.
+    name: 'usage-activity-default',
+    screen: 'usage',
+    async run(window) {
+      await openUsageSection(window)
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // The page-global 7d/30d toggle switched to "7 days" — every windowed figure retunes.
+    name: 'usage-activity-7-day',
+    screen: 'usage',
+    async run(window) {
+      await openUsageSection(window)
+      await window.getByRole('radio', { name: '7 days' }).click()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // The lower half of the Activity section — the punchcard's marginal bars and the
+    // By-project bar list, both below the fold at the default window height.
+    name: 'usage-activity-by-project',
+    screen: 'usage',
+    async run(window) {
+      await openUsageSection(window)
+      await window.getByText('By project', { exact: true }).scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   }
 ]
