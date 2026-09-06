@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { animate, useReducedMotion } from 'motion/react'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -36,7 +37,8 @@ interface SkillDetailProps {
 // Fixed render order + texture fill for each trigger-mix segment. The bar stays monochrome
 // (DESIGN.md forbids color-as-category) and tells the three types apart by pattern over one
 // common ink shade — solid / faint diagonal hatch / faint dot grid, defined in main.css — plus
-// each segment's own centered TRIGGER_META icon, inverted to read against the ink fill.
+// each segment's own centered TRIGGER_META icon, inverted to read against the ink fill, and a
+// hairline background-tinted rule between adjacent segments so the boundaries read at a glance.
 const TRIGGER_BAR: { type: TriggerType; barClass: string }[] = [
   { type: 'user_invoked', barClass: 'trigger-fill-solid' },
   { type: 'autonomous', barClass: 'trigger-fill-hatch' },
@@ -460,7 +462,7 @@ function UsageSection({
                           onClick={() => openHistory(type)}
                           aria-label={description}
                           className={cn(
-                            'flex h-full items-center justify-center transition-opacity hover:opacity-90 active:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+                            'flex h-full items-center justify-center border-l border-background/30 transition-opacity first:border-l-0 hover:opacity-90 active:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
                             barClass
                           )}
                           style={{ width: `${width}%` }}
@@ -547,7 +549,7 @@ function ByProject({ rows }: { rows: ProjectCount[] }): React.JSX.Element {
         By project
       </p>
       <div className="space-y-0.5">
-        {visible.map((row) => {
+        {visible.map((row, index) => {
           const label = getFolderBasename(row.cwd) || row.cwd
           const width = `${Math.max((row.count / max) * 100, 3)}%`
           return (
@@ -559,10 +561,21 @@ function ByProject({ rows }: { rows: ProjectCount[] }): React.JSX.Element {
                 {label}
               </span>
               <span className="flex h-1.5 min-w-0 overflow-hidden rounded-full bg-muted">
-                <span className="rounded-full bg-muted-foreground/60" style={{ width }} />
+                <span
+                  className={cn(
+                    'rounded-full bg-muted-foreground/60',
+                    // Only the rows present on mount grow in, matching the usage bar above.
+                    // Gating on index rather than `showAll` keeps the class stable across
+                    // toggles — removing then re-adding an `animation` re-fires it, so a
+                    // "Show less" would replay the grow on the original rows.
+                    index < PROJECT_ROW_CAP &&
+                      'origin-left animate-bar-grow motion-reduce:animate-none'
+                  )}
+                  style={{ width }}
+                />
               </span>
               <span className="text-right font-mono text-xs tabular-nums text-muted-foreground">
-                {row.count}
+                <CountUp value={row.count} animated={index < PROJECT_ROW_CAP} />
               </span>
             </div>
           )
@@ -579,4 +592,28 @@ function ByProject({ rows }: { rows: ProjectCount[] }): React.JSX.Element {
       )}
     </div>
   )
+}
+
+// A number can't be tweened in CSS, so this is the Motion-Earns-Its-Keep carve-out (DESIGN.md):
+// motion's animate() drives the tick-up, guarded by useReducedMotion() since JS animation doesn't
+// get prefers-reduced-motion for free. Duration/easing mirror --animate-bar-grow so the number and
+// its bar land together.
+function CountUp({ value, animated }: { value: number; animated: boolean }): React.JSX.Element {
+  const reduceMotion = useReducedMotion() === true
+  const shouldAnimate = animated && !reduceMotion
+  // The tween only backs the rendered number while it's running — the static case reads `value`
+  // straight through, so the effect never has to set state synchronously to stay in sync.
+  const [tweened, setTweened] = useState(0)
+
+  useEffect(() => {
+    if (!shouldAnimate) return
+    const controls = animate(0, value, {
+      duration: 0.5,
+      ease: 'easeOut',
+      onUpdate: (latest) => setTweened(Math.round(latest))
+    })
+    return () => controls.stop()
+  }, [value, shouldAnimate])
+
+  return <>{shouldAnimate ? tweened : value}</>
 }
