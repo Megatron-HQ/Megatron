@@ -8,6 +8,7 @@ import {
   readAllowedDirectory
 } from '../permissions'
 import type { TriggerType } from '../../shared/ipc'
+import { extractCostState, toModelCostRows, type SessionCost } from './cost-parser'
 
 export interface TranscriptSession {
   session_id: string
@@ -36,7 +37,10 @@ interface InvocationCandidate {
 }
 
 const PRECEDING_TEXT_MAX_CHARS = 2000
-const TRANSCRIPT_PARSER_VERSION = 3
+// Bumps on any parser-semantic change across the whole walk, cost-state included (no separate
+// cost_parser_version — see docs/usage-analytics.md §8). A bump forces one safe reindex of all
+// already-indexed sessions. 3→4: cost-state ingest (session_cost / session_model_cost).
+const TRANSCRIPT_PARSER_VERSION = 4
 
 function truncatePrecedingText(text: string | null): string | null {
   return text === null ? null : text.slice(0, PRECEDING_TEXT_MAX_CHARS)
@@ -45,6 +49,9 @@ function truncatePrecedingText(text: string | null): string | null {
 export interface TranscriptParse {
   session: TranscriptSession | null
   invocations: TranscriptInvocation[]
+  // The last cost-state line's parsed shape, or null when the transcript has none (pre-v2.1.241
+  // history). Main transcripts only — subagent cost is already inside the parent's total.
+  cost: SessionCost | null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -326,11 +333,15 @@ function extractInvocations(
 
 export function parseTranscript(filePath: string): TranscriptParse {
   if (!isPathAllowed(filePath)) {
-    return { session: null, invocations: [] }
+    return { session: null, invocations: [], cost: null }
   }
 
   const records = parseLines(filePath)
-  return { session: extractSession(records), invocations: extractInvocations(records) }
+  return {
+    session: extractSession(records),
+    invocations: extractInvocations(records),
+    cost: extractCostState(records)
+  }
 }
 
 // Deliberately never calls extractSession: every record in a subagent file carries the parent
@@ -371,6 +382,26 @@ export function scanTranscripts(
   `)
 
   const deleteSessionInvocations = db.prepare('DELETE FROM skill_invocations WHERE session_id = ?')
+
+  // session_model_cost rows cascade off session_cost (ON DELETE CASCADE); FKs are enabled by
+  // applySchema, so a bare DELETE here also clears the per-model rows.
+  const deleteSessionCost = db.prepare('DELETE FROM session_cost WHERE session_id = ?')
+
+  const insertSessionCost = db.prepare(`
+    INSERT INTO session_cost
+      (session_id, total_cost_usd, has_unknown_model_cost, is_zeroed, continued_in_session_id)
+    VALUES
+      (@session_id, @total_cost_usd, @has_unknown_model_cost, @is_zeroed, @continued_in_session_id)
+  `)
+
+  const insertModelCost = db.prepare(`
+    INSERT INTO session_model_cost
+      (session_id, model, cost_usd, input_tokens, output_tokens, thinking_tokens,
+       cache_read_tokens, cache_creation_tokens, web_search_requests)
+    VALUES
+      (@session_id, @model, @cost_usd, @input_tokens, @output_tokens, @thinking_tokens,
+       @cache_read_tokens, @cache_creation_tokens, @web_search_requests)
+  `)
 
   const getStoredMtime = db.prepare(
     `SELECT source_mtime_ms, source_size_bytes, transcript_parser_version
@@ -458,6 +489,19 @@ export function scanTranscripts(
           transcript_parser_version: TRANSCRIPT_PARSER_VERSION
         })
         deleteSessionInvocations.run(parsed.session.session_id)
+        deleteSessionCost.run(parsed.session.session_id)
+        if (parsed.cost !== null) {
+          insertSessionCost.run({
+            session_id: parsed.session.session_id,
+            total_cost_usd: parsed.cost.totalCostUsd,
+            has_unknown_model_cost: parsed.cost.hasUnknownModelCost ? 1 : 0,
+            is_zeroed: parsed.cost.isZeroed ? 1 : 0,
+            continued_in_session_id: parsed.cost.continuedInSessionId
+          })
+          for (const row of toModelCostRows(parsed.cost)) {
+            insertModelCost.run({ session_id: parsed.session.session_id, ...row })
+          }
+        }
         for (const invocation of parsed.invocations) {
           insertInvocation.run(invocation)
         }
@@ -471,12 +515,18 @@ export function scanTranscripts(
 
     if (!scanIsAuthoritative) return
 
+    // session_cost is deleted before sessions_meta: its FK to sessions_meta has no cascade, so a
+    // parent row can't go first. session_model_cost follows session_cost via cascade.
     if (seenSessionIds.size === 0) {
       db.prepare('DELETE FROM skill_invocations').run()
+      db.prepare('DELETE FROM session_cost').run()
       db.prepare('DELETE FROM sessions_meta').run()
     } else {
       const placeholders = [...seenSessionIds].map(() => '?').join(', ')
       db.prepare(`DELETE FROM skill_invocations WHERE session_id NOT IN (${placeholders})`).run(
+        ...seenSessionIds
+      )
+      db.prepare(`DELETE FROM session_cost WHERE session_id NOT IN (${placeholders})`).run(
         ...seenSessionIds
       )
       db.prepare(`DELETE FROM sessions_meta WHERE session_id NOT IN (${placeholders})`).run(

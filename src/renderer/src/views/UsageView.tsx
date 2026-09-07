@@ -1,15 +1,19 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { BarChart3 } from 'lucide-react'
+import { motion, useReducedMotion } from 'motion/react'
+import { BarChart3, CircleDollarSign, TriangleAlert } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/relative-time'
+import { getFolderBasename } from '@/lib/source-name'
 import { ChartBlock } from '@/components/usage/ChartBlock'
 import { StatCells } from '@/components/usage/StatCells'
 import { DayStrip } from '@/components/usage/DayStrip'
 import { Punchcard } from '@/components/usage/Punchcard'
-import { ProjectBars } from '@/components/usage/ProjectBars'
-import type { ActivityWindow } from '../../../shared/ipc'
+import { RankedList } from '@/components/usage/RankedList'
+import { SpendBar } from '@/components/usage/SpendBar'
+import { formatCount, formatUsd } from '@/components/usage/chart-utils'
+import type { ActivityWindow, CostStats } from '../../../shared/ipc'
 
 type WindowDays = 7 | 30
 
@@ -57,7 +61,10 @@ export function UsageView(): React.JSX.Element {
           ) : noHistory ? (
             <NoHistory />
           ) : (
-            win && <ActivitySection win={win} />
+            <>
+              {win && <ActivitySection win={win} />}
+              <CostSection cost={data?.cost ?? null} />
+            </>
           )}
         </div>
       </div>
@@ -119,7 +126,11 @@ function ActivitySection({ win }: { win: ActivityWindow }): React.JSX.Element {
       />
 
       <ChartBlock label="By day" empty={windowEmpty} emptyMessage={emptyMessage}>
-        <DayStrip byDay={win.byDay} days={win.days} />
+        <DayStrip
+          data={win.byDay.map((d) => ({ date: d.date, value: d.count, weekday: d.weekday }))}
+          days={win.days}
+          formatValue={(v) => `${formatCount(v)} prompts`}
+        />
       </ChartBlock>
 
       <ChartBlock label="By time of day" empty={windowEmpty} emptyMessage={emptyMessage}>
@@ -131,9 +142,125 @@ function ActivitySection({ win }: { win: ActivityWindow }): React.JSX.Element {
       </ChartBlock>
 
       <ChartBlock label="By project" empty={win.byProject.length === 0} emptyMessage={emptyMessage}>
-        <ProjectBars byProject={win.byProject} />
+        <RankedList
+          items={win.byProject.map((p) => ({
+            label: getFolderBasename(p.project),
+            value: p.count,
+            fullLabel: p.project
+          }))}
+          formatValue={formatCount}
+          noun="projects"
+        />
       </ChartBlock>
     </section>
+  )
+}
+
+// Feature epoch — cost-state first shipped ~2026-08-21. The "(added August 2026)" clause only
+// makes sense while trackedSince still sits near it; once retention has pruned the old
+// transcripts, preTrackingSessionCount is normally 0 and the whole clause drops itself.
+const FEATURE_EPOCH_MS = new Date('2026-08-21T00:00:00.000Z').getTime()
+const EPOCH_WINDOW_MS = 10 * 86_400_000
+
+function costFootnote(cost: CostStats): string {
+  const since = new Date(cost.trackedSince).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  })
+  const priced = cost.pricedSessionCount
+  let text = `Covers ${priced.toLocaleString()} session${priced === 1 ? '' : 's'} since ${since}.`
+
+  const clause2 = cost.preTrackingSessionCount > 0
+  const clause3 = cost.unusableSessionCount > 0
+  const epochBound =
+    Math.abs(new Date(cost.trackedSince).getTime() - FEATURE_EPOCH_MS) <= EPOCH_WINDOW_MS
+
+  if (clause2) {
+    const n = cost.preTrackingSessionCount
+    text += ` ${n.toLocaleString()} earlier session${n === 1 ? '' : 's'} predate cost tracking`
+    if (epochBound) text += ' (added August 2026)'
+  }
+  if (clause3) {
+    const n = cost.unusableSessionCount
+    text += clause2 ? ', and ' : ' '
+    text += `${n.toLocaleString()}${clause2 ? ' more' : ''} ${n === 1 ? 'has' : 'have'} no usable cost data`
+  }
+  if (clause2 || clause3) text += ' — not included above.'
+  return text
+}
+
+function CostSection({ cost }: { cost: CostStats | null }): React.JSX.Element {
+  const reduceMotion = useReducedMotion() === true
+
+  return (
+    <motion.section
+      className="flex flex-col gap-6 border-t border-border py-8"
+      initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.2 }}
+      transition={reduceMotion ? { duration: 0 } : { duration: 0.32, ease: 'easeOut' }}
+    >
+      <h2 className="text-[13px] font-semibold">Cost</h2>
+      {cost === null ? <CostEmpty /> : <CostBody cost={cost} />}
+    </motion.section>
+  )
+}
+
+function CostEmpty(): React.JSX.Element {
+  return (
+    <div className="flex items-start gap-2 py-4 text-[13px] text-muted-foreground">
+      <CircleDollarSign className="mt-0.5 size-4 shrink-0" />
+      <p className="max-w-[520px]">
+        No cost data yet. Claude Code started recording per-session cost in August 2026 — it&apos;ll
+        show here after your next session and a rescan.
+      </p>
+    </div>
+  )
+}
+
+function CostBody({ cost }: { cost: CostStats }): React.JSX.Element {
+  const projectItems = cost.byProject.map((p) => ({
+    label: getFolderBasename(p.project),
+    value: p.costUsd,
+    fullLabel: p.project
+  }))
+  const dayData = cost.byDay.map((d) => ({ date: d.date, value: d.costUsd, weekday: d.weekday }))
+  const formatDollars = (v: number): string => formatUsd(v, { cents: true })
+
+  return (
+    <>
+      <div className="flex flex-col gap-2">
+        <SpendBar total={cost.totalCostUsd} byModel={cost.byModel} />
+
+        {cost.hasUnknownModelCost && (
+          <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+            <TriangleAlert className="mt-px size-3 shrink-0 text-warning" />
+            Some usage ran on a model Claude Code couldn&apos;t price — the total above is a low
+            estimate.
+          </p>
+        )}
+
+        <p className="max-w-[520px] text-[11px] text-muted-foreground">
+          What this would cost at pay-as-you-go API rates — not a charge. Most Claude Code usage
+          runs on a subscription billed separately, and these estimates may not match your actual
+          bill.
+        </p>
+        <p className="max-w-[520px] text-[11px] text-muted-foreground">{costFootnote(cost)}</p>
+      </div>
+
+      <ChartBlock
+        label="By project"
+        empty={projectItems.length === 0}
+        emptyMessage="No project costs yet"
+      >
+        <RankedList items={projectItems} formatValue={formatDollars} noun="projects" />
+      </ChartBlock>
+
+      <ChartBlock label="By day">
+        <DayStrip data={dayData} days={cost.byDay.length} formatValue={formatDollars} />
+      </ChartBlock>
+    </>
   )
 }
 
@@ -153,22 +280,39 @@ function NoHistory(): React.JSX.Element {
 
 function UsageSkeleton(): React.JSX.Element {
   return (
-    <div className="flex flex-col gap-6 py-8">
-      <Skeleton className="h-4 w-16" />
-      <div className="flex gap-10">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="flex flex-col gap-2">
-            <Skeleton className="h-7 w-16" />
-            <Skeleton className="h-3 w-20" />
-          </div>
-        ))}
+    <div className="flex flex-col">
+      <div className="flex flex-col gap-6 py-8">
+        <Skeleton className="h-4 w-16" />
+        <div className="flex gap-10">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex flex-col gap-2">
+              <Skeleton className="h-7 w-16" />
+              <Skeleton className="h-3 w-20" />
+            </div>
+          ))}
+        </div>
+        <Skeleton className="h-[72px] w-full" />
+        <Skeleton className="h-40 w-full" />
+        <div className="flex flex-col gap-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-5 w-full" />
+          ))}
+        </div>
       </div>
-      <Skeleton className="h-[72px] w-full" />
-      <Skeleton className="h-40 w-full" />
-      <div className="flex flex-col gap-2">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-5 w-full" />
-        ))}
+
+      <div className="flex flex-col gap-6 border-t border-border py-8">
+        <Skeleton className="h-4 w-12" />
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-8 w-28" />
+          <Skeleton className="h-2 w-full" />
+          <Skeleton className="h-3 w-64" />
+        </div>
+        <div className="flex flex-col gap-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-5 w-full" />
+          ))}
+        </div>
+        <Skeleton className="h-[72px] w-full" />
       </div>
     </div>
   )

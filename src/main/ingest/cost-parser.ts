@@ -81,6 +81,35 @@ export function extractCostState(records: Record<string, unknown>[]): SessionCos
   }
 }
 
+// Snake_case fields to match the DB's `session_model_cost` columns.
+export interface ModelCost {
+  model: string
+  cost_usd: number
+  input_tokens: number
+  output_tokens: number
+  thinking_tokens: number
+  cache_read_tokens: number
+  cache_creation_tokens: number
+  web_search_requests: number
+}
+
+// The one place cost-state's inner per-model field names (`costUSD`, `cacheReadInputTokens`, …)
+// map to the DB's typed snake_case columns — the scanner just spreads the result. `modelUsage`
+// is already normalized + `<synthetic>`-dropped + date-suffix-collapsed by `extractCostState`.
+// A missing verbatim field → 0. Mirrors `extractTurnUsage` returning DB-shaped rows.
+export function toModelCostRows(cost: SessionCost): ModelCost[] {
+  return Object.entries(cost.modelUsage).map(([model, usage]) => ({
+    model,
+    cost_usd: usage.costUSD ?? 0,
+    input_tokens: usage.inputTokens ?? 0,
+    output_tokens: usage.outputTokens ?? 0,
+    thinking_tokens: usage.thinkingTokens ?? 0,
+    cache_read_tokens: usage.cacheReadInputTokens ?? 0,
+    cache_creation_tokens: usage.cacheCreationInputTokens ?? 0,
+    web_search_requests: usage.webSearchRequests ?? 0
+  }))
+}
+
 // Snake_case fields to match the DB columns / `TranscriptInvocation`'s convention.
 export interface TurnUsageRow {
   source_uuid: string

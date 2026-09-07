@@ -6,6 +6,9 @@ import type {
   ActivityWindow,
   AllowedPathRow,
   ContextBudget,
+  CostModelSpend,
+  CostProjectSpend,
+  CostStats,
   LintFindingRow,
   LintSeverity,
   PluginDetailResult,
@@ -647,6 +650,113 @@ export function getActivityStats(db: Database.Database, now: Date = new Date()):
     last7d: reduceActivityWindow(rows, now, 7),
     last30d: reduceActivityWindow(rows, now, 30),
     generatedAt: now.toISOString()
+  }
+}
+
+// The Cost section (docs/usage-view-ui-spec.md §C). Reads `session_cost` / `session_model_cost`
+// verbatim — no windowing (ignores the 7d/30d toggle), spans the whole cost-tracked history.
+// `now` only bounds the byDay zero-fill; every aggregate is filtered to PRICED_TERMINAL — a
+// self-contained cost figure: cost-state present and non-zero, and this session is its lineage's
+// terminal so its total isn't also carried on a later session (docs/usage-analytics.md hazard 3).
+const PRICED_TERMINAL = 'sc.is_zeroed = 0 AND sc.continued_in_session_id IS NULL'
+
+export function getCostStats(db: Database.Database, now: Date = new Date()): CostStats | null {
+  const summary = db
+    .prepare(
+      `SELECT
+         COUNT(*) AS pricedSessionCount,
+         COALESCE(SUM(sc.total_cost_usd), 0) AS totalCostUsd,
+         MIN(sm.started_at) AS trackedSince,
+         MAX(sc.has_unknown_model_cost) AS hasUnknownModelCost
+       FROM session_cost sc
+       JOIN sessions_meta sm ON sm.session_id = sc.session_id
+       WHERE ${PRICED_TERMINAL}`
+    )
+    .get() as {
+    pricedSessionCount: number
+    totalCostUsd: number
+    trackedSince: string | null
+    hasUnknownModelCost: number | null
+  }
+
+  if (summary.pricedSessionCount === 0 || summary.trackedSince === null) return null
+  const trackedSince = summary.trackedSince
+
+  const countSince = (sql: string): number => (db.prepare(sql).get(trackedSince) as { n: number }).n
+
+  // Pure date cut — a pre-trackedSince session counts here even if it also has a zeroed cost row.
+  const preTrackingSessionCount = countSince(
+    'SELECT COUNT(*) AS n FROM sessions_meta WHERE started_at < ?'
+  )
+  // Zeroed rows + sessions with no cost row at all, after tracking began. Non-terminals are
+  // excluded (they have an is_zeroed = 0 row, so they're IN the subquery) — their cost is
+  // already counted on the lineage terminal.
+  const unusableSessionCount = countSince(
+    `SELECT COUNT(*) AS n FROM sessions_meta
+     WHERE started_at >= ?
+       AND session_id NOT IN (SELECT session_id FROM session_cost WHERE is_zeroed = 0)`
+  )
+
+  const byModel = db
+    .prepare(
+      `SELECT smc.model AS model, SUM(smc.cost_usd) AS costUsd
+       FROM session_model_cost smc
+       JOIN session_cost sc ON sc.session_id = smc.session_id
+       WHERE ${PRICED_TERMINAL}
+       GROUP BY smc.model
+       ORDER BY costUsd DESC, smc.model ASC`
+    )
+    .all() as CostModelSpend[]
+
+  const byProject = db
+    .prepare(
+      `SELECT sm.cwd AS project, SUM(sc.total_cost_usd) AS costUsd
+       FROM session_cost sc
+       JOIN sessions_meta sm ON sm.session_id = sc.session_id
+       WHERE ${PRICED_TERMINAL}
+       GROUP BY sm.cwd
+       ORDER BY costUsd DESC, sm.cwd ASC`
+    )
+    .all() as CostProjectSpend[]
+
+  const dailyRows = db
+    .prepare(
+      `SELECT sm.started_at AS startedAt, sc.total_cost_usd AS cost
+       FROM session_cost sc
+       JOIN sessions_meta sm ON sm.session_id = sc.session_id
+       WHERE ${PRICED_TERMINAL}`
+    )
+    .all() as { startedAt: string; cost: number }[]
+
+  const dayBuckets = new Map<string, number>()
+  for (const row of dailyRows) {
+    const key = localDateKey(new Date(row.startedAt))
+    dayBuckets.set(key, (dayBuckets.get(key) ?? 0) + row.cost)
+  }
+
+  // Daily bars trackedSince → now's local date. Noon anchor keeps setDate() off any DST-skipped
+  // hour — same shape as reduceActivityWindow. The renderer buckets to weeks past ~45 bars.
+  const end = new Date(now)
+  end.setHours(12, 0, 0, 0)
+  const cursor = new Date(trackedSince)
+  cursor.setHours(12, 0, 0, 0)
+  const byDay: CostStats['byDay'] = []
+  while (cursor.getTime() <= end.getTime()) {
+    const date = localDateKey(cursor)
+    byDay.push({ date, costUsd: dayBuckets.get(date) ?? 0, weekday: cursor.getDay() })
+    cursor.setDate(cursor.getDate() + 1)
+  }
+
+  return {
+    trackedSince,
+    totalCostUsd: summary.totalCostUsd,
+    pricedSessionCount: summary.pricedSessionCount,
+    preTrackingSessionCount,
+    unusableSessionCount,
+    hasUnknownModelCost: summary.hasUnknownModelCost === 1,
+    byModel,
+    byProject,
+    byDay
   }
 }
 

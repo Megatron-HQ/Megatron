@@ -13,6 +13,7 @@ import {
   deleteSkillsForProjectRoot,
   getActivityStats,
   getContextBudget,
+  getCostStats,
   getLintFindingsForSkill,
   getPluginDetail,
   getSkillById,
@@ -261,9 +262,10 @@ app.whenReady().then(() => {
     return result
   })
 
-  // Composes like skills:list — the renderer polls until scanComplete. PR2 adds a `cost` field.
+  // Composes like skills:list — the renderer polls until scanComplete.
   ipcMain.handle(IPC_CHANNELS.usageOverview, () => ({
     activity: getActivityStats(getDb()),
+    cost: getCostStats(getDb()),
     scanComplete
   }))
 

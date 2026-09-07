@@ -127,3 +127,30 @@ CREATE TABLE IF NOT EXISTS lint_findings (
 );
 
 CREATE INDEX IF NOT EXISTS idx_lint_findings_skill_id ON lint_findings(skill_id);
+
+-- Cost-state mirror for the Usage view's Cost section (docs/usage-analytics.md, PR2). Read
+-- verbatim from Claude Code's `cost-state` line — no bottom-up token pricing. Derived cache like
+-- every table here: no scan-cache columns, freshness rides sessions_meta's mtime/size/parser-version
+-- gate. Rows are stored as parsed; getCostStats filters zeroed + lineage-non-terminal rows out of
+-- every aggregate (the priced-terminal predicate `is_zeroed = 0 AND continued_in_session_id IS NULL`).
+CREATE TABLE IF NOT EXISTS session_cost (
+  session_id TEXT PRIMARY KEY REFERENCES sessions_meta(session_id),
+  total_cost_usd REAL NOT NULL,
+  has_unknown_model_cost INTEGER NOT NULL DEFAULT 0,  -- CC couldn't price a model — total is a low estimate
+  is_zeroed INTEGER NOT NULL DEFAULT 0,               -- cost-state present but 0/empty (CC v2.1.241-246 artifact)
+  continued_in_session_id TEXT                        -- from this session's own continued-in marker;
+                                                       -- NULL = a lineage terminal (the only rows priced)
+);
+
+CREATE TABLE IF NOT EXISTS session_model_cost (
+  session_id TEXT NOT NULL REFERENCES session_cost(session_id) ON DELETE CASCADE,
+  model TEXT NOT NULL,                    -- normalized (normalizeModelKey); date suffix stripped
+  cost_usd REAL NOT NULL,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  thinking_tokens INTEGER NOT NULL,
+  cache_read_tokens INTEGER NOT NULL,
+  cache_creation_tokens INTEGER NOT NULL,
+  web_search_requests INTEGER NOT NULL,
+  PRIMARY KEY (session_id, model)
+);

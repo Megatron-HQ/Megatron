@@ -126,6 +126,17 @@ async function openUsageSection(window) {
 }
 
 /**
+ * The Cost section renders one of two shapes depending on whether this machine has any priced
+ * `cost-state` history — the SpendBar/RankedList/DayStrip body, or the inline "No cost data yet."
+ * empty state. Its two scenarios each skip the case they don't cover.
+ */
+async function costDataPresent(window) {
+  await openUsageSection(window)
+  await window.getByRole('heading', { name: 'Cost' }).scrollIntoViewIfNeeded()
+  return (await window.getByText('No cost data yet.').count()) === 0
+}
+
+/**
  * Scenarios pinned to a skill by name (see the header note above) hard-fail the whole run when
  * that skill is no longer installed, taking every later scenario down with them. Skipping is the
  * same trade already made for disabled-skill scenarios: visible, and scoped to the one scenario.
@@ -705,12 +716,40 @@ export const scenarios = [
   },
   {
     // The lower half of the Activity section — the punchcard's marginal bars and the
-    // By-project bar list, both below the fold at the default window height.
+    // By-project RankedList, both below the fold at the default window height.
     name: 'usage-activity-by-project',
     screen: 'usage',
     async run(window) {
       await openUsageSection(window)
-      await window.getByText('By project', { exact: true }).scrollIntoViewIfNeeded()
+      await window.getByText('By project', { exact: true }).first().scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // The Cost section with real data — the merged hero-$/spend-bar, the by-project RankedList,
+    // and the by-day strip, all from this machine's own priced cost-state history.
+    name: 'cost-section',
+    screen: 'usage',
+    shouldSkip: async (window) =>
+      (await costDataPresent(window)) ? null : 'no priced cost-state history on this machine',
+    async run(window) {
+      await openUsageSection(window)
+      await window.getByRole('heading', { name: 'Cost' }).scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // The Cost section's inline empty state — only reachable on a machine with no priced
+    // cost-state line anywhere in ~/.claude.
+    name: 'cost-section-no-data',
+    screen: 'usage',
+    shouldSkip: async (window) =>
+      (await costDataPresent(window))
+        ? 'cost data present — the empty state does not render'
+        : null,
+    async run(window) {
+      await openUsageSection(window)
+      await window.getByRole('heading', { name: 'Cost' }).scrollIntoViewIfNeeded()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   }

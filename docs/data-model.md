@@ -18,9 +18,10 @@ are locked here, and this doc is where they are argued.
 
 ## Index schema
 
-No upfront sketch — each table was added by the milestone that knew its real shape. All six now
-exist: the four below plus `allowed_paths` (Tier-2 folder grants) and `lint_findings` (linter
-output), added once the folder picker and linter respectively needed them.
+No upfront sketch — each table was added by the milestone that knew its real shape. The core
+four below plus `allowed_paths` (Tier-2 folder grants), `lint_findings` (linter output),
+`prompt_history` (Usage view PR1), and `session_cost` / `session_model_cost` (Usage view PR2),
+each added once its feature needed it.
 
 ```sql
 CREATE TABLE IF NOT EXISTS skills (
@@ -108,6 +109,27 @@ CREATE TABLE IF NOT EXISTS prompt_history (
                                       -- conflates tool control with a bare skill run (~1%)
 );
 CREATE INDEX IF NOT EXISTS idx_prompt_history_typed_at ON prompt_history(typed_at);
+
+CREATE TABLE IF NOT EXISTS session_cost (
+  session_id TEXT PRIMARY KEY REFERENCES sessions_meta(session_id),
+  total_cost_usd REAL NOT NULL,
+  has_unknown_model_cost INTEGER NOT NULL DEFAULT 0,
+  is_zeroed INTEGER NOT NULL DEFAULT 0,          -- cost-state present but 0/empty (CC v2.1.241-246 artifact)
+  continued_in_session_id TEXT                   -- this session's own continued-in marker;
+);                                               -- NULL = a lineage terminal (the only priced rows)
+
+CREATE TABLE IF NOT EXISTS session_model_cost (
+  session_id TEXT NOT NULL REFERENCES session_cost(session_id) ON DELETE CASCADE,
+  model TEXT NOT NULL,                           -- normalized; date suffix stripped
+  cost_usd REAL NOT NULL,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  thinking_tokens INTEGER NOT NULL,
+  cache_read_tokens INTEGER NOT NULL,
+  cache_creation_tokens INTEGER NOT NULL,
+  web_search_requests INTEGER NOT NULL,
+  PRIMARY KEY (session_id, model)
+);
 ```
 
 `prompt_history` (added 2026-09-05, Usage view Phase 2a / PR1) is the mirror of Claude Code's
@@ -116,6 +138,19 @@ CREATE INDEX IF NOT EXISTS idx_prompt_history_typed_at ON prompt_history(typed_a
 sessions the transcript prune has already aged out (a prompt's row outlives its Session). Populated
 by `scanPromptHistory` (`src/main/ingest/prompt-history-scanner.ts`) in the same Scan as the other
 tables; `getActivityStats` (`src/main/db/queries.ts`) reduces it into both rolling windows in JS.
+
+`session_cost` / `session_model_cost` (added Usage view Phase 2a / PR2) mirror Claude Code's
+per-session `cost-state` line — one row per priced session, one child row per model — and back
+the Usage view's **Cost** section (`docs/usage-analytics.md`, `docs/usage-view-ui-spec.md` §C).
+Populated by `scanTranscripts` on the same walk as `skill_invocations` (`extractCostState` /
+`toModelCostRows` in `cost-parser.ts`), gated by the same `transcript_parser_version`, no scan-cache
+columns of their own. Rows are stored as parsed — zeroed rows and lineage non-terminals included;
+`getCostStats` (`src/main/db/queries.ts`) filters them out of every aggregate with the
+**priced-terminal predicate** `is_zeroed = 0 AND continued_in_session_id IS NULL` (the fix for
+`cost-state` carrying a prior session's total forward across a `continued-in` chain — see
+`docs/usage-analytics.md` hazard 3). `session_model_cost` cascades off `session_cost`
+(`ON DELETE CASCADE`); `session_cost` itself has a plain FK to `sessions_meta` (no cascade), so
+the retention sweep deletes it _before_ `sessions_meta`.
 
 `allowed_paths` is the Tier-2 grant list the folder picker persists to (`folders:list` /
 `folders:pickAndAdd` / `folders:revoke`) — no separate restart-persistence mechanism, the table
@@ -147,6 +182,12 @@ separately means a rescan that drops a skill row drops its findings too. See
   `source_uuid` from the transcript line itself is the dedup key, so the transcript-scanner
   just does `INSERT OR IGNORE`. No update/delete reconciliation needed for this table beyond
   the cascade-on-vanished-session case above.
+- `session_cost` reflects current disk state (a session's last `cost-state` line can change on a
+  resume) — keyed on `session_id`, the transcript-scanner writes it as `DELETE` + re-`INSERT`
+  inside the same stale/new branch that rewrites `skill_invocations`, and the retention sweep
+  deletes vanished-session rows (before `sessions_meta`, since the FK has no cascade).
+  `session_model_cost` is never written or swept directly — it rides `session_cost`'s
+  `ON DELETE CASCADE`.
 - `plugin_registry` upserts on `(name, marketplace, scope, install_path, project_path)`,
   preserving each installed scope/location listed under a plugin key. See "Plugin install
   identity" below for why the last three columns are all load-bearing.
@@ -156,7 +197,7 @@ separately means a rescan that drops a skill row drops its findings too. See
   (pattern: `replaceAllLintFindings`). A transient read failure returns early and leaves the last
   good rows in place; an empty `history.jsonl` clears the table. `db:reset` stays lossless — the
   next Scan rebuilds it from the file, minus whatever the prune has since removed. Long-range
-  prompt history would need an *accumulating* store, explicitly exempt from the derived-cache
+  prompt history would need an _accumulating_ store, explicitly exempt from the derived-cache
   invariant — a separate feature, see `docs/usage-analytics.md`.
 
 **Usage stats (M5) are computed live, never stored.** `total_invocations`, `last_invoked_at`, and
@@ -336,6 +377,7 @@ two carry a `projectPath`, captured as `project_path`.
 in `~/.claude/plugins/marketplaces/`. Zero network requests are made during scanning; the version is
 resolved strictly from local filesystem artifacts (`marketplace.json`, `plugin.json`, `.gcs-sha`,
 `.git/HEAD`, and manifest source refs).
+
 - **Permission boundary**: a marketplace under `~/.claude/plugins/` is Tier 1 and readable by the
   scanner. Any marketplace `installLocation` outside that root stays unresolved until its folder is
   explicitly granted; the scanner never turns a marketplace manifest into an implicit permission grant.
@@ -346,7 +388,7 @@ resolved strictly from local filesystem artifacts (`marketplace.json`, `plugin.j
   uses a SemVer-compliant comparator when both versions parse as SemVer (stripping leading `v` and
   ignoring build metadata). When either version is non-semver (e.g. a 12-char git commit SHA, or
   `"unknown"`), comparison falls back to an inequality check (`installed !== available &&
-  available !== 'unknown'`).
+available !== 'unknown'`).
 - **UI surfacing**: The inventory table flags plugins where any install is behind with an inline
   amber badge (`PluginUpdateBadge`) in the Version column and a descriptive tooltip. The detail view
   surfaces the badge in both the header and individual install rows, prompts the user with the target

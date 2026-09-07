@@ -257,7 +257,40 @@ export interface ActivityStats {
   generatedAt: string
 }
 
+// The Cost section (docs/usage-view-ui-spec.md §C). Read verbatim from Claude Code's per-session
+// `cost-state` line — an "estimated API-equivalent cost", never a charge. Spans the entire
+// cost-tracked window (self-bounding via the transcript prune); ignores the 7d/30d toggle.
+export interface CostModelSpend {
+  model: string // normalized key (date suffix stripped) — formatModelName / modelSeriesVar assume this
+  costUsd: number
+}
+
+export interface CostProjectSpend {
+  project: string // raw cwd path, matches sessions_meta.cwd
+  costUsd: number
+}
+
+export interface CostDay {
+  date: string // YYYY-MM-DD, local time
+  costUsd: number
+  weekday: number // 0 = Sunday, server-computed
+}
+
+export interface CostStats {
+  trackedSince: string // ISO — MIN(started_at) over priced, lineage-terminal sessions
+  totalCostUsd: number
+  pricedSessionCount: number // priced, lineage-terminal sessions — "Covers N sessions since {date}"
+  preTrackingSessionCount: number // started_at < trackedSince — pure date cut
+  unusableSessionCount: number // started_at >= trackedSince but no usable cost row (zeroed + crashes)
+  hasUnknownModelCost: boolean // some priced terminal ran a model Claude Code couldn't price
+  byModel: CostModelSpend[] // desc by cost, model-name tie-break
+  byProject: CostProjectSpend[] // desc by cost, cwd tie-break
+  byDay: CostDay[] // zero-filled, trackedSince → today, ascending
+}
+
 export interface UsageOverview {
   activity: ActivityStats
+  // null iff pricedSessionCount === 0 — no session has usable cost-state.
+  cost: CostStats | null
   scanComplete: boolean
 }

@@ -9,7 +9,7 @@ beforeEach(() => {
 })
 
 describe('applySchema', () => {
-  it('creates all six tables', () => {
+  it('creates every table', () => {
     applySchema(db)
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -22,7 +22,10 @@ describe('applySchema', () => {
         'skill_invocations',
         'plugin_registry',
         'allowed_paths',
-        'lint_findings'
+        'lint_findings',
+        'prompt_history',
+        'session_cost',
+        'session_model_cost'
       ])
     )
   })
@@ -79,6 +82,31 @@ describe('applySchema', () => {
     expect(db.prepare('SELECT COUNT(*) as count FROM lint_findings').get()).toEqual({ count: 1 })
     db.prepare('DELETE FROM skills WHERE id = ?').run(skill.id)
     expect(db.prepare('SELECT COUNT(*) as count FROM lint_findings').get()).toEqual({ count: 0 })
+  })
+
+  it('cascades deletion of session_model_cost rows when the parent session_cost row is deleted', () => {
+    applySchema(db)
+    db.prepare(
+      `INSERT INTO sessions_meta (session_id, cwd, git_branch, started_at, message_count, source_mtime_ms)
+       VALUES ('session-1', '/cwd', NULL, ?, 0, 0)`
+    ).run(new Date().toISOString())
+    db.prepare(
+      `INSERT INTO session_cost (session_id, total_cost_usd) VALUES ('session-1', 2.5)`
+    ).run()
+    db.prepare(
+      `INSERT INTO session_model_cost
+         (session_id, model, cost_usd, input_tokens, output_tokens, thinking_tokens,
+          cache_read_tokens, cache_creation_tokens, web_search_requests)
+       VALUES ('session-1', 'claude-sonnet-5', 2.5, 100, 200, 50, 3000, 400, 0)`
+    ).run()
+
+    expect(db.prepare('SELECT COUNT(*) AS count FROM session_model_cost').get()).toEqual({
+      count: 1
+    })
+    db.prepare('DELETE FROM session_cost WHERE session_id = ?').run('session-1')
+    expect(db.prepare('SELECT COUNT(*) AS count FROM session_model_cost').get()).toEqual({
+      count: 0
+    })
   })
 
   it('rejects a duplicate allowed_paths.path', () => {

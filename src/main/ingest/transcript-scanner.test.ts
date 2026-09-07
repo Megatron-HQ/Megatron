@@ -57,6 +57,28 @@ function metaLine(overrides: Record<string, unknown> = {}): Record<string, unkno
   }
 }
 
+function costStateLine(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    type: 'cost-state',
+    sessionId: 'sess-1',
+    totalCostUSD: 2.5,
+    startTime: 1704067500000,
+    modelUsage: {
+      'claude-sonnet-5': {
+        inputTokens: 100,
+        outputTokens: 200,
+        thinkingTokens: 50,
+        cacheReadInputTokens: 3000,
+        cacheCreationInputTokens: 400,
+        webSearchRequests: 0,
+        costUSD: 2.5
+      }
+    },
+    hasUnknownModelCost: false,
+    ...overrides
+  }
+}
+
 function skillInvocationLine(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     type: 'assistant',
@@ -639,6 +661,24 @@ describe('parseTranscript', () => {
     expect(parseTranscript(filePath).invocations[0].agent_id).toBeNull()
   })
 
+  describe('cost-state extraction', () => {
+    it('returns a non-null cost when the transcript carries a cost-state line', () => {
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [metaLine(), costStateLine()])
+
+      expect(parseTranscript(filePath).cost?.totalCostUsd).toBe(2.5)
+    })
+
+    it('returns a null cost when the transcript has no cost-state line', () => {
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [metaLine(), skillInvocationLine()])
+
+      expect(parseTranscript(filePath).cost).toBeNull()
+    })
+
+    it('returns a null cost for a path outside the allowed roots', () => {
+      expect(parseTranscript('/etc/passwd').cost).toBeNull()
+    })
+  })
+
   describe('preceding_user_text capture', () => {
     it('captures the nearest preceding user message on the tool_use path', () => {
       const trigger = metaLine({ message: { content: 'please look into the flaky test' } })
@@ -843,6 +883,21 @@ describe('scanTranscripts', () => {
 
   function allInvocations(): unknown[] {
     return db.prepare('SELECT * FROM skill_invocations').all()
+  }
+
+  function costRow(sessionId: string): Record<string, unknown> | undefined {
+    return db.prepare('SELECT * FROM session_cost WHERE session_id = ?').get(sessionId) as
+      Record<string, unknown> | undefined
+  }
+
+  function modelCostRows(sessionId: string): Record<string, unknown>[] {
+    return db
+      .prepare('SELECT * FROM session_model_cost WHERE session_id = ? ORDER BY model')
+      .all(sessionId) as Record<string, unknown>[]
+  }
+
+  function count(table: string): number {
+    return (db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get() as { c: number }).c
   }
 
   beforeEach(() => {
@@ -1060,5 +1115,146 @@ describe('scanTranscripts', () => {
 
     expect(getSession('sess-1')).toBeUndefined()
     expect(allInvocations()).toHaveLength(0)
+  })
+
+  describe('cost-state ingest', () => {
+    it('writes one session_cost row and its session_model_cost rows from a cost-state line', () => {
+      writeTranscriptFile(join(projectsDir, 'project-a'), 'sess-1', [
+        metaLine(),
+        costStateLine({ totalCostUSD: 3.14, hasUnknownModelCost: true })
+      ])
+
+      scanTranscripts(db, projectsDir)
+
+      expect(costRow('sess-1')).toMatchObject({
+        session_id: 'sess-1',
+        total_cost_usd: 3.14,
+        has_unknown_model_cost: 1,
+        is_zeroed: 0,
+        continued_in_session_id: null
+      })
+      expect(modelCostRows('sess-1')).toEqual([
+        expect.objectContaining({ model: 'claude-sonnet-5', cost_usd: 2.5, input_tokens: 100 })
+      ])
+    })
+
+    it('stores the continued-in lineage link for a non-terminal session', () => {
+      writeTranscriptFile(join(projectsDir, 'project-a'), 'sess-1', [
+        metaLine(),
+        { type: 'continued-in', sessionId: 'sess-1', continuedInSessionId: 'sess-2' },
+        costStateLine()
+      ])
+
+      scanTranscripts(db, projectsDir)
+
+      expect(costRow('sess-1')).toMatchObject({ continued_in_session_id: 'sess-2' })
+    })
+
+    it('stores an all-zeroed cost-state row flagged is_zeroed with no model rows', () => {
+      writeTranscriptFile(join(projectsDir, 'project-a'), 'sess-1', [
+        metaLine(),
+        costStateLine({ totalCostUSD: 0, modelUsage: {} })
+      ])
+
+      scanTranscripts(db, projectsDir)
+
+      expect(costRow('sess-1')).toMatchObject({ is_zeroed: 1, total_cost_usd: 0 })
+      expect(modelCostRows('sess-1')).toHaveLength(0)
+    })
+
+    it('writes no session_cost row for a transcript with no cost-state line', () => {
+      writeTranscriptFile(join(projectsDir, 'project-a'), 'sess-1', [
+        metaLine(),
+        skillInvocationLine()
+      ])
+
+      scanTranscripts(db, projectsDir)
+
+      expect(costRow('sess-1')).toBeUndefined()
+    })
+
+    it('replaces cost rows on an mtime-change rescan, leaving no stale model rows', () => {
+      const projectDir = join(projectsDir, 'project-a')
+      const filePath = writeTranscriptFile(projectDir, 'sess-1', [
+        metaLine(),
+        costStateLine({ modelUsage: { 'claude-opus-5': { costUSD: 9, inputTokens: 1 } } })
+      ])
+      scanTranscripts(db, projectsDir)
+      expect(modelCostRows('sess-1')).toEqual([expect.objectContaining({ model: 'claude-opus-5' })])
+
+      writeFileSync(
+        filePath,
+        linesToJsonl([
+          metaLine(),
+          costStateLine({
+            totalCostUSD: 1,
+            modelUsage: { 'claude-sonnet-5': { costUSD: 1, inputTokens: 2 } }
+          })
+        ])
+      )
+      const future = new Date(Date.now() + 60000)
+      utimesSync(filePath, future, future)
+      scanTranscripts(db, projectsDir)
+
+      expect(modelCostRows('sess-1')).toEqual([
+        expect.objectContaining({ model: 'claude-sonnet-5' })
+      ])
+      expect(costRow('sess-1')).toMatchObject({ total_cost_usd: 1 })
+    })
+
+    it('drops session_cost and cascades session_model_cost when a transcript is deleted', () => {
+      const projectDir = join(projectsDir, 'project-a')
+      writeTranscriptFile(projectDir, 'sess-1', [metaLine(), costStateLine()])
+      scanTranscripts(db, projectsDir)
+      expect(costRow('sess-1')).toBeTruthy()
+      expect(modelCostRows('sess-1')).toHaveLength(1)
+
+      rmSync(projectDir, { recursive: true, force: true })
+      scanTranscripts(db, projectsDir)
+
+      expect(costRow('sess-1')).toBeUndefined()
+      expect(count('session_model_cost')).toBe(0)
+    })
+
+    it('clears session_cost and session_model_cost in a full cleanup', () => {
+      writeTranscriptFile(join(projectsDir, 'project-a'), 'sess-1', [metaLine(), costStateLine()])
+      scanTranscripts(db, projectsDir)
+      expect(costRow('sess-1')).toBeTruthy()
+
+      rmSync(projectsDir, { recursive: true, force: true })
+      mkdirSync(projectsDir, { recursive: true })
+
+      expect(() => scanTranscripts(db, projectsDir)).not.toThrow()
+      expect(count('session_cost')).toBe(0)
+      expect(count('session_model_cost')).toBe(0)
+    })
+
+    it('does not price a cost-state line that appears inside a subagents/ file', () => {
+      const projectDir = join(projectsDir, 'project-a')
+      writeTranscriptFile(projectDir, 'sess-1', [metaLine()])
+      writeSubagentTranscriptFile(projectDir, 'sess-1', 'agent-abc123', [
+        skillInvocationLine({ sessionId: 'sess-1', isSidechain: true }),
+        costStateLine({ sessionId: 'sess-1', totalCostUSD: 99 })
+      ])
+
+      scanTranscripts(db, projectsDir)
+
+      expect(costRow('sess-1')).toBeUndefined()
+    })
+
+    it('reindexes session_cost for an unchanged transcript when the parser version changes', () => {
+      writeTranscriptFile(join(projectsDir, 'project-a'), 'sess-1', [metaLine(), costStateLine()])
+      scanTranscripts(db, projectsDir)
+      expect(costRow('sess-1')).toBeTruthy()
+
+      db.prepare('DELETE FROM session_cost WHERE session_id = ?').run('sess-1')
+      db.prepare('UPDATE sessions_meta SET transcript_parser_version = 0 WHERE session_id = ?').run(
+        'sess-1'
+      )
+
+      scanTranscripts(db, projectsDir)
+
+      expect(costRow('sess-1')).toBeTruthy()
+    })
   })
 })

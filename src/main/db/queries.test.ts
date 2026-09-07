@@ -11,6 +11,7 @@ import {
   deleteSkillsForProjectRoot,
   getActivityStats,
   getContextBudget,
+  getCostStats,
   getPluginDetail,
   getSkillById,
   getSkillInvocationLog,
@@ -1927,5 +1928,213 @@ describe('getActivityStats', () => {
     expect(w.byHour).toEqual(Array(24).fill(0))
     expect(w.byWeekday).toEqual(Array(7).fill(0))
     expect(w.byDay).toHaveLength(7)
+  })
+})
+
+describe('getCostStats', () => {
+  const NOW = new Date('2026-09-07T12:00:00.000Z') // local Mon 2026-09-07 07:00 (UTC-5)
+
+  function meta(sessionId: string, startedAt: string, cwd = '/repo-a'): void {
+    db.prepare(
+      `INSERT INTO sessions_meta (session_id, cwd, git_branch, started_at, message_count, source_mtime_ms)
+       VALUES (?, ?, NULL, ?, 0, 0)`
+    ).run(sessionId, cwd, startedAt)
+  }
+
+  function addCost(overrides: {
+    session_id: string
+    started_at: string
+    cwd?: string
+    total_cost_usd?: number
+    has_unknown_model_cost?: 0 | 1
+    is_zeroed?: 0 | 1
+    continued_in_session_id?: string | null
+    models?: { model: string; cost_usd: number }[]
+  }): void {
+    meta(overrides.session_id, overrides.started_at, overrides.cwd ?? '/repo-a')
+    db.prepare(
+      `INSERT INTO session_cost
+         (session_id, total_cost_usd, has_unknown_model_cost, is_zeroed, continued_in_session_id)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(
+      overrides.session_id,
+      overrides.total_cost_usd ?? 0,
+      overrides.has_unknown_model_cost ?? 0,
+      overrides.is_zeroed ?? 0,
+      overrides.continued_in_session_id ?? null
+    )
+    for (const m of overrides.models ?? []) {
+      db.prepare(
+        `INSERT INTO session_model_cost
+           (session_id, model, cost_usd, input_tokens, output_tokens, thinking_tokens,
+            cache_read_tokens, cache_creation_tokens, web_search_requests)
+         VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0)`
+      ).run(overrides.session_id, m.model, m.cost_usd)
+    }
+  }
+
+  // p1/p2/p3 are priced terminals; z1 is zeroed; n1 is a non-terminal (continued into another);
+  // pre1/pre2 predate the first priced session; crash1 is after it but has no cost row.
+  function seedFixture(): void {
+    addCost({
+      session_id: 'p1',
+      started_at: '2026-08-21T15:00:00.000Z', // local Fri Aug 21 10:00
+      cwd: '/repo-a',
+      total_cost_usd: 100,
+      models: [
+        { model: 'claude-sonnet-5', cost_usd: 80 },
+        { model: 'claude-opus-5', cost_usd: 20 }
+      ]
+    })
+    addCost({
+      session_id: 'p2',
+      started_at: '2026-08-25T18:00:00.000Z', // local Tue Aug 25 13:00
+      cwd: '/repo-b',
+      total_cost_usd: 50,
+      has_unknown_model_cost: 1,
+      models: [{ model: 'claude-sonnet-5', cost_usd: 50 }]
+    })
+    addCost({
+      session_id: 'p3',
+      started_at: '2026-09-06T02:00:00.000Z', // local Sat Sep 5 21:00
+      cwd: '/repo-a',
+      total_cost_usd: 30,
+      models: [{ model: 'claude-haiku-4-5', cost_usd: 30 }]
+    })
+    addCost({ session_id: 'z1', started_at: '2026-08-30T12:00:00.000Z', is_zeroed: 1 })
+    addCost({
+      session_id: 'n1',
+      started_at: '2026-09-01T12:00:00.000Z',
+      total_cost_usd: 999,
+      continued_in_session_id: 'p3',
+      models: [{ model: 'claude-sonnet-5', cost_usd: 999 }]
+    })
+    meta('pre1', '2026-07-01T12:00:00.000Z')
+    meta('pre2', '2026-08-01T12:00:00.000Z')
+    meta('crash1', '2026-09-02T12:00:00.000Z')
+  }
+
+  it('returns null when there is no priced, lineage-terminal session', () => {
+    addCost({ session_id: 'z1', started_at: '2026-08-30T12:00:00.000Z', is_zeroed: 1 })
+    addCost({
+      session_id: 'n1',
+      started_at: '2026-09-01T12:00:00.000Z',
+      total_cost_usd: 999,
+      continued_in_session_id: 'x'
+    })
+    expect(getCostStats(db, NOW)).toBeNull()
+  })
+
+  it('sums only priced terminals into totalCostUsd and pricedSessionCount', () => {
+    seedFixture()
+    const stats = getCostStats(db, NOW)!
+    expect(stats.totalCostUsd).toBe(180)
+    expect(stats.pricedSessionCount).toBe(3)
+  })
+
+  it('sets trackedSince to the earliest priced-terminal started_at', () => {
+    seedFixture()
+    expect(getCostStats(db, NOW)!.trackedSince).toBe('2026-08-21T15:00:00.000Z')
+  })
+
+  it('counts sessions before trackedSince as preTrackingSessionCount, pure date cut', () => {
+    seedFixture()
+    expect(getCostStats(db, NOW)!.preTrackingSessionCount).toBe(2)
+  })
+
+  it('counts zeroed and cost-row-less sessions after trackedSince as unusable, excluding non-terminals', () => {
+    seedFixture()
+    expect(getCostStats(db, NOW)!.unusableSessionCount).toBe(2) // z1 + crash1, not n1
+  })
+
+  it('counts a pre-trackedSince zeroed session as pre-tracking, not unusable', () => {
+    addCost({
+      session_id: 'p1',
+      started_at: '2026-08-21T15:00:00.000Z',
+      total_cost_usd: 10,
+      models: [{ model: 'claude-sonnet-5', cost_usd: 10 }]
+    })
+    addCost({ session_id: 'early-zero', started_at: '2026-08-01T00:00:00.000Z', is_zeroed: 1 })
+    const stats = getCostStats(db, NOW)!
+    expect(stats.preTrackingSessionCount).toBe(1)
+    expect(stats.unusableSessionCount).toBe(0)
+  })
+
+  it('propagates hasUnknownModelCost from any priced terminal', () => {
+    seedFixture()
+    expect(getCostStats(db, NOW)!.hasUnknownModelCost).toBe(true)
+  })
+
+  it('does not propagate hasUnknownModelCost from a non-terminal row', () => {
+    addCost({
+      session_id: 'p1',
+      started_at: '2026-08-21T15:00:00.000Z',
+      total_cost_usd: 10,
+      models: [{ model: 'claude-sonnet-5', cost_usd: 10 }]
+    })
+    addCost({
+      session_id: 'n1',
+      started_at: '2026-09-01T12:00:00.000Z',
+      total_cost_usd: 5,
+      has_unknown_model_cost: 1,
+      continued_in_session_id: 'p1'
+    })
+    expect(getCostStats(db, NOW)!.hasUnknownModelCost).toBe(false)
+  })
+
+  it('aggregates byModel across priced terminals, descending with a model tie-break', () => {
+    seedFixture()
+    expect(getCostStats(db, NOW)!.byModel).toEqual([
+      { model: 'claude-sonnet-5', costUsd: 130 },
+      { model: 'claude-haiku-4-5', costUsd: 30 },
+      { model: 'claude-opus-5', costUsd: 20 }
+    ])
+  })
+
+  it('aggregates byProject by cwd across priced terminals, descending with a cwd tie-break', () => {
+    seedFixture()
+    expect(getCostStats(db, NOW)!.byProject).toEqual([
+      { project: '/repo-a', costUsd: 130 },
+      { project: '/repo-b', costUsd: 50 }
+    ])
+  })
+
+  it('breaks equal byModel / byProject sums by name ascending', () => {
+    addCost({
+      session_id: 'p1',
+      started_at: '2026-08-21T15:00:00.000Z',
+      cwd: '/zzz',
+      total_cost_usd: 10,
+      models: [{ model: 'claude-sonnet-5', cost_usd: 10 }]
+    })
+    addCost({
+      session_id: 'p2',
+      started_at: '2026-08-22T15:00:00.000Z',
+      cwd: '/aaa',
+      total_cost_usd: 10,
+      models: [{ model: 'claude-opus-5', cost_usd: 10 }]
+    })
+    const stats = getCostStats(db, NOW)!
+    expect(stats.byModel.map((m) => m.model)).toEqual(['claude-opus-5', 'claude-sonnet-5'])
+    expect(stats.byProject.map((p) => p.project)).toEqual(['/aaa', '/zzz'])
+  })
+
+  it('zero-fills byDay from trackedSince to now with a server-computed weekday', () => {
+    seedFixture()
+    const { byDay } = getCostStats(db, NOW)!
+    expect(byDay).toHaveLength(18) // Aug 21 .. Sep 7 inclusive
+    expect(byDay[0]).toEqual({
+      date: '2026-08-21',
+      costUsd: 100,
+      weekday: new Date(2026, 7, 21).getDay()
+    })
+    expect(byDay.at(-1)).toEqual({
+      date: '2026-09-07',
+      costUsd: 0,
+      weekday: new Date(2026, 8, 7).getDay()
+    })
+    expect(byDay.find((d) => d.date === '2026-08-25')?.costUsd).toBe(50)
+    expect(byDay.find((d) => d.date === '2026-09-05')?.costUsd).toBe(30)
+    expect(byDay.reduce((sum, d) => sum + d.costUsd, 0)).toBe(180)
   })
 })

@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { cn } from '@/lib/utils'
-import type { ActivityDay } from '../../../../shared/ipc'
-import { WEEKDAY_INITIALS } from './chart-utils'
+import { WEEKDAY_INITIALS, WEEKDAY_LABELS } from './chart-utils'
 
 const PLOT_HEIGHT = 72
 
@@ -11,19 +10,31 @@ function formatShortDate(date: string): string {
   return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
+export interface DayStripDatum {
+  date: string // YYYY-MM-DD, local
+  value: number
+  weekday: number // 0 = Sunday, server-computed — never re-parsed from `date`
+}
+
 interface DayStripProps {
-  byDay: ActivityDay[]
-  days: 7 | 30
+  data: DayStripDatum[]
+  days: number
+  formatValue: (value: number) => string
 }
 
 // Thin full-ink bars, one per day, on a single faint baseline rule. A --surface-muted band sits
-// behind every Sat/Sun column (byDay[].weekday, never re-parsed from the date string). Today is
+// behind every Sat/Sun column (datum.weekday, never re-parsed from the date string). Today is
 // always the last bar and renders outline-only — it is a partial day.
-export function DayStrip({ byDay, days }: DayStripProps): React.JSX.Element {
+//
+// ponytail: renders one bar per day, capped in practice at ~cleanupPeriodDays (~30) by the
+// transcript prune. Past ~45 bars (a user who raised retention) it should bucket `data` to ISO
+// weeks — bars become weeks, the weekend band drops, labels become week-of. Deferred until a real
+// >45-day window exists (docs/usage-view-ui-spec.md §C5).
+export function DayStrip({ data, days, formatValue }: DayStripProps): React.JSX.Element {
   const reduceMotion = useReducedMotion() === true
   const [hovered, setHovered] = useState<number | null>(null)
-  const max = Math.max(1, ...byDay.map((d) => d.count))
-  const wide = days === 7
+  const max = Math.max(1, ...data.map((d) => d.value))
+  const wide = days <= 7
 
   return (
     <div className="relative">
@@ -32,10 +43,10 @@ export function DayStrip({ byDay, days }: DayStripProps): React.JSX.Element {
         style={{ height: PLOT_HEIGHT }}
         onMouseLeave={() => setHovered(null)}
       >
-        {byDay.map((day, index) => {
-          const isToday = index === byDay.length - 1
+        {data.map((day, index) => {
+          const isToday = index === data.length - 1
           const isWeekend = day.weekday === 0 || day.weekday === 6
-          const heightPct = day.count === 0 ? 0 : Math.max(4, (day.count / max) * 100)
+          const heightPct = day.value === 0 ? 0 : Math.max(4, (day.value / max) * 100)
           return (
             <div
               key={day.date}
@@ -72,13 +83,18 @@ export function DayStrip({ byDay, days }: DayStripProps): React.JSX.Element {
         })}
       </div>
 
-      {hovered !== null && byDay[hovered] && (
+      {hovered !== null && data[hovered] && (
         <div className="mt-1 text-[11px] text-muted-foreground">
-          <span className="font-mono">{formatShortDate(byDay[hovered].date)}</span>
-          {hovered === byDay.length - 1 ? (
-            <> · today, so far — {byDay[hovered].count.toLocaleString()} prompts</>
+          {hovered === data.length - 1 ? (
+            <span className="font-mono">
+              {formatShortDate(data[hovered].date)} · {formatValue(data[hovered].value)} · today, so
+              far
+            </span>
           ) : (
-            <> · {byDay[hovered].count.toLocaleString()} prompts</>
+            <span className="font-mono">
+              {WEEKDAY_LABELS[data[hovered].weekday]} {formatShortDate(data[hovered].date)} ·{' '}
+              {formatValue(data[hovered].value)}
+            </span>
           )}
         </div>
       )}
@@ -86,17 +102,17 @@ export function DayStrip({ byDay, days }: DayStripProps): React.JSX.Element {
       {hovered === null && (
         <div className="mt-1 flex text-[11px] font-mono text-muted-foreground">
           {wide
-            ? byDay.map((day) => (
+            ? data.map((day) => (
                 <span key={day.date} className="w-8 shrink-0 text-center">
                   {WEEKDAY_INITIALS[day.weekday]}
                 </span>
               ))
-            : byDay.map((day, index) => {
+            : data.map((day, index) => {
                 const show =
                   index === 0 ||
-                  index === byDay.length - 1 ||
-                  index === Math.floor(byDay.length / 3) ||
-                  index === Math.floor((2 * byDay.length) / 3)
+                  index === data.length - 1 ||
+                  index === Math.floor(data.length / 3) ||
+                  index === Math.floor((2 * data.length) / 3)
                 return (
                   <span key={day.date} className="flex-1 text-center">
                     {show ? formatShortDate(day.date) : ''}

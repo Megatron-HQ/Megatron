@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { extractCostState, extractTurnUsage, normalizeModelKey } from './cost-parser'
+import {
+  extractCostState,
+  extractTurnUsage,
+  normalizeModelKey,
+  toModelCostRows
+} from './cost-parser'
 
 function costStateLine(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -213,6 +218,98 @@ describe('extractCostState — frozen shape snapshot', () => {
         }
       }
     })
+  })
+})
+
+describe('toModelCostRows', () => {
+  it('projects each verbatim cost-state field onto its typed snake_case column', () => {
+    const cost = extractCostState([
+      costStateLine({
+        modelUsage: {
+          'claude-sonnet-5': {
+            inputTokens: 100,
+            outputTokens: 200,
+            thinkingTokens: 50,
+            cacheReadInputTokens: 3000,
+            cacheCreationInputTokens: 400,
+            webSearchRequests: 2,
+            costUSD: 2.5
+          }
+        }
+      })
+    ])!
+
+    expect(toModelCostRows(cost)).toEqual([
+      {
+        model: 'claude-sonnet-5',
+        cost_usd: 2.5,
+        input_tokens: 100,
+        output_tokens: 200,
+        thinking_tokens: 50,
+        cache_read_tokens: 3000,
+        cache_creation_tokens: 400,
+        web_search_requests: 2
+      }
+    ])
+  })
+
+  it('defaults a missing per-model field to 0', () => {
+    const cost = extractCostState([
+      costStateLine({ modelUsage: { 'claude-opus-5': { costUSD: 1.25 } } })
+    ])!
+
+    expect(toModelCostRows(cost)).toEqual([
+      {
+        model: 'claude-opus-5',
+        cost_usd: 1.25,
+        input_tokens: 0,
+        output_tokens: 0,
+        thinking_tokens: 0,
+        cache_read_tokens: 0,
+        cache_creation_tokens: 0,
+        web_search_requests: 0
+      }
+    ])
+  })
+
+  it('emits one row for date-suffixed keys already collapsed by extractCostState', () => {
+    const cost = extractCostState([
+      costStateLine({
+        modelUsage: {
+          'claude-haiku-4-5-20251001': { costUSD: 1, inputTokens: 10 },
+          'claude-haiku-4-5-20250901': { costUSD: 2, inputTokens: 20 }
+        }
+      })
+    ])!
+
+    expect(toModelCostRows(cost)).toEqual([
+      expect.objectContaining({ model: 'claude-haiku-4-5', cost_usd: 3, input_tokens: 30 })
+    ])
+  })
+
+  it('produces the two expected typed rows from the frozen cost-state snapshot', () => {
+    expect(toModelCostRows(extractCostState([FROZEN_COST_STATE])!)).toEqual([
+      {
+        model: 'claude-haiku-4-5',
+        cost_usd: 0.046871,
+        input_tokens: 29201,
+        output_tokens: 1534,
+        thinking_tokens: 0,
+        cache_read_tokens: 0,
+        cache_creation_tokens: 0,
+        web_search_requests: 1
+      },
+      {
+        model: 'claude-sonnet-5',
+        cost_usd: 2.136787,
+        input_tokens: 1344,
+        output_tokens: 57765,
+        thinking_tokens: 31063,
+        cache_read_tokens: 2957665,
+        cache_creation_tokens: 241229,
+        web_search_requests: 0
+      }
+    ])
   })
 })
 
