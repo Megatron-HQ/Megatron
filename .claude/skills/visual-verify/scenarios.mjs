@@ -137,17 +137,6 @@ async function costDataPresent(window) {
 }
 
 /**
- * The Skills section mirrors Cost's two shapes: the strip + AssocTable body when this machine has
- * priced `cost-state` history to associate skills with, or the inline empty line when it doesn't
- * (its `skills` payload is empty exactly when `cost === null`).
- */
-async function skillsDataPresent(window) {
-  await openUsageSection(window)
-  await window.getByRole('heading', { name: 'Skills' }).scrollIntoViewIfNeeded()
-  return (await window.getByText('Most used', { exact: true }).count()) > 0
-}
-
-/**
  * Scenarios pinned to a skill by name (see the header note above) hard-fail the whole run when
  * that skill is no longer installed, taking every later scenario down with them. Skipping is the
  * same trade already made for disabled-skill scenarios: visible, and scoped to the one scenario.
@@ -721,7 +710,10 @@ export const scenarios = [
     screen: 'usage',
     async run(window) {
       await openUsageSection(window)
-      await window.getByRole('radio', { name: '7 days' }).click()
+      await window
+        .getByRole('radiogroup', { name: 'Time window' })
+        .getByRole('radio', { name: '7 days' })
+        .click()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
@@ -765,31 +757,50 @@ export const scenarios = [
     }
   },
   {
-    // The Skills section with real data — the "most used" strip and the "by associated spend"
-    // AssocTable (ambient est.-cost row-fill, source tags, click-through on installed skills),
-    // plus the association caption. From this machine's own skill_invocations ⋈ cost-state.
-    name: 'skills-section',
+    // PR3's default 30-day Skills section: its own window control, stat cells, trend,
+    // ranked skill/trigger lists, and the start of the session-association ledger.
+    name: 'usage-skills-default',
     screen: 'usage',
-    shouldSkip: async (window) =>
-      (await skillsDataPresent(window)) ? null : 'no priced cost-state history on this machine',
     async run(window) {
       await openUsageSection(window)
-      await window.getByText('By associated spend', { exact: true }).scrollIntoViewIfNeeded()
+      await window.getByRole('heading', { name: 'Skills' }).scrollIntoViewIfNeeded()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
   {
-    // The Skills section's inline empty state — same machines as cost-section-no-data (the
-    // skills payload is empty exactly when cost === null).
-    name: 'skills-section-no-data',
+    // Skills owns a separate 24h/7d/30d control; changing it must leave Activity's
+    // page-global control alone while retuning the Skills stats and hourly trend.
+    name: 'usage-skills-24-hour',
     screen: 'usage',
-    shouldSkip: async (window) =>
-      (await skillsDataPresent(window))
-        ? 'cost data present — the empty state does not render'
-        : null,
     async run(window) {
       await openUsageSection(window)
-      await window.getByRole('heading', { name: 'Skills' }).scrollIntoViewIfNeeded()
+      const section = window
+        .getByRole('heading', { name: 'Skills' })
+        .locator('xpath=ancestor::section')
+      await section.getByRole('radio', { name: '24 hours' }).click()
+      await section.getByText('Invocations over time', { exact: true }).scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // The Tier-3 table must keep the association-not-attribution disclosure and all numeric
+    // columns readable at both window sizes and in dark mode.
+    name: 'usage-skills-association-dark',
+    screen: 'usage',
+    async run(window) {
+      const isDark = () =>
+        window.evaluate(() => document.documentElement.classList.contains('dark'))
+      if (!(await isDark())) {
+        await window.getByRole('button', { name: 'Settings' }).click()
+        await window.getByRole('radio', { name: 'Dark' }).click()
+        await window.keyboard.press('Escape')
+        await window.getByRole('dialog').waitFor({ state: 'detached' })
+      }
+      await window.waitForFunction(() => document.documentElement.classList.contains('dark'))
+      await openUsageSection(window)
+      await window
+        .getByText('Association, not attribution.', { exact: false })
+        .scrollIntoViewIfNeeded()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   }

@@ -14,8 +14,8 @@ import {
   getCostStats,
   getPluginDetail,
   getSkillById,
-  getSkillCostAssociation,
   getSkillInvocationLog,
+  getSkillStats,
   getSkillUsageDetail,
   insertLintFindings,
   listAllowedPaths,
@@ -147,26 +147,6 @@ function insertInvocation(overrides: {
     agent_id: overrides.agent_id ?? null,
     preceding_user_text: overrides.preceding_user_text ?? null
   })
-}
-
-function insertSessionCost(
-  sessionId: string,
-  overrides: {
-    total_cost_usd?: number
-    is_zeroed?: 0 | 1
-    continued_in_session_id?: string | null
-  } = {}
-): void {
-  db.prepare(
-    `INSERT INTO session_cost
-       (session_id, total_cost_usd, has_unknown_model_cost, is_zeroed, continued_in_session_id)
-     VALUES (?, ?, 0, ?, ?)`
-  ).run(
-    sessionId,
-    overrides.total_cost_usd ?? 0,
-    overrides.is_zeroed ?? 0,
-    overrides.continued_in_session_id ?? null
-  )
 }
 
 beforeEach(() => {
@@ -2160,170 +2140,312 @@ describe('getCostStats', () => {
   })
 })
 
-describe('getSkillCostAssociation', () => {
-  // A priced, lineage-terminal session with a cost — the only kind the association counts.
-  function priced(sessionId: string, costUsd: number): void {
-    insertSession(sessionId)
-    insertSessionCost(sessionId, { total_cost_usd: costUsd })
+describe('getSkillStats', () => {
+  const NOW = new Date('2026-09-09T17:00:00.000Z') // local Wed 2026-09-09 12:00 (UTC-5)
+
+  function insertSession(sessionId: string, startedAt: string): void {
+    db.prepare(
+      `INSERT INTO sessions_meta
+         (session_id, cwd, git_branch, started_at, message_count, source_mtime_ms)
+       VALUES (?, '/repo', NULL, ?, 0, 0)`
+    ).run(sessionId, startedAt)
   }
 
-  function fire(sessionId: string, skillName: string, uuid: string, trigger = 'autonomous'): void {
+  function insertInvocation(overrides: {
+    uuid: string
+    sessionId: string
+    skillName: string
+    invokedAt: string
+    triggerType?: 'user_invoked' | 'autonomous' | 'subagent'
+  }): void {
+    db.prepare(
+      `INSERT INTO skill_invocations
+         (source_uuid, session_id, skill_name, invoked_at, trigger_type)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(
+      overrides.uuid,
+      overrides.sessionId,
+      overrides.skillName,
+      overrides.invokedAt,
+      overrides.triggerType ?? 'user_invoked'
+    )
+  }
+
+  function insertCost(overrides: {
+    sessionId: string
+    totalCostUsd: number
+    continuedInSessionId?: string | null
+    isZeroed?: 0 | 1
+  }): void {
+    db.prepare(
+      `INSERT INTO session_cost
+         (session_id, total_cost_usd, has_unknown_model_cost, is_zeroed, continued_in_session_id)
+       VALUES (?, ?, 0, ?, ?)`
+    ).run(
+      overrides.sessionId,
+      overrides.totalCostUsd,
+      overrides.isZeroed ?? 0,
+      overrides.continuedInSessionId ?? null
+    )
+  }
+
+  function insertModelOutput(sessionId: string, model: string, outputTokens: number): void {
+    db.prepare(
+      `INSERT INTO session_model_cost
+         (session_id, model, cost_usd, input_tokens, output_tokens, thinking_tokens,
+          cache_read_tokens, cache_creation_tokens, web_search_requests)
+       VALUES (?, ?, 0, 0, ?, 0, 0, 0, 0)`
+    ).run(sessionId, model, outputTokens)
+  }
+
+  it('returns a zero-valued 24-hour window when no skill invocations are indexed', () => {
+    expect(getSkillStats(db, NOW).last24h.invocationCount).toBe(0)
+  })
+
+  it('applies rolling window cutoffs and counts distinct skills and sessions', () => {
+    insertSession('recent', '2026-09-09T16:00:00.000Z')
+    insertSession('week', '2026-09-07T17:00:00.000Z')
+    insertSession('month', '2026-08-30T17:00:00.000Z')
+    insertSession('old', '2026-08-01T17:00:00.000Z')
+
     insertInvocation({
-      source_uuid: uuid,
-      session_id: sessionId,
-      skill_name: skillName,
-      trigger_type: trigger
+      uuid: 'recent-1',
+      sessionId: 'recent',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T16:00:00.000Z'
     })
-  }
+    insertInvocation({
+      uuid: 'recent-2',
+      sessionId: 'recent',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T16:30:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'week-1',
+      sessionId: 'week',
+      skillName: 'beta',
+      invokedAt: '2026-09-07T17:00:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'month-1',
+      sessionId: 'month',
+      skillName: 'alpha',
+      invokedAt: '2026-08-30T17:00:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'old-1',
+      sessionId: 'old',
+      skillName: 'gamma',
+      invokedAt: '2026-08-01T17:00:00.000Z'
+    })
 
-  it('returns an empty result when there is no priced session', () => {
-    insertSession('z1')
-    insertSessionCost('z1', { is_zeroed: 1 })
-    fire('z1', 'grill-me', 'u1')
-    expect(getSkillCostAssociation(db)).toEqual({ rows: [], pricedSessionsWithoutSkill: 0 })
+    const stats = getSkillStats(db, NOW)
+    expect(stats.last24h).toMatchObject({ invocationCount: 2, skillCount: 1, sessionCount: 1 })
+    expect(stats.last7d).toMatchObject({ invocationCount: 3, skillCount: 2, sessionCount: 2 })
+    expect(stats.last30d).toMatchObject({ invocationCount: 4, skillCount: 2, sessionCount: 3 })
   })
 
-  it('sums whole session cost under a skill fired across two priced sessions', () => {
-    priced('p1', 100)
-    priced('p2', 50)
-    fire('p1', 'grill-me', 'u1')
-    fire('p2', 'grill-me', 'u2')
+  it('ranks skills by invocation count and preserves trigger classifications', () => {
+    insertSession('s1', '2026-09-09T15:00:00.000Z')
+    insertSession('s2', '2026-09-09T16:00:00.000Z')
+    insertInvocation({
+      uuid: 'a1',
+      sessionId: 's1',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T15:00:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'a2',
+      sessionId: 's2',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T16:00:00.000Z',
+      triggerType: 'autonomous'
+    })
+    insertInvocation({
+      uuid: 'g1',
+      sessionId: 's2',
+      skillName: 'gamma',
+      invokedAt: '2026-09-09T16:15:00.000Z',
+      triggerType: 'subagent'
+    })
+    insertInvocation({
+      uuid: 'b1',
+      sessionId: 's1',
+      skillName: 'beta',
+      invokedAt: '2026-09-09T15:30:00.000Z'
+    })
 
-    expect(getSkillCostAssociation(db).rows).toEqual([
+    const window = getSkillStats(db, NOW).last24h
+    expect(window.bySkill).toEqual([
+      { skillName: 'alpha', count: 2 },
+      { skillName: 'beta', count: 1 },
+      { skillName: 'gamma', count: 1 }
+    ])
+    expect(window.byTriggerType).toEqual([
+      { trigger_type: 'user_invoked', count: 2 },
+      { trigger_type: 'autonomous', count: 1 },
+      { trigger_type: 'subagent', count: 1 }
+    ])
+  })
+
+  it('zero-fills chronological hourly and daily trend buckets in local time', () => {
+    insertSession('s1', '2026-09-08T18:00:00.000Z')
+    insertInvocation({
+      uuid: 'first-hour',
+      sessionId: 's1',
+      skillName: 'alpha',
+      invokedAt: '2026-09-08T18:15:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'last-hour-1',
+      sessionId: 's1',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T17:05:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'last-hour-2',
+      sessionId: 's1',
+      skillName: 'beta',
+      invokedAt: '2026-09-09T17:30:00.000Z'
+    })
+
+    const stats = getSkillStats(db, NOW)
+    expect(stats.last24h.trend).toHaveLength(24)
+    expect(stats.last24h.trend[0]).toEqual({ key: '2026-09-08T18:00:00.000Z', count: 1 })
+    expect(stats.last24h.trend[23]).toEqual({ key: '2026-09-09T17:00:00.000Z', count: 2 })
+    expect(stats.last24h.trend.reduce((sum, bucket) => sum + bucket.count, 0)).toBe(3)
+
+    expect(stats.last7d.trend).toHaveLength(7)
+    expect(stats.last7d.trend[0].key).toBe('2026-09-03')
+    expect(stats.last7d.trend[5]).toEqual({ key: '2026-09-08', count: 1 })
+    expect(stats.last7d.trend[6]).toEqual({ key: '2026-09-09', count: 2 })
+    expect(stats.last30d.trend).toHaveLength(30)
+    expect(stats.last30d.trend[0].key).toBe('2026-08-11')
+  })
+
+  it('associates each usable session once per skill without attributing cost per invocation', () => {
+    insertSession('priced-1', '2026-09-09T14:00:00.000Z')
+    insertSession('priced-2', '2026-09-09T15:00:00.000Z')
+    insertSession('untracked', '2026-09-09T16:00:00.000Z')
+    insertCost({ sessionId: 'priced-1', totalCostUsd: 10 })
+    insertCost({ sessionId: 'priced-2', totalCostUsd: 5 })
+    insertModelOutput('priced-1', 'claude-sonnet-5', 200)
+    insertModelOutput('priced-1', 'claude-opus-5', 100)
+    insertModelOutput('priced-2', 'claude-sonnet-5', 50)
+
+    insertInvocation({
+      uuid: 'alpha-1',
+      sessionId: 'priced-1',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T14:05:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'alpha-2',
+      sessionId: 'priced-1',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T14:10:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'beta-1',
+      sessionId: 'priced-1',
+      skillName: 'beta',
+      invokedAt: '2026-09-09T14:15:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'alpha-3',
+      sessionId: 'priced-2',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T15:05:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'alpha-4',
+      sessionId: 'untracked',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T16:05:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'gamma-1',
+      sessionId: 'untracked',
+      skillName: 'gamma',
+      invokedAt: '2026-09-09T16:10:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).last24h.associations).toEqual([
       {
-        skillName: 'grill-me',
-        skillId: null,
-        sourceType: null,
-        invocations: 2,
-        sessions: 2,
-        estCostUsd: 150
+        skillName: 'alpha',
+        sessionCount: 3,
+        trackedSessionCount: 2,
+        associatedCostUsd: 15,
+        associatedOutputTokens: 350
+      },
+      {
+        skillName: 'beta',
+        sessionCount: 1,
+        trackedSessionCount: 1,
+        associatedCostUsd: 10,
+        associatedOutputTokens: 300
+      },
+      {
+        skillName: 'gamma',
+        sessionCount: 1,
+        trackedSessionCount: 0,
+        associatedCostUsd: 0,
+        associatedOutputTokens: 0
       }
     ])
   })
 
-  it('counts a skill fired twice in one session as 2 invocations / 1 session without doubling cost', () => {
-    priced('p1', 100)
-    fire('p1', 'grill-me', 'u1')
-    fire('p1', 'grill-me', 'u2')
+  it('resolves continued sessions to one priced terminal and rejects unusable lineages', () => {
+    for (const sessionId of ['ancestor', 'terminal', 'zeroed', 'broken', 'cycle-a', 'cycle-b']) {
+      insertSession(sessionId, '2026-09-09T14:00:00.000Z')
+    }
+    insertCost({ sessionId: 'ancestor', totalCostUsd: 3, continuedInSessionId: 'terminal' })
+    insertCost({ sessionId: 'terminal', totalCostUsd: 7 })
+    insertModelOutput('terminal', 'claude-sonnet-5', 700)
+    insertCost({ sessionId: 'zeroed', totalCostUsd: 0, isZeroed: 1 })
+    insertCost({ sessionId: 'broken', totalCostUsd: 2, continuedInSessionId: 'missing' })
+    insertCost({ sessionId: 'cycle-a', totalCostUsd: 4, continuedInSessionId: 'cycle-b' })
+    insertCost({ sessionId: 'cycle-b', totalCostUsd: 5, continuedInSessionId: 'cycle-a' })
 
-    const [row] = getSkillCostAssociation(db).rows
-    expect(row.invocations).toBe(2)
-    expect(row.sessions).toBe(1)
-    expect(row.estCostUsd).toBe(100)
-  })
-
-  it('resolves a name shared by a global and a project skill to the global row, once', () => {
-    const globalId = insertSkill('deploy', { source_type: 'global', source_path: '/g/deploy' })
-    insertSkill('deploy', {
-      source_type: 'project',
-      source_path: '/p/deploy',
-      project_root: '/repo'
+    insertInvocation({
+      uuid: 'ancestor-alpha',
+      sessionId: 'ancestor',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T14:05:00.000Z'
     })
-    priced('p1', 100)
-    fire('p1', 'deploy', 'u1')
-
-    expect(getSkillCostAssociation(db).rows).toEqual([
-      {
-        skillName: 'deploy',
-        skillId: globalId,
-        sourceType: 'global',
-        invocations: 1,
-        sessions: 1,
-        estCostUsd: 100
-      }
-    ])
-  })
-
-  it('excludes a skill that only fired in a non-terminal lineage segment', () => {
-    priced('p1', 100)
-    insertSession('n1')
-    insertSessionCost('n1', { total_cost_usd: 999, continued_in_session_id: 'p1' })
-    fire('p1', 'kept', 'u1')
-    fire('n1', 'dropped', 'u2')
-
-    expect(getSkillCostAssociation(db).rows.map((r) => r.skillName)).toEqual(['kept'])
-  })
-
-  it('excludes a skill that only fired in a zeroed session', () => {
-    priced('p1', 100)
-    insertSession('z1')
-    insertSessionCost('z1', { is_zeroed: 1 })
-    fire('p1', 'kept', 'u1')
-    fire('z1', 'dropped', 'u2')
-
-    expect(getSkillCostAssociation(db).rows.map((r) => r.skillName)).toEqual(['kept'])
-  })
-
-  it('scopes the invocations column to priced sessions, not lifetime', () => {
-    priced('p1', 100)
-    insertSession('z1')
-    insertSessionCost('z1', { is_zeroed: 1 })
-    fire('z1', 'visual-verify', 'u1')
-    fire('z1', 'visual-verify', 'u2')
-    fire('z1', 'visual-verify', 'u3')
-    fire('p1', 'visual-verify', 'u4')
-    fire('p1', 'visual-verify', 'u5')
-
-    const [row] = getSkillCostAssociation(db).rows
-    expect(row.invocations).toBe(2)
-    expect(row.sessions).toBe(1)
-    expect(row.estCostUsd).toBe(100)
-  })
-
-  it('counts a subagent-triggered invocation', () => {
-    priced('p1', 100)
-    fire('p1', 'visual-verify', 'u1', 'subagent')
-
-    expect(getSkillCostAssociation(db).rows[0]).toMatchObject({
-      skillName: 'visual-verify',
-      invocations: 1,
-      sessions: 1,
-      estCostUsd: 100
+    insertInvocation({
+      uuid: 'zeroed-beta',
+      sessionId: 'zeroed',
+      skillName: 'beta',
+      invokedAt: '2026-09-09T14:15:00.000Z'
     })
-  })
+    insertInvocation({
+      uuid: 'broken-gamma',
+      sessionId: 'broken',
+      skillName: 'gamma',
+      invokedAt: '2026-09-09T14:20:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'cycle-delta',
+      sessionId: 'cycle-a',
+      skillName: 'delta',
+      invokedAt: '2026-09-09T14:25:00.000Z'
+    })
 
-  it('keeps a row whose skill_name has no skills row, with null skillId / sourceType', () => {
-    priced('p1', 100)
-    fire('p1', 'run', 'u1')
-
-    expect(getSkillCostAssociation(db).rows).toEqual([
-      {
-        skillName: 'run',
-        skillId: null,
-        sourceType: null,
-        invocations: 1,
-        sessions: 1,
-        estCostUsd: 100
-      }
-    ])
-  })
-
-  it('orders by est. cost desc, then invocations desc, then name asc', () => {
-    priced('pA', 100)
-    priced('pB', 100)
-    priced('pC', 50)
-    fire('pC', 'alpha', 'u1')
-    fire('pA', 'zeta', 'u2')
-    fire('pA', 'gamma', 'u3')
-    fire('pB', 'beta', 'u4')
-    fire('pB', 'beta', 'u5')
-
-    expect(getSkillCostAssociation(db).rows.map((r) => r.skillName)).toEqual([
-      'beta', // 100, 2 invocations
-      'gamma', // 100, 1 invocation, name < zeta
-      'zeta', // 100, 1 invocation
-      'alpha' // 50
-    ])
-  })
-
-  it('reports priced sessions that fired no skill', () => {
-    priced('p1', 100)
-    priced('p2', 50)
-    priced('p3', 30)
-    fire('p1', 'grill-me', 'u1')
-
-    const result = getSkillCostAssociation(db)
-    expect(result.pricedSessionsWithoutSkill).toBe(2)
-    expect(result.rows.map((r) => r.skillName)).toEqual(['grill-me'])
+    const associations = getSkillStats(db, NOW).last24h.associations
+    expect(associations.find((row) => row.skillName === 'alpha')).toEqual({
+      skillName: 'alpha',
+      sessionCount: 1,
+      trackedSessionCount: 1,
+      associatedCostUsd: 7,
+      associatedOutputTokens: 700
+    })
+    for (const skillName of ['beta', 'gamma', 'delta']) {
+      expect(associations.find((row) => row.skillName === skillName)).toMatchObject({
+        trackedSessionCount: 0,
+        associatedCostUsd: 0,
+        associatedOutputTokens: 0
+      })
+    }
   })
 })

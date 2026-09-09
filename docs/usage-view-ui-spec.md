@@ -1,15 +1,14 @@
 # Usage view — resolved UI spec (Phase 2a)
 
 **Scope:** the page frame + AppRail entry, the **Activity** section (PR1, §5), the **Cost**
-section (PR2, §C), and the **Skills** section (PR3, §D). Model & effort and Resident tax are still
+section (PR2, §C), and the **Skills** section (PR3, §S). Model & effort and Resident tax are still
 **not** designed here — only the frame they inherit.
 
 **Status:** Activity resolved in a grill session 2026-09-05 (feeds PR1). Cost resolved in a
 follow-on grill 2026-09-07 (feeds PR2); that pass also revised two cross-cutting rules — section
-entrance motion (§4.2) and the by-project primitive (§5.4 is superseded by §C4). Skills authored
-at implementation time (PR3, §D) — it reuses §4/§C vocabulary and adds no new DESIGN.md departure.
-Design system base: `DESIGN.md` ("Inventory Ledger"). Departures are listed explicitly per section
-(§8, §C10).
+entrance motion (§4.2) and the by-project primitive (§5.4 is superseded by §C4). Skills was
+resolved and implemented 2026-09-09 (PR3). Design system base: `DESIGN.md` ("Inventory Ledger").
+Departures are listed explicitly per section (§8, §C10).
 
 ---
 
@@ -57,16 +56,11 @@ Scroll position **resets to top** on section switch (branch swap → remount). A
 
 The page is a flat vertical scroll of stacked sections. Fixed order, top→bottom:
 
-1. **Activity** — PR1, §5
-2. **Cost** — PR2, §C
-3. **Model & effort** — PR4 (not built; §2.3 slot reserved)
-4. **Skills** — PR3, §D
-5. **Resident tax** — PR5
-
-The **canonical PR sequence is 1→5** (Activity, Cost, Skills, Model & effort, Resident tax — see
-`usage-analytics.md`); the scroll *position* above is a separate axis. **PR3 renders Skills
-directly after Cost** (slot 3 as built), because Model & effort does not exist yet; PR4 inserts
-Model & effort above it and Skills falls to slot 4.
+1. **Activity** (PR1)
+2. Cost _(PR2)_
+3. Model & effort _(PR4)_
+4. Skills _(PR3)_
+5. Resident tax _(PR5)_
 
 Activity is first because it is the zero-caveat, always-populated section — every user has
 `history.jsonl`; only ~22% have cost data.
@@ -112,15 +106,11 @@ Prompts, sessions, active days     ← optional 11px muted subtitle (Activity: D
   (ink-fill, **not lime**), inactive `text-muted-foreground`. Two options, labels **"7 days" /
   "30 days"** (words, not "7d").
 - **Default: 30 days.** (One-line change to open on 7.)
-- **Scope: page-global**, governs the windowed sections — Activity now; Model/effort when it
-  lands. Three carve-outs by design:
-  - **Cost ignores the toggle** — it spans the whole cost-tracked window (§C, resolved in the PR2
-    grill; the "Note for megatron-6b" below is now settled).
-  - **Skills ignores the toggle** (PR3, §D) — every number is scoped to the same priced sessions
-    as Cost, so a 7/30 cut of the *cost* association is meaningless. A **future** windowed
-    invocation-trend sub-panel would bring its own inline _24h_ / 7d / 30d control (a different
-    option set per `usage-analytics.md`); that panel is **deferred, not cut**, and this carve-out
-    holds its slot.
+- **Scope: page-global**, governs the windowed sections — Activity now; Cost & Model/effort when
+  they land. Two carve-outs by design:
+  - **Skills section brings its own inline control** — it needs _24h_ / 7d / 30d (a different
+    option set per `usage-analytics.md`), so it owns that control rather than distorting the
+    global one.
   - **Resident tax** is a single dated sample — no window, ignores the toggle.
 - **Note for megatron-6b:** if Cost turns out to be "all tracked history since Aug 2026" rather
   than a 7/30 cut, Cost should simply not respond to the toggle and say so in its subtitle — do
@@ -852,143 +842,55 @@ by-model charts` to its parenthetical list.
 
 ---
 
-# D. Skills section (PR3)
+# S. Skills section (PR3)
 
-**Scope:** the section in the Usage scroll rendered directly after Cost (slot 3 as built; §2.3) —
-a "most used" strip + a "Skills by associated spend" table. **Association, not attribution**
-(`usage-analytics.md` Tier 3): the table shows which skills tend to run inside expensive sessions;
-it must never read as "this skill cost $X". No time window — every number is scoped to the same
-priced, lineage-terminal sessions Cost uses (`getSkillCostAssociation` reuses `PRICED_TERMINAL`).
+PR3 is a read-only projection over the existing `skill_invocations`, `session_cost`, and
+`session_model_cost` tables. It adds no scanner, schema, permission, or parser-version surface.
 
-**Status:** authored at implementation time, not in a grill. Reuses §4 / §C vocabulary — no new
-DESIGN.md departure (the C-3 ambient row-fill is already recorded).
+## S1. Placement and window control
 
-**Inherited data contract** (`usage:overview` gains a `skills` field — **always present**, unlike
-`cost`):
+Skills renders after Cost until PR4 inserts Model & effort between them. It follows the standard
+below-fold section anatomy: a 960px rule-line, `py-8`, 13px/600 heading, `gap-6`, and a
+scroll-into-view entrance guarded by `useReducedMotion()`.
 
-```ts
-skills: SkillAssociation
-interface SkillAssociation {
-  rows: SkillAssociationRow[] // sorted: est. cost desc, then invocations desc, then name asc
-  pricedSessionsWithoutSkill: number // priced terminals that fired no skill — for the caption
-}
-interface SkillAssociationRow {
-  skillName: string
-  skillId: number | null // resolved skills row (global > project > synced) — click-through target
-  sourceType: 'global' | 'project' | 'plugin' | null // null ⇒ no skills row ⇒ no click-through
-  invocations: number // COUNT within priced sessions — NOT lifetime
-  sessions: number // distinct priced sessions
-  estCostUsd: number // naive: whole session cost under every skill it fired
-}
-```
+The heading row owns an inline segmented control with **24 hours / 7 days / 30 days**. It is
+independent of the page-global Activity control: changing one never changes the other. The
+default is 30 days.
 
-`{ rows: [], pricedSessionsWithoutSkill: 0 }` when `cost === null`.
+## S2. Content order
 
-## D1. Section anatomy & order
+1. Three flat stat cells: Invocations, Skills used, Sessions.
+2. **Invocations over time:** 24 zero-filled local-hour buckets for 24h; 7 or 30 zero-filled local
+   calendar-day buckets otherwise. The last bucket is outlined because it is incomplete.
+3. **Top skills:** `RankedList`, count descending with skill-name tie-break.
+4. **How they were invoked:** `RankedList` over User-invoked / Autonomous / Subagent.
+5. **Session association:** a compact ledger table with Skill, Tracked / all sessions, Output
+   tokens, and Associated cost.
 
-```
-── 960px rule-line, py-8 ─────────────────────────────────────────
+All skill names come from historical invocation rows, not the current `skills` inventory. Removed
+skills remain visible, and the rows are intentionally non-clickable because there may be no live
+detail destination.
 
-Skills                                   ← section header: 13px / 600 ledger-ink. No subtitle.
-                                           (gap-6)
-MOST USED                                ← chart label: 11px uppercase muted
-[ RankedList ]                             strip, invocations desc (§D2)
-                                           (gap-6)
-BY ASSOCIATED SPEND                      ← chart label
-[ AssocTable ]                             (§D3)
-Each session is counted under every …    ← caption, 11px muted, max-w-[520px] (§D4)
-{n} cost-tracked sessions invoked no …   ← caption line 2, only when n > 0
-```
+## S3. Association contract
 
-Vertical rhythm, the 960px rule-line, `px-6`, and the empty/loading gate are inherited from
-§2.3–2.4 / §6 unchanged. Section entrance is the `whileInView` / `viewport={{ once: true }}`
-below-the-fold treatment from §4.2 / §C7 — copied verbatim from `CostSection`
-(`initial={{ opacity: 0, y: 8 }}`, 320ms `easeOut`, `useReducedMotion()` guard).
+Association is **not attribution**. For every skill, dedupe invocation rows to sessions, resolve
+continued sessions forward to their one usable lineage terminal, then count that terminal once.
+The terminal's complete `total_cost_usd` and summed `session_model_cost.output_tokens` are associated
+with the skill. If one session invoked three skills, its complete totals appear in all three rows;
+therefore association rows must never be summed into a global total.
 
-## D2. The strip — `<RankedList>` (reused as-is)
+`sessionCount` includes every distinct source session in the selected window.
+`trackedSessionCount` is the number of distinct usable terminal lineages reached from those
+sessions. Missing, zeroed, broken, and cyclic lineages contribute no dollar or token figure. A
+visible sentence above the table states: “Association, not attribution. Each row totals whole
+sessions that invoked the skill; sessions can appear in more than one row.”
 
-- `<ChartBlock label="Most used">` → `<RankedList>` with the **same `rows`** re-sorted client-side
-  by `invocations` desc (name-asc tie-break); `label` / `fullLabel` = `skillName`, `value` =
-  `invocations`, `formatValue` = `formatCount`, `noun="skills"`.
-- **Not clickable** — `RankedList` has no select affordance and adding one is out of scope. The
-  table is the click target.
-- Same ambient row-fill, TOP_N = 8 head + "show N more" expander, and motion as Activity / Cost.
+## S4. Empty, motion, and responsive behavior
 
-## D3. The table — `<AssocTable>` (new, `components/usage/AssocTable.tsx`)
+An empty selected window keeps the Skills heading, control, and zero stat cells visible. Each chart
+slot shows “No skill invocations in the last {window}.” The section never takes over the entire
+page's empty state.
 
-A static 4-column CSS-grid table. **Not** `@tanstack/react-table` (locked to the skills
-inventory; overkill for a ≤~50-row non-interactive list) and **not** an extension of `RankedList`
-(2-column, shared with Activity + Cost — no mission creep).
-
-- **Grid** (header + every row): `grid-cols-[minmax(0,1fr)_5.5rem_5rem_5.5rem]`, `gap-2`,
-  `items-center`. Skill flexes and truncates; the three numeric columns are fixed right rails.
-- **Header row:** 11px uppercase muted (`label-column`), `border-b border-border pb-1` — labels
-  **Skill · Invocations · Sessions · Est. cost** (numeric labels right-aligned).
-- **Data row:** `h-7`, hairline `border-border` between rows, `group relative`.
-  - **Ambient fill:** an absolute left-anchored `span`, `width: {estCostUsd / maxRow}%`, behind
-    the row — **RankedList's exact tint**: `bg-usage-bar/[0.07]` → `group-hover:bg-usage-bar/[0.11]`,
-    dark `/[0.12]` → `/[0.17]`, `minWidth: 2` for any non-zero value. Renders at final width (no
-    grow). It is a tinted row, not a bar (§C-3).
-  - **Skill cell:** `skillName` (`truncate`, 13px) + a muted `sourceType` tag (11px) when present.
-    When `skillId !== null` **and** an `onSelectSkill` handler is wired, the name is a `<TextLink>`
-    (the in-app-nav link component — underline sweep, `focus-visible`); otherwise plain text.
-  - **Invocations / Sessions:** `formatCount`, right-aligned, 12px Geist Mono `tabular-nums`, muted.
-  - **Est. cost:** `formatUsd(v, { cents: true })`, right-aligned, 12px Geist Mono `tabular-nums`,
-    text ink (the emphasized column — the ambient fill encodes it).
-- **TOP_N = 8** head + a `+ N more skills · $X.XX` button-row that expands with the 0.15s height
-  ease `RankedList` uses. Sorted by payload order (est. cost desc). No client-side sort controls.
-- **Click-through:** `onSelectSkill?: (skillId: number) => void` threaded `App.tsx` →
-  `<UsageView>` → `<SkillsSection>` → `<AssocTable>`; `App.tsx` passes `openDetail`, which already
-  switches to the Skills section and opens `SkillDetail` — no new routing.
-
-## D4. Caption (every string)
-
-Below the table, `text-[11px] text-muted-foreground max-w-[520px]`, bound to the table by an 8px
-gap (`flex flex-col gap-2` wrapping the `ChartBlock` + caption).
-
-**Line 1 (always) — mechanism, never a ratio:**
-
-> Each session is counted under every skill it invoked, so these rows overlap and add up to more
-> than the tracked-window total. This shows which skills tend to run inside expensive sessions —
-> not what a skill "costs."
-
-**Line 2 (only when `pricedSessionsWithoutSkill > 0`):**
-
-> {n} cost-tracked session(s) invoked no skill and {isn't / aren't} shown here.
-
-`n` comes straight from `skills.pricedSessionsWithoutSkill` (server-computed — a client
-subtraction is wrong because the rows overlap).
-
-## D5. Empty & loading states
-
-| Condition | Render |
-| --- | --- |
-| `cost === null` (⇒ `rows` empty **and** `pricedSessionsWithoutSkill === 0`) | Inline muted line mirroring `CostEmpty` — `BrainCircuit` (the Skills-section mark) `size-4` + "No cost-tracked sessions yet, so there's nothing to associate skills with." Strip + table hidden. Header "Skills" stays. |
-| `cost !== null` && `rows.length === 0` (⇒ `pricedSessionsWithoutSkill > 0`) | Same inline treatment — "None of your cost-tracked sessions invoked a skill." |
-| `!scanComplete` | `UsageSkeleton` gains a third block: a label bar + ~5 strip rows + ~6 table rows + a caption bar. |
-
-The two non-loading empties are told apart by `pricedSessionsWithoutSkill` alone — no need to
-thread `cost` into `<SkillsSection>`.
-
-## D6. Responsive & motion
-
-- Fluid; nothing has a hard minimum. The three numeric columns are ~16rem total; the skill name
-  flexes and truncates below that. Fits inside 764px at min width (§7).
-- Motion: section entrance on scroll-into-view (§C7); `RankedList` and `AssocTable` rows fade in
-  (200ms, opt. 20ms/row stagger); ambient fills at final width, deepen one notch on row hover.
-  All guarded by `useReducedMotion()`.
-- Monochrome — the `--usage-series-*` model palette never bleeds here (§C3 scope: by-model charts
-  only).
-
-## D7. DESIGN.md departures
-
-None new. Inherits §8 (960px cap, 13/600 headers, `--usage-*` tokens, charts animate) and §C-3
-(ambient row-fill tint) / §C-4 (`whileInView` entrance). The 4-column table is structurally the
-skills-inventory table's little sibling — rule-lines and a grid, no cards.
-
-## D8. Not in PR3
-
-- **Proportional per-skill $ attribution** — the honest replacement for the naive Est. cost
-  column. Designed (`usage-analytics.md` PR4 rider), depends on `turn_usage`, **built in PR4**.
-- **Windowed invocation-trend sub-panel** (24h / 7d / 30d, user-invoked/autonomous/subagent
-  split) — §3's Skills carve-out holds its slot; deferred, not cut.
+Bars rise over 320ms and stat numerals roll only when the Skills window changes. Reduced motion
+snaps both to final state. The association table uses a horizontal overflow guard below its 620px
+content floor; Megatron's supported minimum window normally shows all columns without scrolling.

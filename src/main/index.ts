@@ -16,8 +16,8 @@ import {
   getCostStats,
   getLintFindingsForSkill,
   getPluginDetail,
+  getSkillStats,
   getSkillById,
-  getSkillCostAssociation,
   getSkillInvocationLog,
   getSkillUsageDetail,
   listAllowedPaths,
@@ -267,7 +267,7 @@ app.whenReady().then(() => {
   ipcMain.handle(IPC_CHANNELS.usageOverview, () => ({
     activity: getActivityStats(getDb()),
     cost: getCostStats(getDb()),
-    skills: getSkillCostAssociation(getDb()),
+    skills: getSkillStats(getDb()),
     scanComplete
   }))
 

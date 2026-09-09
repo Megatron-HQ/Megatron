@@ -15,9 +15,10 @@ import type {
   PluginInstall,
   PluginRow,
   ProjectCount,
-  SkillAssociation,
   SkillInvocationEntry,
   SkillRow,
+  SkillStats,
+  SkillStatsWindow,
   SkillUsageDetail,
   SourceType,
   TriggerTypeCount
@@ -761,63 +762,181 @@ export function getCostStats(db: Database.Database, now: Date = new Date()): Cos
   }
 }
 
-// The Skills section (docs/usage-view-ui-spec.md §D). Joins skill_invocations ⋈ session_cost
-// over the same priced, lineage-terminal sessions getCostStats uses (PRICED_TERMINAL). Naive
-// association: a session's whole cost is credited under every skill it fired, so rows overlap —
-// the caption states that mechanism; it is never "this skill cost $X". No windowing (spans the
-// whole cost-tracked window, like getCostStats). Subagent invocations count (they carry the
-// parent session_id); invocations that land only in a non-terminal or zeroed session are
-// dropped by the JOIN. The skills row is resolved by name to a SINGLE id by shadowing
-// precedence (global > project > synced) — a bare name join would fan out COUNT/SUM on the
-// same collisions SKILLS_WITH_USAGE_SELECT exists to resolve.
-export function getSkillCostAssociation(db: Database.Database): SkillAssociation {
+interface SkillStatsInvocationRow {
+  session_id: string
+  skill_name: string
+  invoked_at: string
+  trigger_type: TriggerTypeCount['trigger_type']
+}
+
+interface SkillStatsCostRow {
+  session_id: string
+  total_cost_usd: number
+  is_zeroed: number
+  continued_in_session_id: string | null
+  output_tokens: number
+}
+
+function resolvePricedTerminal(
+  sessionId: string,
+  costsBySession: Map<string, SkillStatsCostRow>
+): SkillStatsCostRow | null {
+  const visited = new Set<string>()
+  let currentSessionId = sessionId
+
+  while (!visited.has(currentSessionId)) {
+    visited.add(currentSessionId)
+    const cost = costsBySession.get(currentSessionId)
+    if (cost === undefined) return null
+    if (cost.continued_in_session_id === null) return cost.is_zeroed === 0 ? cost : null
+    currentSessionId = cost.continued_in_session_id
+  }
+
+  return null
+}
+
+function buildSkillTrend(
+  rows: SkillStatsInvocationRow[],
+  now: Date,
+  window: '24h' | '7d' | '30d',
+  days: number
+): SkillStatsWindow['trend'] {
+  if (window === '24h') {
+    const counts = new Map<string, number>()
+    for (const row of rows) {
+      const hour = new Date(row.invoked_at)
+      hour.setMinutes(0, 0, 0)
+      const key = hour.toISOString()
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+
+    const anchor = new Date(now)
+    anchor.setMinutes(0, 0, 0)
+    return Array.from({ length: 24 }, (_, index) => {
+      const hour = new Date(anchor.getTime() - (23 - index) * 60 * 60 * 1000)
+      const key = hour.toISOString()
+      return { key, count: counts.get(key) ?? 0 }
+    })
+  }
+
+  const counts = new Map<string, number>()
+  for (const row of rows) {
+    const key = localDateKey(new Date(row.invoked_at))
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+
+  const anchor = new Date(now)
+  anchor.setHours(12, 0, 0, 0)
+  return Array.from({ length: days }, (_, index) => {
+    const day = new Date(anchor)
+    day.setDate(day.getDate() - (days - 1 - index))
+    const key = localDateKey(day)
+    return { key, count: counts.get(key) ?? 0 }
+  })
+}
+
+function reduceSkillStatsWindow(
+  rows: SkillStatsInvocationRow[],
+  costRows: SkillStatsCostRow[],
+  now: Date,
+  window: '24h' | '7d' | '30d',
+  days: number
+): SkillStatsWindow {
+  const cutoff = new Date(now.getTime() - days * DAY_MS)
+  const inWindow = rows.filter((row) => new Date(row.invoked_at) >= cutoff)
+  const skillCounts = new Map<string, number>()
+  const triggerCounts = new Map<TriggerTypeCount['trigger_type'], number>()
+  const skillSessions = new Map<string, Set<string>>()
+
+  for (const row of inWindow) {
+    skillCounts.set(row.skill_name, (skillCounts.get(row.skill_name) ?? 0) + 1)
+    triggerCounts.set(row.trigger_type, (triggerCounts.get(row.trigger_type) ?? 0) + 1)
+    const sessions = skillSessions.get(row.skill_name) ?? new Set<string>()
+    sessions.add(row.session_id)
+    skillSessions.set(row.skill_name, sessions)
+  }
+
+  const bySkill = [...skillCounts.entries()]
+    .map(([skillName, count]) => ({ skillName, count }))
+    .sort((a, b) => b.count - a.count || a.skillName.localeCompare(b.skillName))
+  const triggerOrder: TriggerTypeCount['trigger_type'][] = [
+    'user_invoked',
+    'autonomous',
+    'subagent'
+  ]
+  const byTriggerType = triggerOrder.flatMap((trigger_type) => {
+    const count = triggerCounts.get(trigger_type)
+    return count === undefined ? [] : [{ trigger_type, count }]
+  })
+  const costsBySession = new Map(costRows.map((row) => [row.session_id, row]))
+  const associations = [...skillSessions.entries()]
+    .map(([skillName, sessions]) => {
+      const pricedTerminals = new Map<string, SkillStatsCostRow>()
+      let associatedCostUsd = 0
+      let associatedOutputTokens = 0
+      for (const sessionId of sessions) {
+        const cost = resolvePricedTerminal(sessionId, costsBySession)
+        if (cost === null) continue
+        pricedTerminals.set(cost.session_id, cost)
+      }
+      for (const cost of pricedTerminals.values()) {
+        associatedCostUsd += cost.total_cost_usd
+        associatedOutputTokens += cost.output_tokens
+      }
+      return {
+        skillName,
+        sessionCount: sessions.size,
+        trackedSessionCount: pricedTerminals.size,
+        associatedCostUsd,
+        associatedOutputTokens
+      }
+    })
+    .sort(
+      (a, b) =>
+        b.associatedCostUsd - a.associatedCostUsd ||
+        b.sessionCount - a.sessionCount ||
+        a.skillName.localeCompare(b.skillName)
+    )
+
+  return {
+    window,
+    invocationCount: inWindow.length,
+    skillCount: new Set(inWindow.map((row) => row.skill_name)).size,
+    sessionCount: new Set(inWindow.map((row) => row.session_id)).size,
+    bySkill,
+    byTriggerType,
+    trend: buildSkillTrend(inWindow, now, window, days),
+    associations
+  }
+}
+
+export function getSkillStats(db: Database.Database, now: Date = new Date()): SkillStats {
   const rows = db
     .prepare(
-      `WITH priced AS (
-         SELECT sc.session_id, sc.total_cost_usd
-         FROM session_cost sc
-         WHERE ${PRICED_TERMINAL}
-       ),
-       fired AS (
-         SELECT si.skill_name, si.session_id
-         FROM skill_invocations si
-         JOIN priced p ON p.session_id = si.session_id
-       )
-       SELECT
-         f.skill_name AS skillName,
-         sk.id AS skillId,
-         sk.source_type AS sourceType,
-         COUNT(*) AS invocations,
-         COUNT(DISTINCT f.session_id) AS sessions,
-         (SELECT SUM(p2.total_cost_usd)
-            FROM (SELECT DISTINCT f2.session_id FROM fired f2 WHERE f2.skill_name = f.skill_name) d
-            JOIN priced p2 ON p2.session_id = d.session_id) AS estCostUsd
-       FROM fired f
-       LEFT JOIN skills sk ON sk.id = (
-         SELECT s2.id FROM skills s2
-         WHERE s2.name = f.skill_name
-         ORDER BY CASE s2.source_type WHEN 'global' THEN 0 WHEN 'project' THEN 1 ELSE 2 END,
-                  s2.is_synced, s2.id
-         LIMIT 1
-       )
-       GROUP BY f.skill_name
-       ORDER BY estCostUsd DESC, invocations DESC, skillName ASC`
+      `SELECT session_id, skill_name, invoked_at, trigger_type
+       FROM skill_invocations
+       WHERE invoked_at >= ?`
     )
-    .all() as SkillAssociation['rows']
-
-  const { n } = db
+    .all(new Date(now.getTime() - 30 * DAY_MS).toISOString()) as SkillStatsInvocationRow[]
+  const costRows = db
     .prepare(
-      `WITH priced AS (
-         SELECT sc.session_id FROM session_cost sc WHERE ${PRICED_TERMINAL}
-       )
-       SELECT (SELECT COUNT(*) FROM priced)
-              - (SELECT COUNT(DISTINCT si.session_id)
-                   FROM skill_invocations si
-                   JOIN priced p ON p.session_id = si.session_id) AS n`
+      `SELECT
+         sc.session_id,
+         sc.total_cost_usd,
+         sc.is_zeroed,
+         sc.continued_in_session_id,
+         COALESCE(SUM(smc.output_tokens), 0) AS output_tokens
+       FROM session_cost sc
+       LEFT JOIN session_model_cost smc ON smc.session_id = sc.session_id
+       GROUP BY sc.session_id`
     )
-    .get() as { n: number }
+    .all() as SkillStatsCostRow[]
 
-  return { rows, pricedSessionsWithoutSkill: n }
+  return {
+    last24h: reduceSkillStatsWindow(rows, costRows, now, '24h', 1),
+    last7d: reduceSkillStatsWindow(rows, costRows, now, '7d', 7),
+    last30d: reduceSkillStatsWindow(rows, costRows, now, '30d', 30)
+  }
 }
 
 export function getPluginDetail(

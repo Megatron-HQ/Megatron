@@ -288,34 +288,47 @@ export interface CostStats {
   byDay: CostDay[] // zero-filled, trackedSince → today, ascending
 }
 
-// The Skills section (docs/usage-view-ui-spec.md §D). Association, not attribution: a session
-// that fired N skills is counted under all N, so rows overlap and sum past the tracked-window
-// total. Never captioned "this skill cost $X" (docs/usage-analytics.md Tier 3). Scoped to the
-// same priced, lineage-terminal sessions as CostStats — ignores the 7d/30d toggle.
-export interface SkillAssociationRow {
+export type SkillStatsWindowKey = '24h' | '7d' | '30d'
+
+export interface SkillInvocationCount {
   skillName: string
-  // Resolved skills row (global > project > synced precedence) — the click-through target.
-  skillId: number | null
-  // null = no matching skills row (uninstalled / renamed / plugin-not-installed / leaked
-  // built-in like `run`) — the row renders without click-through.
-  sourceType: SourceType | null
-  invocations: number // COUNT(*) within priced-terminal sessions — NOT lifetime
-  sessions: number // distinct priced sessions the skill fired in
-  estCostUsd: number // naive: whole session cost under every skill it fired
+  count: number
 }
 
-export interface SkillAssociation {
-  rows: SkillAssociationRow[]
-  // Priced terminals that invoked zero skills — for the caption. Server-computed: a client
-  // subtraction is wrong because the rows overlap.
-  pricedSessionsWithoutSkill: number
+export interface SkillTrendBucket {
+  key: string // ISO hour start for 24h; YYYY-MM-DD local date for 7d/30d
+  count: number
+}
+
+export interface SkillCostAssociation {
+  skillName: string
+  sessionCount: number
+  trackedSessionCount: number
+  associatedCostUsd: number
+  associatedOutputTokens: number
+}
+
+export interface SkillStatsWindow {
+  window: SkillStatsWindowKey
+  invocationCount: number
+  skillCount: number
+  sessionCount: number
+  bySkill: SkillInvocationCount[]
+  byTriggerType: TriggerTypeCount[]
+  trend: SkillTrendBucket[]
+  associations: SkillCostAssociation[]
+}
+
+export interface SkillStats {
+  last24h: SkillStatsWindow
+  last7d: SkillStatsWindow
+  last30d: SkillStatsWindow
 }
 
 export interface UsageOverview {
   activity: ActivityStats
   // null iff pricedSessionCount === 0 — no session has usable cost-state.
   cost: CostStats | null
-  // Always present; { rows: [], pricedSessionsWithoutSkill: 0 } when cost === null.
-  skills: SkillAssociation
+  skills: SkillStats
   scanComplete: boolean
 }
