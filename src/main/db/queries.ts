@@ -15,6 +15,7 @@ import type {
   PluginInstall,
   PluginRow,
   ProjectCount,
+  SkillAssociation,
   SkillInvocationEntry,
   SkillRow,
   SkillUsageDetail,
@@ -758,6 +759,65 @@ export function getCostStats(db: Database.Database, now: Date = new Date()): Cos
     byProject,
     byDay
   }
+}
+
+// The Skills section (docs/usage-view-ui-spec.md §D). Joins skill_invocations ⋈ session_cost
+// over the same priced, lineage-terminal sessions getCostStats uses (PRICED_TERMINAL). Naive
+// association: a session's whole cost is credited under every skill it fired, so rows overlap —
+// the caption states that mechanism; it is never "this skill cost $X". No windowing (spans the
+// whole cost-tracked window, like getCostStats). Subagent invocations count (they carry the
+// parent session_id); invocations that land only in a non-terminal or zeroed session are
+// dropped by the JOIN. The skills row is resolved by name to a SINGLE id by shadowing
+// precedence (global > project > synced) — a bare name join would fan out COUNT/SUM on the
+// same collisions SKILLS_WITH_USAGE_SELECT exists to resolve.
+export function getSkillCostAssociation(db: Database.Database): SkillAssociation {
+  const rows = db
+    .prepare(
+      `WITH priced AS (
+         SELECT sc.session_id, sc.total_cost_usd
+         FROM session_cost sc
+         WHERE ${PRICED_TERMINAL}
+       ),
+       fired AS (
+         SELECT si.skill_name, si.session_id
+         FROM skill_invocations si
+         JOIN priced p ON p.session_id = si.session_id
+       )
+       SELECT
+         f.skill_name AS skillName,
+         sk.id AS skillId,
+         sk.source_type AS sourceType,
+         COUNT(*) AS invocations,
+         COUNT(DISTINCT f.session_id) AS sessions,
+         (SELECT SUM(p2.total_cost_usd)
+            FROM (SELECT DISTINCT f2.session_id FROM fired f2 WHERE f2.skill_name = f.skill_name) d
+            JOIN priced p2 ON p2.session_id = d.session_id) AS estCostUsd
+       FROM fired f
+       LEFT JOIN skills sk ON sk.id = (
+         SELECT s2.id FROM skills s2
+         WHERE s2.name = f.skill_name
+         ORDER BY CASE s2.source_type WHEN 'global' THEN 0 WHEN 'project' THEN 1 ELSE 2 END,
+                  s2.is_synced, s2.id
+         LIMIT 1
+       )
+       GROUP BY f.skill_name
+       ORDER BY estCostUsd DESC, invocations DESC, skillName ASC`
+    )
+    .all() as SkillAssociation['rows']
+
+  const { n } = db
+    .prepare(
+      `WITH priced AS (
+         SELECT sc.session_id FROM session_cost sc WHERE ${PRICED_TERMINAL}
+       )
+       SELECT (SELECT COUNT(*) FROM priced)
+              - (SELECT COUNT(DISTINCT si.session_id)
+                   FROM skill_invocations si
+                   JOIN priced p ON p.session_id = si.session_id) AS n`
+    )
+    .get() as { n: number }
+
+  return { rows, pricedSessionsWithoutSkill: n }
 }
 
 export function getPluginDetail(

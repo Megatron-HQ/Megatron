@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion, useReducedMotion } from 'motion/react'
-import { BarChart3, CircleDollarSign, TriangleAlert } from 'lucide-react'
+import { BarChart3, BrainCircuit, CircleDollarSign, TriangleAlert } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/relative-time'
@@ -11,13 +11,18 @@ import { StatCells } from '@/components/usage/StatCells'
 import { DayStrip } from '@/components/usage/DayStrip'
 import { Punchcard } from '@/components/usage/Punchcard'
 import { RankedList } from '@/components/usage/RankedList'
+import { AssocTable } from '@/components/usage/AssocTable'
 import { SpendBar } from '@/components/usage/SpendBar'
 import { formatCount, formatUsd } from '@/components/usage/chart-utils'
-import type { ActivityWindow, CostStats } from '../../../shared/ipc'
+import type { ActivityWindow, CostStats, SkillAssociation } from '../../../shared/ipc'
 
 type WindowDays = 7 | 30
 
-export function UsageView(): React.JSX.Element {
+export function UsageView({
+  onSelectSkill
+}: {
+  onSelectSkill?: (skillId: number) => void
+}): React.JSX.Element {
   const [windowDays, setWindowDays] = useState<WindowDays>(30)
 
   const { data, isPending, isFetching } = useQuery({
@@ -64,6 +69,7 @@ export function UsageView(): React.JSX.Element {
             <>
               {win && <ActivitySection win={win} />}
               <CostSection cost={data?.cost ?? null} />
+              <SkillsSection skills={data?.skills} onSelectSkill={onSelectSkill} />
             </>
           )}
         </div>
@@ -264,6 +270,90 @@ function CostBody({ cost }: { cost: CostStats }): React.JSX.Element {
   )
 }
 
+// The Skills section (docs/usage-view-ui-spec.md §D). Association, not attribution — see the
+// caption. Scoped to the same priced sessions as Cost; no time window (§3's reserved Skills
+// control stays deferred). Same below-the-fold whileInView entrance as CostSection.
+function SkillsSection({
+  skills,
+  onSelectSkill
+}: {
+  skills: SkillAssociation | undefined
+  onSelectSkill?: (skillId: number) => void
+}): React.JSX.Element | null {
+  const reduceMotion = useReducedMotion() === true
+  if (!skills) return null
+
+  return (
+    <motion.section
+      className="flex flex-col gap-6 border-t border-border py-8"
+      initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.2 }}
+      transition={reduceMotion ? { duration: 0 } : { duration: 0.32, ease: 'easeOut' }}
+    >
+      <h2 className="text-[13px] font-semibold">Skills</h2>
+      {skills.rows.length === 0 ? (
+        <SkillsEmpty noPricedSessions={skills.pricedSessionsWithoutSkill === 0} />
+      ) : (
+        <SkillsBody skills={skills} onSelectSkill={onSelectSkill} />
+      )}
+    </motion.section>
+  )
+}
+
+function SkillsEmpty({ noPricedSessions }: { noPricedSessions: boolean }): React.JSX.Element {
+  return (
+    <div className="flex items-start gap-2 py-4 text-[13px] text-muted-foreground">
+      <BrainCircuit className="mt-0.5 size-4 shrink-0" />
+      <p className="max-w-[520px]">
+        {noPricedSessions
+          ? "No cost-tracked sessions yet, so there's nothing to associate skills with."
+          : 'None of your cost-tracked sessions invoked a skill.'}
+      </p>
+    </div>
+  )
+}
+
+function SkillsBody({
+  skills,
+  onSelectSkill
+}: {
+  skills: SkillAssociation
+  onSelectSkill?: (skillId: number) => void
+}): React.JSX.Element {
+  const n = skills.pricedSessionsWithoutSkill
+  // The strip re-sorts the same rows by invocation volume (the table is est.-cost order).
+  const stripItems = [...skills.rows]
+    .sort((a, b) => b.invocations - a.invocations || a.skillName.localeCompare(b.skillName))
+    .map((row) => ({ label: row.skillName, value: row.invocations, fullLabel: row.skillName }))
+
+  return (
+    <>
+      <ChartBlock label="Most used">
+        <RankedList items={stripItems} formatValue={formatCount} noun="skills" />
+      </ChartBlock>
+
+      <div className="flex flex-col gap-2">
+        <ChartBlock label="By associated spend">
+          <AssocTable rows={skills.rows} onSelectSkill={onSelectSkill} />
+        </ChartBlock>
+
+        <p className="max-w-[520px] text-[11px] text-muted-foreground">
+          Each session is counted under every skill it invoked, so these rows overlap and add up to
+          more than the tracked-window total. This shows which skills tend to run inside expensive
+          sessions — not what a skill &ldquo;costs.&rdquo;
+        </p>
+        {n > 0 && (
+          <p className="max-w-[520px] text-[11px] text-muted-foreground">
+            {n.toLocaleString()} cost-tracked {n === 1 ? 'session' : 'sessions'} invoked no skill
+            and {n === 1 ? "isn't" : "aren't"} shown here.
+          </p>
+        )}
+      </div>
+    </>
+  )
+}
+
 function NoHistory(): React.JSX.Element {
   return (
     <div className="flex flex-col items-center gap-2 py-24 text-center">
@@ -313,6 +403,21 @@ function UsageSkeleton(): React.JSX.Element {
           ))}
         </div>
         <Skeleton className="h-[72px] w-full" />
+      </div>
+
+      <div className="flex flex-col gap-6 border-t border-border py-8">
+        <Skeleton className="h-4 w-14" />
+        <div className="flex flex-col gap-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-5 w-full" />
+          ))}
+        </div>
+        <div className="flex flex-col gap-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-6 w-full" />
+          ))}
+          <Skeleton className="h-3 w-80" />
+        </div>
       </div>
     </div>
   )

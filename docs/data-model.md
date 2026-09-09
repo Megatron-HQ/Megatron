@@ -70,6 +70,11 @@ CREATE TABLE IF NOT EXISTS skill_invocations (
   preceding_user_text TEXT            -- nearest preceding user message; heuristic, nullable —
                                        -- see docs/transcript-ingest.md
 );
+-- Every skill-usage query joins by one of these two columns and the table has no other
+-- non-unique index, so without them SKILLS_WITH_USAGE_SELECT runs a per-skill correlated
+-- subquery over a full scan. Added with the Usage view's Skills section (getSkillCostAssociation).
+CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill_name ON skill_invocations(skill_name);
+CREATE INDEX IF NOT EXISTS idx_skill_invocations_session_id ON skill_invocations(session_id);
 
 CREATE TABLE IF NOT EXISTS plugin_registry (
   name TEXT NOT NULL,
@@ -208,6 +213,14 @@ stored count would need upkeep on every insert/delete and could drift; a live `C
 can. The context budget (`getContextBudget`) is the same shape: `SUM(est_listing_tokens)` at read
 time, not a cached total — filtered to `disabled_reason IS NULL` (see below), since a disabled
 skill costs Claude Code nothing.
+
+The Usage view's Skills section (`getSkillCostAssociation`, PR3) is the same live-query shape,
+joining `skill_invocations ⋈ session_cost` over the priced, lineage-terminal sessions
+`getCostStats` uses. It resolves a `skill_name` to a single `skills.id` by shadowing precedence
+(global > project > synced) before the join — a bare name join fans out `COUNT`/`SUM` on the same
+collisions the precedence rule exists to break. PR4's proportional-attribution rider adds a
+derived `session_skill_cost` table and a `turn_usage.active_skill` column computed at ingest — see
+`docs/usage-analytics.md`.
 
 **`disabled_reason` (added 2026-08-21)**: nullable `TEXT` on `skills`, stamped at Scan time —
 `NULL` when enabled, `'plugin'` when the owning plugin's `enabledPlugins` entry in `settings.json`

@@ -282,7 +282,7 @@ function App(): React.JSX.Element {
               )}
             </>
           ) : (
-            <UsageView />
+            <UsageView onSelectSkill={openDetail} />
           )}
         </div>
       </div>

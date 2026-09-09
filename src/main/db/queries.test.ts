@@ -14,6 +14,7 @@ import {
   getCostStats,
   getPluginDetail,
   getSkillById,
+  getSkillCostAssociation,
   getSkillInvocationLog,
   getSkillUsageDetail,
   insertLintFindings,
@@ -146,6 +147,26 @@ function insertInvocation(overrides: {
     agent_id: overrides.agent_id ?? null,
     preceding_user_text: overrides.preceding_user_text ?? null
   })
+}
+
+function insertSessionCost(
+  sessionId: string,
+  overrides: {
+    total_cost_usd?: number
+    is_zeroed?: 0 | 1
+    continued_in_session_id?: string | null
+  } = {}
+): void {
+  db.prepare(
+    `INSERT INTO session_cost
+       (session_id, total_cost_usd, has_unknown_model_cost, is_zeroed, continued_in_session_id)
+     VALUES (?, ?, 0, ?, ?)`
+  ).run(
+    sessionId,
+    overrides.total_cost_usd ?? 0,
+    overrides.is_zeroed ?? 0,
+    overrides.continued_in_session_id ?? null
+  )
 }
 
 beforeEach(() => {
@@ -2136,5 +2157,173 @@ describe('getCostStats', () => {
     expect(byDay.find((d) => d.date === '2026-08-25')?.costUsd).toBe(50)
     expect(byDay.find((d) => d.date === '2026-09-05')?.costUsd).toBe(30)
     expect(byDay.reduce((sum, d) => sum + d.costUsd, 0)).toBe(180)
+  })
+})
+
+describe('getSkillCostAssociation', () => {
+  // A priced, lineage-terminal session with a cost — the only kind the association counts.
+  function priced(sessionId: string, costUsd: number): void {
+    insertSession(sessionId)
+    insertSessionCost(sessionId, { total_cost_usd: costUsd })
+  }
+
+  function fire(sessionId: string, skillName: string, uuid: string, trigger = 'autonomous'): void {
+    insertInvocation({
+      source_uuid: uuid,
+      session_id: sessionId,
+      skill_name: skillName,
+      trigger_type: trigger
+    })
+  }
+
+  it('returns an empty result when there is no priced session', () => {
+    insertSession('z1')
+    insertSessionCost('z1', { is_zeroed: 1 })
+    fire('z1', 'grill-me', 'u1')
+    expect(getSkillCostAssociation(db)).toEqual({ rows: [], pricedSessionsWithoutSkill: 0 })
+  })
+
+  it('sums whole session cost under a skill fired across two priced sessions', () => {
+    priced('p1', 100)
+    priced('p2', 50)
+    fire('p1', 'grill-me', 'u1')
+    fire('p2', 'grill-me', 'u2')
+
+    expect(getSkillCostAssociation(db).rows).toEqual([
+      {
+        skillName: 'grill-me',
+        skillId: null,
+        sourceType: null,
+        invocations: 2,
+        sessions: 2,
+        estCostUsd: 150
+      }
+    ])
+  })
+
+  it('counts a skill fired twice in one session as 2 invocations / 1 session without doubling cost', () => {
+    priced('p1', 100)
+    fire('p1', 'grill-me', 'u1')
+    fire('p1', 'grill-me', 'u2')
+
+    const [row] = getSkillCostAssociation(db).rows
+    expect(row.invocations).toBe(2)
+    expect(row.sessions).toBe(1)
+    expect(row.estCostUsd).toBe(100)
+  })
+
+  it('resolves a name shared by a global and a project skill to the global row, once', () => {
+    const globalId = insertSkill('deploy', { source_type: 'global', source_path: '/g/deploy' })
+    insertSkill('deploy', {
+      source_type: 'project',
+      source_path: '/p/deploy',
+      project_root: '/repo'
+    })
+    priced('p1', 100)
+    fire('p1', 'deploy', 'u1')
+
+    expect(getSkillCostAssociation(db).rows).toEqual([
+      {
+        skillName: 'deploy',
+        skillId: globalId,
+        sourceType: 'global',
+        invocations: 1,
+        sessions: 1,
+        estCostUsd: 100
+      }
+    ])
+  })
+
+  it('excludes a skill that only fired in a non-terminal lineage segment', () => {
+    priced('p1', 100)
+    insertSession('n1')
+    insertSessionCost('n1', { total_cost_usd: 999, continued_in_session_id: 'p1' })
+    fire('p1', 'kept', 'u1')
+    fire('n1', 'dropped', 'u2')
+
+    expect(getSkillCostAssociation(db).rows.map((r) => r.skillName)).toEqual(['kept'])
+  })
+
+  it('excludes a skill that only fired in a zeroed session', () => {
+    priced('p1', 100)
+    insertSession('z1')
+    insertSessionCost('z1', { is_zeroed: 1 })
+    fire('p1', 'kept', 'u1')
+    fire('z1', 'dropped', 'u2')
+
+    expect(getSkillCostAssociation(db).rows.map((r) => r.skillName)).toEqual(['kept'])
+  })
+
+  it('scopes the invocations column to priced sessions, not lifetime', () => {
+    priced('p1', 100)
+    insertSession('z1')
+    insertSessionCost('z1', { is_zeroed: 1 })
+    fire('z1', 'visual-verify', 'u1')
+    fire('z1', 'visual-verify', 'u2')
+    fire('z1', 'visual-verify', 'u3')
+    fire('p1', 'visual-verify', 'u4')
+    fire('p1', 'visual-verify', 'u5')
+
+    const [row] = getSkillCostAssociation(db).rows
+    expect(row.invocations).toBe(2)
+    expect(row.sessions).toBe(1)
+    expect(row.estCostUsd).toBe(100)
+  })
+
+  it('counts a subagent-triggered invocation', () => {
+    priced('p1', 100)
+    fire('p1', 'visual-verify', 'u1', 'subagent')
+
+    expect(getSkillCostAssociation(db).rows[0]).toMatchObject({
+      skillName: 'visual-verify',
+      invocations: 1,
+      sessions: 1,
+      estCostUsd: 100
+    })
+  })
+
+  it('keeps a row whose skill_name has no skills row, with null skillId / sourceType', () => {
+    priced('p1', 100)
+    fire('p1', 'run', 'u1')
+
+    expect(getSkillCostAssociation(db).rows).toEqual([
+      {
+        skillName: 'run',
+        skillId: null,
+        sourceType: null,
+        invocations: 1,
+        sessions: 1,
+        estCostUsd: 100
+      }
+    ])
+  })
+
+  it('orders by est. cost desc, then invocations desc, then name asc', () => {
+    priced('pA', 100)
+    priced('pB', 100)
+    priced('pC', 50)
+    fire('pC', 'alpha', 'u1')
+    fire('pA', 'zeta', 'u2')
+    fire('pA', 'gamma', 'u3')
+    fire('pB', 'beta', 'u4')
+    fire('pB', 'beta', 'u5')
+
+    expect(getSkillCostAssociation(db).rows.map((r) => r.skillName)).toEqual([
+      'beta', // 100, 2 invocations
+      'gamma', // 100, 1 invocation, name < zeta
+      'zeta', // 100, 1 invocation
+      'alpha' // 50
+    ])
+  })
+
+  it('reports priced sessions that fired no skill', () => {
+    priced('p1', 100)
+    priced('p2', 50)
+    priced('p3', 30)
+    fire('p1', 'grill-me', 'u1')
+
+    const result = getSkillCostAssociation(db)
+    expect(result.pricedSessionsWithoutSkill).toBe(2)
+    expect(result.rows.map((r) => r.skillName)).toEqual(['grill-me'])
   })
 })

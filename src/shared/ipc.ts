@@ -288,9 +288,34 @@ export interface CostStats {
   byDay: CostDay[] // zero-filled, trackedSince → today, ascending
 }
 
+// The Skills section (docs/usage-view-ui-spec.md §D). Association, not attribution: a session
+// that fired N skills is counted under all N, so rows overlap and sum past the tracked-window
+// total. Never captioned "this skill cost $X" (docs/usage-analytics.md Tier 3). Scoped to the
+// same priced, lineage-terminal sessions as CostStats — ignores the 7d/30d toggle.
+export interface SkillAssociationRow {
+  skillName: string
+  // Resolved skills row (global > project > synced precedence) — the click-through target.
+  skillId: number | null
+  // null = no matching skills row (uninstalled / renamed / plugin-not-installed / leaked
+  // built-in like `run`) — the row renders without click-through.
+  sourceType: SourceType | null
+  invocations: number // COUNT(*) within priced-terminal sessions — NOT lifetime
+  sessions: number // distinct priced sessions the skill fired in
+  estCostUsd: number // naive: whole session cost under every skill it fired
+}
+
+export interface SkillAssociation {
+  rows: SkillAssociationRow[]
+  // Priced terminals that invoked zero skills — for the caption. Server-computed: a client
+  // subtraction is wrong because the rows overlap.
+  pricedSessionsWithoutSkill: number
+}
+
 export interface UsageOverview {
   activity: ActivityStats
   // null iff pricedSessionCount === 0 — no session has usable cost-state.
   cost: CostStats | null
+  // Always present; { rows: [], pricedSessionsWithoutSkill: 0 } when cost === null.
+  skills: SkillAssociation
   scanComplete: boolean
 }

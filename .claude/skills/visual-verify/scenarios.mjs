@@ -137,6 +137,17 @@ async function costDataPresent(window) {
 }
 
 /**
+ * The Skills section mirrors Cost's two shapes: the strip + AssocTable body when this machine has
+ * priced `cost-state` history to associate skills with, or the inline empty line when it doesn't
+ * (its `skills` payload is empty exactly when `cost === null`).
+ */
+async function skillsDataPresent(window) {
+  await openUsageSection(window)
+  await window.getByRole('heading', { name: 'Skills' }).scrollIntoViewIfNeeded()
+  return (await window.getByText('Most used', { exact: true }).count()) > 0
+}
+
+/**
  * Scenarios pinned to a skill by name (see the header note above) hard-fail the whole run when
  * that skill is no longer installed, taking every later scenario down with them. Skipping is the
  * same trade already made for disabled-skill scenarios: visible, and scoped to the one scenario.
@@ -750,6 +761,35 @@ export const scenarios = [
     async run(window) {
       await openUsageSection(window)
       await window.getByRole('heading', { name: 'Cost' }).scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // The Skills section with real data — the "most used" strip and the "by associated spend"
+    // AssocTable (ambient est.-cost row-fill, source tags, click-through on installed skills),
+    // plus the association caption. From this machine's own skill_invocations ⋈ cost-state.
+    name: 'skills-section',
+    screen: 'usage',
+    shouldSkip: async (window) =>
+      (await skillsDataPresent(window)) ? null : 'no priced cost-state history on this machine',
+    async run(window) {
+      await openUsageSection(window)
+      await window.getByText('By associated spend', { exact: true }).scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // The Skills section's inline empty state — same machines as cost-section-no-data (the
+    // skills payload is empty exactly when cost === null).
+    name: 'skills-section-no-data',
+    screen: 'usage',
+    shouldSkip: async (window) =>
+      (await skillsDataPresent(window))
+        ? 'cost data present — the empty state does not render'
+        : null,
+    async run(window) {
+      await openUsageSection(window)
+      await window.getByRole('heading', { name: 'Skills' }).scrollIntoViewIfNeeded()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   }
