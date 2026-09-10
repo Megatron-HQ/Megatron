@@ -302,6 +302,11 @@ export interface SkillTrendBucket {
 
 export interface SkillCostAssociation {
   skillName: string
+  // Resolved skills row (global > project > synced precedence) — the click-through target.
+  // null = no matching skills row (uninstalled / renamed / plugin-not-installed / leaked
+  // built-in like `run`); the row renders without click-through.
+  skillId: number | null
+  sourceType: SourceType | null
   sessionCount: number
   trackedSessionCount: number
   associatedCostUsd: number
@@ -323,6 +328,10 @@ export interface SkillStats {
   last24h: SkillStatsWindow
   last7d: SkillStatsWindow
   last30d: SkillStatsWindow
+  // Priced, lineage-terminal sessions that no skill invocation resolves to — for the Skills
+  // caption. Spans all cost-tracked history, NOT the selected window (mirrors getCostStats,
+  // which also ignores the 24h/7d/30d toggle).
+  pricedSessionsWithoutSkill: number
 }
 
 export interface UsageOverview {

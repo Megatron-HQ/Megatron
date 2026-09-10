@@ -18,7 +18,11 @@ import type { ActivityWindow, CostStats } from '../../../shared/ipc'
 
 type WindowDays = 7 | 30
 
-export function UsageView(): React.JSX.Element {
+export function UsageView({
+  onSelectSkill
+}: {
+  onSelectSkill?: (skillId: number) => void
+}): React.JSX.Element {
   const [windowDays, setWindowDays] = useState<WindowDays>(30)
 
   const { data, isPending, isFetching } = useQuery({
@@ -65,7 +69,7 @@ export function UsageView(): React.JSX.Element {
             <>
               {win && <ActivitySection win={win} />}
               <CostSection cost={data?.cost ?? null} />
-              {data?.skills && <SkillsSection stats={data.skills} />}
+              {data?.skills && <SkillsSection stats={data.skills} onSelectSkill={onSelectSkill} />}
             </>
           )}
         </div>

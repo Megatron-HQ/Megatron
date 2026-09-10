@@ -837,7 +837,8 @@ function buildSkillTrend(
 
 function reduceSkillStatsWindow(
   rows: SkillStatsInvocationRow[],
-  costRows: SkillStatsCostRow[],
+  costsBySession: Map<string, SkillStatsCostRow>,
+  skillIndex: Map<string, { id: number; source_type: SourceType }>,
   now: Date,
   window: '24h' | '7d' | '30d',
   days: number
@@ -868,7 +869,6 @@ function reduceSkillStatsWindow(
     const count = triggerCounts.get(trigger_type)
     return count === undefined ? [] : [{ trigger_type, count }]
   })
-  const costsBySession = new Map(costRows.map((row) => [row.session_id, row]))
   const associations = [...skillSessions.entries()]
     .map(([skillName, sessions]) => {
       const pricedTerminals = new Map<string, SkillStatsCostRow>()
@@ -883,8 +883,11 @@ function reduceSkillStatsWindow(
         associatedCostUsd += cost.total_cost_usd
         associatedOutputTokens += cost.output_tokens
       }
+      const skill = skillIndex.get(skillName)
       return {
         skillName,
+        skillId: skill?.id ?? null,
+        sourceType: skill?.source_type ?? null,
         sessionCount: sessions.size,
         trackedSessionCount: pricedTerminals.size,
         associatedCostUsd,
@@ -931,12 +934,57 @@ export function getSkillStats(db: Database.Database, now: Date = new Date()): Sk
        GROUP BY sc.session_id`
     )
     .all() as SkillStatsCostRow[]
+  const costsBySession = new Map(costRows.map((row) => [row.session_id, row]))
+
+  // One winning skills row per name, by the same precedence SKILLS_WITH_USAGE_SELECT resolves
+  // (global > project > synced) — but answering the opposite question: "which row wins for this
+  // bare name" rather than "which row shadows this one". Kept as a separate encoding on purpose;
+  // unifying them would couple two queries with different shapes.
+  const skillIndex = new Map(
+    (
+      db
+        .prepare(
+          `SELECT s1.name, s1.id, s1.source_type FROM skills s1
+           WHERE s1.id = (
+             SELECT s2.id FROM skills s2
+             WHERE s2.name = s1.name
+             ORDER BY CASE s2.source_type WHEN 'global' THEN 0 WHEN 'project' THEN 1 ELSE 2 END,
+                      s2.is_synced, s2.id
+             LIMIT 1
+           )`
+        )
+        .all() as { name: string; id: number; source_type: SourceType }[]
+    ).map((row) => [row.name, { id: row.id, source_type: row.source_type }])
+  )
 
   return {
-    last24h: reduceSkillStatsWindow(rows, costRows, now, '24h', 1),
-    last7d: reduceSkillStatsWindow(rows, costRows, now, '7d', 7),
-    last30d: reduceSkillStatsWindow(rows, costRows, now, '30d', 30)
+    last24h: reduceSkillStatsWindow(rows, costsBySession, skillIndex, now, '24h', 1),
+    last7d: reduceSkillStatsWindow(rows, costsBySession, skillIndex, now, '7d', 7),
+    last30d: reduceSkillStatsWindow(rows, costsBySession, skillIndex, now, '30d', 30),
+    pricedSessionsWithoutSkill: countPricedSessionsWithoutSkill(db, costRows, costsBySession)
   }
+}
+
+// Priced terminals that no skill invocation — over ALL history, not the 30-day slice — resolves
+// to. Reuses resolvePricedTerminal so it stays consistent with the association math: an
+// invocation in an ancestor session credits its terminal, so that terminal is not skill-less.
+function countPricedSessionsWithoutSkill(
+  db: Database.Database,
+  costRows: SkillStatsCostRow[],
+  costsBySession: Map<string, SkillStatsCostRow>
+): number {
+  const pricedTerminalCount = costRows.filter(
+    (row) => row.is_zeroed === 0 && row.continued_in_session_id === null
+  ).length
+  const reachedTerminals = new Set<string>()
+  const sessionIds = db.prepare(`SELECT DISTINCT session_id FROM skill_invocations`).all() as {
+    session_id: string
+  }[]
+  for (const { session_id } of sessionIds) {
+    const cost = resolvePricedTerminal(session_id, costsBySession)
+    if (cost !== null) reachedTerminals.add(cost.session_id)
+  }
+  return pricedTerminalCount - reachedTerminals.size
 }
 
 export function getPluginDetail(

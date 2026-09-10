@@ -150,6 +150,16 @@ function App(): React.JSX.Element {
     setView({ kind: 'detail', skillId })
   }
 
+  function openDetailFromAnywhere(skillId: number): void {
+    // Callers that surface a skill from outside the current filtered list (command palette,
+    // context-budget dialog, cross-skill nav, the Usage view) need the filter cleared, or
+    // "back" from the detail page lands on a list that doesn't contain what was just opened.
+    // Mirrors selectPluginFromPalette. SkillInventory keeps plain openDetail — its rows are
+    // already in-filter, so back should return to that same filtered list.
+    setFilter({ kind: 'all' })
+    openDetail(skillId)
+  }
+
   function handleSectionChange(next: AppSection): void {
     setSection(next)
     void window.api.setLastSection(next)
@@ -222,7 +232,7 @@ function App(): React.JSX.Element {
                 filter={filter}
                 onFilterChange={handleFilterChange}
                 contextBudget={contextBudget}
-                onSelectSkill={openDetail}
+                onSelectSkill={openDetailFromAnywhere}
                 skills={skills}
                 folders={folders}
               />
@@ -232,7 +242,7 @@ function App(): React.JSX.Element {
                   skillId={view.skillId}
                   onBack={() => setView({ kind: 'list' })}
                   onViewFiles={() => setView({ kind: 'files', skillId: view.skillId })}
-                  onNavigate={openDetail}
+                  onNavigate={openDetailFromAnywhere}
                 />
               ) : view.kind === 'files' ? (
                 <SkillFileViewer
@@ -282,7 +292,7 @@ function App(): React.JSX.Element {
               )}
             </>
           ) : (
-            <UsageView />
+            <UsageView onSelectSkill={openDetailFromAnywhere} />
           )}
         </div>
       </div>
@@ -290,7 +300,7 @@ function App(): React.JSX.Element {
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
         skills={skills}
-        onSelect={openDetail}
+        onSelect={openDetailFromAnywhere}
         plugins={plugins}
         onSelectPlugin={selectPluginFromPalette}
       />

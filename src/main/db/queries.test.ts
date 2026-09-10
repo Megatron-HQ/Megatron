@@ -2373,6 +2373,8 @@ describe('getSkillStats', () => {
     expect(getSkillStats(db, NOW).last24h.associations).toEqual([
       {
         skillName: 'alpha',
+        skillId: null,
+        sourceType: null,
         sessionCount: 3,
         trackedSessionCount: 2,
         associatedCostUsd: 15,
@@ -2380,6 +2382,8 @@ describe('getSkillStats', () => {
       },
       {
         skillName: 'beta',
+        skillId: null,
+        sourceType: null,
         sessionCount: 1,
         trackedSessionCount: 1,
         associatedCostUsd: 10,
@@ -2387,6 +2391,8 @@ describe('getSkillStats', () => {
       },
       {
         skillName: 'gamma',
+        skillId: null,
+        sourceType: null,
         sessionCount: 1,
         trackedSessionCount: 0,
         associatedCostUsd: 0,
@@ -2435,6 +2441,8 @@ describe('getSkillStats', () => {
     const associations = getSkillStats(db, NOW).last24h.associations
     expect(associations.find((row) => row.skillName === 'alpha')).toEqual({
       skillName: 'alpha',
+      skillId: null,
+      sourceType: null,
       sessionCount: 1,
       trackedSessionCount: 1,
       associatedCostUsd: 7,
@@ -2447,5 +2455,116 @@ describe('getSkillStats', () => {
         associatedOutputTokens: 0
       })
     }
+  })
+
+  it('resolves an association skillId and sourceType by shadowing precedence', () => {
+    const globalId = insertSkill('alpha', { source_type: 'global' })
+    insertSkill('alpha', {
+      source_type: 'project',
+      project_root: '/repo',
+      source_path: '/repo/.claude/skills/alpha'
+    })
+    insertSession('s1', '2026-09-09T16:00:00.000Z')
+    insertInvocation({
+      uuid: 'a1',
+      sessionId: 's1',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T16:00:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).last24h.associations[0]).toMatchObject({
+      skillName: 'alpha',
+      skillId: globalId,
+      sourceType: 'global'
+    })
+  })
+
+  it('resolves an association to the non-synced skill when a synced skill shares the name', () => {
+    const globalId = insertSkill('alpha', { source_type: 'global', is_synced: 0 })
+    insertSkill('alpha', {
+      source_type: 'global',
+      is_synced: 1,
+      source_path: '/synced/alpha'
+    })
+    insertSession('s1', '2026-09-09T16:00:00.000Z')
+    insertInvocation({
+      uuid: 'a1',
+      sessionId: 's1',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T16:00:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).last24h.associations[0]).toMatchObject({
+      skillId: globalId,
+      sourceType: 'global'
+    })
+  })
+
+  it('reports null skillId and sourceType when no skills row matches the invocation name', () => {
+    insertSession('s1', '2026-09-09T16:00:00.000Z')
+    insertInvocation({
+      uuid: 'g1',
+      sessionId: 's1',
+      skillName: 'ghost',
+      invokedAt: '2026-09-09T16:00:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).last24h.associations[0]).toMatchObject({
+      skillName: 'ghost',
+      skillId: null,
+      sourceType: null
+    })
+  })
+
+  it('counts priced terminals that no skill resolves to as pricedSessionsWithoutSkill', () => {
+    insertSession('with-skill', '2026-09-09T14:00:00.000Z')
+    insertSession('no-skill', '2026-09-09T15:00:00.000Z')
+    insertCost({ sessionId: 'with-skill', totalCostUsd: 10 })
+    insertCost({ sessionId: 'no-skill', totalCostUsd: 5 })
+    insertInvocation({
+      uuid: 'a1',
+      sessionId: 'with-skill',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T14:05:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).pricedSessionsWithoutSkill).toBe(1)
+  })
+
+  it('excludes a priced terminal from the skill-less count when its only invocation predates the 30-day window', () => {
+    insertSession('old', '2026-07-26T17:00:00.000Z')
+    insertCost({ sessionId: 'old', totalCostUsd: 5 })
+    insertInvocation({
+      uuid: 'old-1',
+      sessionId: 'old',
+      skillName: 'alpha',
+      invokedAt: '2026-07-26T17:00:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).pricedSessionsWithoutSkill).toBe(0)
+  })
+
+  it('does not count non-terminal or zeroed sessions toward the skill-less count', () => {
+    insertSession('non-terminal', '2026-09-09T14:00:00.000Z')
+    insertSession('zeroed', '2026-09-09T15:00:00.000Z')
+    insertCost({ sessionId: 'non-terminal', totalCostUsd: 3, continuedInSessionId: 'gone' })
+    insertCost({ sessionId: 'zeroed', totalCostUsd: 0, isZeroed: 1 })
+
+    expect(getSkillStats(db, NOW).pricedSessionsWithoutSkill).toBe(0)
+  })
+
+  it('does not count a terminal reached only through an ancestor invocation as skill-less', () => {
+    insertSession('ancestor', '2026-09-09T14:00:00.000Z')
+    insertSession('terminal', '2026-09-09T15:00:00.000Z')
+    insertCost({ sessionId: 'ancestor', totalCostUsd: 3, continuedInSessionId: 'terminal' })
+    insertCost({ sessionId: 'terminal', totalCostUsd: 7 })
+    insertInvocation({
+      uuid: 'anc-1',
+      sessionId: 'ancestor',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T14:05:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).pricedSessionsWithoutSkill).toBe(0)
   })
 })

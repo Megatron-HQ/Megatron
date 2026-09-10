@@ -758,13 +758,73 @@ export const scenarios = [
   },
   {
     // PR3's default 30-day Skills section: its own window control, stat cells, trend,
-    // ranked skill/trigger lists, and the start of the session-association ledger.
+    // ranked skill/trigger lists, and the session-association ledger — including the
+    // restored ambient cost row-fill, per-row source tags, and skill-name links.
     name: 'usage-skills-default',
     screen: 'usage',
     async run(window) {
       await openUsageSection(window)
       await window.getByRole('heading', { name: 'Skills' }).scrollIntoViewIfNeeded()
       await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // Restored click-through: an installed skill's row links to its detail page (skillId
+    // resolved by shadowing precedence); uninstalled-skill rows stay plain text. Landing on
+    // SkillDetail also proves the section auto-switches to Skills and the filter is cleared.
+    name: 'usage-skills-association-clickthrough',
+    screen: 'usage',
+    shouldSkip: async (window) => {
+      await openUsageSection(window)
+      const links = window
+        .getByRole('heading', { name: 'Skills' })
+        .locator('xpath=ancestor::section')
+        .getByRole('table')
+        .getByRole('button')
+      return (await links.count()) === 0
+        ? 'no installed skills in the association table on this machine'
+        : null
+    },
+    async run(window) {
+      await openUsageSection(window)
+      const link = window
+        .getByRole('heading', { name: 'Skills' })
+        .locator('xpath=ancestor::section')
+        .getByRole('table')
+        .getByRole('button')
+        .first()
+      await link.scrollIntoViewIfNeeded()
+      await link.click()
+      await window.getByRole('button', { name: 'Back to skills' }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // TextLink's underline sweep must span only the skill name, not the whole (wide) table
+    // cell — the link shrink-wraps its text. At-rest capture shows nothing, so hover it.
+    name: 'usage-skills-association-link-hover',
+    screen: 'usage',
+    shouldSkip: async (window) => {
+      await openUsageSection(window)
+      const links = window
+        .getByRole('heading', { name: 'Skills' })
+        .locator('xpath=ancestor::section')
+        .getByRole('table')
+        .getByRole('button')
+      return (await links.count()) === 0
+        ? 'no installed skills in the association table on this machine'
+        : null
+    },
+    async run(window) {
+      await openUsageSection(window)
+      const link = window
+        .getByRole('heading', { name: 'Skills' })
+        .locator('xpath=ancestor::section')
+        .getByRole('table')
+        .getByRole('button')
+        .first()
+      await link.scrollIntoViewIfNeeded()
+      await link.hover()
     }
   },
   {
@@ -783,8 +843,9 @@ export const scenarios = [
     }
   },
   {
-    // The Tier-3 table must keep the association-not-attribution disclosure and all numeric
-    // columns readable at both window sizes and in dark mode.
+    // The Tier-3 table must keep the association-not-attribution disclosure, the skill-less
+    // sessions caption, the ambient cost row-fill, and all numeric columns readable at both
+    // window sizes and in dark mode.
     name: 'usage-skills-association-dark',
     screen: 'usage',
     async run(window) {

@@ -100,7 +100,13 @@ function SkillStat({
   )
 }
 
-export function SkillsSection({ stats }: { stats: SkillStats }): React.JSX.Element {
+export function SkillsSection({
+  stats,
+  onSelectSkill
+}: {
+  stats: SkillStats
+  onSelectSkill?: (skillId: number) => void
+}): React.JSX.Element {
   const reduceMotion = useReducedMotion() === true
   const [windowKey, setWindowKey] = useState<SkillStatsWindowKey>('30d')
   const window = selectedWindow(stats, windowKey)
@@ -172,7 +178,11 @@ export function SkillsSection({ stats }: { stats: SkillStats }): React.JSX.Eleme
       </ChartBlock>
 
       <ChartBlock label="Session association" empty={empty} emptyMessage={emptyMessage}>
-        <SkillAssociationTable rows={window.associations} />
+        <SkillAssociationTable
+          rows={window.associations}
+          pricedSessionsWithoutSkill={stats.pricedSessionsWithoutSkill}
+          onSelectSkill={onSelectSkill}
+        />
       </ChartBlock>
     </motion.section>
   )

@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS skill_invocations (
 
 -- The table has no non-unique index otherwise (only the source_uuid autoindex), so every
 -- skill-usage query full-scans it: SKILLS_WITH_USAGE_SELECT runs a correlated subquery per
--- skill, and getSkillCostAssociation joins by both columns. Added with the Usage Skills section.
+-- skill, and getSkillStats reads by skill_name and session_id. Added with the Usage Skills section.
 CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill_name ON skill_invocations(skill_name);
 CREATE INDEX IF NOT EXISTS idx_skill_invocations_session_id ON skill_invocations(session_id);
 
