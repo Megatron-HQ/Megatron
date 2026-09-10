@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS skill_invocations (
 );
 -- Every skill-usage query joins by one of these two columns and the table has no other
 -- non-unique index, so without them SKILLS_WITH_USAGE_SELECT runs a per-skill correlated
--- subquery over a full scan. Added with the Usage view's Skills section (getSkillCostAssociation).
+-- subquery over a full scan. Added with the Usage view's Skills section (getSkillStats).
 CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill_name ON skill_invocations(skill_name);
 CREATE INDEX IF NOT EXISTS idx_skill_invocations_session_id ON skill_invocations(session_id);
 
@@ -214,11 +214,14 @@ can. The context budget (`getContextBudget`) is the same shape: `SUM(est_listing
 time, not a cached total — filtered to `disabled_reason IS NULL` (see below), since a disabled
 skill costs Claude Code nothing.
 
-The Usage view's Skills section (`getSkillCostAssociation`, PR3) is the same live-query shape,
-joining `skill_invocations ⋈ session_cost` over the priced, lineage-terminal sessions
-`getCostStats` uses. It resolves a `skill_name` to a single `skills.id` by shadowing precedence
-(global > project > synced) before the join — a bare name join fans out `COUNT`/`SUM` on the same
-collisions the precedence rule exists to break. PR4's proportional-attribution rider adds a
+The Usage view's Skills section (`getSkillStats`, PR3) is the same live-query shape: it reads
+`skill_invocations` (windowed) and `session_cost` / `session_model_cost` (all history) and
+reduces in TypeScript. Each invocation's session is resolved forward through
+`continued_in_session_id` to its priced, lineage-terminal session (`resolvePricedTerminal`, the
+same lineage rule `getCostStats` applies), then associated once per skill. A `skill_name` resolves
+to a single `skills.id` for click-through by shadowing precedence (global > project > synced) — a
+separate encoding of the same rule `SKILLS_WITH_USAGE_SELECT` uses, answering "which row wins for
+this name" rather than "which row shadows this one". PR4's proportional-attribution rider adds a
 derived `session_skill_cost` table and a `turn_usage.active_skill` column computed at ingest — see
 `docs/usage-analytics.md`.
 

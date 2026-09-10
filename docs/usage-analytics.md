@@ -14,9 +14,23 @@ section, its page frame, and the Activity retrospective over `~/.claude/history.
 **PR2 — Cost — landed**: `cost-state` ingest (`session_cost` / `session_model_cost`, riding the
 existing transcript walk) and the Cost section of the Usage view. **PR3 — Skills — landed**
 (2026-09-09): 24h/7d/30d skill activity, trigger mix, trends, and the explicitly non-attributive
-session association table. Renderer decisions for the whole Usage view are locked in
+session association table (`getSkillStats`, `skill_invocations` ⋈ `session_cost`, no new ingest) —
+association rows click through to skill detail, and a section caption reports priced sessions that
+fired no skill. Renderer decisions for the whole Usage view are locked in
 **`docs/usage-view-ui-spec.md`**. PR4–5 (Model & effort, Resident tax) are still design-only, each
 with its own plan-mode pass.
+
+**Canonical PR sequence** (reconciles the build-order table below and `usage-view-ui-spec.md`,
+which have historically disagreed on numbering — the build-order `#` is a dependency order, not a
+PR number):
+
+| PR  | Scope                                                                          | Status      |
+| --- | ----------------------------------------------------------------------------- | ----------- |
+| PR1 | Activity                                                                       | ✅ landed   |
+| PR2 | Cost                                                                           | ✅ landed   |
+| PR3 | Skills section — 24h/7d/30d activity, trend, trigger mix, association table    | ✅ landed   |
+| PR4 | `turn_usage` + Model & effort section + the proportional-attribution rider     | design-only |
+| PR5 | Resident tax — attachment parsing, fresh-session detection                     | design-only |
 
 **Implementation:** usage extraction in `src/main/ingest/` (riding `transcript-scanner.ts`'s
 existing walk), derived-cache tables in `src/main/db/`, and a new top-level renderer view.
@@ -293,7 +307,7 @@ Everything considered, by robustness. The first cut is Tier 1 + the Tier 3 assoc
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | **Activity**              | sessions, messages, active days, prompts/day, busiest hours & weekdays, per-project split                                        | `history.jsonl` + `sessions_meta`                                                                              |
 | **Cost (tracked window)** | per-session $ cards, window total, per-model $ split, per-project $ ranking                                                      | `cost-state` verbatim — lineage-collapsed, last-line-only                                                      |
-| **Skill activity**        | invocations over 24 h / 7 d / 30 d, top skills, trend, user-invoked vs autonomous vs subagent                                    | `skill_invocations` (already ingested)                                                                         |
+| **Skill activity**        | invocations over 24 h / 7 d / 30 d, top skills, trend, user-invoked vs autonomous vs subagent, plus the Tier-3 association table  | `skill_invocations` (already ingested) ⋈ `session_cost` for the association table                              |
 | **Model & effort mix**    | which model served your turns, `xhigh`/`high`/`medium`/`low` distribution                                                        | per-turn `model` / `effort` — **counts, not sums**                                                             |
 | **Resident context tax**  | measured total from a fresh session's turn-1 context + the itemizable parts (skill listing, hooks, MCP instructions — all exact) | turn-1 `cache_creation_input_tokens` + `skill_listing` / `hook_success` / `mcp_instructions_delta` attachments |
 
@@ -312,8 +326,35 @@ attribution**:
 
 > "Sessions that invoked `visual-verify`: 12 sessions · $18 est. · 40 turns · 2.1 M output tok"
 
-✅ **in the first cut** as a labelled association table — it rides `skill_invocations` ⋈
-`cost-state`, no new ingest. It must **never** be captioned "this skill cost you $18."
+✅ **landed as PR3** — a labelled association table (`getSkillStats`), riding
+`skill_invocations` ⋈ `session_cost`, no new ingest, plus two `skill_invocations` indexes.
+Columns: Skill · Tracked / all sessions · Output tokens · Associated cost. It must **never** be
+captioned "this skill cost you $18"; the section caption states the double-counting mechanism,
+never a ratio.
+
+**Ceilings accepted in PR3:**
+
+- **Naive column sums past the real total** (a $200 tracked window can show ~$290 across the
+  rows) — a session firing N skills is counted under all N. The caption states the mechanism;
+  it never prints the overlap ratio. PR4's rider replaces this with proportional attribution.
+- **Association numbers are windowed by invocation date** (24h / 7d / 30d), but
+  `pricedSessionsWithoutSkill` — the "N sessions fired no skill" caption count — spans **all**
+  cost-tracked history, like `getCostStats`, which also ignores the toggle. Both are stated in
+  the caption.
+- **Lineage-forward resolution, not a drop.** An invocation that lands only in a non-terminal
+  session is resolved forward through `continued_in_session_id` to its priced terminal and
+  credited there (`resolvePricedTerminal`). This is the deliberate replacement for PR2-era
+  `getSkillCostAssociation`'s inner-join drop; it keeps the association consistent with how
+  `getCostStats` treats lineages.
+- **A session with no usable cost lineage** (zeroed terminal, broken or cyclic `continued-in`
+  chain, or no `cost-state` at all — the ~180 pre-feature sessions) still counts toward
+  invocation totals, but contributes nothing to associated $ or output tokens.
+- **Subagent-triggered invocations count** (no `trigger_type` filter) — they carry the parent
+  session's `session_id`, so they associate with the parent's cost.
+- **`skill_name` values with no `skills` row** (`run`, `dataviz`, `doctor`, `statusline`, leaked
+  built-ins / uninstalled / renamed skills) still appear, with `skillId: null` — rendered without
+  click-through. Installed names resolve to a single row by shadowing precedence
+  (global > project > synced), the same rule `SKILLS_WITH_USAGE_SELECT` encodes.
 
 ### Tier 4 — needs the 2b capture layer
 
@@ -342,12 +383,16 @@ Tier 1 + the Tier 3 association table. **Not** Tier 2 (dedup risk spent on "huh,
 
 ### Build order
 
+This table is the original **dependency**-ordered work breakdown; its `#` column is not the PR
+number. The **Status** column maps each row to the canonical PR sequence at the top of this doc.
+
 | #   | Work                                                                                                                                                                                                                                                                                                                                                                                                                      | Unlocks                          | Status      |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | ----------- |
 | 1   | `session_cost` + `session_model_cost` (one row per priced session / per-model), populated by the existing `scanTranscripts` walk — `extractCostState` on main transcripts only, `toModelCostRows` projection, one `transcript_parser_version` bump. `getCostStats` collapses `continued-in` lineages and drops zeroed rows at query time. Fixture-snapshot guards the JSON shape. **No `turn_usage`** — deferred past PR2 | Cost panel                       | ✅ PR2      |
-| 2   | `history.jsonl` ingest + reuse `skill_invocations`                                                                                                                                                                                                                                                                                                                                                                        | Activity + Skills + Tier-3 table | ✅ PR1 + PR3 |
-| 3   | Attachment parsing (`skill_listing`, `hook_success`, `mcp_instructions_delta`) + fresh-session detection                                                                                                                                                                                                                                                                                                                  | Resident-tax panel               | design-only |
-| 4   | `turn_usage` table (intra-session shape: context-growth curve, per-turn model/effort) — its own PR, sequenced after Cost since it adds nothing to the Cost panel                                                                                                                                                                                                                                                          | Model & effort panel             | deferred    |
+| 2a  | `history.jsonl` ingest + `prompt_history`                                                                                                                                                                                                                                                                                                                                                                                 | Activity section                 | ✅ PR1      |
+| 2b  | Reuse `skill_invocations` ⋈ `session_cost` (`getSkillStats`) + two `skill_invocations` indexes                                                                                                                                                                                                                                                                                                                            | Skills section + Tier-3 table     | ✅ PR3      |
+| 3   | Attachment parsing (`skill_listing`, `hook_success`, `mcp_instructions_delta`) + fresh-session detection                                                                                                                                                                                                                                                                                                                  | Resident-tax panel               | design-only (PR5) |
+| 4   | `turn_usage` table (intra-session shape: context-growth curve, per-turn model/effort) + the proportional-attribution rider below — its own PR, sequenced after Skills since the naive association ships without it                                                                                                                                                                                                            | Model & effort panel + honest per-skill $ | design-only (PR4) |
 | 5   | The "Usage" view assembling all sections                                                                                                                                                                                                                                                                                                                                                                                  | ship                             | in progress |
 
 Step 3 is the only genuinely new parsing and the most on-identity panel (it's the existing
@@ -387,6 +432,42 @@ CREATE TABLE IF NOT EXISTS turn_usage (
 Session $ / token rollups are a query-time `GROUP BY` (`getCostStats` in `src/main/db/queries.ts`)
 over the `session_cost` / `session_model_cost` ingest that reads `cost-state` verbatim (rows
 absent for the ~180 pre-feature sessions). Not stored denormalized.
+
+### PR4 rider — proportional per-skill cost attribution (designed, built with `turn_usage`)
+
+**Not built.** PR3's Skills section ships the *naive* association (whole terminal-session cost
+under every skill that fired anywhere in its lineage — rows overlap, caption states the
+mechanism). This is the accurate replacement, depending on per-turn data, so it lands with
+`turn_usage` in PR4. Verified against the real `~/.claude`: it splits each session's real
+`cost-state` per-model total across turns by output-token weight, sums back to the true total,
+and yields an honest "general work" bucket.
+
+- **Weight:** for each model M in a session, split `cost-state.modelUsage[M].costUSD` across M's
+  turns by `output_tokens` weight; attribute each turn to its active skill; sum per skill across
+  models. **No price table, no multiplier guesses** — a new model only needs its `costUSD` present.
+- **Subagent turns included:** walk `subagents/*.jsonl`, weight the same way. A subagent turn's
+  active skill = the skill(s) invoked in that agent file (`skill_invocations.agent_id` join); none
+  → "general work". This is what stops subagent-run skills (`visual-verify`, `impeccable`) from
+  dumping their cost into the general bucket (measured: 19% of tracked spend fell there with a
+  main-chain-only prototype).
+- **Active-skill resolution:** per-turn `attributionSkill` when present (ground truth); else the
+  last `Skill` tool_use / slash trigger, sticky until the next. **Documented ceiling:** over-credits
+  a fire-and-return skill for the turns after it; degrades as skill density rises.
+- **Lineage:** attribute at the turn's own session, then roll turns up to the priced terminal the
+  same way PR3's `resolvePricedTerminal` does — so the per-skill split and the whole-session
+  association agree on which terminal owns a lineage's cost.
+- **Storage:** derived table `session_skill_cost (session_id, skill_name, est_cost_usd)` written
+  during `scanTranscripts` (same pattern as `session_cost`); `skill_name = NULL` sentinel = general
+  work. `turn_usage.active_skill TEXT` computed at ingest (same "compute once" pattern as
+  `prompt_history.is_slash_command`). Parser-version bump on those semantics.
+- **Presentation:** replaces PR3's naive Associated-cost column; adds a "General work (no skill
+  active)" row; **drops** the overlap caption (columns now sum to the tracked total) → replaced by
+  an "estimated share · method" note.
+- **Scale guards (open for PR4's own plan):** `turn_usage(session_id)` + `turn_usage(active_skill)`
+  indexes; a **memory ceiling on the per-turn walk** — a heavy user's single-session transcript can
+  be tens–hundreds of MB read whole; decide streaming line-parse vs. a size threshold above which
+  per-turn extraction is skipped (session keeps naive treatment). Needs the one-time backfill
+  measurement flagged in Open questions below.
 
 ### Cost ingest rules (restating the hazards as procedure) — **as shipped, PR2**
 
@@ -447,7 +528,7 @@ absent for the ~180 pre-feature sessions). Not stored denormalized.
 | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | **Tier 2 panels** (token volume, cache efficiency, growth curve, tool distribution) | Each needs a careful anti-double-count dedup of per-turn `usage` and _still_ ships with a hedge badge — risk + permanent caveat copy spent on "huh, neat" numbers | Tier 1 is live and a specific Tier 2 number is actually wanted for a decision                          |
 | **Tier 4 / the tool-schema cut list**                                               | Needs 2b — the capture layer. Sequenced, not cut                                                                                                                  | 2a proves the feature earns repeat opens                                                               |
-| **True per-skill cost attribution**                                                 | Session cost isn't decomposable into co-occurring skills. The Tier-3 association table is the honest ceiling                                                      | Only if per-request skill attribution becomes available in local data                                  |
+| **True per-skill cost attribution**                                                 | Session cost isn't cleanly decomposable into co-occurring skills. PR3's association table is the honest ceiling until then; the **PR4 rider** (proportional per-turn split) is the designed approximation, gated on `turn_usage` | `turn_usage` lands (PR4)                                                                                |
 | **Lifetime cost total**                                                             | Version gate (53/234 sessions) + the double-count hazards. "Tracked since Aug 2026" + excluded count instead                                                      | `cost-state` coverage becomes near-complete as old sessions age out                                    |
 | **Rate-limit window %** (the actual `/usage` view)                                  | Server-side. Not in local files                                                                                                                                   | Never, unless CC starts writing plan-limit state locally                                               |
 | **Bottom-up token pricing** (a price table + estimator)                             | Strictly worse than `cost-state`: less accurate, breaks every model release, and is where all the accounting bugs live                                            | A hard requirement for full historical dollar coverage emerges — treat as its own dedup-design project |
