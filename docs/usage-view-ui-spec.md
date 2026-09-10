@@ -11,6 +11,31 @@ implemented 2026-09-09 (PR3) and its spec (§S) reconciled with the shipped code
 Design system base: `DESIGN.md` ("Inventory Ledger"). Departures are listed explicitly per
 section (§8, §C10, §S7).
 
+## 0. Navigation amendment (2026-09-10)
+
+This amendment supersedes the earlier stacked-page decisions in §§2–3, C, and S wherever they
+conflict:
+
+- Usage now has the same **220px secondary-sidebar shell** as Skills and Plugins. Its completed
+  destinations are **Activity**, **Cost**, and **Skills**, each with a matching lucide icon. There
+  are no counts, groups, project filters, overview item, or placeholders for unfinished work.
+- Exactly one Usage panel renders at a time. The selected panel name and icon occupy the pinned
+  main header; panel bodies do not repeat a heading above their content. Switching panels resets
+  the content scroll to the top and uses a 150ms opacity-only crossfade (instant under reduced
+  motion).
+- Activity is the fresh-launch default. The selected panel and each panel's chosen window persist
+  while the app is running, including across AppRail section changes.
+- **Activity:** 24 hours / 7 days / 30 days, default 30 days. The 24-hour window is an exact rolling
+  cutoff and replaces the calendar strip + weekday/hour punchcard with 24 chronological hourly
+  prompt buckets; stats and by-project remain.
+- **Cost:** all tracked history, with no window control.
+- **Skills:** 24 hours / 7 days / 30 days, default 30 days.
+- `Updated …` appears in every panel header. Content remains left-aligned and capped at 960px.
+- An installed skill opened from Usage → Skills returns to Usage → Skills when its detail Back
+  control is used. Detail opened from the inventory continues to return to the inventory.
+- The name remains **Usage**. Future PR4/PR5/Tier 2 panels are added only after their features are
+  implemented.
+
 ---
 
 ## 1. AppRail entry
@@ -28,9 +53,9 @@ section (§8, §C10, §S7).
 
 ### 2.1 Structure
 
-`App.tsx`'s binary `section === 'skills' ? … : …` becomes a three-way branch. The `usage` branch
-renders **`<AppRail/> + <UsageView/>` with no sidebar** — the first section without one. The
-`skills` and `plugins` branches must render byte-identical to today (plan decision 7).
+`App.tsx`'s section branch renders **`<AppRail/> + <UsageSidebar/> + <UsageView/>`** for Usage.
+`UsageSidebar` is 220px and follows the same dimensions, row treatment, and acid-lime selected
+state as the Skills and Plugins sidebars.
 
 `<UsageView>` outer shell **mirrors `SkillInventory`'s exactly**:
 
@@ -50,21 +75,15 @@ Scroll position **resets to top** on section switch (branch swap → remount). A
 
 | Side  | Content                                                                                                                                                                                                                                    |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Left  | `[BarChart3 size-3.5] Usage` — 13px/600 ledger-ink. **No "Claude Code" prefix** (that prefix earns its place on Skills/Plugins because they inventory Claude Code's assets across sources; Usage is unambiguously the user's own history). |
-| Right | **7d/30d segmented toggle** (§3), then a muted `Updated 2h ago` derived from `activity.generatedAt`. The "updating…" pulse keys off a refetch being in flight _after the first successful load_ (poll-until-`scanComplete`, see §6).       |
+| Left  | The selected panel's 14px lucide icon + **Activity**, **Cost**, or **Skills** in 13px/600 ledger-ink. No generic Usage title and no duplicate body heading. |
+| Right | The selected panel's window control when applicable (§3), then a muted `Updated 2h ago` derived from `activity.generatedAt`. The updating pulse keys off a refetch after the first successful load. |
 
 ### 2.3 Section model
 
-The page is a flat vertical scroll of stacked sections. Fixed order, top→bottom:
-
-1. **Activity** (PR1)
-2. Cost _(PR2)_
-3. Model & effort _(PR4)_
-4. Skills _(PR3)_
-5. Resident tax _(PR5)_
-
-Activity is first because it is the zero-caveat, always-populated section — every user has
-`history.jsonl`; only ~22% have cost data.
+The sidebar exposes one destination per completed feature: **Activity** (PR1), **Cost** (PR2), and
+**Skills** (PR3). Selecting one unmounts the prior panel and renders only the selected panel.
+Activity is selected by default. Model & effort (PR4), Resident tax (PR5), Tier 2 work, and other
+future panels stay absent until implemented.
 
 **Anatomy of one section:**
 
@@ -99,25 +118,17 @@ Prompts, sessions, active days     ← optional 11px muted subtitle (Activity: D
 
 ---
 
-## 3. 7d / 30d toggle
+## 3. Panel window controls
 
-- **Placement:** right side of the pinned header, before "Updated".
+- **Placement:** right side of the pinned panel header, before "Updated".
 - **Style:** segmented control **identical to `SettingsDialog`'s appearance switch** —
   `role="radiogroup"`, 1px `border-border` wrapper, active item `bg-muted text-foreground`
-  (ink-fill, **not lime**), inactive `text-muted-foreground`. Two options, labels **"7 days" /
-  "30 days"** (words, not "7d").
+  (ink-fill, **not lime**), inactive `text-muted-foreground`.
 - **Default: 30 days.** (One-line change to open on 7.)
-- **Scope: page-global**, governs the windowed sections — Activity now; Model & effort when it
-  lands. Three carve-outs by design:
-  - **Cost ignores the toggle** — it spans the whole cost-tracked window (§C, resolved in the PR2
-    grill; `getCostStats` takes no window arg).
-  - **Skills section brings its own inline control** — it needs _24h_ / 7d / 30d (a different
-    option set per `usage-analytics.md`), so it owns that control rather than distorting the
-    global one. Its `pricedSessionsWithoutSkill` caption count still spans all history, like Cost.
-  - **Resident tax** is a single dated sample — no window, ignores the toggle.
-- **Note for megatron-6b:** if Cost turns out to be "all tracked history since Aug 2026" rather
-  than a 7/30 cut, Cost should simply not respond to the toggle and say so in its subtitle — do
-  **not** add a third "All" option to the toggle for one section.
+- **Activity and Skills:** independent **"24 hours" / "7 days" / "30 days"** controls. Each
+  selection survives panel and AppRail switches during the current app session.
+- **Cost:** no control; it spans the entire cost-tracked window and `getCostStats` takes no window
+  argument.
 
 ---
 
@@ -179,6 +190,11 @@ a `<HeatCell>` grid, shared axis/label helpers. ~100–150 lines total.
 
 Single column, everything full-width, stacked in this order. No side-by-side (960px can't pair
 any two without cramping).
+
+For 7- and 30-day windows, the established order below is unchanged. For the exact rolling
+24-hour window, keep the stat cells and by-project list, replace By day with **By hour** using 24
+chronological zero-filled ISO-hour buckets, and omit By time of day. The active-day stat remains
+the count of local calendar days represented inside that rolling window.
 
 ### 5.1 Stat cells
 
@@ -336,7 +352,8 @@ Sizes visual-verify checks (read live from `src/main/index.ts`): **default 1200�
 | 4   | **Two new monochrome ink tokens** (`--usage-bar`, `--usage-bar-quiet`) + a **quantile opacity scale** for the punchcard           | `DESIGN.md` gives lime=reserved and flags=status-only with no neutral data ink. Both additions stay inside the "near-monochrome" discipline — no hue, no second accent.                                                                                                    |
 | 5   | **Charts animate on enter / scrub / window-switch** more than most surfaces                                                       | Covered by the existing Motion-Earns-Its-Keep Rule ("not fixed to today's call sites, can grow into new surfaces as they earn it"). All guarded by `useReducedMotion()`.                                                                                                   |
 
-Not departures: no sidebar on Usage (Plugins already runs without its own in the DESIGN.md text),
+Not departures: the 220px secondary sidebar uses the same shell and selected-row treatment as the
+other sections,
 ink-fill rail active state (unchanged), Ledger-Lies-Flat (no cards, no rest shadows — floating
 tooltips may cast one), every-signal-paired-with-icon (charts carry labels/axes, not color-alone
 status).
@@ -350,7 +367,7 @@ status).
    `byHour`/`byWeekday` from it._ `byDay[]` entries also carry `weekday: number` (0 = Sunday,
    server-computed) — the renderer uses that for the weekend band, never re-parsing `date`.
 2. `AppSection` gets `'usage'`; `AppRail` `SECTIONS` gets the `BarChart3` entry, third.
-3. `App.tsx` binary branch → three-way; `usage` = rail + `<UsageView/>`, no sidebar.
+3. `App.tsx` section branch → `usage` = rail + `<UsageSidebar/>` + `<UsageView/>`.
 4. `resolveInitialSection` enum-hardening.
 5. `usage:overview` returns **`{ activity, scanComplete }`**; `activity` carries both `last7d` and
    `last30d` (renderer toggles client-side) plus `generatedAt`. Poll-until-`scanComplete` at 750ms,
@@ -362,7 +379,7 @@ status).
 
 # C. Cost section (PR2)
 
-**Scope:** the second section in the Usage scroll — the tracked-window headline, the per-model
+**Scope:** the standalone Cost panel selected from the Usage sidebar — the tracked-window headline, the per-model
 spend breakdown, per-project ranking, and per-day shape. Per-session `$` cards are **deferred**
 (a session-centric view is out of scope, per `usage-analytics.md`).
 
@@ -391,7 +408,7 @@ interface CostStats {
 edge: a pre-`trackedSince` session that also has a zeroed row counts in `preTrackingSessionCount`,
 date wins; ~0 real cases.)
 
-Cost **ignores the global 7d/30d toggle** — it shows the entire cost-tracked window. That window
+Cost has **no window toggle** — it shows the entire cost-tracked window. That window
 is self-bounding: `cost-state` lives in transcripts, which Claude Code prunes at
 `cleanupPeriodDays` (default 30), so once we are 30+ days past the Aug-2026 feature epoch
 `trackedSince` becomes a rolling `now − cleanupPeriodDays`. Normally ≤ ~30 days; longer only for a
@@ -847,7 +864,7 @@ by-model charts` to its parenthetical list.
 
 # S. Skills section (PR3)
 
-**Scope:** the section in the Usage scroll rendered directly after Cost (slot 3 as built; §2.3) —
+**Scope:** the standalone Skills panel selected from the Usage sidebar (§2.3) —
 a 24h/7d/30d activity readout (stat cells + invocation trend + two `RankedList`s) and a "Session
 association" table. **Association, not attribution** (`usage-analytics.md` Tier 3): the table
 shows which skills tend to run inside expensive sessions; it must never read as "this skill cost
@@ -916,16 +933,15 @@ Association, not attribution. Each session is counted …     ← caption ABOVE 
 [ SkillAssociationTable ]     (§S3)
 ```
 
-Vertical rhythm, the 960px rule-line, `px-6`, and the empty/loading gate inherit §2.3–2.4 / §6.
-Section entrance is the `whileInView` / `viewport={{ once: true }}` below-fold treatment from
-§4.2 / §C7 — `initial={{ opacity: 0, y: 8 }}`, 320ms `easeOut`, `useReducedMotion()` guard.
+Vertical rhythm, the 960px content cap, `px-6`, and the empty/loading gate inherit §2.3–2.4 / §6.
+The panel switch owns the 150ms opacity crossfade, so the Skills body has no separate entrance
+motion or duplicate heading.
 
 ## S2. Window control
 
-The header row owns an inline segmented control — `role="radiogroup"`, 1px `border-border`
+The pinned panel header owns a segmented control — `role="radiogroup"`, 1px `border-border`
 wrapper, active `bg-muted text-foreground`, inactive `text-muted-foreground` — labels **"24
-hours" / "7 days" / "30 days"**. Independent of §3's page-global control: changing one never
-changes the other. **Default: 30 days.** Stat numerals roll and trend bars re-rise (320ms) on
+hours" / "7 days" / "30 days"**. Independent of Activity's selection. **Default: 30 days.** Stat numerals roll and trend bars re-rise (320ms) on
 window change; `useReducedMotion()` snaps both.
 
 `pricedSessionsWithoutSkill` (§S4 line 2) does **not** move with this control — it is a top-level
@@ -963,9 +979,9 @@ this spec keeps that.
   order (associated-cost desc). No client-side sort controls.
 - **Click-through:** `onSelectSkill?: (skillId: number) => void` threaded `App.tsx` →
   `<UsageView>` → `<SkillsSection>` → `<SkillAssociationTable>`. `App.tsx` passes
-  `openDetailFromAnywhere`, which clears the sidebar filter (so "back" from the detail lands on a
-  list that contains the skill) then switches to the Skills section and opens `SkillDetail` — the
-  same helper the command palette and context-budget dialog use.
+  `openDetailFromUsage`, which clears the inventory filter, records Usage → Skills as the return
+  target, then switches to the Skills section and opens `SkillDetail`. Back restores Usage with
+  its Skills panel selected; other skill-detail entry points retain their inventory return path.
 
 **Association math** (mirrors `getSkillStats` in `queries.ts`): for every skill, dedupe its
 invocation rows (within the window) to sessions; resolve each session forward through

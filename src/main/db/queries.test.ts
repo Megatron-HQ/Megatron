@@ -1818,6 +1818,35 @@ describe('getActivityStats', () => {
     insertPrompt({ typed_at: '2026-07-21T11:59:59.000Z', session_id: 's6', project: '/repo-a' }) // I
   }
 
+  it('counts prompts inside the rolling 24-hour cutoff', () => {
+    insertPrompt({ typed_at: '2026-08-19T12:00:00.000Z', session_id: 'inside' })
+    insertPrompt({ typed_at: '2026-08-19T11:59:59.000Z', session_id: 'outside' })
+
+    expect(getActivityStats(db, NOW)).toMatchObject({
+      last24h: { days: 1, prompts: 1 }
+    })
+  })
+
+  it('zero-fills 24 chronological hourly prompt buckets', () => {
+    insertPrompt({ typed_at: '2026-08-19T12:00:00.000Z', session_id: 'first' })
+    insertPrompt({ typed_at: '2026-08-19T13:15:00.000Z', session_id: 'second' })
+    insertPrompt({ typed_at: '2026-08-20T11:59:59.000Z', session_id: 'last' })
+    insertPrompt({
+      typed_at: '2026-08-20T11:30:00.000Z',
+      session_id: 'slash',
+      is_slash_command: 1
+    })
+
+    const hourlyTrend = Reflect.get(getActivityStats(db, NOW).last24h, 'hourlyTrend')
+    expect(hourlyTrend).toHaveLength(24)
+    expect(hourlyTrend[0]).toEqual({ key: '2026-08-19T12:00:00.000Z', count: 1 })
+    expect(hourlyTrend[1]).toEqual({ key: '2026-08-19T13:00:00.000Z', count: 1 })
+    expect(hourlyTrend[23]).toEqual({ key: '2026-08-20T11:00:00.000Z', count: 1 })
+    expect(
+      hourlyTrend.reduce((sum: number, bucket: { count: number }) => sum + bucket.count, 0)
+    ).toBe(3)
+  })
+
   it('generatedAt is the passed-in now, and both windows carry their day count', () => {
     const stats = getActivityStats(db, NOW)
     expect(stats.generatedAt).toBe('2026-08-20T12:00:00.000Z')

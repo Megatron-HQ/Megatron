@@ -236,8 +236,13 @@ export interface ActivityDay {
   weekday: number // 0 = Sunday, server-computed so the renderer never re-parses `date`
 }
 
+export interface ActivityHour {
+  key: string // ISO start of a rolling one-hour bucket
+  count: number
+}
+
 export interface ActivityWindow {
-  days: 7 | 30
+  days: 1 | 7 | 30
   activeDays: number
   sessions: number
   prompts: number
@@ -251,7 +256,13 @@ export interface ActivityWindow {
   byDay: ActivityDay[] // zero-filled, ascending
 }
 
+export interface Activity24HourWindow extends ActivityWindow {
+  days: 1
+  hourlyTrend: ActivityHour[] // 24 zero-filled rolling buckets, ascending
+}
+
 export interface ActivityStats {
+  last24h: Activity24HourWindow
   last7d: ActivityWindow
   last30d: ActivityWindow
   generatedAt: string

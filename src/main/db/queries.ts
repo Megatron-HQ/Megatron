@@ -562,6 +562,7 @@ export function listPlugins(db: Database.Database): PluginRow[] {
 }
 
 const DAY_MS = 86_400_000
+const HOUR_MS = 3_600_000
 
 interface PromptHistoryQueryRow {
   session_id: string
@@ -579,7 +580,7 @@ function localDateKey(d: Date): string {
 function reduceActivityWindow(
   rows: PromptHistoryQueryRow[],
   now: Date,
-  days: 7 | 30
+  days: 1 | 7 | 30
 ): ActivityWindow {
   const cutoff = new Date(now.getTime() - days * DAY_MS)
   const inWindow = rows.filter((row) => new Date(row.typed_at) >= cutoff)
@@ -636,6 +637,27 @@ function reduceActivityWindow(
   }
 }
 
+function buildActivityHourlyTrend(
+  rows: PromptHistoryQueryRow[],
+  now: Date
+): ActivityStats['last24h']['hourlyTrend'] {
+  const cutoffMs = now.getTime() - DAY_MS
+  const counts = Array<number>(24).fill(0)
+
+  for (const row of rows) {
+    if (row.is_slash_command === 1) continue
+    const offsetMs = new Date(row.typed_at).getTime() - cutoffMs
+    if (offsetMs < 0 || offsetMs > DAY_MS) continue
+    const index = Math.min(23, Math.floor(offsetMs / HOUR_MS))
+    counts[index] += 1
+  }
+
+  return counts.map((count, index) => ({
+    key: new Date(cutoffMs + index * HOUR_MS).toISOString(),
+    count
+  }))
+}
+
 // One SQL pull of the last 30 days; both windows, both histograms, the project split and every
 // count are reduced from it in JS (plan decision 5). Electron main runs on the user's machine,
 // so JS .getHours()/.getDay() are the user's local time — identical to a
@@ -649,6 +671,11 @@ export function getActivityStats(db: Database.Database, now: Date = new Date()):
     .all(new Date(now.getTime() - 30 * DAY_MS).toISOString()) as PromptHistoryQueryRow[]
 
   return {
+    last24h: {
+      ...reduceActivityWindow(rows, now, 1),
+      days: 1,
+      hourlyTrend: buildActivityHourlyTrend(rows, now)
+    },
     last7d: reduceActivityWindow(rows, now, 7),
     last30d: reduceActivityWindow(rows, now, 30),
     generatedAt: now.toISOString()

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { cn } from '@/lib/utils'
-import type { SkillStatsWindowKey, SkillTrendBucket } from '../../../../shared/ipc'
+import type { SkillStatsWindowKey } from '../../../../shared/ipc'
 import { formatCount } from './chart-utils'
 
 function parseLocalDate(value: string): Date {
@@ -9,7 +9,12 @@ function parseLocalDate(value: string): Date {
   return new Date(year, month - 1, day)
 }
 
-function shortLabel(bucket: SkillTrendBucket, window: SkillStatsWindowKey): string {
+interface TrendBucket {
+  key: string
+  count: number
+}
+
+function shortLabel(bucket: TrendBucket, window: SkillStatsWindowKey): string {
   if (window === '24h') {
     return new Date(bucket.key).toLocaleTimeString(undefined, { hour: 'numeric' })
   }
@@ -19,7 +24,7 @@ function shortLabel(bucket: SkillTrendBucket, window: SkillStatsWindowKey): stri
   })
 }
 
-function detailLabel(bucket: SkillTrendBucket, window: SkillStatsWindowKey): string {
+function detailLabel(bucket: TrendBucket, window: SkillStatsWindowKey): string {
   const date = window === '24h' ? new Date(bucket.key) : parseLocalDate(bucket.key)
   const options: Intl.DateTimeFormatOptions =
     window === '24h'
@@ -32,10 +37,12 @@ function detailLabel(bucket: SkillTrendBucket, window: SkillStatsWindowKey): str
 
 export function InvocationTrend({
   data,
-  window
+  window,
+  nounSingular = 'skill invocation'
 }: {
-  data: SkillTrendBucket[]
+  data: TrendBucket[]
   window: SkillStatsWindowKey
+  nounSingular?: string
 }): React.JSX.Element {
   const reduceMotion = useReducedMotion() === true
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
@@ -58,7 +65,7 @@ export function InvocationTrend({
             <button
               type="button"
               key={bucket.key}
-              aria-label={`${detailLabel(bucket, window)}: ${bucket.count} skill invocations`}
+              aria-label={`${detailLabel(bucket, window)}: ${bucket.count} ${nounSingular}${bucket.count === 1 ? '' : 's'}`}
               className="relative flex h-full flex-1 items-end outline-none"
               onMouseEnter={() => setHoveredIndex(index)}
               onFocus={() => setHoveredIndex(index)}
@@ -89,7 +96,8 @@ export function InvocationTrend({
         {hoveredIndex !== null && data[hoveredIndex] ? (
           <span>
             {detailLabel(data[hoveredIndex], window)} · {formatCount(data[hoveredIndex].count)}{' '}
-            invocation{data[hoveredIndex].count === 1 ? '' : 's'}
+            {nounSingular}
+            {data[hoveredIndex].count === 1 ? '' : 's'}
           </span>
         ) : (
           <div className="flex">

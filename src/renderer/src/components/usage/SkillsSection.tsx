@@ -1,5 +1,4 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { useState } from 'react'
 import { ChartBlock } from './ChartBlock'
 import { InvocationTrend } from './InvocationTrend'
 import { RankedList } from './RankedList'
@@ -31,7 +30,7 @@ function selectedWindow(stats: SkillStats, key: SkillStatsWindowKey): SkillStats
   return stats.last30d
 }
 
-function SkillWindowToggle({
+export function SkillWindowToggle({
   value,
   onChange
 }: {
@@ -102,30 +101,20 @@ function SkillStat({
 
 export function SkillsSection({
   stats,
+  windowKey,
   onSelectSkill
 }: {
   stats: SkillStats
+  windowKey: SkillStatsWindowKey
   onSelectSkill?: (skillId: number) => void
 }): React.JSX.Element {
   const reduceMotion = useReducedMotion() === true
-  const [windowKey, setWindowKey] = useState<SkillStatsWindowKey>('30d')
   const window = selectedWindow(stats, windowKey)
   const emptyMessage = `No skill invocations in the last ${windowKey === '24h' ? '24 hours' : windowKey === '7d' ? '7 days' : '30 days'}`
   const empty = window.invocationCount === 0
 
   return (
-    <motion.section
-      className="flex flex-col gap-6 border-t border-border py-8"
-      initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, amount: 0.12 }}
-      transition={reduceMotion ? { duration: 0 } : { duration: 0.32, ease: 'easeOut' }}
-    >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-[13px] font-semibold">Skills</h2>
-        <SkillWindowToggle value={windowKey} onChange={setWindowKey} />
-      </div>
-
+    <section className="flex flex-col gap-6 py-8">
       <div className="flex flex-wrap items-start gap-x-10 gap-y-4">
         <SkillStat
           label="Invocations"
@@ -184,6 +173,6 @@ export function SkillsSection({
           onSelectSkill={onSelectSkill}
         />
       </ChartBlock>
-    </motion.section>
+    </section>
   )
 }

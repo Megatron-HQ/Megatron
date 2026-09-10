@@ -122,7 +122,20 @@ async function skipWithoutUserInvocableOnlySkills(window) {
 /** Rail click → Usage section, landing on the Activity retrospective. */
 async function openUsageSection(window) {
   await window.getByRole('button', { name: 'Usage', exact: true }).click()
-  await window.getByRole('heading', { name: 'Activity' }).waitFor()
+  await window
+    .getByRole('navigation', { name: 'Usage panels' })
+    .getByRole('button', { name: 'Activity', exact: true })
+    .click()
+  await window.locator('header').getByText('Activity', { exact: true }).waitFor()
+}
+
+async function openUsagePanel(window, panelName) {
+  await openUsageSection(window)
+  await window
+    .getByRole('navigation', { name: 'Usage panels' })
+    .getByRole('button', { name: panelName, exact: true })
+    .click()
+  await window.locator('header').getByText(panelName, { exact: true }).waitFor()
 }
 
 /**
@@ -131,8 +144,7 @@ async function openUsageSection(window) {
  * empty state. Its two scenarios each skip the case they don't cover.
  */
 async function costDataPresent(window) {
-  await openUsageSection(window)
-  await window.getByRole('heading', { name: 'Cost' }).scrollIntoViewIfNeeded()
+  await openUsagePanel(window, 'Cost')
   return (await window.getByText('No cost data yet.').count()) === 0
 }
 
@@ -146,6 +158,23 @@ function skipWithoutNamedSkill(skillName) {
     const count = await window.locator(`tbody tr:has-text("${skillName}")`).count()
     return count === 0 ? `no skill named "${skillName}" installed locally` : null
   }
+}
+
+async function skipWithoutAutoInvocationData(window) {
+  await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
+  return (await window.getByRole('button', { name: /Auto invocations/ }).count()) === 0
+    ? 'grill-me has no autonomous invocation data in the local index'
+    : null
+}
+
+async function skipWithoutGroupedImageRun(window) {
+  await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
+  const viewAll = window.getByRole('button', { name: /View all/ })
+  if ((await viewAll.count()) === 0) return 'grill-me has no full activity log in the local index'
+  await viewAll.click()
+  return (await window.getByRole('button', { name: /screenshots ·/ }).count()) === 0
+    ? 'grill-me has no grouped image run in the local index'
+    : null
 }
 
 /** @type {Scenario[]} */
@@ -334,6 +363,7 @@ export const scenarios = [
     // that the click reached the right initial filter, not just that a dialog opened.
     name: 'skill-detail-usage-bar-filtered-activity',
     screen: 'skill-detail',
+    shouldSkip: skipWithoutAutoInvocationData,
     async run(window) {
       await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
       await window.getByRole('button', { name: /Auto invocations/ }).click()
@@ -355,6 +385,7 @@ export const scenarios = [
     // robust to that drift. Left unexpanded so this capture covers the collapsed state.
     name: 'skill-detail-activity-dialog-grouped',
     screen: 'skill-detail',
+    shouldSkip: skipWithoutGroupedImageRun,
     async run(window) {
       await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
       await window.getByRole('button', { name: /View all/ }).click()
@@ -368,6 +399,7 @@ export const scenarios = [
     // showing the per-screenshot timestamp/dimensions list that justifies the summary above it.
     name: 'skill-detail-activity-dialog-group-expanded',
     screen: 'skill-detail',
+    shouldSkip: skipWithoutGroupedImageRun,
     async run(window) {
       await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
       await window.getByRole('button', { name: /View all/ }).click()
@@ -711,9 +743,35 @@ export const scenarios = [
     async run(window) {
       await openUsageSection(window)
       await window
-        .getByRole('radiogroup', { name: 'Time window' })
+        .getByRole('radiogroup', { name: 'Activity window' })
         .getByRole('radio', { name: '7 days' })
         .click()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'usage-activity-24-hour',
+    screen: 'usage',
+    async run(window) {
+      await openUsageSection(window)
+      await window
+        .getByRole('radiogroup', { name: 'Activity window' })
+        .getByRole('radio', { name: '24 hours' })
+        .click()
+      await window.getByText('By hour', { exact: true }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'usage-window-persists-across-rail-switch',
+    screen: 'usage',
+    async run(window) {
+      await openUsageSection(window)
+      const activityWindow = window.getByRole('radiogroup', { name: 'Activity window' })
+      await activityWindow.getByRole('radio', { name: '24 hours' }).click()
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'Usage', exact: true }).click()
+      await activityWindow.getByRole('radio', { name: '24 hours', checked: true }).waitFor()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
@@ -736,8 +794,7 @@ export const scenarios = [
     shouldSkip: async (window) =>
       (await costDataPresent(window)) ? null : 'no priced cost-state history on this machine',
     async run(window) {
-      await openUsageSection(window)
-      await window.getByRole('heading', { name: 'Cost' }).scrollIntoViewIfNeeded()
+      await openUsagePanel(window, 'Cost')
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
@@ -751,8 +808,7 @@ export const scenarios = [
         ? 'cost data present — the empty state does not render'
         : null,
     async run(window) {
-      await openUsageSection(window)
-      await window.getByRole('heading', { name: 'Cost' }).scrollIntoViewIfNeeded()
+      await openUsagePanel(window, 'Cost')
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
@@ -763,8 +819,7 @@ export const scenarios = [
     name: 'usage-skills-default',
     screen: 'usage',
     async run(window) {
-      await openUsageSection(window)
-      await window.getByRole('heading', { name: 'Skills' }).scrollIntoViewIfNeeded()
+      await openUsagePanel(window, 'Skills')
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
@@ -775,27 +830,26 @@ export const scenarios = [
     name: 'usage-skills-association-clickthrough',
     screen: 'usage',
     shouldSkip: async (window) => {
-      await openUsageSection(window)
-      const links = window
-        .getByRole('heading', { name: 'Skills' })
-        .locator('xpath=ancestor::section')
-        .getByRole('table')
-        .getByRole('button')
+      await openUsagePanel(window, 'Skills')
+      const links = window.getByRole('table').getByRole('button')
       return (await links.count()) === 0
         ? 'no installed skills in the association table on this machine'
         : null
     },
     async run(window) {
-      await openUsageSection(window)
-      const link = window
-        .getByRole('heading', { name: 'Skills' })
-        .locator('xpath=ancestor::section')
-        .getByRole('table')
-        .getByRole('button')
-        .first()
+      await openUsagePanel(window, 'Skills')
+      const link = window.getByRole('table').getByRole('button').first()
       await link.scrollIntoViewIfNeeded()
       await link.click()
-      await window.getByRole('button', { name: 'Back to skills' }).waitFor()
+      const backButton = window.getByRole('button', { name: 'Back to skills' })
+      await backButton.waitFor()
+      await backButton.click()
+      await window.locator('header').getByText('Skills', { exact: true }).waitFor()
+      const currentPanel = await window
+        .getByRole('navigation', { name: 'Usage panels' })
+        .getByRole('button', { name: 'Skills', exact: true })
+        .getAttribute('aria-current')
+      if (currentPanel !== 'page') throw new Error('Usage Skills panel was not restored')
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
@@ -805,24 +859,15 @@ export const scenarios = [
     name: 'usage-skills-association-link-hover',
     screen: 'usage',
     shouldSkip: async (window) => {
-      await openUsageSection(window)
-      const links = window
-        .getByRole('heading', { name: 'Skills' })
-        .locator('xpath=ancestor::section')
-        .getByRole('table')
-        .getByRole('button')
+      await openUsagePanel(window, 'Skills')
+      const links = window.getByRole('table').getByRole('button')
       return (await links.count()) === 0
         ? 'no installed skills in the association table on this machine'
         : null
     },
     async run(window) {
-      await openUsageSection(window)
-      const link = window
-        .getByRole('heading', { name: 'Skills' })
-        .locator('xpath=ancestor::section')
-        .getByRole('table')
-        .getByRole('button')
-        .first()
+      await openUsagePanel(window, 'Skills')
+      const link = window.getByRole('table').getByRole('button').first()
       await link.scrollIntoViewIfNeeded()
       await link.hover()
     }
@@ -833,12 +878,12 @@ export const scenarios = [
     name: 'usage-skills-24-hour',
     screen: 'usage',
     async run(window) {
-      await openUsageSection(window)
-      const section = window
-        .getByRole('heading', { name: 'Skills' })
-        .locator('xpath=ancestor::section')
-      await section.getByRole('radio', { name: '24 hours' }).click()
-      await section.getByText('Invocations over time', { exact: true }).scrollIntoViewIfNeeded()
+      await openUsagePanel(window, 'Skills')
+      await window
+        .getByRole('radiogroup', { name: 'Skill activity window' })
+        .getByRole('radio', { name: '24 hours' })
+        .click()
+      await window.getByText('Invocations over time', { exact: true }).scrollIntoViewIfNeeded()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
@@ -858,7 +903,7 @@ export const scenarios = [
         await window.getByRole('dialog').waitFor({ state: 'detached' })
       }
       await window.waitForFunction(() => document.documentElement.classList.contains('dark'))
-      await openUsageSection(window)
+      await openUsagePanel(window, 'Skills')
       await window
         .getByText('Association, not attribution.', { exact: false })
         .scrollIntoViewIfNeeded()

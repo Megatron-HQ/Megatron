@@ -6,7 +6,7 @@ interface StatCellsProps {
   sessions: number
   prompts: number
   slashCommands: number
-  days: 7 | 30
+  days: 1 | 7 | 30
 }
 
 // 3 primary cells, no cards/borders (Ledger-Lies-Flat). The numeral rolls on a window switch
@@ -50,7 +50,7 @@ function Stat({
 }: {
   label: string
   value: number
-  days: 7 | 30
+  days: 1 | 7 | 30
   reduceMotion: boolean
 }): React.JSX.Element {
   return (
