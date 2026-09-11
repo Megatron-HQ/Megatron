@@ -2,12 +2,14 @@ import { AnimatePresence, motion } from 'motion/react'
 import { ChevronRight, FolderGit2, Laptop, List, User } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { listFilterProjects, type FilterProject, type PluginFilter } from '@/lib/plugin-filter'
+import { useElementGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
 import type { PluginRow, PluginScope } from '../../../shared/ipc'
 
-const NAV_ROW = 'flex h-8 items-center gap-2 rounded-md px-2 text-left text-sm transition-colors'
+const NAV_ROW =
+  'relative z-10 flex h-8 items-center gap-2 rounded-md px-2 text-left text-sm transition-colors'
 const NAV_SELECTED = 'bg-accent-lime text-accent-lime-foreground'
-const NAV_IDLE = 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+const NAV_IDLE = 'text-muted-foreground hover:text-accent-foreground'
 
 export function PluginSidebar({
   plugins,
@@ -20,6 +22,8 @@ export function PluginSidebar({
 }): React.JSX.Element {
   const projectProjects = useMemo(() => listFilterProjects(plugins, 'project'), [plugins])
   const localProjects = useMemo(() => listFilterProjects(plugins, 'local'), [plugins])
+  const { containerRef, highlightRect, onItemHover, onMouseLeave, transition } =
+    useElementGlideHighlight<HTMLElement>()
 
   return (
     <div className="flex w-[220px] shrink-0 flex-col border-r border-border">
@@ -28,10 +32,28 @@ export function PluginSidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto px-2">
-        <nav className="flex flex-col gap-0.5">
+        <nav
+          ref={containerRef}
+          className="relative flex flex-col gap-0.5"
+          onMouseLeave={onMouseLeave}
+        >
+          {highlightRect && (
+            <motion.div
+              className="pointer-events-none absolute z-0 rounded-md bg-accent"
+              initial={false}
+              animate={{
+                top: highlightRect.top,
+                left: highlightRect.left,
+                width: highlightRect.width,
+                height: highlightRect.height
+              }}
+              transition={transition}
+            />
+          )}
           <button
             type="button"
             onClick={() => onFilterChange({ kind: 'all' })}
+            onMouseEnter={(e) => onItemHover(e.currentTarget)}
             className={cn(NAV_ROW, filter.kind === 'all' ? NAV_SELECTED : NAV_IDLE)}
           >
             <List className="size-4 shrink-0" />
@@ -42,6 +64,7 @@ export function PluginSidebar({
           <button
             type="button"
             onClick={() => onFilterChange({ kind: 'user' })}
+            onMouseEnter={(e) => onItemHover(e.currentTarget)}
             className={cn(NAV_ROW, filter.kind === 'user' ? NAV_SELECTED : NAV_IDLE)}
           >
             <User className="size-4 shrink-0" />
@@ -56,6 +79,7 @@ export function PluginSidebar({
             projects={projectProjects}
             filter={filter}
             onFilterChange={onFilterChange}
+            onItemHover={onItemHover}
           />
 
           <ScopeGroup
@@ -66,6 +90,7 @@ export function PluginSidebar({
             projects={localProjects}
             filter={filter}
             onFilterChange={onFilterChange}
+            onItemHover={onItemHover}
           />
         </nav>
       </div>
@@ -83,7 +108,8 @@ function ScopeGroup({
   emptyLabel,
   projects,
   filter,
-  onFilterChange
+  onFilterChange,
+  onItemHover
 }: {
   scope: Extract<PluginScope, 'project' | 'local'>
   label: string
@@ -92,6 +118,7 @@ function ScopeGroup({
   projects: FilterProject[]
   filter: PluginFilter
   onFilterChange: (filter: PluginFilter) => void
+  onItemHover: (el: HTMLElement | null) => void
 }): React.JSX.Element {
   const [expanded, setExpanded] = useState(false)
   const selectedPath = filter.kind === scope ? filter.projectPath : undefined
@@ -100,13 +127,10 @@ function ScopeGroup({
   return (
     <div className="flex flex-col">
       <div
+        onMouseEnter={(e) => onItemHover(e.currentTarget)}
         className={cn(
-          'flex h-8 items-center justify-between rounded-md px-2 text-sm transition-colors',
-          groupSelected
-            ? NAV_SELECTED
-            : filter.kind === scope
-              ? 'text-foreground hover:bg-accent'
-              : NAV_IDLE
+          'relative z-10 flex h-8 items-center justify-between rounded-md px-2 text-sm transition-colors',
+          groupSelected ? NAV_SELECTED : filter.kind === scope ? 'text-foreground' : NAV_IDLE
         )}
       >
         <button
@@ -114,6 +138,7 @@ function ScopeGroup({
           onClick={() => {
             onFilterChange({ kind: scope })
             setExpanded((open) => !open)
+            onItemHover(null)
           }}
           className="flex h-full flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
@@ -122,7 +147,10 @@ function ScopeGroup({
         </button>
         <button
           type="button"
-          onClick={() => setExpanded((open) => !open)}
+          onClick={() => {
+            setExpanded((open) => !open)
+            onItemHover(null)
+          }}
           aria-expanded={expanded}
           aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label.toLowerCase()} plugin list`}
           className="-mr-1 shrink-0 rounded p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -159,8 +187,9 @@ function ScopeGroup({
                       type="button"
                       title={project.path}
                       onClick={() => onFilterChange({ kind: scope, projectPath: project.path })}
+                      onMouseEnter={(e) => onItemHover(e.currentTarget)}
                       className={cn(
-                        'flex h-7 items-center justify-between gap-1.5 rounded-md px-2 text-left text-xs transition-colors',
+                        'relative z-10 flex h-7 items-center justify-between gap-1.5 rounded-md px-2 text-left text-xs transition-colors',
                         isSelected
                           ? 'bg-accent-lime font-medium text-accent-lime-foreground'
                           : NAV_IDLE

@@ -1,5 +1,7 @@
 import { BarChart3, Blocks, BrainCircuit, Settings } from 'lucide-react'
+import { motion } from 'motion/react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
 import type { AppSection } from '../../../shared/ipc'
 
@@ -26,9 +28,21 @@ export function AppRail({
   onSectionChange,
   onOpenSettings
 }: AppRailProps): React.JSX.Element {
+  const { hoveredId, setHoveredId, onMouseLeave, transition } = useGlideHighlight<AppSection>()
+  const highlightIndex =
+    hoveredId !== null ? SECTIONS.findIndex((s) => s.section === hoveredId) : -1
+
   return (
     <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-border py-2">
-      <div className="flex flex-col items-center gap-1">
+      <div className="relative flex flex-col items-center gap-1" onMouseLeave={onMouseLeave}>
+        {highlightIndex >= 0 && (
+          <motion.div
+            className="pointer-events-none absolute left-0 z-0 size-8 rounded-md bg-accent"
+            initial={false}
+            animate={{ top: highlightIndex * 36, height: 32 }}
+            transition={transition}
+          />
+        )}
         {SECTIONS.map(({ section: itemSection, label, Icon }) => (
           <Tooltip key={itemSection}>
             <TooltipTrigger asChild>
@@ -37,11 +51,12 @@ export function AppRail({
                 aria-label={label}
                 aria-current={section === itemSection ? 'page' : undefined}
                 onClick={() => onSectionChange(itemSection)}
+                onMouseEnter={() => setHoveredId(itemSection)}
                 className={cn(
-                  'flex size-8 shrink-0 items-center justify-center rounded-md transition-colors',
+                  'relative z-10 flex size-8 shrink-0 items-center justify-center rounded-md transition-colors',
                   section === itemSection
                     ? 'bg-muted text-foreground'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                    : 'text-muted-foreground hover:text-accent-foreground'
                 )}
               >
                 <Icon className="size-4" />

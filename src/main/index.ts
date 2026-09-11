@@ -8,6 +8,7 @@ import Store from 'electron-store'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { getDb } from './db'
+import { disableChromiumHttpCache } from './chromium-cache'
 import {
   addAllowedPath,
   deleteSkillsForProjectRoot,
@@ -52,6 +53,10 @@ import {
   type SkillInvocationEntry,
   type ThemePreference
 } from '../shared/ipc'
+
+// Megatron's renderer is bundled locally, so an HTTP cache adds corruption risk without a
+// production benefit. This must run before Electron creates its default session.
+disableChromiumHttpCache(app.commandLine)
 
 const themeStore: ThemeStore = new Store({ name: 'preferences' })
 let scanComplete = false
