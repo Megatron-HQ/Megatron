@@ -432,6 +432,16 @@ CREATE INDEX idx_turn_usage_invoked_at ON turn_usage(invoked_at);
 -- intra-session shape (growth curve, model/effort mix) and the 2b request_id join only.
 ```
 
+Both unique keys are deliberately corpus-wide, not scoped to `session_id`. Resume/continue can
+replay an earlier assistant record into a later main transcript (and equivalent records can appear
+between a main transcript and its `subagents/` files), sometimes preserving only one of the UUID or
+logical-message identifiers. `scanTranscripts` therefore inserts turns with `ON CONFLICT DO
+NOTHING`: the first accepted copy is the canonical row and every later copy is replay, not another
+turn. This catches conflicts on either unique key without suppressing foreign-key, `NOT NULL`, or
+`CHECK` failures. Making either key unique only per session is forbidden because it would restore
+the documented replay inflation in model/effort counts and proportional skill-cost weights. Parser
+version 6 (`5 → 6`) forces existing indexes through this corrected cross-file ingest path.
+
 Session $ / token rollups are a query-time `GROUP BY` (`getCostStats` in `src/main/db/queries.ts`)
 over the `session_cost` / `session_model_cost` ingest that reads `cost-state` verbatim (rows
 absent for the ~180 pre-feature sessions). Not stored denormalized.
@@ -459,7 +469,8 @@ true total, and yields an honest "general work" bucket.
 - **Storage:** derived table `session_skill_cost (session_id, skill_name, est_cost_usd)` written
   during `scanTranscripts` (same pattern as `session_cost`); `skill_name = NULL` sentinel = general
   work. `turn_usage.active_skill TEXT` computed at ingest (same "compute once" pattern as
-  `prompt_history.is_slash_command`). Parser-version bump on those semantics.
+  `prompt_history.is_slash_command`). Parser-version bump on those semantics; cross-file replay
+  deduplication is part of that same versioned contract.
 - **Presentation:** replaces PR3's naive Associated-cost column; adds a "General work (no skill
   active)" row; **drops** the overlap caption (columns now sum to the tracked total) → replaced by
   an "estimated share · method" note.

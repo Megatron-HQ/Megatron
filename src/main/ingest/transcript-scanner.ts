@@ -46,8 +46,8 @@ interface InvocationCandidate {
 const PRECEDING_TEXT_MAX_CHARS = 2000
 // Bumps on any parser-semantic change across the whole walk, cost-state included (no separate
 // cost_parser_version — see docs/usage-analytics.md §8). A bump forces one safe reindex of all
-// already-indexed sessions. 3→4: cost-state ingest (session_cost / session_model_cost).
-const TRANSCRIPT_PARSER_VERSION = 5
+// already-indexed sessions. 3→4: cost-state ingest; 4→5: turn usage; 5→6: cross-file replay dedup.
+const TRANSCRIPT_PARSER_VERSION = 6
 
 function truncatePrecedingText(text: string | null): string | null {
   return text === null ? null : text.slice(0, PRECEDING_TEXT_MAX_CHARS)
@@ -423,6 +423,9 @@ export function scanTranscripts(
   const deleteSessionInvocations = db.prepare('DELETE FROM skill_invocations WHERE session_id = ?')
   const deleteSessionTurns = db.prepare('DELETE FROM turn_usage WHERE session_id = ?')
 
+  // Resumed sessions replay prior assistant records, sometimes under a different session id.
+  // Both global uniques are deliberate dedup seams. This UPSERT form ignores only uniqueness
+  // conflicts; foreign-key, NOT NULL, and CHECK violations still fail the scan loudly.
   const insertTurn = db.prepare(`
     INSERT INTO turn_usage
       (logical_turn_key, source_uuid, session_id, request_id, message_id, turn_index, model,
@@ -434,6 +437,7 @@ export function scanTranscripts(
        @effort, @input_tokens, @cache_read_tokens, @cache_creation_tokens,
        @cache_creation_5m_tokens, @cache_creation_1h_tokens, @output_tokens, @thinking_tokens,
        @web_search_requests, @agent_id, @active_skill, @invoked_at)
+    ON CONFLICT DO NOTHING
   `)
 
   // session_model_cost rows cascade off session_cost (ON DELETE CASCADE); FKs are enabled by

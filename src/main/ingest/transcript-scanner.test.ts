@@ -1009,6 +1009,259 @@ describe('scanTranscripts', () => {
     ])
   })
 
+  it('deduplicates assistant turns replayed across resumed session files without rolling back the scan', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    writeTranscriptFile(projectDir, 'sess-original', [
+      metaLine({ sessionId: 'sess-original', uuid: 'uuid-meta-original' }),
+      assistantUsageLine({
+        sessionId: 'sess-original',
+        uuid: 'uuid-replayed',
+        requestId: 'request-replayed',
+        message: {
+          id: 'message-replayed',
+          model: 'claude-sonnet-5',
+          usage: { input_tokens: 10, output_tokens: 20 },
+          content: []
+        }
+      })
+    ])
+    const resumedFilePath = writeTranscriptFile(projectDir, 'sess-resumed', [
+      metaLine({
+        sessionId: 'sess-resumed',
+        uuid: 'uuid-meta-resumed',
+        timestamp: '2024-01-02T00:00:00.000Z'
+      }),
+      assistantUsageLine({
+        sessionId: 'sess-resumed',
+        uuid: 'uuid-replayed',
+        requestId: 'request-replayed',
+        message: {
+          id: 'message-replayed',
+          model: 'claude-sonnet-5',
+          usage: { input_tokens: 10, output_tokens: 20 },
+          content: []
+        }
+      }),
+      assistantUsageLine({
+        sessionId: 'sess-resumed',
+        uuid: 'uuid-resumed-new',
+        requestId: 'request-resumed-new',
+        timestamp: '2024-01-02T00:02:00.000Z',
+        message: {
+          id: 'message-resumed-new',
+          model: 'claude-opus-5',
+          usage: { input_tokens: 30, output_tokens: 40 },
+          content: []
+        }
+      })
+    ])
+
+    expect(() => scanTranscripts(db, projectsDir)).not.toThrow()
+    expect(
+      allSessions()
+        .map((session) => session.session_id)
+        .sort()
+    ).toEqual(['sess-original', 'sess-resumed'])
+    expect(
+      db
+        .prepare('SELECT source_uuid FROM turn_usage ORDER BY source_uuid')
+        .all()
+        .map((row) => (row as { source_uuid: string }).source_uuid)
+    ).toEqual(['uuid-replayed', 'uuid-resumed-new'])
+
+    appendFileSync(
+      resumedFilePath,
+      `\n${JSON.stringify(
+        assistantUsageLine({
+          sessionId: 'sess-resumed',
+          uuid: 'uuid-resumed-later',
+          requestId: 'request-resumed-later',
+          timestamp: '2024-01-02T00:03:00.000Z',
+          message: {
+            id: 'message-resumed-later',
+            model: 'claude-haiku-4-5',
+            usage: { input_tokens: 5, output_tokens: 10 },
+            content: []
+          }
+        })
+      )}`
+    )
+    const future = new Date(Date.now() + 2000)
+    utimesSync(resumedFilePath, future, future)
+
+    expect(() => scanTranscripts(db, projectsDir)).not.toThrow()
+    expect(
+      db
+        .prepare('SELECT source_uuid FROM turn_usage ORDER BY source_uuid')
+        .all()
+        .map((row) => (row as { source_uuid: string }).source_uuid)
+    ).toEqual(['uuid-replayed', 'uuid-resumed-later', 'uuid-resumed-new'])
+  })
+
+  it('deduplicates replayed logical turns when their physical source UUIDs differ', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    writeTranscriptFile(projectDir, 'sess-original', [
+      metaLine({ sessionId: 'sess-original', uuid: 'uuid-meta-original' }),
+      assistantUsageLine({
+        sessionId: 'sess-original',
+        uuid: 'uuid-physical-original',
+        requestId: 'request-original',
+        message: {
+          id: 'message-replayed',
+          model: 'claude-sonnet-5',
+          usage: { output_tokens: 20 },
+          content: []
+        }
+      })
+    ])
+    writeTranscriptFile(projectDir, 'sess-resumed', [
+      metaLine({ sessionId: 'sess-resumed', uuid: 'uuid-meta-resumed' }),
+      assistantUsageLine({
+        sessionId: 'sess-resumed',
+        uuid: 'uuid-physical-resumed',
+        requestId: 'request-resumed',
+        message: {
+          id: 'message-replayed',
+          model: 'claude-sonnet-5',
+          usage: { output_tokens: 20 },
+          content: []
+        }
+      })
+    ])
+
+    expect(() => scanTranscripts(db, projectsDir)).not.toThrow()
+    expect(count('sessions_meta')).toBe(2)
+    expect(count('turn_usage')).toBe(1)
+  })
+
+  it('deduplicates a reused source UUID when its logical turn identifiers disagree', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    writeTranscriptFile(projectDir, 'sess-original', [
+      metaLine({ sessionId: 'sess-original', uuid: 'uuid-meta-original' }),
+      assistantUsageLine({
+        sessionId: 'sess-original',
+        uuid: 'uuid-reused',
+        requestId: 'request-original',
+        message: {
+          id: 'message-original',
+          model: 'claude-sonnet-5',
+          usage: { output_tokens: 20 },
+          content: []
+        }
+      })
+    ])
+    writeTranscriptFile(projectDir, 'sess-resumed', [
+      metaLine({ sessionId: 'sess-resumed', uuid: 'uuid-meta-resumed' }),
+      assistantUsageLine({
+        sessionId: 'sess-resumed',
+        uuid: 'uuid-reused',
+        requestId: 'request-resumed',
+        message: {
+          id: 'message-resumed',
+          model: 'claude-sonnet-5',
+          usage: { output_tokens: 20 },
+          content: []
+        }
+      })
+    ])
+
+    expect(() => scanTranscripts(db, projectsDir)).not.toThrow()
+    expect(count('sessions_meta')).toBe(2)
+    expect(count('turn_usage')).toBe(1)
+  })
+
+  it('deduplicates a logical turn repeated between a main transcript and its subagent file', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    writeTranscriptFile(projectDir, 'sess-1', [metaLine(), assistantUsageLine()])
+    writeSubagentTranscriptFile(projectDir, 'sess-1', 'agent-replay', [
+      assistantUsageLine({ isSidechain: true })
+    ])
+
+    expect(() => scanTranscripts(db, projectsDir)).not.toThrow()
+    expect(count('turn_usage')).toBe(1)
+  })
+
+  it('does not inflate terminal skill-cost allocation with replayed lineage turns', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    writeTranscriptFile(projectDir, 'sess-original', [
+      metaLine({ sessionId: 'sess-original', uuid: 'uuid-meta-original' }),
+      assistantUsageLine({
+        sessionId: 'sess-original',
+        uuid: 'uuid-replayed',
+        requestId: 'request-replayed',
+        attributionSkill: 'skill-a',
+        message: {
+          id: 'message-replayed',
+          model: 'claude-sonnet-5',
+          usage: { output_tokens: 20 },
+          content: []
+        }
+      }),
+      { type: 'continued-in', sessionId: 'sess-original', continuedInSessionId: 'sess-resumed' },
+      costStateLine({ sessionId: 'sess-original', totalCostUSD: 1 })
+    ])
+    writeTranscriptFile(projectDir, 'sess-resumed', [
+      metaLine({
+        sessionId: 'sess-resumed',
+        uuid: 'uuid-meta-resumed',
+        timestamp: '2024-01-02T00:00:00.000Z'
+      }),
+      assistantUsageLine({
+        sessionId: 'sess-resumed',
+        uuid: 'uuid-replayed',
+        requestId: 'request-replayed',
+        attributionSkill: 'skill-a',
+        message: {
+          id: 'message-replayed',
+          model: 'claude-sonnet-5',
+          usage: { output_tokens: 20 },
+          content: []
+        }
+      }),
+      assistantUsageLine({
+        sessionId: 'sess-resumed',
+        uuid: 'uuid-resumed-new',
+        requestId: 'request-resumed-new',
+        timestamp: '2024-01-02T00:02:00.000Z',
+        attributionSkill: 'skill-b',
+        message: {
+          id: 'message-resumed-new',
+          model: 'claude-sonnet-5',
+          usage: { output_tokens: 40 },
+          content: []
+        }
+      }),
+      costStateLine({
+        sessionId: 'sess-resumed',
+        totalCostUSD: 6,
+        modelUsage: {
+          'claude-sonnet-5': {
+            inputTokens: 0,
+            outputTokens: 60,
+            thinkingTokens: 0,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            webSearchRequests: 0,
+            costUSD: 6
+          }
+        }
+      })
+    ])
+
+    expect(() => scanTranscripts(db, projectsDir)).not.toThrow()
+    expect(
+      db
+        .prepare(
+          `SELECT skill_name, est_cost_usd
+           FROM session_skill_cost ORDER BY skill_name`
+        )
+        .all()
+    ).toEqual([
+      { skill_name: 'skill-a', est_cost_usd: 2 },
+      { skill_name: 'skill-b', est_cost_usd: 4 }
+    ])
+  })
+
   it('ingests subagent usage under the parent session with its agent id', () => {
     const projectDir = join(projectsDir, 'project-a')
     writeTranscriptFile(projectDir, 'sess-1', [metaLine()])
