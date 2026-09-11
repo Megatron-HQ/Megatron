@@ -813,6 +813,17 @@ export const scenarios = [
     }
   },
   {
+    // PR4's default 30-day Models section: independent window control, summaries, and the
+    // horizontally scrollable model-by-effort matrix with column and row totals.
+    name: 'usage-models-default',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Models')
+      await window.getByText('Model × effort', { exact: true }).scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
     // PR3's default 30-day Skills section: its own window control, stat cells, trend,
     // ranked skill/trigger lists, and the session-association ledger — including the
     // restored ambient cost row-fill, per-row source tags, and skill-name links.
@@ -905,7 +916,7 @@ export const scenarios = [
       await window.waitForFunction(() => document.documentElement.classList.contains('dark'))
       await openUsagePanel(window, 'Skills')
       await window
-        .getByText('Association, not attribution.', { exact: false })
+        .getByText('Estimated API-equivalent cost is attributed', { exact: false })
         .scrollIntoViewIfNeeded()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }

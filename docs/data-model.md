@@ -157,6 +157,15 @@ columns of their own. Rows are stored as parsed — zeroed rows and lineage non-
 (`ON DELETE CASCADE`); `session_cost` itself has a plain FK to `sessions_meta` (no cascade), so
 the retention sweep deletes it _before_ `sessions_meta`.
 
+`turn_usage` / `session_skill_cost` (added Usage view Phase 2a / PR4) back the Models panel and
+the Skills panel's additive attribution ledger. `turn_usage` has one row per logical assistant
+response: repeated physical JSONL records collapse by message id, then request id, with source uuid
+as the final fallback. It stores per-turn shape and active-skill state only; it is never summed to
+produce dollar totals. Main and `subagents/*.jsonl` turns are included, while `cost-state` remains
+the sole dollar source. `session_skill_cost` materializes each priced terminal's proportional split
+by per-model output-token weight; `skill_name IS NULL` is the unique General work bucket. Both are
+derived cache data rebuilt during `scanTranscripts` and cleared by `db:reset`.
+
 `allowed_paths` is the Tier-2 grant list the folder picker persists to (`folders:list` /
 `folders:pickAndAdd` / `folders:revoke`) — no separate restart-persistence mechanism, the table
 itself is the persistence. `lint_findings` is rebuilt whole on each lint pass —
@@ -214,16 +223,17 @@ can. The context budget (`getContextBudget`) is the same shape: `SUM(est_listing
 time, not a cached total — filtered to `disabled_reason IS NULL` (see below), since a disabled
 skill costs Claude Code nothing.
 
-The Usage view's Skills section (`getSkillStats`, PR3) is the same live-query shape: it reads
+The Usage view's Skills activity (`getSkillStats`, PR3) is the same live-query shape: it reads
 `skill_invocations` (windowed) and `session_cost` / `session_model_cost` (all history) and
 reduces in TypeScript. Each invocation's session is resolved forward through
 `continued_in_session_id` to its priced, lineage-terminal session (`resolvePricedTerminal`, the
 same lineage rule `getCostStats` applies), then associated once per skill. A `skill_name` resolves
 to a single `skills.id` for click-through by shadowing precedence (global > project > synced) — a
 separate encoding of the same rule `SKILLS_WITH_USAGE_SELECT` uses, answering "which row wins for
-this name" rather than "which row shadows this one". PR4's proportional-attribution rider adds a
-derived `session_skill_cost` table and a `turn_usage.active_skill` column computed at ingest — see
-`docs/usage-analytics.md`.
+this name" rather than "which row shadows this one". PR4 preserves those windowed activity fields
+for the top of the panel, but replaces the overlapping cost table with an all-history read over
+`session_skill_cost`. Display cents use largest-remainder rounding, so every visible row sums
+exactly to the visible total. See `docs/usage-analytics.md`.
 
 **`disabled_reason` (added 2026-08-21)**: nullable `TEXT` on `skills`, stamped at Scan time —
 `NULL` when enabled, `'plugin'` when the owning plugin's `enabledPlugins` entry in `settings.json`

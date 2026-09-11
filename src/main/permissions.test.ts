@@ -13,6 +13,7 @@ import {
   isPathAllowed,
   readAllowedDirectory,
   resetGrantedPaths,
+  visitAllowedUtf8LinesSync,
   revokePath
 } from './permissions'
 
@@ -322,5 +323,44 @@ describe('allowedReadFileSync', () => {
   it('returns null for an allowed path that does not exist', () => {
     grantPath(tmpDir)
     expect(allowedReadFileSync(join(tmpDir, 'missing.txt'))).toBeNull()
+  })
+})
+
+describe('visitAllowedUtf8LinesSync', () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'megatron-perm-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('streams UTF-8 lines across chunk boundaries and preserves a final unterminated line', () => {
+    grantPath(tmpDir)
+    const filePath = join(tmpDir, 'large.jsonl')
+    const firstLine = `${'a'.repeat(65_535)}é`
+    writeFileSync(filePath, `${firstLine}\r\nsecond\nlast`)
+    const lines: string[] = []
+
+    const status = visitAllowedUtf8LinesSync(filePath, (line) => lines.push(line))
+
+    expect(status).toBe('ok')
+    expect(lines).toEqual([firstLine, 'second', 'last'])
+  })
+
+  it('does not visit a disallowed file', () => {
+    const filePath = join(tmpDir, 'file.txt')
+    writeFileSync(filePath, 'secret')
+    const lines: string[] = []
+
+    expect(visitAllowedUtf8LinesSync(filePath, (line) => lines.push(line))).toBe('unavailable')
+    expect(lines).toEqual([])
+  })
+
+  it('reports a missing allowed file without throwing', () => {
+    grantPath(tmpDir)
+    expect(visitAllowedUtf8LinesSync(join(tmpDir, 'missing.txt'), () => undefined)).toBe('missing')
   })
 })

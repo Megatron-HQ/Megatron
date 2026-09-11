@@ -160,3 +160,48 @@ CREATE TABLE IF NOT EXISTS session_model_cost (
   web_search_requests INTEGER NOT NULL,
   PRIMARY KEY (session_id, model)
 );
+
+-- One row per logical assistant response. Claude Code may write several physical JSONL
+-- records for one response (thinking/text/tool blocks); logical_turn_key collapses those
+-- records without summing the repeated usage payload.
+CREATE TABLE IF NOT EXISTS turn_usage (
+  id INTEGER PRIMARY KEY,
+  logical_turn_key TEXT NOT NULL UNIQUE,
+  source_uuid TEXT NOT NULL UNIQUE,
+  session_id TEXT NOT NULL REFERENCES sessions_meta(session_id) ON DELETE CASCADE,
+  request_id TEXT,
+  message_id TEXT,
+  turn_index INTEGER NOT NULL,
+  model TEXT NOT NULL,
+  effort TEXT CHECK (effort IS NULL OR effort IN ('xhigh', 'high', 'medium', 'low')),
+  input_tokens INTEGER NOT NULL,
+  cache_read_tokens INTEGER NOT NULL,
+  cache_creation_tokens INTEGER NOT NULL,
+  cache_creation_5m_tokens INTEGER NOT NULL,
+  cache_creation_1h_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  thinking_tokens INTEGER NOT NULL DEFAULT 0,
+  web_search_requests INTEGER NOT NULL DEFAULT 0,
+  agent_id TEXT,
+  active_skill TEXT,
+  invoked_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_turn_usage_session_id ON turn_usage(session_id);
+CREATE INDEX IF NOT EXISTS idx_turn_usage_invoked_at ON turn_usage(invoked_at);
+CREATE INDEX IF NOT EXISTS idx_turn_usage_active_skill ON turn_usage(active_skill);
+
+-- Materialized attribution for priced terminal sessions. A NULL skill_name is the
+-- explicit General work bucket; partial indexes make that nullable identity unique.
+CREATE TABLE IF NOT EXISTS session_skill_cost (
+  session_id TEXT NOT NULL REFERENCES session_cost(session_id) ON DELETE CASCADE,
+  skill_name TEXT,
+  est_cost_usd REAL NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_session_skill_cost_named
+  ON session_skill_cost(session_id, skill_name)
+  WHERE skill_name IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_session_skill_cost_general
+  ON session_skill_cost(session_id)
+  WHERE skill_name IS NULL;

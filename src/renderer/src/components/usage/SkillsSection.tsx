@@ -32,15 +32,17 @@ function selectedWindow(stats: SkillStats, key: SkillStatsWindowKey): SkillStats
 
 export function SkillWindowToggle({
   value,
-  onChange
+  onChange,
+  ariaLabel = 'Skill activity window'
 }: {
   value: SkillStatsWindowKey
   onChange: (value: SkillStatsWindowKey) => void
+  ariaLabel?: string
 }): React.JSX.Element {
   return (
     <div
       role="radiogroup"
-      aria-label="Skill activity window"
+      aria-label={ariaLabel}
       className="flex gap-1 rounded-md border border-border p-0.5"
     >
       {WINDOWS.map(({ key, label }) => {
@@ -166,12 +168,12 @@ export function SkillsSection({
         />
       </ChartBlock>
 
-      <ChartBlock label="Session association" empty={empty} emptyMessage={emptyMessage}>
-        <SkillAssociationTable
-          rows={window.associations}
-          pricedSessionsWithoutSkill={stats.pricedSessionsWithoutSkill}
-          onSelectSkill={onSelectSkill}
-        />
+      <ChartBlock
+        label="Estimated cost attribution"
+        empty={stats.attribution.rows.length === 0}
+        emptyMessage="No cost attribution data yet"
+      >
+        <SkillAssociationTable attribution={stats.attribution} onSelectSkill={onSelectSkill} />
       </ChartBlock>
     </section>
   )

@@ -1,6 +1,17 @@
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync, type Stats } from 'fs'
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+  type Stats
+} from 'fs'
 import { homedir } from 'os'
 import { resolve, sep } from 'path'
+import { StringDecoder } from 'string_decoder'
 
 const TIER_1_ROOTS = ['skills', 'plugins', 'projects'].map((dir) =>
   resolve(homedir(), '.claude', dir)
@@ -100,5 +111,48 @@ export function allowedReadFileSync(path: string): Buffer | null {
     return readFileSync(path)
   } catch {
     return null
+  }
+}
+
+export type AllowedFileReadStatus = 'ok' | 'missing' | 'unavailable'
+
+const STREAM_READ_CHUNK_BYTES = 64 * 1024
+
+export function visitAllowedUtf8LinesSync(
+  path: string,
+  visitLine: (line: string) => void
+): AllowedFileReadStatus {
+  if (!isPathAllowed(path)) return 'unavailable'
+
+  let fileDescriptor: number
+  try {
+    fileDescriptor = openSync(path, 'r')
+  } catch (error) {
+    const code =
+      error instanceof Error && 'code' in error ? (error as NodeJS.ErrnoException).code : undefined
+    return code === 'ENOENT' ? 'missing' : 'unavailable'
+  }
+
+  const buffer = Buffer.allocUnsafe(STREAM_READ_CHUNK_BYTES)
+  const decoder = new StringDecoder('utf8')
+  let pending = ''
+
+  try {
+    while (true) {
+      const bytesRead = readSync(fileDescriptor, buffer, 0, buffer.length, null)
+      if (bytesRead === 0) break
+      pending += decoder.write(buffer.subarray(0, bytesRead))
+      const lines = pending.split('\n')
+      pending = lines.pop() ?? ''
+      for (const line of lines) visitLine(line.endsWith('\r') ? line.slice(0, -1) : line)
+    }
+    pending += decoder.end()
+    if (pending !== '') visitLine(pending.endsWith('\r') ? pending.slice(0, -1) : pending)
+    return 'ok'
+  } catch (error) {
+    if (!(error instanceof Error && 'code' in error)) throw error
+    return 'unavailable'
+  } finally {
+    closeSync(fileDescriptor)
   }
 }

@@ -25,9 +25,40 @@ describe('applySchema', () => {
         'lint_findings',
         'prompt_history',
         'session_cost',
-        'session_model_cost'
+        'session_model_cost',
+        'turn_usage',
+        'session_skill_cost'
       ])
     )
+  })
+
+  it('rejects duplicate logical turns and duplicate General-work buckets', () => {
+    applySchema(db)
+    db.prepare(
+      `INSERT INTO sessions_meta (session_id, cwd, git_branch, started_at, message_count, source_mtime_ms)
+       VALUES ('session-1', '/cwd', NULL, ?, 0, 0)`
+    ).run(new Date().toISOString())
+    db.prepare(
+      `INSERT INTO session_cost (session_id, total_cost_usd) VALUES ('session-1', 2.5)`
+    ).run()
+
+    const insertTurn = db.prepare(
+      `INSERT INTO turn_usage
+         (logical_turn_key, source_uuid, session_id, turn_index, model, input_tokens,
+          cache_read_tokens, cache_creation_tokens, cache_creation_5m_tokens,
+          cache_creation_1h_tokens, output_tokens, invoked_at)
+       VALUES (?, ?, 'session-1', 0, 'claude-sonnet-5', 0, 0, 0, 0, 0, 1, ?)`
+    )
+    const now = new Date().toISOString()
+    insertTurn.run('message:m-1', 'uuid-1', now)
+    expect(() => insertTurn.run('message:m-1', 'uuid-2', now)).toThrow()
+
+    const insertGeneral = db.prepare(
+      `INSERT INTO session_skill_cost (session_id, skill_name, est_cost_usd)
+       VALUES ('session-1', NULL, ?)`
+    )
+    insertGeneral.run(1)
+    expect(() => insertGeneral.run(1.5)).toThrow()
   })
 
   it('rejects an invalid lint_findings.severity', () => {

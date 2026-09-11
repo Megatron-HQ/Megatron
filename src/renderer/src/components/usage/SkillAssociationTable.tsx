@@ -1,124 +1,119 @@
 import { useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import type { SkillCostAssociation } from '../../../../shared/ipc'
+import { TriangleAlert } from 'lucide-react'
+import type { SkillCostAttribution } from '../../../../shared/ipc'
 import { TextLink } from '@/components/TextLink'
 import { formatCount, formatUsd } from './chart-utils'
 
 const INITIAL_ROWS = 8
 
-function AssociationRow({
-  row,
-  maxCost,
-  onSelectSkill
-}: {
-  row: SkillCostAssociation
-  maxCost: number
-  onSelectSkill?: (skillId: number) => void
-}): React.JSX.Element {
-  const pct = maxCost > 0 ? (row.associatedCostUsd / maxCost) * 100 : 0
-  const clickable = row.skillId !== null && onSelectSkill !== undefined
-
-  return (
-    <tr className="group relative h-8 border-b border-border last:border-b-0">
-      {/* ponytail: absolute fill anchors to the position:relative <tr> — table rows as containing
-          blocks are Chromium-only, which is all Megatron ships (macOS-only Electron). */}
-      <td className="max-w-0 pr-4">
-        <span
-          aria-hidden
-          className="absolute inset-y-0 left-0 bg-usage-bar/[0.07] transition-colors duration-150 group-hover:bg-usage-bar/[0.11] dark:bg-usage-bar/[0.12] dark:group-hover:bg-usage-bar/[0.17]"
-          style={{ width: `${pct}%`, minWidth: row.associatedCostUsd > 0 ? 2 : undefined }}
-        />
-        {/* TextLink carries no flex-1: it shrink-wraps its text so the underline sweep spans the
-            word, not the whole cell. min-w-0 still lets a long name truncate. */}
-        <span className="relative flex min-w-0 items-center gap-1.5">
-          {clickable ? (
-            <TextLink
-              className="min-w-0 text-[13px]"
-              onClick={() => onSelectSkill?.(row.skillId as number)}
-            >
-              <span className="truncate" title={row.skillName}>
-                {row.skillName}
-              </span>
-            </TextLink>
-          ) : (
-            <span className="truncate text-[13px]" title={row.skillName}>
-              {row.skillName}
-            </span>
-          )}
-          {row.sourceType && (
-            <span className="shrink-0 text-[11px] text-muted-foreground">{row.sourceType}</span>
-          )}
-        </span>
-      </td>
-      <td
-        className="relative w-28 text-right font-mono text-[12px] tabular-nums text-muted-foreground"
-        title={`${row.trackedSessionCount} of ${row.sessionCount} sessions have usable cost data`}
-      >
-        {formatCount(row.trackedSessionCount)} / {formatCount(row.sessionCount)}
-      </td>
-      <td className="relative w-32 text-right font-mono text-[12px] tabular-nums text-muted-foreground">
-        {formatCount(row.associatedOutputTokens)}
-      </td>
-      <td className="relative w-28 text-right font-mono text-[12px] tabular-nums text-foreground">
-        {row.trackedSessionCount === 0 ? '—' : formatUsd(row.associatedCostUsd, { cents: true })}
-      </td>
-    </tr>
-  )
-}
-
 export function SkillAssociationTable({
-  rows,
-  pricedSessionsWithoutSkill,
+  attribution,
   onSelectSkill
 }: {
-  rows: SkillCostAssociation[]
-  pricedSessionsWithoutSkill: number
+  attribution: SkillCostAttribution
   onSelectSkill?: (skillId: number) => void
 }): React.JSX.Element {
   const reduceMotion = useReducedMotion() === true
   const [expanded, setExpanded] = useState(false)
-  const visibleRows = expanded ? rows : rows.slice(0, INITIAL_ROWS)
-  const hiddenCount = Math.max(0, rows.length - INITIAL_ROWS)
-  const maxCost = rows.reduce((max, row) => Math.max(max, row.associatedCostUsd), 0)
-  const n = pricedSessionsWithoutSkill
+  const visibleRows = expanded ? attribution.rows : attribution.rows.slice(0, INITIAL_ROWS)
+  const hiddenCount = Math.max(0, attribution.rows.length - INITIAL_ROWS)
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="max-w-[520px] text-[11px] text-muted-foreground">
-        Association, not attribution. Each session is counted under every skill it invoked, so these
-        rows overlap and add up to more than the tracked-window total. This shows which skills tend
-        to run inside expensive sessions &mdash; not what a skill &ldquo;costs.&rdquo;
+      <p className="max-w-[620px] text-[11px] text-muted-foreground">
+        Estimated API-equivalent cost is attributed within each priced model by output-token share.
+        Unpriced, unmatched, and residual cost is assigned to General work. Rows are additive and
+        cover all cost-tracked history, independent of the activity window above.
       </p>
-      {n > 0 && (
-        <p className="max-w-[520px] text-[11px] text-muted-foreground">
-          {n.toLocaleString()} cost-tracked {n === 1 ? 'session' : 'sessions'} invoked no skill and{' '}
-          {n === 1 ? "isn't" : "aren't"} shown here &mdash; counted across all tracked history, not
-          the selected window.
+      {attribution.hasUnknownModelCost && (
+        <p className="flex max-w-[620px] items-start gap-1.5 text-[11px] text-muted-foreground">
+          <TriangleAlert className="mt-px size-3 shrink-0 text-warning" />
+          Some turns used a model Claude Code could not price, so these estimates are a low bound.
         </p>
       )}
       <div className="overflow-x-auto">
         <table className="w-full min-w-[620px] table-fixed text-left">
           <thead>
             <tr className="h-7 border-b border-border text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground">
-              <th className="pr-4 font-medium">Skill</th>
-              <th className="w-28 text-right font-medium">Tracked / all</th>
-              <th className="w-32 text-right font-medium">Output tokens</th>
-              <th className="w-28 text-right font-medium">Associated cost</th>
+              <th className="pr-4 font-medium">Work bucket</th>
+              <th className="w-32 text-right font-medium">Tracked sessions</th>
+              <th className="w-24 text-right font-medium">Share</th>
+              <th className="w-32 text-right font-medium">Estimated cost</th>
             </tr>
           </thead>
           <tbody>
-            {visibleRows.map((row) => (
-              <AssociationRow
-                key={row.skillName}
-                row={row}
-                maxCost={maxCost}
-                onSelectSkill={onSelectSkill}
-              />
-            ))}
+            {visibleRows.map((row) => {
+              const clickable = row.skillId !== null && onSelectSkill !== undefined
+              const label = row.skillName ?? 'General work'
+              return (
+                <tr
+                  key={row.skillName ?? '__general__'}
+                  className="group relative h-8 border-b border-border"
+                >
+                  <td className="max-w-0 pr-4">
+                    <span
+                      aria-hidden
+                      className="absolute inset-y-0 left-0 bg-usage-bar/[0.07] transition-colors duration-150 group-hover:bg-usage-bar/[0.11] dark:bg-usage-bar/[0.12]"
+                      style={{
+                        width: `${row.share * 100}%`,
+                        minWidth: row.estimatedCostCents > 0 ? 2 : undefined
+                      }}
+                    />
+                    <span className="relative flex min-w-0 items-center gap-1.5">
+                      {clickable ? (
+                        <TextLink
+                          className="min-w-0 text-[13px]"
+                          onClick={() => onSelectSkill?.(row.skillId as number)}
+                        >
+                          <span className="truncate" title={label}>
+                            {label}
+                          </span>
+                        </TextLink>
+                      ) : (
+                        <span className="truncate text-[13px]" title={label}>
+                          {label}
+                        </span>
+                      )}
+                      {row.sourceType && (
+                        <span className="shrink-0 text-[11px] text-muted-foreground">
+                          {row.sourceType}
+                        </span>
+                      )}
+                      {row.skillName !== null && row.skillId === null && (
+                        <span className="shrink-0 text-[11px] text-muted-foreground">
+                          unresolved
+                        </span>
+                      )}
+                    </span>
+                  </td>
+                  <td className="relative w-32 text-right font-mono text-[12px] tabular-nums text-muted-foreground">
+                    {formatCount(row.trackedSessionCount)}
+                  </td>
+                  <td className="relative w-24 text-right font-mono text-[12px] tabular-nums text-muted-foreground">
+                    {(row.share * 100).toFixed(1)}%
+                  </td>
+                  <td className="relative w-32 text-right font-mono text-[12px] tabular-nums text-foreground">
+                    {formatUsd(row.estimatedCostCents / 100, { cents: true })}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
+          <tfoot>
+            <tr className="h-8 border-t border-border font-medium">
+              <td className="pr-4 text-[12px]">Total</td>
+              <td className="text-right font-mono text-[12px] tabular-nums">
+                {formatCount(attribution.trackedSessionCount)}
+              </td>
+              <td className="text-right font-mono text-[12px] tabular-nums">100.0%</td>
+              <td className="text-right font-mono text-[12px] tabular-nums">
+                {formatUsd(attribution.totalEstimatedCostCents / 100, { cents: true })}
+              </td>
+            </tr>
+          </tfoot>
         </table>
       </div>
-
       <AnimatePresence initial={false}>
         {hiddenCount > 0 && (
           <motion.button
@@ -129,7 +124,7 @@ export function SkillAssociationTable({
             animate={{ opacity: 1 }}
             transition={{ duration: reduceMotion ? 0 : 0.15 }}
           >
-            {expanded ? 'Show fewer' : `+ ${hiddenCount} more skills`}
+            {expanded ? 'Show fewer' : `+ ${hiddenCount} more buckets`}
           </motion.button>
         )}
       </AnimatePresence>

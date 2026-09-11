@@ -58,6 +58,7 @@ function App(): React.JSX.Element {
   const [pluginFilter, setPluginFilter] = useState<PluginFilter>({ kind: 'all' })
   const [usagePanel, setUsagePanel] = useState<UsagePanel>('activity')
   const [usageActivityWindow, setUsageActivityWindow] = useState<ActivityWindowKey>('30d')
+  const [usageModelWindow, setUsageModelWindow] = useState<SkillStatsWindowKey>('30d')
   const [usageSkillWindow, setUsageSkillWindow] = useState<SkillStatsWindowKey>('30d')
   const [skillBackTarget, setSkillBackTarget] = useState<SkillBackTarget>('inventory')
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -330,6 +331,8 @@ function App(): React.JSX.Element {
                 panel={usagePanel}
                 activityWindow={usageActivityWindow}
                 onActivityWindowChange={setUsageActivityWindow}
+                modelWindow={usageModelWindow}
+                onModelWindowChange={setUsageModelWindow}
                 skillWindow={usageSkillWindow}
                 onSkillWindowChange={setUsageSkillWindow}
                 onSelectSkill={openDetailFromUsage}

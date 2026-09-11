@@ -1,11 +1,12 @@
-import { Activity, BrainCircuit, CircleDollarSign } from 'lucide-react'
+import { Activity, BrainCircuit, CircleDollarSign, Cpu } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-export type UsagePanel = 'activity' | 'cost' | 'skills'
+export type UsagePanel = 'activity' | 'cost' | 'models' | 'skills'
 
 const PANELS = [
   { key: 'activity', label: 'Activity', Icon: Activity },
   { key: 'cost', label: 'Cost', Icon: CircleDollarSign },
+  { key: 'models', label: 'Models', Icon: Cpu },
   { key: 'skills', label: 'Skills', Icon: BrainCircuit }
 ] as const
 

@@ -300,6 +300,42 @@ export interface CostStats {
 }
 
 export type SkillStatsWindowKey = '24h' | '7d' | '30d'
+export type RecordedEffort = 'xhigh' | 'high' | 'medium' | 'low'
+export type EffortBucket = RecordedEffort | 'not_recorded'
+
+export interface ModelTurnSummary {
+  model: string
+  turnCount: number
+  outputTokens: number
+}
+
+export interface EffortTurnSummary {
+  effort: EffortBucket
+  turnCount: number
+  outputTokens: number
+}
+
+export interface ModelEffortRow {
+  model: string
+  byEffort: Record<EffortBucket, number>
+  total: number
+}
+
+export interface ModelStatsWindow {
+  window: SkillStatsWindowKey
+  turnCount: number
+  modelCount: number
+  outputTokens: number
+  byModel: ModelTurnSummary[]
+  byEffort: EffortTurnSummary[]
+  matrix: ModelEffortRow[]
+}
+
+export interface ModelStats {
+  last24h: ModelStatsWindow
+  last7d: ModelStatsWindow
+  last30d: ModelStatsWindow
+}
 
 export interface SkillInvocationCount {
   skillName: string
@@ -343,12 +379,30 @@ export interface SkillStats {
   // caption. Spans all cost-tracked history, NOT the selected window (mirrors getCostStats,
   // which also ignores the 24h/7d/30d toggle).
   pricedSessionsWithoutSkill: number
+  attribution: SkillCostAttribution
+}
+
+export interface SkillCostAttributionRow {
+  skillName: string | null // null = General work
+  skillId: number | null
+  sourceType: SourceType | null
+  trackedSessionCount: number
+  estimatedCostCents: number
+  share: number
+}
+
+export interface SkillCostAttribution {
+  totalEstimatedCostCents: number
+  trackedSessionCount: number
+  hasUnknownModelCost: boolean
+  rows: SkillCostAttributionRow[]
 }
 
 export interface UsageOverview {
   activity: ActivityStats
   // null iff pricedSessionCount === 0 — no session has usable cost-state.
   cost: CostStats | null
+  models: ModelStats
   skills: SkillStats
   scanComplete: boolean
 }

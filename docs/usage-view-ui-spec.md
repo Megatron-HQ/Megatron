@@ -1,13 +1,12 @@
 # Usage view — resolved UI spec (Phase 2a)
 
-**Scope:** the page frame + AppRail entry, the **Activity** section (PR1, §5), the **Cost**
-section (PR2, §C), and the **Skills** section (PR3, §S). Model & effort and Resident tax are still
-**not** designed here — only the frame they inherit.
+**Scope:** the page frame + AppRail entry, **Activity** (PR1, §5), **Cost** (PR2, §C), **Skills**
+(PR3/PR4, §S), and **Models** (PR4, §M). Resident tax is not designed here.
 
 **Status:** Activity resolved in a grill session 2026-09-05 (feeds PR1). Cost resolved in a
 follow-on grill 2026-09-07 (feeds PR2); that pass also revised two cross-cutting rules — section
 entrance motion (§4.2) and the by-project primitive (§5.4 is superseded by §C4). Skills was
-implemented 2026-09-09 (PR3) and its spec (§S) reconciled with the shipped code after `2f1b552`.
+implemented 2026-09-09 (PR3); PR4's Models panel and proportional attribution landed 2026-09-10.
 Design system base: `DESIGN.md` ("Inventory Ledger"). Departures are listed explicitly per
 section (§8, §C10, §S7).
 
@@ -17,7 +16,7 @@ This amendment supersedes the earlier stacked-page decisions in §§2–3, C, an
 conflict:
 
 - Usage now has the same **220px secondary-sidebar shell** as Skills and Plugins. Its completed
-  destinations are **Activity**, **Cost**, and **Skills**, each with a matching lucide icon. There
+  destinations are **Activity**, **Cost**, **Models**, and **Skills**, each with a matching lucide icon. There
   are no counts, groups, project filters, overview item, or placeholders for unfinished work.
 - Exactly one Usage panel renders at a time. The selected panel name and icon occupy the pinned
   main header; panel bodies do not repeat a heading above their content. Switching panels resets
@@ -29,6 +28,7 @@ conflict:
   cutoff and replaces the calendar strip + weekday/hour punchcard with 24 chronological hourly
   prompt buckets; stats and by-project remain.
 - **Cost:** all tracked history, with no window control.
+- **Models:** 24 hours / 7 days / 30 days, default 30 days, independently controlled.
 - **Skills:** 24 hours / 7 days / 30 days, default 30 days.
 - `Updated …` appears in every panel header. Content remains left-aligned and capped at 960px.
 - An installed skill opened from Usage → Skills returns to Usage → Skills when its detail Back
@@ -73,16 +73,16 @@ Scroll position **resets to top** on section switch (branch swap → remount). A
 
 ### 2.2 Pinned header contents
 
-| Side  | Content                                                                                                                                                                                                                                    |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Left  | The selected panel's 14px lucide icon + **Activity**, **Cost**, or **Skills** in 13px/600 ledger-ink. No generic Usage title and no duplicate body heading. |
+| Side  | Content                                                                                                                                                                                             |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Left  | The selected panel's 14px lucide icon + **Activity**, **Cost**, or **Skills** in 13px/600 ledger-ink. No generic Usage title and no duplicate body heading.                                         |
 | Right | The selected panel's window control when applicable (§3), then a muted `Updated 2h ago` derived from `activity.generatedAt`. The updating pulse keys off a refetch after the first successful load. |
 
 ### 2.3 Section model
 
-The sidebar exposes one destination per completed feature: **Activity** (PR1), **Cost** (PR2), and
-**Skills** (PR3). Selecting one unmounts the prior panel and renders only the selected panel.
-Activity is selected by default. Model & effort (PR4), Resident tax (PR5), Tier 2 work, and other
+The sidebar exposes one destination per completed feature: **Activity** (PR1), **Cost** (PR2),
+**Models** (PR4), and **Skills** (PR3/PR4). Selecting one unmounts the prior panel and renders only
+the selected panel. Activity is selected by default. Resident tax (PR5), Tier 2 work, and other
 future panels stay absent until implemented.
 
 **Anatomy of one section:**
@@ -885,7 +885,7 @@ interface SkillStats {
   last7d: SkillStatsWindow
   last30d: SkillStatsWindow
   pricedSessionsWithoutSkill: number // priced terminals no invocation resolves to — caption count.
-                                     // Spans ALL cost-tracked history, not the selected window.
+  // Spans ALL cost-tracked history, not the selected window.
 }
 interface SkillStatsWindow {
   window: '24h' | '7d' | '30d'
@@ -1014,10 +1014,10 @@ subtraction is wrong because the rows overlap).
 
 ## S5. Empty & loading states
 
-| Condition                              | Render                                                                                                                 |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `window.invocationCount === 0`         | Heading + window control + zero-valued stat cells stay; each `ChartBlock` shows "No skill invocations in the last {window}." Never takes over the page's empty state. |
-| `data.skills` absent (pre-scan)        | `UsageSkeleton`'s Skills block: a heading + control bar, three stat cells, a `h-[72px]` trend bar, ~5 list rows.       |
+| Condition                       | Render                                                                                                                                                                |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `window.invocationCount === 0`  | Heading + window control + zero-valued stat cells stay; each `ChartBlock` shows "No skill invocations in the last {window}." Never takes over the page's empty state. |
+| `data.skills` absent (pre-scan) | `UsageSkeleton`'s Skills block: a heading + control bar, three stat cells, a `h-[72px]` trend bar, ~5 list rows.                                                      |
 
 Windows are independent: 24h can be empty while 30d is populated. No `cost === null` special-case
 — the association table degrades per-row (`—` in the cost column) when a skill's sessions have no
@@ -1045,3 +1045,35 @@ from the old §D: the association caption sits **above** the table, not below.
 - **Proportional per-skill $ attribution** — the honest replacement for the naive Associated-cost
   column. Designed (`usage-analytics.md` PR4 rider), depends on `turn_usage`, **built in PR4**.
 - **`turn_usage`-backed panels** (Model & effort, intra-session context-growth curve) — PR4.
+
+---
+
+# M. Models section and Skills attribution amendment (PR4)
+
+**Status:** implemented 2026-09-10. This section supersedes §S wherever §S still describes the
+PR3 association table.
+
+## M1. Models panel
+
+- Own 24h / 7d / 30d segmented control, default 30d; it does not change Activity or Skills.
+- Headline stats: logical turns, distinct normalized models, and output tokens.
+- `RankedList` summaries show turns by model and by effort. Missing/unknown effort is labeled
+  **Not recorded**; valid unpriced model turns remain visible.
+- The final semantic table is **Model × effort**: models are rows; Xhigh, High, Medium, Low,
+  conditional Not recorded, and Total are columns; the footer contains column totals.
+- The table sits in `overflow-x-auto` at the supported minimum width. Global no-history and
+  selected-window-empty states are distinct.
+
+## M2. Skills attribution replacement
+
+- Windowed invocation stats, trend, top skills, and trigger mix remain unchanged.
+- The last block is **Estimated cost attribution**, covering all cost-tracked history independent
+  of the Skills window. Columns: Work bucket / Tracked sessions / Share / Estimated cost, plus a
+  total footer.
+- Named installed skills link to Detail. Unresolved historical names are separate plain-text rows.
+  **General work** is a non-clickable final row after all named skills.
+- Server-side largest-remainder cent allocation guarantees that displayed row cents sum exactly to
+  the displayed total. A visible method note explains output-token weighting and the General bucket;
+  unknown model cost adds the existing warning treatment.
+- The table preserves §S's ambient monochrome row fill, expandable first-eight-row treatment,
+  reduced-motion guard, `min-w-[620px]`, and internal horizontal scrolling.

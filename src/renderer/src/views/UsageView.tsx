@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { Activity, BrainCircuit, CircleDollarSign, TriangleAlert } from 'lucide-react'
+import { Activity, BrainCircuit, CircleDollarSign, Cpu, TriangleAlert } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/relative-time'
@@ -14,6 +14,7 @@ import { Punchcard } from '@/components/usage/Punchcard'
 import { RankedList } from '@/components/usage/RankedList'
 import { SpendBar } from '@/components/usage/SpendBar'
 import { SkillsSection, SkillWindowToggle } from '@/components/usage/SkillsSection'
+import { ModelsSection } from '@/components/usage/ModelsSection'
 import { formatCount, formatUsd } from '@/components/usage/chart-utils'
 import type { UsagePanel } from '@/components/UsageSidebar'
 import type {
@@ -28,6 +29,7 @@ export type ActivityWindowKey = '24h' | '7d' | '30d'
 const PANEL_META = {
   activity: { label: 'Activity', Icon: Activity },
   cost: { label: 'Cost', Icon: CircleDollarSign },
+  models: { label: 'Models', Icon: Cpu },
   skills: { label: 'Skills', Icon: BrainCircuit }
 } as const
 
@@ -35,6 +37,8 @@ export function UsageView({
   panel,
   activityWindow,
   onActivityWindowChange,
+  modelWindow,
+  onModelWindowChange,
   skillWindow,
   onSkillWindowChange,
   onSelectSkill
@@ -42,6 +46,8 @@ export function UsageView({
   panel: UsagePanel
   activityWindow: ActivityWindowKey
   onActivityWindowChange: (window: ActivityWindowKey) => void
+  modelWindow: SkillStatsWindowKey
+  onModelWindowChange: (window: SkillStatsWindowKey) => void
   skillWindow: SkillStatsWindowKey
   onSkillWindowChange: (window: SkillStatsWindowKey) => void
   onSelectSkill?: (skillId: number) => void
@@ -77,6 +83,13 @@ export function UsageView({
             {panel === 'skills' && (
               <SkillWindowToggle value={skillWindow} onChange={onSkillWindowChange} />
             )}
+            {panel === 'models' && (
+              <SkillWindowToggle
+                value={modelWindow}
+                onChange={onModelWindowChange}
+                ariaLabel="Model activity window"
+              />
+            )}
             {data?.activity && (
               <span
                 className={cn('text-[11px] text-muted-foreground', isFetching && 'animate-pulse')}
@@ -104,6 +117,12 @@ export function UsageView({
                 <ActivityPanel activity={data?.activity ?? null} windowKey={activityWindow} />
               ) : panel === 'cost' ? (
                 <CostSection cost={data?.cost ?? null} />
+              ) : panel === 'models' ? (
+                data?.models && data.models.last30d.turnCount > 0 ? (
+                  <ModelsSection stats={data.models} windowKey={modelWindow} />
+                ) : (
+                  <ModelsEmpty />
+                )
               ) : data?.skills ? (
                 <SkillsSection
                   stats={data.skills}
@@ -382,6 +401,19 @@ function SkillsEmpty(): React.JSX.Element {
       <p className="max-w-[380px] text-[13px] text-muted-foreground">
         Skill invocations will appear here after they are recorded and Megatron rescans your
         sessions.
+      </p>
+    </div>
+  )
+}
+
+function ModelsEmpty(): React.JSX.Element {
+  return (
+    <div className="flex flex-col items-center gap-2 py-24 text-center">
+      <Cpu className="size-8 text-muted-foreground" />
+      <p className="text-[13px] font-medium">No model activity yet</p>
+      <p className="max-w-[380px] text-[13px] text-muted-foreground">
+        Model and effort usage will appear after Megatron rescans a Claude Code session containing
+        assistant turns.
       </p>
     </div>
   )

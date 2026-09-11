@@ -112,13 +112,24 @@ export function toModelCostRows(cost: SessionCost): ModelCost[] {
 
 // Snake_case fields to match the DB columns / `TranscriptInvocation`'s convention.
 export interface TurnUsageRow {
+  logical_turn_key: string
   source_uuid: string
   session_id: string
+  request_id: string | null
+  message_id: string | null
   turn_index: number
   model: string
   effort: string | null
+  input_tokens: number
   cache_read_tokens: number
   cache_creation_tokens: number
+  cache_creation_5m_tokens: number
+  cache_creation_1h_tokens: number
+  output_tokens: number
+  thinking_tokens: number
+  web_search_requests: number
+  agent_id: string | null
+  active_skill: string | null
   invoked_at: string
 }
 
@@ -133,13 +144,95 @@ export interface TurnUsageRow {
 // turn." `records` is one session's transcript in file (chronological) order, so ordinal 0 is
 // reliably that session's first real assistant turn. A skipped synthetic turn does not consume
 // an ordinal.
-export function extractTurnUsage(records: Record<string, unknown>[]): TurnUsageRow[] {
+const VALID_EFFORTS = new Set(['xhigh', 'high', 'medium', 'low'])
+const SKILL_BASE_DIRECTORY_MARKER = 'Base directory for this skill:'
+const SKILL_COMMAND_PATTERN = /<command-name>\/([^<\s]+)<\/command-name>/
+
+function numberField(record: Record<string, unknown>, key: string): number {
+  return typeof record[key] === 'number' ? record[key] : 0
+}
+
+function userRecordStartsNewTurn(record: Record<string, unknown>): boolean {
+  if (record.type !== 'user') return false
+  const message = isRecord(record.message) ? record.message : null
+  const content = message?.content
+  if (typeof content === 'string') return !content.includes(SKILL_BASE_DIRECTORY_MARKER)
+  if (!Array.isArray(content)) return false
+  if (content.some((block) => isRecord(block) && block.type === 'tool_result')) return false
+  const text = content
+    .filter((block) => isRecord(block) && block.type === 'text' && typeof block.text === 'string')
+    .map((block) => String((block as Record<string, unknown>).text))
+    .join('')
+  return text !== '' && !text.includes(SKILL_BASE_DIRECTORY_MARKER)
+}
+
+function recordHasSkillBaseMarker(record: Record<string, unknown>): boolean {
+  const message = isRecord(record.message) ? record.message : null
+  const content = message?.content
+  if (typeof content === 'string') return content.includes(SKILL_BASE_DIRECTORY_MARKER)
+  if (!Array.isArray(content)) return false
+  return content.some(
+    (block) =>
+      isRecord(block) &&
+      typeof block.text === 'string' &&
+      block.text.includes(SKILL_BASE_DIRECTORY_MARKER)
+  )
+}
+
+function verifiedSlashSkill(
+  record: Record<string, unknown>,
+  parentsWithBaseMarker: Set<string>
+): string | null {
+  const uuid = typeof record.uuid === 'string' ? record.uuid : null
+  if (uuid === null || !parentsWithBaseMarker.has(uuid)) return null
+  const message = isRecord(record.message) ? record.message : null
+  const content = message?.content
+  if (typeof content !== 'string') return null
+  return SKILL_COMMAND_PATTERN.exec(content)?.[1] ?? null
+}
+
+function lastSkillToolUse(message: Record<string, unknown>): string | null {
+  if (!Array.isArray(message.content)) return null
+  let skill: string | null = null
+  for (const block of message.content) {
+    if (!isRecord(block) || block.type !== 'tool_use' || block.name !== 'Skill') continue
+    const input = isRecord(block.input) ? block.input : null
+    if (typeof input?.skill === 'string' && input.skill.trim() !== '') skill = input.skill.trim()
+  }
+  return skill
+}
+
+export function extractTurnUsage(
+  records: Record<string, unknown>[],
+  agentId: string | null = null
+): TurnUsageRow[] {
   const rows: TurnUsageRow[] = []
-  const seen = new Set<string>()
+  const rowsByLogicalKey = new Map<string, TurnUsageRow>()
   let turnIndex = 0
+  let activeSkill: string | null = null
+  const parentsWithBaseMarker = new Set(
+    records.flatMap((record) =>
+      typeof record.parentUuid === 'string' && recordHasSkillBaseMarker(record)
+        ? [record.parentUuid]
+        : []
+    )
+  )
 
   for (const record of records) {
-    if (record.type !== 'assistant' || record.isSidechain !== false) continue
+    if (userRecordStartsNewTurn(record)) {
+      activeSkill = verifiedSlashSkill(record, parentsWithBaseMarker)
+      continue
+    }
+    if (record.type !== 'assistant' || (agentId === null && record.isSidechain !== false)) continue
+
+    const message = isRecord(record.message) ? record.message : null
+    const attributedSkill =
+      typeof record.attributionSkill === 'string' && record.attributionSkill.trim() !== ''
+        ? record.attributionSkill.trim()
+        : null
+    const invokedSkill = message === null ? null : lastSkillToolUse(message)
+    const resolvedSkill = attributedSkill ?? invokedSkill
+    if (resolvedSkill !== null) activeSkill = resolvedSkill
 
     const sourceUuid = record.uuid
     const sessionId = record.sessionId
@@ -147,35 +240,64 @@ export function extractTurnUsage(records: Record<string, unknown>[]): TurnUsageR
     if (
       typeof sourceUuid !== 'string' ||
       typeof sessionId !== 'string' ||
-      typeof invokedAt !== 'string' ||
-      seen.has(sourceUuid)
+      typeof invokedAt !== 'string'
     ) {
       continue
     }
 
-    const message = isRecord(record.message) ? record.message : null
     const model = normalizeModelKey(
       message !== null && typeof message.model === 'string' ? message.model : ''
     )
     if (model === null) continue
 
-    seen.add(sourceUuid)
-    const usage = message !== null && isRecord(message.usage) ? message.usage : {}
+    const requestId = typeof record.requestId === 'string' ? record.requestId : null
+    const messageId = message !== null && typeof message.id === 'string' ? message.id : null
+    const logicalTurnKey =
+      messageId !== null
+        ? `message:${messageId}`
+        : requestId !== null
+          ? `request:${requestId}`
+          : `source:${sourceUuid}`
+    const existing = rowsByLogicalKey.get(logicalTurnKey)
+    if (existing !== undefined) {
+      if (resolvedSkill !== null) {
+        existing.active_skill = resolvedSkill
+        activeSkill = resolvedSkill
+      }
+      continue
+    }
 
-    rows.push({
+    const usage = message !== null && isRecord(message.usage) ? message.usage : {}
+    const cacheCreation = isRecord(usage.cache_creation) ? usage.cache_creation : {}
+    const outputDetails = isRecord(usage.output_tokens_details) ? usage.output_tokens_details : {}
+    const serverToolUse = isRecord(usage.server_tool_use) ? usage.server_tool_use : {}
+    const effort =
+      typeof record.effort === 'string' && VALID_EFFORTS.has(record.effort) ? record.effort : null
+
+    const row: TurnUsageRow = {
+      logical_turn_key: logicalTurnKey,
       source_uuid: sourceUuid,
       session_id: sessionId,
+      request_id: requestId,
+      message_id: messageId,
       turn_index: turnIndex++,
       model,
-      effort: typeof record.effort === 'string' ? record.effort : null,
-      cache_read_tokens:
-        typeof usage.cache_read_input_tokens === 'number' ? usage.cache_read_input_tokens : 0,
-      cache_creation_tokens:
-        typeof usage.cache_creation_input_tokens === 'number'
-          ? usage.cache_creation_input_tokens
-          : 0,
+      effort,
+      input_tokens: numberField(usage, 'input_tokens'),
+      cache_read_tokens: numberField(usage, 'cache_read_input_tokens'),
+      cache_creation_tokens: numberField(usage, 'cache_creation_input_tokens'),
+      cache_creation_5m_tokens: numberField(cacheCreation, 'ephemeral_5m_input_tokens'),
+      cache_creation_1h_tokens: numberField(cacheCreation, 'ephemeral_1h_input_tokens'),
+      output_tokens: numberField(usage, 'output_tokens'),
+      thinking_tokens:
+        numberField(outputDetails, 'thinking_tokens') || numberField(usage, 'thinking_tokens'),
+      web_search_requests: numberField(serverToolUse, 'web_search_requests'),
+      agent_id: agentId,
+      active_skill: activeSkill,
       invoked_at: invokedAt
-    })
+    }
+    rows.push(row)
+    rowsByLogicalKey.set(logicalTurnKey, row)
   }
 
   return rows

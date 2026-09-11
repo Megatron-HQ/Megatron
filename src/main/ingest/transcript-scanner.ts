@@ -2,13 +2,20 @@ import type Database from 'better-sqlite3'
 import { homedir } from 'os'
 import { basename, join, resolve } from 'path'
 import {
-  allowedReadFileSync,
   allowedStatSync,
   isPathAllowed,
-  readAllowedDirectory
+  readAllowedDirectory,
+  visitAllowedUtf8LinesSync
 } from '../permissions'
 import type { TriggerType } from '../../shared/ipc'
-import { extractCostState, toModelCostRows, type SessionCost } from './cost-parser'
+import {
+  extractCostState,
+  extractTurnUsage,
+  toModelCostRows,
+  type SessionCost,
+  type TurnUsageRow
+} from './cost-parser'
+import { rebuildSessionSkillCosts } from './skill-cost-allocation'
 
 export interface TranscriptSession {
   session_id: string
@@ -40,7 +47,7 @@ const PRECEDING_TEXT_MAX_CHARS = 2000
 // Bumps on any parser-semantic change across the whole walk, cost-state included (no separate
 // cost_parser_version — see docs/usage-analytics.md §8). A bump forces one safe reindex of all
 // already-indexed sessions. 3→4: cost-state ingest (session_cost / session_model_cost).
-const TRANSCRIPT_PARSER_VERSION = 4
+const TRANSCRIPT_PARSER_VERSION = 5
 
 function truncatePrecedingText(text: string | null): string | null {
   return text === null ? null : text.slice(0, PRECEDING_TEXT_MAX_CHARS)
@@ -49,6 +56,7 @@ function truncatePrecedingText(text: string | null): string | null {
 export interface TranscriptParse {
   session: TranscriptSession | null
   invocations: TranscriptInvocation[]
+  turns: TurnUsageRow[]
   // The last cost-state line's parsed shape, or null when the transcript has none (pre-v2.1.241
   // history). Main transcripts only — subagent cost is already inside the parent's total.
   cost: SessionCost | null
@@ -58,21 +66,39 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function parseLines(filePath: string): Record<string, unknown>[] {
-  const contents = allowedReadFileSync(filePath)
-  if (contents === null) return []
+function compactRecord(record: Record<string, unknown>): Record<string, unknown> {
+  if (record.type !== 'user' && record.type !== 'assistant') return record
+  const message = record.message
+  if (!isRecord(message) || !Array.isArray(message.content)) return record
 
-  const raw = contents.toString('utf8').split('\n')
+  const content = message.content.flatMap((block): Record<string, unknown>[] => {
+    if (!isRecord(block)) return []
+    if (block.type === 'tool_result') return [{ type: 'tool_result' }]
+    if (block.type === 'tool_use' && block.name === 'Skill') return [block]
+    if (block.type === 'text' && typeof block.text === 'string') {
+      return [
+        block.text.includes(BASE_DIRECTORY_MARKER)
+          ? { type: 'text', text: BASE_DIRECTORY_MARKER }
+          : block
+      ]
+    }
+    return []
+  })
+
+  return { ...record, message: { ...message, content } }
+}
+
+function parseLines(filePath: string): Record<string, unknown>[] {
   const records: Record<string, unknown>[] = []
-  for (const line of raw) {
-    if (line.trim() === '') continue
+  visitAllowedUtf8LinesSync(filePath, (line) => {
+    if (line.trim() === '') return
     try {
       const parsed: unknown = JSON.parse(line)
-      if (isRecord(parsed)) records.push(parsed)
+      if (isRecord(parsed)) records.push(compactRecord(parsed))
     } catch {
-      continue
+      return
     }
-  }
+  })
   return records
 }
 
@@ -333,14 +359,30 @@ function extractInvocations(
 
 export function parseTranscript(filePath: string): TranscriptParse {
   if (!isPathAllowed(filePath)) {
-    return { session: null, invocations: [], cost: null }
+    return { session: null, invocations: [], turns: [], cost: null }
   }
 
   const records = parseLines(filePath)
   return {
     session: extractSession(records),
     invocations: extractInvocations(records),
+    turns: extractTurnUsage(records),
     cost: extractCostState(records)
+  }
+}
+
+interface SubagentParse {
+  invocations: TranscriptInvocation[]
+  turns: TurnUsageRow[]
+}
+
+function parseSubagent(filePath: string): SubagentParse {
+  if (!isPathAllowed(filePath)) return { invocations: [], turns: [] }
+  const agentId = basename(filePath, '.jsonl')
+  const records = parseLines(filePath)
+  return {
+    invocations: extractInvocations(records, agentId),
+    turns: extractTurnUsage(records, agentId)
   }
 }
 
@@ -348,10 +390,7 @@ export function parseTranscript(filePath: string): TranscriptParse {
 // session's own sessionId and cwd, so upserting a "session" from this file would overwrite the
 // parent's real sessions_meta row with the subagent's own started_at/message_count.
 export function parseSubagentInvocations(filePath: string): TranscriptInvocation[] {
-  if (!isPathAllowed(filePath)) return []
-
-  const agentId = basename(filePath, '.jsonl')
-  return extractInvocations(parseLines(filePath), agentId)
+  return parseSubagent(filePath).invocations
 }
 
 export function scanTranscripts(
@@ -382,6 +421,20 @@ export function scanTranscripts(
   `)
 
   const deleteSessionInvocations = db.prepare('DELETE FROM skill_invocations WHERE session_id = ?')
+  const deleteSessionTurns = db.prepare('DELETE FROM turn_usage WHERE session_id = ?')
+
+  const insertTurn = db.prepare(`
+    INSERT INTO turn_usage
+      (logical_turn_key, source_uuid, session_id, request_id, message_id, turn_index, model,
+       effort, input_tokens, cache_read_tokens, cache_creation_tokens,
+       cache_creation_5m_tokens, cache_creation_1h_tokens, output_tokens, thinking_tokens,
+       web_search_requests, agent_id, active_skill, invoked_at)
+    VALUES
+      (@logical_turn_key, @source_uuid, @session_id, @request_id, @message_id, @turn_index, @model,
+       @effort, @input_tokens, @cache_read_tokens, @cache_creation_tokens,
+       @cache_creation_5m_tokens, @cache_creation_1h_tokens, @output_tokens, @thinking_tokens,
+       @web_search_requests, @agent_id, @active_skill, @invoked_at)
+  `)
 
   // session_model_cost rows cascade off session_cost (ON DELETE CASCADE); FKs are enabled by
   // applySchema, so a bare DELETE here also clears the per-model rows.
@@ -489,6 +542,7 @@ export function scanTranscripts(
           transcript_parser_version: TRANSCRIPT_PARSER_VERSION
         })
         deleteSessionInvocations.run(parsed.session.session_id)
+        deleteSessionTurns.run(parsed.session.session_id)
         deleteSessionCost.run(parsed.session.session_id)
         if (parsed.cost !== null) {
           insertSessionCost.run({
@@ -505,25 +559,37 @@ export function scanTranscripts(
         for (const invocation of parsed.invocations) {
           insertInvocation.run(invocation)
         }
+        for (const turn of parsed.turns) {
+          insertTurn.run(turn)
+        }
         for (const subagentFilePath of subagentFilePaths) {
-          for (const invocation of parseSubagentInvocations(subagentFilePath)) {
+          const subagent = parseSubagent(subagentFilePath)
+          for (const invocation of subagent.invocations) {
             insertInvocation.run(invocation)
           }
+          for (const turn of subagent.turns) insertTurn.run(turn)
         }
       }
     }
 
-    if (!scanIsAuthoritative) return
+    if (!scanIsAuthoritative) {
+      rebuildSessionSkillCosts(db)
+      return
+    }
 
     // session_cost is deleted before sessions_meta: its FK to sessions_meta has no cascade, so a
     // parent row can't go first. session_model_cost follows session_cost via cascade.
     if (seenSessionIds.size === 0) {
       db.prepare('DELETE FROM skill_invocations').run()
+      db.prepare('DELETE FROM turn_usage').run()
       db.prepare('DELETE FROM session_cost').run()
       db.prepare('DELETE FROM sessions_meta').run()
     } else {
       const placeholders = [...seenSessionIds].map(() => '?').join(', ')
       db.prepare(`DELETE FROM skill_invocations WHERE session_id NOT IN (${placeholders})`).run(
+        ...seenSessionIds
+      )
+      db.prepare(`DELETE FROM turn_usage WHERE session_id NOT IN (${placeholders})`).run(
         ...seenSessionIds
       )
       db.prepare(`DELETE FROM session_cost WHERE session_id NOT IN (${placeholders})`).run(
@@ -533,6 +599,7 @@ export function scanTranscripts(
         ...seenSessionIds
       )
     }
+    rebuildSessionSkillCosts(db)
   })
 
   runScan()

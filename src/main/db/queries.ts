@@ -11,6 +11,8 @@ import type {
   CostStats,
   LintFindingRow,
   LintSeverity,
+  ModelStats,
+  ModelStatsWindow,
   PluginDetailResult,
   PluginInstall,
   PluginRow,
@@ -18,6 +20,7 @@ import type {
   SkillInvocationEntry,
   SkillRow,
   SkillStats,
+  SkillCostAttribution,
   SkillStatsWindow,
   SkillUsageDetail,
   SourceType,
@@ -789,6 +792,91 @@ export function getCostStats(db: Database.Database, now: Date = new Date()): Cos
   }
 }
 
+interface ModelTurnRow {
+  model: string
+  effort: 'xhigh' | 'high' | 'medium' | 'low' | null
+  output_tokens: number
+  invoked_at: string
+}
+
+const EFFORT_ORDER = ['xhigh', 'high', 'medium', 'low', 'not_recorded'] as const
+
+function reduceModelStatsWindow(
+  rows: ModelTurnRow[],
+  now: Date,
+  window: '24h' | '7d' | '30d',
+  days: number
+): ModelStatsWindow {
+  const cutoff = now.getTime() - days * DAY_MS
+  const inWindow = rows.filter((row) => new Date(row.invoked_at).getTime() >= cutoff)
+  const byModelMap = new Map<string, { turnCount: number; outputTokens: number }>()
+  const byEffortMap = new Map<string, { turnCount: number; outputTokens: number }>()
+  const matrixMap = new Map<string, Record<(typeof EFFORT_ORDER)[number], number>>()
+
+  for (const row of inWindow) {
+    const model = byModelMap.get(row.model) ?? { turnCount: 0, outputTokens: 0 }
+    model.turnCount += 1
+    model.outputTokens += row.output_tokens
+    byModelMap.set(row.model, model)
+
+    const effort = row.effort ?? 'not_recorded'
+    const effortSummary = byEffortMap.get(effort) ?? { turnCount: 0, outputTokens: 0 }
+    effortSummary.turnCount += 1
+    effortSummary.outputTokens += row.output_tokens
+    byEffortMap.set(effort, effortSummary)
+
+    const modelEfforts = matrixMap.get(row.model) ?? {
+      xhigh: 0,
+      high: 0,
+      medium: 0,
+      low: 0,
+      not_recorded: 0
+    }
+    modelEfforts[effort] += 1
+    matrixMap.set(row.model, modelEfforts)
+  }
+
+  const byModel = [...byModelMap.entries()]
+    .map(([model, values]) => ({ model, ...values }))
+    .sort((a, b) => b.turnCount - a.turnCount || a.model.localeCompare(b.model))
+  const byEffort = EFFORT_ORDER.flatMap((effort) => {
+    const values = byEffortMap.get(effort)
+    return values === undefined ? [] : [{ effort, ...values }]
+  })
+  const matrix = byModel.map((row) => {
+    const byEffort = matrixMap.get(row.model)!
+    return {
+      model: row.model,
+      byEffort,
+      total: EFFORT_ORDER.reduce((sum, effort) => sum + byEffort[effort], 0)
+    }
+  })
+
+  return {
+    window,
+    turnCount: inWindow.length,
+    modelCount: byModel.length,
+    outputTokens: inWindow.reduce((sum, row) => sum + row.output_tokens, 0),
+    byModel,
+    byEffort,
+    matrix
+  }
+}
+
+export function getModelStats(db: Database.Database, now: Date = new Date()): ModelStats {
+  const rows = db
+    .prepare(
+      `SELECT model, effort, output_tokens, invoked_at
+       FROM turn_usage WHERE invoked_at >= ?`
+    )
+    .all(new Date(now.getTime() - 30 * DAY_MS).toISOString()) as ModelTurnRow[]
+  return {
+    last24h: reduceModelStatsWindow(rows, now, '24h', 1),
+    last7d: reduceModelStatsWindow(rows, now, '7d', 7),
+    last30d: reduceModelStatsWindow(rows, now, '30d', 30)
+  }
+}
+
 interface SkillStatsInvocationRow {
   session_id: string
   skill_name: string
@@ -940,6 +1028,74 @@ function reduceSkillStatsWindow(
   }
 }
 
+function getSkillCostAttribution(
+  db: Database.Database,
+  skillIndex: Map<string, { id: number; source_type: SourceType }>
+): SkillCostAttribution {
+  const rawRows = db
+    .prepare(
+      `SELECT skill_name, COUNT(DISTINCT session_id) AS tracked_session_count,
+              SUM(est_cost_usd) AS estimated_cost_usd
+       FROM session_skill_cost
+       GROUP BY skill_name`
+    )
+    .all() as Array<{
+    skill_name: string | null
+    tracked_session_count: number
+    estimated_cost_usd: number
+  }>
+  const totalCostUsd = rawRows.reduce((sum, row) => sum + row.estimated_cost_usd, 0)
+  const targetCents = Math.round(totalCostUsd * 100)
+  const rounded = rawRows.map((row) => {
+    const exactCents = row.estimated_cost_usd * 100
+    return { row, cents: Math.floor(exactCents), remainder: exactCents - Math.floor(exactCents) }
+  })
+  let centsToAssign = targetCents - rounded.reduce((sum, item) => sum + item.cents, 0)
+  rounded.sort(
+    (a, b) =>
+      b.remainder - a.remainder ||
+      (a.row.skill_name ?? '\uffff').localeCompare(b.row.skill_name ?? '\uffff')
+  )
+  for (let index = 0; centsToAssign > 0 && rounded.length > 0; index += 1) {
+    rounded[index % rounded.length].cents += 1
+    centsToAssign -= 1
+  }
+
+  const rows = rounded
+    .map(({ row, cents }) => {
+      const skill = row.skill_name === null ? undefined : skillIndex.get(row.skill_name)
+      return {
+        skillName: row.skill_name,
+        skillId: skill?.id ?? null,
+        sourceType: skill?.source_type ?? null,
+        trackedSessionCount: row.tracked_session_count,
+        estimatedCostCents: cents,
+        share: targetCents > 0 ? cents / targetCents : 0
+      }
+    })
+    .sort((a, b) => {
+      if (a.skillName === null) return 1
+      if (b.skillName === null) return -1
+      return b.estimatedCostCents - a.estimatedCostCents || a.skillName.localeCompare(b.skillName)
+    })
+
+  const summary = db
+    .prepare(
+      `SELECT COUNT(DISTINCT ssc.session_id) AS tracked_session_count,
+              COALESCE(MAX(sc.has_unknown_model_cost), 0) AS has_unknown_model_cost
+       FROM session_skill_cost ssc
+       JOIN session_cost sc ON sc.session_id = ssc.session_id`
+    )
+    .get() as { tracked_session_count: number; has_unknown_model_cost: number }
+
+  return {
+    totalEstimatedCostCents: targetCents,
+    trackedSessionCount: summary.tracked_session_count,
+    hasUnknownModelCost: summary.has_unknown_model_cost === 1,
+    rows
+  }
+}
+
 export function getSkillStats(db: Database.Database, now: Date = new Date()): SkillStats {
   const rows = db
     .prepare(
@@ -988,7 +1144,8 @@ export function getSkillStats(db: Database.Database, now: Date = new Date()): Sk
     last24h: reduceSkillStatsWindow(rows, costsBySession, skillIndex, now, '24h', 1),
     last7d: reduceSkillStatsWindow(rows, costsBySession, skillIndex, now, '7d', 7),
     last30d: reduceSkillStatsWindow(rows, costsBySession, skillIndex, now, '30d', 30),
-    pricedSessionsWithoutSkill: countPricedSessionsWithoutSkill(db, costRows, costsBySession)
+    pricedSessionsWithoutSkill: countPricedSessionsWithoutSkill(db, costRows, costsBySession),
+    attribution: getSkillCostAttribution(db, skillIndex)
   }
 }
 

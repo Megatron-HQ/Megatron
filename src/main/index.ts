@@ -15,6 +15,7 @@ import {
   getContextBudget,
   getCostStats,
   getLintFindingsForSkill,
+  getModelStats,
   getPluginDetail,
   getSkillStats,
   getSkillById,
@@ -267,6 +268,7 @@ app.whenReady().then(() => {
   ipcMain.handle(IPC_CHANNELS.usageOverview, () => ({
     activity: getActivityStats(getDb()),
     cost: getCostStats(getDb()),
+    models: getModelStats(getDb()),
     skills: getSkillStats(getDb()),
     scanComplete
   }))

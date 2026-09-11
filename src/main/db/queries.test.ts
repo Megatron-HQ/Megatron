@@ -12,6 +12,7 @@ import {
   getActivityStats,
   getContextBudget,
   getCostStats,
+  getModelStats,
   getPluginDetail,
   getSkillById,
   getSkillInvocationLog,
@@ -2595,5 +2596,109 @@ describe('getSkillStats', () => {
     })
 
     expect(getSkillStats(db, NOW).pricedSessionsWithoutSkill).toBe(0)
+  })
+
+  it('returns all-history attributed cost with exact displayed-cent reconciliation', () => {
+    const alphaId = insertSkill('alpha')
+    insertSession('s1', '2026-09-09T14:00:00.000Z')
+    insertCost({ sessionId: 's1', totalCostUsd: 1 })
+    const insert = db.prepare(
+      'INSERT INTO session_skill_cost (session_id, skill_name, est_cost_usd) VALUES (?, ?, ?)'
+    )
+    insert.run('s1', 'alpha', 0.334)
+    insert.run('s1', 'missing-skill', 0.333)
+    insert.run('s1', null, 0.333)
+
+    const attribution = getSkillStats(db, NOW).attribution
+
+    expect(attribution.totalEstimatedCostCents).toBe(100)
+    expect(attribution.rows).toEqual([
+      expect.objectContaining({ skillName: 'alpha', skillId: alphaId, estimatedCostCents: 34 }),
+      expect.objectContaining({
+        skillName: 'missing-skill',
+        skillId: null,
+        estimatedCostCents: 33
+      }),
+      expect.objectContaining({ skillName: null, estimatedCostCents: 33 })
+    ])
+    expect(attribution.rows.reduce((sum, row) => sum + row.estimatedCostCents, 0)).toBe(100)
+  })
+})
+
+describe('getModelStats', () => {
+  const NOW = new Date('2026-09-09T17:00:00.000Z')
+
+  function addTurn(overrides: {
+    uuid: string
+    at: string
+    model: string
+    effort: string | null
+    outputTokens: number
+  }): void {
+    const sessionId = `session-${overrides.uuid}`
+    db.prepare(
+      `INSERT INTO sessions_meta
+         (session_id, cwd, started_at, message_count, source_mtime_ms)
+       VALUES (?, '/repo', ?, 1, 0)`
+    ).run(sessionId, overrides.at)
+    db.prepare(
+      `INSERT INTO turn_usage
+         (logical_turn_key, source_uuid, session_id, turn_index, model, effort, input_tokens,
+          cache_read_tokens, cache_creation_tokens, cache_creation_5m_tokens,
+          cache_creation_1h_tokens, output_tokens, invoked_at)
+       VALUES (?, ?, ?, 0, ?, ?, 0, 0, 0, 0, 0, ?, ?)`
+    ).run(
+      `message:${overrides.uuid}`,
+      overrides.uuid,
+      sessionId,
+      overrides.model,
+      overrides.effort,
+      overrides.outputTokens,
+      overrides.at
+    )
+  }
+
+  it('summarizes valid and unpriced turns by model and effort in independent windows', () => {
+    addTurn({
+      uuid: 'recent-opus',
+      at: '2026-09-09T16:00:00.000Z',
+      model: 'claude-opus-5',
+      effort: 'high',
+      outputTokens: 40
+    })
+    addTurn({
+      uuid: 'recent-sonnet',
+      at: '2026-09-09T15:00:00.000Z',
+      model: 'claude-sonnet-5',
+      effort: null,
+      outputTokens: 20
+    })
+    addTurn({
+      uuid: 'week-opus',
+      at: '2026-09-06T15:00:00.000Z',
+      model: 'claude-opus-5',
+      effort: 'low',
+      outputTokens: 10
+    })
+
+    const stats = getModelStats(db, NOW)
+    expect(stats.last24h).toMatchObject({ turnCount: 2, modelCount: 2, outputTokens: 60 })
+    expect(stats.last7d.turnCount).toBe(3)
+    expect(stats.last24h.byEffort).toEqual([
+      { effort: 'high', turnCount: 1, outputTokens: 40 },
+      { effort: 'not_recorded', turnCount: 1, outputTokens: 20 }
+    ])
+    expect(stats.last24h.matrix).toEqual([
+      {
+        model: 'claude-opus-5',
+        byEffort: { xhigh: 0, high: 1, medium: 0, low: 0, not_recorded: 0 },
+        total: 1
+      },
+      {
+        model: 'claude-sonnet-5',
+        byEffort: { xhigh: 0, high: 0, medium: 0, low: 0, not_recorded: 1 },
+        total: 1
+      }
+    ])
   })
 })

@@ -29,19 +29,28 @@ function costStateLine(overrides: Record<string, unknown> = {}): Record<string, 
 }
 
 function assistantLine(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const overrideMessage =
+    typeof overrides.message === 'object' && overrides.message !== null
+      ? (overrides.message as Record<string, unknown>)
+      : {}
+  const rest = { ...overrides }
+  delete rest.message
   return {
     type: 'assistant',
     uuid: 'u-1',
+    requestId: 'req-1',
     sessionId: 'sess-A',
     isSidechain: false,
     timestamp: '2026-09-05T12:00:00.000Z',
     apiBlockIndex: 0,
     effort: 'high',
     message: {
+      id: 'msg-1',
       model: 'claude-sonnet-5',
-      usage: { cache_read_input_tokens: 0, cache_creation_input_tokens: 12000 }
+      usage: { cache_read_input_tokens: 0, cache_creation_input_tokens: 12000 },
+      ...overrideMessage
     },
-    ...overrides
+    ...rest
   }
 }
 
@@ -327,13 +336,24 @@ describe('extractTurnUsage', () => {
     ])
     expect(rows).toEqual([
       {
+        logical_turn_key: 'message:msg-1',
         source_uuid: 'u-1',
         session_id: 'sess-A',
+        request_id: 'req-1',
+        message_id: 'msg-1',
         turn_index: 0,
         model: 'claude-sonnet-5',
         effort: 'xhigh',
+        input_tokens: 0,
         cache_read_tokens: 900,
         cache_creation_tokens: 100,
+        cache_creation_5m_tokens: 0,
+        cache_creation_1h_tokens: 0,
+        output_tokens: 0,
+        thinking_tokens: 0,
+        web_search_requests: 0,
+        agent_id: null,
+        active_skill: null,
         invoked_at: '2026-09-05T12:00:00.000Z'
       }
     ])
@@ -361,9 +381,108 @@ describe('extractTurnUsage', () => {
     expect(rows).toHaveLength(1)
   })
 
+  it('collapses physical content-block records sharing one logical message without summing usage', () => {
+    const usage = {
+      input_tokens: 10,
+      output_tokens: 20,
+      thinking_tokens: 5,
+      cache_read_input_tokens: 30,
+      cache_creation_input_tokens: 40,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 12,
+        ephemeral_1h_input_tokens: 28
+      },
+      server_tool_use: { web_search_requests: 2 }
+    }
+    const rows = extractTurnUsage([
+      assistantLine({
+        uuid: 'thinking',
+        message: { id: 'msg-shared', model: 'claude-sonnet-5', usage }
+      }),
+      assistantLine({
+        uuid: 'text',
+        message: { id: 'msg-shared', model: 'claude-sonnet-5', usage }
+      })
+    ])
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      logical_turn_key: 'message:msg-shared',
+      source_uuid: 'thinking',
+      input_tokens: 10,
+      output_tokens: 20,
+      thinking_tokens: 5,
+      cache_creation_5m_tokens: 12,
+      cache_creation_1h_tokens: 28,
+      web_search_requests: 2
+    })
+  })
+
+  it('keeps fallback skill state through tool results and clears it on the next real user prompt', () => {
+    const rows = extractTurnUsage([
+      { type: 'user', message: { content: 'please work' } },
+      assistantLine({
+        uuid: 'invoke',
+        requestId: 'req-invoke',
+        message: {
+          id: 'msg-invoke',
+          model: 'claude-sonnet-5',
+          usage: { output_tokens: 5 },
+          content: [{ type: 'tool_use', name: 'Skill', input: { skill: 'alpha' } }]
+        }
+      }),
+      { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't-1' }] } },
+      assistantLine({
+        uuid: 'after-tool',
+        requestId: 'req-after',
+        message: { id: 'msg-after', model: 'claude-sonnet-5', usage: {} }
+      }),
+      { type: 'user', message: { content: 'new request' } },
+      assistantLine({
+        uuid: 'after-user',
+        requestId: 'req-user',
+        message: { id: 'msg-user', model: 'claude-sonnet-5', usage: {} }
+      })
+    ])
+
+    expect(rows.map((row) => row.active_skill)).toEqual(['alpha', 'alpha', null])
+  })
+
+  it('activates a slash-command skill only when its direct child has the base-directory marker', () => {
+    const rows = extractTurnUsage([
+      {
+        type: 'user',
+        uuid: 'slash-parent',
+        message: {
+          content: '<command-name>/domain-modeling</command-name><command-args></command-args>'
+        }
+      },
+      {
+        type: 'user',
+        parentUuid: 'slash-parent',
+        message: { content: 'Base directory for this skill: C:/skills/domain-modeling' }
+      },
+      assistantLine({
+        uuid: 'after-slash',
+        message: { id: 'after-slash', model: 'claude-sonnet-5', usage: {} }
+      })
+    ])
+
+    expect(rows[0].active_skill).toBe('domain-modeling')
+  })
+
+  it('includes dedicated subagent turns with their agent id', () => {
+    const rows = extractTurnUsage([assistantLine({ isSidechain: true })], 'agent-123')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].agent_id).toBe('agent-123')
+  })
+
   it('defaults a missing effort to null and missing usage counts to 0', () => {
     const rows = extractTurnUsage([
-      assistantLine({ effort: undefined, message: { model: 'claude-sonnet-5' } })
+      assistantLine({
+        effort: undefined,
+        message: { model: 'claude-sonnet-5', usage: undefined }
+      })
     ])
     expect(rows[0].effort).toBeNull()
     expect(rows[0].cache_read_tokens).toBe(0)
@@ -372,9 +491,19 @@ describe('extractTurnUsage', () => {
 
   it('numbers turn_index by scan position, ignoring the unreliable apiBlockIndex', () => {
     const rows = extractTurnUsage([
-      assistantLine({ uuid: 'a', apiBlockIndex: 7 }),
+      assistantLine({
+        uuid: 'a',
+        requestId: 'req-a',
+        message: { id: 'msg-a', model: 'claude-sonnet-5', usage: {} },
+        apiBlockIndex: 7
+      }),
       { type: 'user', uuid: 'x', sessionId: 'sess-A', message: { content: 'next' } },
-      assistantLine({ uuid: 'b', apiBlockIndex: 7 })
+      assistantLine({
+        uuid: 'b',
+        requestId: 'req-b',
+        message: { id: 'msg-b', model: 'claude-sonnet-5', usage: {} },
+        apiBlockIndex: 7
+      })
     ])
     expect(rows.map((r) => r.turn_index)).toEqual([0, 1])
   })
