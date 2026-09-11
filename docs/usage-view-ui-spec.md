@@ -30,7 +30,8 @@ conflict:
 - **Cost:** all tracked history, with no window control.
 - **Models:** 24 hours / 7 days / 30 days, default 30 days, independently controlled.
 - **Skills:** 24 hours / 7 days / 30 days, default 30 days.
-- `Updated …` appears in every panel header. Content remains left-aligned and capped at 960px.
+- `Updated …` appears in every panel header. Content remains left-aligned and fills the available
+  content pane at every window width.
 - An installed skill opened from Usage → Skills returns to Usage → Skills when its detail Back
   control is used. Detail opened from the inventory continues to return to the inventory.
 - The name remains **Usage**. Future PR4/PR5/Tier 2 panels are added only after their features are
@@ -63,7 +64,7 @@ state as the Skills and Plugins sidebars.
 flex flex-1 flex-col overflow-hidden
 ├── header:  h-10 shrink-0 border-b border-border px-4   (PINNED — does not scroll)
 └── body:    flex-1 overflow-y-auto
-        └── content column:  w-full max-w-[960px]  (left-aligned, NOT centered)
+        └── content column:  w-full  (left-aligned, fluid)
 ```
 
 The macOS drag strip (`App.tsx`, `h-8 drag-region`) already sits above this row app-wide — no
@@ -88,7 +89,7 @@ future panels stay absent until implemented.
 **Anatomy of one section:**
 
 ```
-── 960px-wide rule-line (border-border), py-8 above/below ──────────
+── full-width rule-line (border-border), py-8 above/below ─────────
 
 Activity                          ← section header: 13px / 600 ledger-ink
 Prompts, sessions, active days     ← optional 11px muted subtitle (Activity: DROPPED, stats speak)
@@ -103,18 +104,17 @@ Prompts, sessions, active days     ← optional 11px muted subtitle (Activity: D
   "By day", "By time of day", "By project". Two-level hierarchy: section 13/600 → chart 11/upper.
 - No per-section actions, no collapse/expand, no in-header jump-nav (revisit jump-nav in the PR
   that adds section #4, not now).
-- Rule-lines between sections are **960px wide** (match content), not full-bleed into the empty
-  right gutter.
+- Rule-lines between sections match the fluid content width.
 
 ### 2.4 Vertical rhythm
 
-| Gap                                         | Value                           |
-| ------------------------------------------- | ------------------------------- |
-| Between sections                            | `py-8` (32px) + 960px rule-line |
-| Section header → content                    | `gap-6` (24px)                  |
-| Within section, stat row → each chart block | `gap-6` (24px)                  |
-| Chart label → chart                         | `gap-2` (8px)                   |
-| Section horizontal padding                  | `px-6`                          |
+| Gap                                         | Value                                |
+| ------------------------------------------- | ------------------------------------ |
+| Between sections                            | `py-8` (32px) + full-width rule-line |
+| Section header → content                    | `gap-6` (24px)                       |
+| Within section, stat row → each chart block | `gap-6` (24px)                       |
+| Chart label → chart                         | `gap-2` (8px)                        |
+| Section horizontal padding                  | `px-6`                               |
 
 ---
 
@@ -188,8 +188,8 @@ a `<HeatCell>` grid, shared axis/label helpers. ~100–150 lines total.
 
 ## 5. Activity section
 
-Single column, everything full-width, stacked in this order. No side-by-side (960px can't pair
-any two without cramping).
+Single column, everything full-width, stacked in this order. No side-by-side; the consistent
+vertical reading order is preserved as the pane grows.
 
 For 7- and 30-day windows, the established order below is unchanged. For the exact rolling
 24-hour window, keep the stat cells and by-project list, replace By day with **By hour** using 24
@@ -330,11 +330,11 @@ skeleton.
 
 ## 7. Responsive
 
-Sizes visual-verify checks (read live from `src/main/index.ts`): **default 1200×720**,
-**min 860×500**.
+Standard visual-verify sizes (read live from `src/main/index.ts`): **default 1200×720**,
+**min 860×500**. The fluid-width contract also applies to every larger or maximized window.
 
-- Content column `w-full max-w-[960px]` — fluid below 960. At min width, usable content ≈ 764px
-  (860 − 48 rail − 48 px-6).
+- Content column `w-full` — fills the available pane at every supported width; `px-6` preserves
+  24px gutters on both sides.
 - **Punchcard:** cells flex-grow equally, ~30px at min width — no horizontal scroll needed at 860.
 - **By-day strip:** bars shrink to fit count; 30 bars ≈ 25px each at min.
 - **Stat row:** stays 3-across, ≥250px/cell at min — 30px numerals fit easily.
@@ -344,13 +344,12 @@ Sizes visual-verify checks (read live from `src/main/index.ts`): **default 1200�
 
 ## 8. DESIGN.md departures (explicit)
 
-| #   | Departure                                                                                                                         | Justification                                                                                                                                                                                                                                                              |
-| --- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Content capped at `max-w-[960px]`** (left-aligned) — `DESIGN.md` says max-width is `none` everywhere except 72ch markdown prose | Usage is a _report you read_, not a _table you scan_ — same rationale as the prose cap. Wall-to-wall charts on a 1600px window is the "dashboard performing busyness" the doc rejects.                                                                                     |
-| 2   | **`--usage-stat` type token at 30px** — above the 16px/600 No-Hero-Type ceiling                                                   | Scoped exclusively to the 3–4 primary stat numerals in the Usage view. Mono keeps it inside the "Geist Mono for data/token-counts" principle — only _size_ departs. A 5-section retrospective is a different surface class from the dense list/detail UI the rule governs. |
-| 3   | **Section headers at 13px/600 ledger-ink** where existing surfaces would use a quieter divider                                    | A 5-section vertical scroll needs top-of-section structure. Still under 16px.                                                                                                                                                                                              |
-| 4   | **Two new monochrome ink tokens** (`--usage-bar`, `--usage-bar-quiet`) + a **quantile opacity scale** for the punchcard           | `DESIGN.md` gives lime=reserved and flags=status-only with no neutral data ink. Both additions stay inside the "near-monochrome" discipline — no hue, no second accent.                                                                                                    |
-| 5   | **Charts animate on enter / scrub / window-switch** more than most surfaces                                                       | Covered by the existing Motion-Earns-Its-Keep Rule ("not fixed to today's call sites, can grow into new surfaces as they earn it"). All guarded by `useReducedMotion()`.                                                                                                   |
+| #   | Departure                                                                                                               | Justification                                                                                                                                                                                                                                                              |
+| --- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **`--usage-stat` type token at 30px** — above the 16px/600 No-Hero-Type ceiling                                         | Scoped exclusively to the 3–4 primary stat numerals in the Usage view. Mono keeps it inside the "Geist Mono for data/token-counts" principle — only _size_ departs. A 5-section retrospective is a different surface class from the dense list/detail UI the rule governs. |
+| 2   | **Section headers at 13px/600 ledger-ink** where existing surfaces would use a quieter divider                          | A 5-section vertical scroll needs top-of-section structure. Still under 16px.                                                                                                                                                                                              |
+| 3   | **Two new monochrome ink tokens** (`--usage-bar`, `--usage-bar-quiet`) + a **quantile opacity scale** for the punchcard | `DESIGN.md` gives lime=reserved and flags=status-only with no neutral data ink. Both additions stay inside the "near-monochrome" discipline — no hue, no second accent.                                                                                                    |
+| 4   | **Charts animate on enter / scrub / window-switch** more than most surfaces                                             | Covered by the existing Motion-Earns-Its-Keep Rule ("not fixed to today's call sites, can grow into new surfaces as they earn it"). All guarded by `useReducedMotion()`.                                                                                                   |
 
 Not departures: the 220px secondary sidebar uses the same shell and selected-row treatment as the
 other sections,
@@ -422,7 +421,7 @@ Three content blocks — one fewer than the other sections, because the headline
 breakdown are **one composed object** (§C2), not two.
 
 ```
-── 960px rule-line, py-8 ─────────────────────────────────────────
+── full-width rule-line, py-8 ────────────────────────────────────
 
 Cost                                     ← section header: 13px / 600 ledger-ink. No subtitle.
                                            (gap-6)
@@ -449,7 +448,7 @@ mostly-zero tail), while its _compositional_ story — where the money goes, by 
 is the section's whole point (`usage-analytics.md` §2 names this material _"Where it goes"_).
 by-day anchors the bottom of the section the way by-project anchors Activity.
 
-Vertical rhythm, empty/loading gate, the 960px rule-line, and `px-6` are all inherited from §2.3–2.4
+Vertical rhythm, empty/loading gate, the full-width rule-line, and `px-6` are all inherited from §2.3–2.4
 and §6 unchanged.
 
 ---
@@ -714,8 +713,8 @@ Fluid; nothing has a hard minimum.
 - **`RankedList`** — basename flexes and truncates (full path on hover); the `$ + %` column is a
   fixed ~110px right rail.
 - **by-day** — ~18–30 daily bars thin to fit (§7: "30 bars ≈ 25px at min"); weekly bucket past 45.
-- **Disclaimer / footnote** — `max-w-[520px]` so they don't run the full 960px on a wide window
-  (readability, same rationale as departure #1). Fits inside 764px at min.
+- **Disclaimer / footnote** — `max-w-[520px]` so they don't run the full pane on a wide window
+  (readability for long-form copy). Fits comfortably at the supported minimum width.
 
 No horizontal scroll; no layout that only works at default size (§7 rule).
 
@@ -779,7 +778,7 @@ sessions.
 
 ## C10. DESIGN.md departures (this section)
 
-Inherits every §8 departure (960px cap, `--usage-stat`, 13px/600 headers, the `--usage-*` tokens +
+Inherits every §8 departure (`--usage-stat`, 13px/600 headers, the `--usage-*` tokens +
 quantile scale, charts animate). New with PR2:
 
 | #   | Departure                                                                                                                       | Justification                                                                                                                                                                                                                                          |
@@ -911,7 +910,7 @@ interface SkillCostAssociation {
 ## S1. Section anatomy & order
 
 ```
-── 960px rule-line, py-8 ─────────────────────────────────────────
+── full-width rule-line, py-8 ────────────────────────────────────
 
 Skills                    [ 24 hours | 7 days | 30 days ]  ← header row: 13px/600 ledger-ink +
                                                              inline segmented control (§S2)
@@ -933,7 +932,7 @@ Association, not attribution. Each session is counted …     ← caption ABOVE 
 [ SkillAssociationTable ]     (§S3)
 ```
 
-Vertical rhythm, the 960px content cap, `px-6`, and the empty/loading gate inherit §2.3–2.4 / §6.
+Vertical rhythm, the fluid content width, `px-6`, and the empty/loading gate inherit §2.3–2.4 / §6.
 The panel switch owns the 150ms opacity crossfade, so the Skills body has no separate entrance
 motion or duplicate heading.
 
@@ -1036,7 +1035,7 @@ usable cost data.
 
 ## S7. DESIGN.md departures
 
-None new. Inherits §8 (960px cap, `--usage-stat`, 13/600 headers, `--usage-*` tokens, charts
+None new. Inherits §8 (`--usage-stat`, 13/600 headers, `--usage-*` tokens, charts
 animate), §C-3 (ambient row-fill tint), §C-4 (`whileInView` entrance). One deliberate divergence
 from the old §D: the association caption sits **above** the table, not below.
 

@@ -124,7 +124,7 @@ Exactly one stamp of color breaks that quiet: acid lime, reserved for the single
 
 Confirmed rejections: no drop shadows on anything at rest (shadows are reserved for genuinely floating layers), no gradients, no per-source-tier color coding, no hero-scale type anywhere in the product.
 
-The **Usage** section (a retrospective, not an inventory) is a different surface class: its visual decisions — and its explicit, user-authorised departures from this document (a 960px content cap, a scoped 30px `--usage-stat` numeral step, two monochrome `--usage-*` chart tokens + a punchcard quantile-opacity scale, a scoped data-series color palette for by-model charts, and charts that animate on enter/scrub/window-switch) — are owned by **`docs/usage-view-ui-spec.md`**.
+The **Usage** section (a retrospective, not an inventory) is a different surface class: its visual decisions — and its explicit, user-authorised departures from this document (a scoped 30px `--usage-stat` numeral step, two monochrome `--usage-*` chart tokens + a punchcard quantile-opacity scale, a scoped data-series color palette for by-model charts, and charts that animate on enter/scrub/window-switch) — are owned by **`docs/usage-view-ui-spec.md`**.
 
 **Key Characteristics:**
 
@@ -194,7 +194,7 @@ Three categorical hues — `--usage-series-1/2/3` (`dataviz` reference slots 1�
 
 A dense, Linear-style sidebar + list/detail shell, not a spacious admin dashboard or a marketing page: a persistent 48px icon rail for switching sections (Skills, Plugins, Usage), a 220px secondary sidebar nested inside each section, a fluid content pane that fills the rest of the window, and a fullscreen file viewer that replaces (not layers over) the table when a skill row opens. Skills and Plugins use their sidebars for source/scope filters; Usage uses the same shell for its Activity, Cost, and Skills panels. A 32px full-width drag strip sits above all panes for window-dragging under the `hiddenInset` titlebar; on macOS it carries an inset `xl`-radius `surface-muted` bar (6px side inset, 6px top inset) that reads as the top edge of the window frame.
 
-Row height is fixed at 40px with 8/12px cell padding. The file viewer's tree pane defaults to 240px and is user-resizable between 200–480px. Content max-width is `none` everywhere — fluid — except rendered markdown prose, which caps at `72ch`, and Usage report panels, which cap at 960px for readability. The command palette (`⌘K`) is a modal overlay, not primary navigation; it does not reopen the "no search box in the sidebar" decision.
+Row height is fixed at 40px with 8/12px cell padding. The file viewer's tree pane defaults to 240px and is user-resizable between 200–480px. Content max-width is `none` everywhere — fluid — except rendered markdown prose, which caps at `72ch`. The command palette (`⌘K`) is a modal overlay, not primary navigation; it does not reopen the "no search box in the sidebar" decision.
 
 ## Elevation & Depth
 

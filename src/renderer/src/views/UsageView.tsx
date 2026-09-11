@@ -102,7 +102,7 @@ export function UsageView({
       </header>
 
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
-        <div className="w-full max-w-[960px] px-6">
+        <div className="w-full px-6">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={panel}
