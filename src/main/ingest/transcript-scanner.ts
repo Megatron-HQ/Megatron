@@ -16,6 +16,7 @@ import {
   type TurnUsageRow
 } from './cost-parser'
 import { rebuildSessionSkillCosts } from './skill-cost-allocation'
+import { extractResidentContextSample, type ResidentContextSample } from './resident-context-parser'
 
 export interface TranscriptSession {
   session_id: string
@@ -23,6 +24,7 @@ export interface TranscriptSession {
   git_branch: string | null
   started_at: string
   message_count: number
+  continued_in_session_id: string | null
 }
 
 export interface TranscriptInvocation {
@@ -46,8 +48,9 @@ interface InvocationCandidate {
 const PRECEDING_TEXT_MAX_CHARS = 2000
 // Bumps on any parser-semantic change across the whole walk, cost-state included (no separate
 // cost_parser_version — see docs/usage-analytics.md §8). A bump forces one safe reindex of all
-// already-indexed sessions. 3→4: cost-state ingest; 4→5: turn usage; 5→6: cross-file replay dedup.
-const TRANSCRIPT_PARSER_VERSION = 6
+// already-indexed sessions. 3→4: cost-state; 4→5: turn usage; 5→6: replay dedup;
+// 6→7: independent lineage plus numeric resident-context samples.
+const TRANSCRIPT_PARSER_VERSION = 7
 
 function truncatePrecedingText(text: string | null): string | null {
   return text === null ? null : text.slice(0, PRECEDING_TEXT_MAX_CHARS)
@@ -60,6 +63,7 @@ export interface TranscriptParse {
   // The last cost-state line's parsed shape, or null when the transcript has none (pre-v2.1.241
   // history). Main transcripts only — subagent cost is already inside the parent's total.
   cost: SessionCost | null
+  resident: ResidentContextSample | null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -118,13 +122,24 @@ function extractSession(records: Record<string, unknown>[]): TranscriptSession |
   const messageCount = records.filter(
     (record) => record.type === 'user' || record.type === 'assistant'
   ).length
+  const continuedInSessionId = records.reduce<string | null>((latest, record) => {
+    if (
+      record.type !== 'continued-in' ||
+      typeof record.continuedInSessionId !== 'string' ||
+      record.continuedInSessionId === ''
+    ) {
+      return latest
+    }
+    return record.continuedInSessionId
+  }, null)
 
   return {
     session_id: metaRecord.sessionId,
     cwd: metaRecord.cwd as string,
     git_branch: gitBranch,
     started_at: startedAt,
-    message_count: messageCount
+    message_count: messageCount,
+    continued_in_session_id: continuedInSessionId
   }
 }
 
@@ -359,7 +374,7 @@ function extractInvocations(
 
 export function parseTranscript(filePath: string): TranscriptParse {
   if (!isPathAllowed(filePath)) {
-    return { session: null, invocations: [], turns: [], cost: null }
+    return { session: null, invocations: [], turns: [], cost: null, resident: null }
   }
 
   const records = parseLines(filePath)
@@ -367,7 +382,8 @@ export function parseTranscript(filePath: string): TranscriptParse {
     session: extractSession(records),
     invocations: extractInvocations(records),
     turns: extractTurnUsage(records),
-    cost: extractCostState(records)
+    cost: extractCostState(records),
+    resident: extractResidentContextSample(records)
   }
 }
 
@@ -399,16 +415,17 @@ export function scanTranscripts(
 ): void {
   const upsertSession = db.prepare(`
     INSERT INTO sessions_meta
-      (session_id, cwd, git_branch, started_at, message_count, source_mtime_ms, source_size_bytes,
-       transcript_parser_version)
+      (session_id, cwd, git_branch, started_at, message_count, continued_in_session_id,
+       source_mtime_ms, source_size_bytes, transcript_parser_version)
     VALUES
-      (@session_id, @cwd, @git_branch, @started_at, @message_count, @source_mtime_ms, @source_size_bytes,
-       @transcript_parser_version)
+      (@session_id, @cwd, @git_branch, @started_at, @message_count, @continued_in_session_id,
+       @source_mtime_ms, @source_size_bytes, @transcript_parser_version)
     ON CONFLICT(session_id) DO UPDATE SET
       cwd = excluded.cwd,
       git_branch = excluded.git_branch,
       started_at = excluded.started_at,
       message_count = excluded.message_count,
+      continued_in_session_id = excluded.continued_in_session_id,
       source_mtime_ms = excluded.source_mtime_ms,
       source_size_bytes = excluded.source_size_bytes,
       transcript_parser_version = excluded.transcript_parser_version
@@ -446,9 +463,25 @@ export function scanTranscripts(
 
   const insertSessionCost = db.prepare(`
     INSERT INTO session_cost
-      (session_id, total_cost_usd, has_unknown_model_cost, is_zeroed, continued_in_session_id)
+      (session_id, total_cost_usd, has_unknown_model_cost, is_zeroed)
     VALUES
-      (@session_id, @total_cost_usd, @has_unknown_model_cost, @is_zeroed, @continued_in_session_id)
+      (@session_id, @total_cost_usd, @has_unknown_model_cost, @is_zeroed)
+  `)
+
+  const deleteResidentContextSample = db.prepare(
+    'DELETE FROM resident_context_sample WHERE session_id = ?'
+  )
+  const insertResidentContextSample = db.prepare(`
+    INSERT INTO resident_context_sample
+      (session_id, first_turn_at, model, claude_version, cache_read_tokens, measured_tokens,
+       cost_state_started_at, skill_characters, skill_count, agent_characters, agent_count,
+       hook_characters, hook_count, mcp_characters, mcp_count, instruction_characters,
+       instruction_count)
+    VALUES
+      (@session_id, @first_turn_at, @model, @claude_version, @cache_read_tokens, @measured_tokens,
+       @cost_state_started_at, @skill_characters, @skill_count, @agent_characters, @agent_count,
+       @hook_characters, @hook_count, @mcp_characters, @mcp_count, @instruction_characters,
+       @instruction_count)
   `)
 
   const insertModelCost = db.prepare(`
@@ -548,18 +581,19 @@ export function scanTranscripts(
         deleteSessionInvocations.run(parsed.session.session_id)
         deleteSessionTurns.run(parsed.session.session_id)
         deleteSessionCost.run(parsed.session.session_id)
+        deleteResidentContextSample.run(parsed.session.session_id)
         if (parsed.cost !== null) {
           insertSessionCost.run({
             session_id: parsed.session.session_id,
             total_cost_usd: parsed.cost.totalCostUsd,
             has_unknown_model_cost: parsed.cost.hasUnknownModelCost ? 1 : 0,
-            is_zeroed: parsed.cost.isZeroed ? 1 : 0,
-            continued_in_session_id: parsed.cost.continuedInSessionId
+            is_zeroed: parsed.cost.isZeroed ? 1 : 0
           })
           for (const row of toModelCostRows(parsed.cost)) {
             insertModelCost.run({ session_id: parsed.session.session_id, ...row })
           }
         }
+        if (parsed.resident !== null) insertResidentContextSample.run(parsed.resident)
         for (const invocation of parsed.invocations) {
           insertInvocation.run(invocation)
         }

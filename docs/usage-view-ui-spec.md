@@ -1,7 +1,7 @@
 # Usage view — resolved UI spec (Phase 2a)
 
 **Scope:** the page frame + AppRail entry, **Activity** (PR1, §5), **Cost** (PR2, §C), **Skills**
-(PR3/PR4, §S), and **Models** (PR4, §M). Resident tax is not designed here.
+(PR3/PR4, §S), **Models** (PR4, §M), and **Resident tax** (PR5, §R).
 
 **Status:** Activity resolved in a grill session 2026-09-05 (feeds PR1). Cost resolved in a
 follow-on grill 2026-09-07 (feeds PR2); that pass also revised two cross-cutting rules — section
@@ -16,8 +16,8 @@ This amendment supersedes the earlier stacked-page decisions in §§2–3, C, an
 conflict:
 
 - Usage now has the same **220px secondary-sidebar shell** as Skills and Plugins. Its completed
-  destinations are **Activity**, **Cost**, **Models**, and **Skills**, each with a matching lucide icon. There
-  are no counts, groups, project filters, overview item, or placeholders for unfinished work.
+  destinations are **Activity**, **Cost**, **Models**, **Skills**, and **Resident tax**, each with a
+  matching lucide icon. There are no counts, groups, project filters, overview item, or placeholders.
 - Exactly one Usage panel renders at a time. The selected panel name and icon occupy the pinned
   main header; panel bodies do not repeat a heading above their content. Switching panels resets
   the content scroll to the top and uses a 150ms opacity-only crossfade (instant under reduced
@@ -34,8 +34,7 @@ conflict:
   content pane at every window width.
 - An installed skill opened from Usage → Skills returns to Usage → Skills when its detail Back
   control is used. Detail opened from the inventory continues to return to the inventory.
-- The name remains **Usage**. Future PR4/PR5/Tier 2 panels are added only after their features are
-  implemented.
+- The name remains **Usage**. Tier 2 panels are added only after their features are implemented.
 
 ---
 
@@ -82,9 +81,9 @@ Scroll position **resets to top** on section switch (branch swap → remount). A
 ### 2.3 Section model
 
 The sidebar exposes one destination per completed feature: **Activity** (PR1), **Cost** (PR2),
-**Models** (PR4), and **Skills** (PR3/PR4). Selecting one unmounts the prior panel and renders only
-the selected panel. Activity is selected by default. Resident tax (PR5), Tier 2 work, and other
-future panels stay absent until implemented.
+**Models** (PR4), **Skills** (PR3/PR4), and **Resident tax** (PR5), in that order. Selecting one
+unmounts the prior panel and renders only the selected panel. Activity is selected by default.
+Tier 2 work and other future panels stay absent until implemented.
 
 **Anatomy of one section:**
 
@@ -1076,3 +1075,26 @@ PR3 association table.
   unknown model cost adds the existing warning treatment.
 - The table preserves §S's ambient monochrome row fill, expandable first-eight-row treatment,
   reduced-motion guard, `min-w-[620px]`, and internal horizontal scrolling.
+
+---
+
+# R. Resident tax section (PR5)
+
+**Status:** implemented 2026-09-11.
+
+- Fifth sidebar destination, after Skills, labeled **Resident tax** with lucide `Layers3`. It has no
+  time-window control and preserves the shared pinned header, crossfade, scroll reset, and glide.
+- The hero is only the measured first-turn `cache_creation_input_tokens` total. It deliberately
+  shows no context-window percentage.
+- One additive monochrome composition bar is direct-labeled by a six-row ledger: Skills, Agents,
+  SessionStart hooks, MCP instructions, Project instructions, and **System + tool schemas + other
+  unitemized context**. Zero-valued itemized categories remain visible with no segment.
+- The five itemized token figures use `ceil(characters / 3)` and carry the `≈` marker. The final row
+  is labeled **Not yet itemized**; there is no capture CTA or future-work placeholder.
+- Hovering or keyboard-focusing a bar segment or ledger row dims its siblings. Entrance animation
+  follows the existing Usage timing and becomes instant under reduced motion.
+- Provenance shows project basename (full path in its title), normalized model, Claude Code version
+  when available, and sample-relative time.
+- With no eligible sample, the panel shows a quiet no-sample explanation and no rejection counts or
+  action. The existing context-budget dialog explicitly distinguishes its configured skill-listing
+  estimate from this measured whole-resident-context sample.

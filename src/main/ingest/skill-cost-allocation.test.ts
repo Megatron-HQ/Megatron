@@ -18,10 +18,14 @@ function addCost(
   totalCostUsd: number,
   continuedInSessionId: string | null = null
 ): void {
+  db.prepare('UPDATE sessions_meta SET continued_in_session_id = ? WHERE session_id = ?').run(
+    continuedInSessionId,
+    sessionId
+  )
   db.prepare(
-    `INSERT INTO session_cost (session_id, total_cost_usd, continued_in_session_id)
-     VALUES (?, ?, ?)`
-  ).run(sessionId, totalCostUsd, continuedInSessionId)
+    `INSERT INTO session_cost (session_id, total_cost_usd)
+     VALUES (?, ?)`
+  ).run(sessionId, totalCostUsd)
 }
 
 function addModelCost(sessionId: string, model: string, costUsd: number): void {
@@ -87,6 +91,25 @@ describe('rebuildSessionSkillCosts', () => {
     addSession('before')
     addSession('terminal')
     addCost('before', 0, 'terminal')
+    addCost('terminal', 5)
+    addModelCost('terminal', 'claude-sonnet-5', 5)
+    addTurn('before', 'turn-before', 'claude-sonnet-5', 10, 'domain-modeling')
+
+    rebuildSessionSkillCosts(db)
+
+    expect(allocations()).toEqual([
+      { session_id: 'terminal', skill_name: 'domain-modeling', est_cost_usd: 5 }
+    ])
+  })
+
+  it('follows continuation metadata through an intermediate session with no cost-state', () => {
+    addSession('before')
+    addSession('middle')
+    addSession('terminal')
+    addCost('before', 0, 'middle')
+    db.prepare(
+      "UPDATE sessions_meta SET continued_in_session_id = 'terminal' WHERE session_id = 'middle'"
+    ).run()
     addCost('terminal', 5)
     addModelCost('terminal', 'claude-sonnet-5', 5)
     addTurn('before', 'turn-before', 'claude-sonnet-5', 10, 'domain-modeling')

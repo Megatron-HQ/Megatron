@@ -398,11 +398,31 @@ export interface SkillCostAttribution {
   rows: SkillCostAttributionRow[]
 }
 
+export type ResidentTaxCategoryKey =
+  'skills' | 'agents' | 'hooks' | 'mcp' | 'instructions' | 'remainder'
+
+export interface ResidentTaxCategory {
+  key: ResidentTaxCategoryKey
+  tokens: number
+  itemCount: number | null
+  estimated: boolean
+}
+
+export interface ResidentTaxStats {
+  measuredTokens: number
+  sampledAt: string
+  project: string
+  model: string
+  claudeVersion: string | null
+  categories: ResidentTaxCategory[]
+}
+
 export interface UsageOverview {
   activity: ActivityStats
   // null iff pricedSessionCount === 0 — no session has usable cost-state.
   cost: CostStats | null
   models: ModelStats
   skills: SkillStats
+  residentTax: ResidentTaxStats | null
   scanComplete: boolean
 }

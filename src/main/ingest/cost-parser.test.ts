@@ -90,7 +90,7 @@ describe('extractCostState', () => {
     expect(result).not.toBeNull()
     expect(result?.totalCostUsd).toBe(3.14)
     expect(result?.hasUnknownModelCost).toBe(false)
-    expect(result?.continuedInSessionId).toBeNull()
+    expect(result).not.toHaveProperty('continuedInSessionId')
   })
 
   it('converts the epoch-ms startTime to an ISO 8601 UTC string', () => {
@@ -151,12 +151,12 @@ describe('extractCostState', () => {
     expect(result?.isZeroed).toBe(false)
   })
 
-  it('reads the continued-in marker as the forward lineage link', () => {
+  it('leaves continued-in lineage to session metadata', () => {
     const result = extractCostState([
       { type: 'continued-in', sessionId: 'sess-A', continuedInSessionId: 'sess-B' },
       costStateLine()
     ])
-    expect(result?.continuedInSessionId).toBe('sess-B')
+    expect(result).not.toHaveProperty('continuedInSessionId')
   })
 })
 
@@ -204,7 +204,6 @@ describe('extractCostState — frozen shape snapshot', () => {
       totalCostUsd: 2.183658,
       hasUnknownModelCost: false,
       isZeroed: false,
-      continuedInSessionId: null,
       costStateStartTime: '2026-09-02T20:33:29.533Z',
       modelUsage: {
         'claude-haiku-4-5': {

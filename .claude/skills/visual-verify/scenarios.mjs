@@ -148,6 +148,11 @@ async function costDataPresent(window) {
   return (await window.getByText('No cost data yet.').count()) === 0
 }
 
+async function residentTaxDataPresent(window) {
+  await openUsagePanel(window, 'Resident tax')
+  return (await window.getByText('No cold-session sample yet').count()) === 0
+}
+
 /**
  * Scenarios pinned to a skill by name (see the header note above) hard-fail the whole run when
  * that skill is no longer installed, taking every later scenario down with them. Skipping is the
@@ -820,6 +825,47 @@ export const scenarios = [
     async run(window) {
       await openUsagePanel(window, 'Models')
       await window.getByText('Model × effort', { exact: true }).scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'usage-resident-tax',
+    screen: 'usage',
+    shouldSkip: async (window) =>
+      (await residentTaxDataPresent(window)) ? null : 'no eligible cold-session sample',
+    async run(window) {
+      await openUsagePanel(window, 'Resident tax')
+      await window.getByText('Measured turn-one resident tokens', { exact: true }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'usage-resident-tax-no-data',
+    screen: 'usage',
+    shouldSkip: async (window) =>
+      (await residentTaxDataPresent(window)) ? 'eligible cold-session sample present' : null,
+    async run(window) {
+      await openUsagePanel(window, 'Resident tax')
+      await window.getByText('No cold-session sample yet', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'usage-resident-tax-dark',
+    screen: 'usage',
+    shouldSkip: async (window) =>
+      (await residentTaxDataPresent(window)) ? null : 'no eligible cold-session sample',
+    async run(window) {
+      const isDark = await window.evaluate(() =>
+        document.documentElement.classList.contains('dark')
+      )
+      if (!isDark) {
+        await window.getByRole('button', { name: 'Settings' }).click()
+        await window.getByRole('radio', { name: 'Dark' }).click()
+        await window.keyboard.press('Escape')
+        await window.getByRole('dialog').waitFor({ state: 'detached' })
+      }
+      await openUsagePanel(window, 'Resident tax')
+      await window.getByText('Measured turn-one resident tokens', { exact: true }).waitFor()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },

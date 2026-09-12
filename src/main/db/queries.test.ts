@@ -14,6 +14,7 @@ import {
   getCostStats,
   getModelStats,
   getPluginDetail,
+  getResidentTaxStats,
   getSkillById,
   getSkillInvocationLog,
   getSkillStats,
@@ -1965,11 +1966,18 @@ describe('getActivityStats', () => {
 describe('getCostStats', () => {
   const NOW = new Date('2026-09-07T12:00:00.000Z') // local Mon 2026-09-07 07:00 (UTC-5)
 
-  function meta(sessionId: string, startedAt: string, cwd = '/repo-a'): void {
+  function meta(
+    sessionId: string,
+    startedAt: string,
+    cwd = '/repo-a',
+    continuedInSessionId: string | null = null
+  ): void {
     db.prepare(
-      `INSERT INTO sessions_meta (session_id, cwd, git_branch, started_at, message_count, source_mtime_ms)
-       VALUES (?, ?, NULL, ?, 0, 0)`
-    ).run(sessionId, cwd, startedAt)
+      `INSERT INTO sessions_meta
+         (session_id, cwd, git_branch, started_at, message_count, continued_in_session_id,
+          source_mtime_ms)
+       VALUES (?, ?, NULL, ?, 0, ?, 0)`
+    ).run(sessionId, cwd, startedAt, continuedInSessionId)
   }
 
   function addCost(overrides: {
@@ -1982,17 +1990,21 @@ describe('getCostStats', () => {
     continued_in_session_id?: string | null
     models?: { model: string; cost_usd: number }[]
   }): void {
-    meta(overrides.session_id, overrides.started_at, overrides.cwd ?? '/repo-a')
+    meta(
+      overrides.session_id,
+      overrides.started_at,
+      overrides.cwd ?? '/repo-a',
+      overrides.continued_in_session_id ?? null
+    )
     db.prepare(
       `INSERT INTO session_cost
-         (session_id, total_cost_usd, has_unknown_model_cost, is_zeroed, continued_in_session_id)
-       VALUES (?, ?, ?, ?, ?)`
+         (session_id, total_cost_usd, has_unknown_model_cost, is_zeroed)
+       VALUES (?, ?, ?, ?)`
     ).run(
       overrides.session_id,
       overrides.total_cost_usd ?? 0,
       overrides.has_unknown_model_cost ?? 0,
-      overrides.is_zeroed ?? 0,
-      overrides.continued_in_session_id ?? null
+      overrides.is_zeroed ?? 0
     )
     for (const m of overrides.models ?? []) {
       db.prepare(
@@ -2170,6 +2182,148 @@ describe('getCostStats', () => {
   })
 })
 
+describe('getResidentTaxStats', () => {
+  function addCandidate(overrides: {
+    sessionId: string
+    firstTurnAt: string
+    project?: string
+    cacheReadTokens?: number
+    measuredTokens?: number
+    costStateStartedAt?: string | null
+    skillCharacters?: number
+    agentCharacters?: number
+    hookCharacters?: number
+    mcpCharacters?: number
+    instructionCharacters?: number
+  }): void {
+    db.prepare(
+      `INSERT INTO sessions_meta
+         (session_id, cwd, started_at, message_count, source_mtime_ms)
+       VALUES (?, ?, ?, 1, 0)`
+    ).run(overrides.sessionId, overrides.project ?? '/repo', overrides.firstTurnAt)
+    db.prepare(
+      `INSERT INTO resident_context_sample
+         (session_id, first_turn_at, model, claude_version, cache_read_tokens, measured_tokens,
+          cost_state_started_at, skill_characters, skill_count, agent_characters, agent_count,
+          hook_characters, hook_count, mcp_characters, mcp_count, instruction_characters,
+          instruction_count)
+       VALUES (?, ?, 'claude-sonnet-5', '2.1.261', ?, ?, ?, ?, 2, ?, 1, ?, 1, ?, 1, ?, 1)`
+    ).run(
+      overrides.sessionId,
+      overrides.firstTurnAt,
+      overrides.cacheReadTokens ?? 0,
+      overrides.measuredTokens ?? 100,
+      overrides.costStateStartedAt ?? null,
+      overrides.skillCharacters ?? 0,
+      overrides.agentCharacters ?? 0,
+      overrides.hookCharacters ?? 0,
+      overrides.mcpCharacters ?? 0,
+      overrides.instructionCharacters ?? 0
+    )
+  }
+
+  it('returns null when no eligible candidate exists', () => {
+    addCandidate({
+      sessionId: 'warm',
+      firstTurnAt: '2026-09-11T12:00:00.000Z',
+      cacheReadTokens: 101
+    })
+
+    expect(getResidentTaxStats(db)).toBeNull()
+  })
+
+  it('selects the newest strict cold sample and returns a measured total with estimated parts', () => {
+    addCandidate({
+      sessionId: 'older',
+      firstTurnAt: '2026-09-11T12:00:00.000Z',
+      measuredTokens: 200
+    })
+    addCandidate({
+      sessionId: 'selected',
+      firstTurnAt: '2026-09-11T13:00:00.000Z',
+      project: 'C:\\work\\megatron',
+      cacheReadTokens: 100,
+      measuredTokens: 100,
+      costStateStartedAt: '2026-09-11T12:55:00.000Z',
+      skillCharacters: 4,
+      agentCharacters: 3,
+      hookCharacters: 0,
+      mcpCharacters: 1,
+      instructionCharacters: 6
+    })
+
+    expect(getResidentTaxStats(db)).toEqual({
+      measuredTokens: 100,
+      sampledAt: '2026-09-11T13:00:00.000Z',
+      project: 'C:\\work\\megatron',
+      model: 'claude-sonnet-5',
+      claudeVersion: '2.1.261',
+      categories: [
+        { key: 'skills', tokens: 2, itemCount: 2, estimated: true },
+        { key: 'agents', tokens: 1, itemCount: 1, estimated: true },
+        { key: 'hooks', tokens: 0, itemCount: 1, estimated: true },
+        { key: 'mcp', tokens: 1, itemCount: 1, estimated: true },
+        { key: 'instructions', tokens: 2, itemCount: 1, estimated: true },
+        { key: 'remainder', tokens: 94, itemCount: null, estimated: false }
+      ]
+    })
+  })
+
+  it('falls back past overflow, stale cost-state, warm-cache, and continuation-target candidates', () => {
+    addCandidate({
+      sessionId: 'valid',
+      firstTurnAt: '2026-09-11T12:00:00.000Z',
+      measuredTokens: 50
+    })
+    addCandidate({
+      sessionId: 'overflow',
+      firstTurnAt: '2026-09-11T13:00:00.000Z',
+      measuredTokens: 1,
+      skillCharacters: 4
+    })
+    addCandidate({
+      sessionId: 'stale-cost',
+      firstTurnAt: '2026-09-11T14:00:00.000Z',
+      costStateStartedAt: '2026-09-11T13:54:59.000Z'
+    })
+    addCandidate({
+      sessionId: 'warm',
+      firstTurnAt: '2026-09-11T15:00:00.000Z',
+      cacheReadTokens: 101
+    })
+    addCandidate({
+      sessionId: 'continued-target',
+      firstTurnAt: '2026-09-11T16:00:00.000Z'
+    })
+    db.prepare(
+      `INSERT INTO sessions_meta
+         (session_id, cwd, started_at, message_count, continued_in_session_id, source_mtime_ms)
+       VALUES ('source', '/repo', '2026-09-11T15:59:00.000Z', 1, 'continued-target', 0)`
+    ).run()
+
+    expect(getResidentTaxStats(db)).toEqual(
+      expect.objectContaining({ sampledAt: '2026-09-11T12:00:00.000Z', measuredTokens: 50 })
+    )
+  })
+
+  it('accepts exact estimate equality and a missing optional cost-state', () => {
+    addCandidate({
+      sessionId: 'exact',
+      firstTurnAt: '2026-09-11T12:00:00.000Z',
+      measuredTokens: 2,
+      skillCharacters: 4,
+      costStateStartedAt: null
+    })
+
+    expect(getResidentTaxStats(db)?.categories.at(-1)).toEqual({
+      key: 'remainder',
+      tokens: 0,
+      itemCount: null,
+      estimated: false
+    })
+  })
+})
+
 describe('getSkillStats', () => {
   const NOW = new Date('2026-09-09T17:00:00.000Z') // local Wed 2026-09-09 12:00 (UTC-5)
 
@@ -2207,16 +2361,15 @@ describe('getSkillStats', () => {
     continuedInSessionId?: string | null
     isZeroed?: 0 | 1
   }): void {
+    db.prepare('UPDATE sessions_meta SET continued_in_session_id = ? WHERE session_id = ?').run(
+      overrides.continuedInSessionId ?? null,
+      overrides.sessionId
+    )
     db.prepare(
       `INSERT INTO session_cost
-         (session_id, total_cost_usd, has_unknown_model_cost, is_zeroed, continued_in_session_id)
-       VALUES (?, ?, 0, ?, ?)`
-    ).run(
-      overrides.sessionId,
-      overrides.totalCostUsd,
-      overrides.isZeroed ?? 0,
-      overrides.continuedInSessionId ?? null
-    )
+         (session_id, total_cost_usd, has_unknown_model_cost, is_zeroed)
+       VALUES (?, ?, 0, ?)`
+    ).run(overrides.sessionId, overrides.totalCostUsd, overrides.isZeroed ?? 0)
   }
 
   function insertModelOutput(sessionId: string, model: string, outputTokens: number): void {

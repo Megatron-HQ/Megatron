@@ -164,7 +164,75 @@ describe('parseTranscript', () => {
       cwd: '/repo',
       git_branch: 'main',
       started_at: '2024-01-01T00:00:00.000Z',
-      message_count: 1
+      message_count: 1,
+      continued_in_session_id: null
+    })
+  })
+
+  it('extracts continuation lineage into session metadata without requiring cost-state', () => {
+    const filePath = writeTranscriptFile(tmpDir, 'sess-1', [
+      metaLine(),
+      {
+        type: 'continued-in',
+        sessionId: 'sess-1',
+        continuedInSessionId: 'sess-2'
+      }
+    ])
+
+    expect(parseTranscript(filePath).session).toEqual(
+      expect.objectContaining({ continued_in_session_id: 'sess-2' })
+    )
+  })
+
+  it('extracts a numeric resident-context candidate without retaining attachment text', () => {
+    const filePath = writeTranscriptFile(tmpDir, 'sess-1', [
+      metaLine({ version: '2.1.261' }),
+      {
+        type: 'attachment',
+        sessionId: 'sess-1',
+        timestamp: '2024-01-01T00:01:00.000Z',
+        uuid: 'attachment-1',
+        isSidechain: false,
+        attachment: {
+          type: 'skill_listing',
+          isInitial: true,
+          content: 'abcdef',
+          skillCount: 2,
+          names: ['one', 'two']
+        }
+      },
+      assistantUsageLine({
+        message: {
+          id: 'message-1',
+          model: 'claude-sonnet-5',
+          usage: {
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 1200,
+            output_tokens: 20
+          },
+          content: []
+        }
+      })
+    ])
+
+    expect(parseTranscript(filePath).resident).toEqual({
+      session_id: 'sess-1',
+      first_turn_at: '2024-01-01T00:02:00.000Z',
+      model: 'claude-sonnet-5',
+      claude_version: '2.1.261',
+      cache_read_tokens: 0,
+      measured_tokens: 1200,
+      cost_state_started_at: null,
+      skill_characters: 6,
+      skill_count: 2,
+      agent_characters: 0,
+      agent_count: 0,
+      hook_characters: 0,
+      hook_count: 0,
+      mcp_characters: 0,
+      mcp_count: 0,
+      instruction_characters: 0,
+      instruction_count: 0
     })
   })
 
@@ -922,6 +990,7 @@ describe('scanTranscripts', () => {
     git_branch: string | null
     started_at: string
     message_count: number
+    continued_in_session_id: string | null
     source_mtime_ms: number
   }
 
@@ -955,6 +1024,12 @@ describe('scanTranscripts', () => {
       .all(sessionId) as Record<string, unknown>[]
   }
 
+  function residentRow(sessionId: string): Record<string, unknown> | undefined {
+    return db
+      .prepare('SELECT * FROM resident_context_sample WHERE session_id = ?')
+      .get(sessionId) as Record<string, unknown> | undefined
+  }
+
   function count(table: string): number {
     return (db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get() as { c: number }).c
   }
@@ -976,6 +1051,38 @@ describe('scanTranscripts', () => {
 
     expect(getSession('sess-1')).toBeTruthy()
     expect(allInvocations()).toHaveLength(1)
+  })
+
+  it('persists and replaces one numeric resident-context sample per session', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    const filePath = writeTranscriptFile(projectDir, 'sess-1', [
+      metaLine({ version: '2.1.261' }),
+      {
+        type: 'attachment',
+        timestamp: '2024-01-01T00:01:00.000Z',
+        attachment: { type: 'skill_listing', isInitial: true, content: 'abcdef', skillCount: 2 }
+      },
+      assistantUsageLine({
+        message: {
+          model: 'claude-sonnet-5',
+          usage: { cache_read_input_tokens: 0, cache_creation_input_tokens: 1200 }
+        }
+      })
+    ])
+
+    scanTranscripts(db, projectsDir)
+    expect(residentRow('sess-1')).toMatchObject({
+      measured_tokens: 1200,
+      skill_characters: 6,
+      skill_count: 2
+    })
+
+    writeFileSync(filePath, linesToJsonl([metaLine(), assistantUsageLine()]))
+    const future = new Date(Date.now() + 2000)
+    utimesSync(filePath, future, future)
+    scanTranscripts(db, projectsDir)
+
+    expect(residentRow('sess-1')).toBeUndefined()
   })
 
   it('replaces logical turn rows on rescan instead of retaining stale usage', () => {
@@ -1513,8 +1620,7 @@ describe('scanTranscripts', () => {
         session_id: 'sess-1',
         total_cost_usd: 3.14,
         has_unknown_model_cost: 1,
-        is_zeroed: 0,
-        continued_in_session_id: null
+        is_zeroed: 0
       })
       expect(modelCostRows('sess-1')).toEqual([
         expect.objectContaining({ model: 'claude-sonnet-5', cost_usd: 2.5, input_tokens: 100 })
@@ -1530,7 +1636,8 @@ describe('scanTranscripts', () => {
 
       scanTranscripts(db, projectsDir)
 
-      expect(costRow('sess-1')).toMatchObject({ continued_in_session_id: 'sess-2' })
+      expect(getSession('sess-1')).toMatchObject({ continued_in_session_id: 'sess-2' })
+      expect(costRow('sess-1')).not.toHaveProperty('continued_in_session_id')
     })
 
     it('stores an all-zeroed cost-state row flagged is_zeroed with no model rows', () => {

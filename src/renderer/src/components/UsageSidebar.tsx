@@ -1,15 +1,16 @@
-import { Activity, BrainCircuit, CircleDollarSign, Cpu } from 'lucide-react'
+import { Activity, BrainCircuit, CircleDollarSign, Cpu, Layers3 } from 'lucide-react'
 import { motion } from 'motion/react'
 import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
 
-export type UsagePanel = 'activity' | 'cost' | 'models' | 'skills'
+export type UsagePanel = 'activity' | 'cost' | 'models' | 'skills' | 'resident-tax'
 
 const PANELS = [
   { key: 'activity', label: 'Activity', Icon: Activity },
   { key: 'cost', label: 'Cost', Icon: CircleDollarSign },
   { key: 'models', label: 'Models', Icon: Cpu },
-  { key: 'skills', label: 'Skills', Icon: BrainCircuit }
+  { key: 'skills', label: 'Skills', Icon: BrainCircuit },
+  { key: 'resident-tax', label: 'Resident tax', Icon: Layers3 }
 ] as const
 
 const NAV_ROW =

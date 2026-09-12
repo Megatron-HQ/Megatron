@@ -20,8 +20,8 @@ are locked here, and this doc is where they are argued.
 
 No upfront sketch — each table was added by the milestone that knew its real shape. The core
 four below plus `allowed_paths` (Tier-2 folder grants), `lint_findings` (linter output),
-`prompt_history` (Usage view PR1), and `session_cost` / `session_model_cost` (Usage view PR2),
-each added once its feature needed it.
+`prompt_history` (Usage view PR1), `session_cost` / `session_model_cost` (Usage view PR2), and
+`resident_context_sample` (Usage view PR5), each added once its feature needed it.
 
 ```sql
 CREATE TABLE IF NOT EXISTS skills (
@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS sessions_meta (
                                        -- literally line 0 — see mvp-build-spec's On-disk data
                                        -- shapes section)
   message_count INTEGER NOT NULL,     -- count of lines where type IN ('user','assistant')
+  continued_in_session_id TEXT,       -- continuation lineage, independent of cost-state
   source_mtime_ms INTEGER NOT NULL,   -- transcript file's mtime at last scan — see Scan cadence
   source_size_bytes INTEGER NOT NULL DEFAULT -1,
                                      -- parent transcript + subagent byte total; pairs with mtime
@@ -119,9 +120,8 @@ CREATE TABLE IF NOT EXISTS session_cost (
   session_id TEXT PRIMARY KEY REFERENCES sessions_meta(session_id),
   total_cost_usd REAL NOT NULL,
   has_unknown_model_cost INTEGER NOT NULL DEFAULT 0,
-  is_zeroed INTEGER NOT NULL DEFAULT 0,          -- cost-state present but 0/empty (CC v2.1.241-246 artifact)
-  continued_in_session_id TEXT                   -- this session's own continued-in marker;
-);                                               -- NULL = a lineage terminal (the only priced rows)
+  is_zeroed INTEGER NOT NULL DEFAULT 0           -- cost-state present but 0/empty (CC v2.1.241-246 artifact)
+);
 
 CREATE TABLE IF NOT EXISTS session_model_cost (
   session_id TEXT NOT NULL REFERENCES session_cost(session_id) ON DELETE CASCADE,
@@ -134,6 +134,26 @@ CREATE TABLE IF NOT EXISTS session_model_cost (
   cache_creation_tokens INTEGER NOT NULL,
   web_search_requests INTEGER NOT NULL,
   PRIMARY KEY (session_id, model)
+);
+
+CREATE TABLE IF NOT EXISTS resident_context_sample (
+  session_id TEXT PRIMARY KEY REFERENCES sessions_meta(session_id) ON DELETE CASCADE,
+  first_turn_at TEXT NOT NULL,
+  model TEXT NOT NULL,
+  claude_version TEXT,
+  cache_read_tokens INTEGER NOT NULL,
+  measured_tokens INTEGER NOT NULL,
+  cost_state_started_at TEXT,
+  skill_characters INTEGER NOT NULL,
+  skill_count INTEGER NOT NULL,
+  agent_characters INTEGER NOT NULL,
+  agent_count INTEGER NOT NULL,
+  hook_characters INTEGER NOT NULL,
+  hook_count INTEGER NOT NULL,
+  mcp_characters INTEGER NOT NULL,
+  mcp_count INTEGER NOT NULL,
+  instruction_characters INTEGER NOT NULL,
+  instruction_count INTEGER NOT NULL
 );
 ```
 
@@ -151,11 +171,19 @@ Populated by `scanTranscripts` on the same walk as `skill_invocations` (`extract
 `toModelCostRows` in `cost-parser.ts`), gated by the same `transcript_parser_version`, no scan-cache
 columns of their own. Rows are stored as parsed — zeroed rows and lineage non-terminals included;
 `getCostStats` (`src/main/db/queries.ts`) filters them out of every aggregate with the
-**priced-terminal predicate** `is_zeroed = 0 AND continued_in_session_id IS NULL` (the fix for
+**priced-terminal predicate** `session_cost.is_zeroed = 0 AND
+sessions_meta.continued_in_session_id IS NULL` (the fix for
 `cost-state` carrying a prior session's total forward across a `continued-in` chain — see
 `docs/usage-analytics.md` hazard 3). `session_model_cost` cascades off `session_cost`
 (`ON DELETE CASCADE`); `session_cost` itself has a plain FK to `sessions_meta` (no cascade), so
 the retention sweep deletes it _before_ `sessions_meta`.
+
+`resident_context_sample` (added Usage view Phase 2a / PR5) holds one numeric-only first-turn
+candidate per main transcript. Ingest measures attachment text and discards it; no skill listing,
+hook output, MCP instructions, project instructions, prompt snapshot, or other content is stored.
+The row carries the measured cache write, cold-cache evidence, optional cost-state start time,
+provenance, and character/item counts for the five itemized categories. `getResidentTaxStats`
+applies the strict eligibility rules and chooses the newest valid candidate at read time.
 
 `turn_usage` / `session_skill_cost` (added Usage view Phase 2a / PR4) back the Models panel and
 the Skills panel's additive attribution ledger. `turn_usage` has one row per logical assistant
@@ -226,7 +254,7 @@ skill costs Claude Code nothing.
 The Usage view's Skills activity (`getSkillStats`, PR3) is the same live-query shape: it reads
 `skill_invocations` (windowed) and `session_cost` / `session_model_cost` (all history) and
 reduces in TypeScript. Each invocation's session is resolved forward through
-`continued_in_session_id` to its priced, lineage-terminal session (`resolvePricedTerminal`, the
+`sessions_meta.continued_in_session_id` to its priced, lineage-terminal session (`resolvePricedTerminal`, the
 same lineage rule `getCostStats` applies), then associated once per skill. A `skill_name` resolves
 to a single `skills.id` for click-through by shadowing precedence (global > project > synced) — a
 separate encoding of the same rule `SKILLS_WITH_USAGE_SELECT` uses, answering "which row wins for

@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS sessions_meta (
   git_branch TEXT,                    -- NULL when cwd isn't a git repo
   started_at TEXT NOT NULL,           -- timestamp of the first line carrying a `cwd` field
   message_count INTEGER NOT NULL,     -- count of lines where type IN ('user','assistant')
+  continued_in_session_id TEXT,       -- present even when the transcript has no cost-state
   source_mtime_ms INTEGER NOT NULL,   -- transcript file's mtime at last scan — see Scan cadence
   source_size_bytes INTEGER NOT NULL DEFAULT -1,
                                      -- total bytes across the parent transcript and its subagents;
@@ -137,15 +138,12 @@ CREATE INDEX IF NOT EXISTS idx_lint_findings_skill_id ON lint_findings(skill_id)
 -- Cost-state mirror for the Usage view's Cost section (docs/usage-analytics.md, PR2). Read
 -- verbatim from Claude Code's `cost-state` line — no bottom-up token pricing. Derived cache like
 -- every table here: no scan-cache columns, freshness rides sessions_meta's mtime/size/parser-version
--- gate. Rows are stored as parsed; getCostStats filters zeroed + lineage-non-terminal rows out of
--- every aggregate (the priced-terminal predicate `is_zeroed = 0 AND continued_in_session_id IS NULL`).
+-- gate. Rows are stored as parsed; getCostStats joins sessions_meta to identify lineage terminals.
 CREATE TABLE IF NOT EXISTS session_cost (
   session_id TEXT PRIMARY KEY REFERENCES sessions_meta(session_id),
   total_cost_usd REAL NOT NULL,
   has_unknown_model_cost INTEGER NOT NULL DEFAULT 0,  -- CC couldn't price a model — total is a low estimate
-  is_zeroed INTEGER NOT NULL DEFAULT 0,               -- cost-state present but 0/empty (CC v2.1.241-246 artifact)
-  continued_in_session_id TEXT                        -- from this session's own continued-in marker;
-                                                       -- NULL = a lineage terminal (the only rows priced)
+  is_zeroed INTEGER NOT NULL DEFAULT 0                -- cost-state present but 0/empty (CC v2.1.241-246 artifact)
 );
 
 CREATE TABLE IF NOT EXISTS session_model_cost (
@@ -190,6 +188,31 @@ CREATE TABLE IF NOT EXISTS turn_usage (
 CREATE INDEX IF NOT EXISTS idx_turn_usage_session_id ON turn_usage(session_id);
 CREATE INDEX IF NOT EXISTS idx_turn_usage_invoked_at ON turn_usage(invoked_at);
 CREATE INDEX IF NOT EXISTS idx_turn_usage_active_skill ON turn_usage(active_skill);
+
+-- One numeric-only candidate per main transcript for the Resident tax panel. Attachment text is
+-- measured during ingest and discarded; no prompt, hook, instruction, or MCP content is stored.
+CREATE TABLE IF NOT EXISTS resident_context_sample (
+  session_id TEXT PRIMARY KEY REFERENCES sessions_meta(session_id) ON DELETE CASCADE,
+  first_turn_at TEXT NOT NULL,
+  model TEXT NOT NULL,
+  claude_version TEXT,
+  cache_read_tokens INTEGER NOT NULL CHECK (cache_read_tokens >= 0),
+  measured_tokens INTEGER NOT NULL CHECK (measured_tokens >= 0),
+  cost_state_started_at TEXT,
+  skill_characters INTEGER NOT NULL CHECK (skill_characters >= 0),
+  skill_count INTEGER NOT NULL CHECK (skill_count >= 0),
+  agent_characters INTEGER NOT NULL CHECK (agent_characters >= 0),
+  agent_count INTEGER NOT NULL CHECK (agent_count >= 0),
+  hook_characters INTEGER NOT NULL CHECK (hook_characters >= 0),
+  hook_count INTEGER NOT NULL CHECK (hook_count >= 0),
+  mcp_characters INTEGER NOT NULL CHECK (mcp_characters >= 0),
+  mcp_count INTEGER NOT NULL CHECK (mcp_count >= 0),
+  instruction_characters INTEGER NOT NULL CHECK (instruction_characters >= 0),
+  instruction_count INTEGER NOT NULL CHECK (instruction_count >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_resident_context_sample_first_turn_at
+  ON resident_context_sample(first_turn_at);
 
 -- Materialized attribution for priced terminal sessions. A NULL skill_name is the
 -- explicit General work bucket; partial indexes make that nullable identity unique.

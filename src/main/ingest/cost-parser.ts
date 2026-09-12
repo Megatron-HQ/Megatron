@@ -23,9 +23,6 @@ export interface SessionCost {
   // `cost-state` present but `totalCostUSD` 0 and `modelUsage` empty — the immature-feature
   // artifact (CC v2.1.241–246), not a genuine $0 session. Callers bucket it as "not tracked".
   isZeroed: boolean
-  // From the `continued-in` marker in THIS session's own transcript: the session this one was
-  // continued INTO. NULL means this session is a lineage terminal.
-  continuedInSessionId: string | null
   costStateStartTime: string | null
 }
 
@@ -34,21 +31,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 // Reads the last `type:"cost-state"` line (cumulative — 9 of 53 real sessions have several,
-// from resume checkpoints) plus any `continued-in` lineage marker. Returns null when the
+// from resume checkpoints). Continuation lineage belongs to sessions_meta. Returns null when the
 // transcript has no `cost-state` line at all (pre-v2.1.241 history — ~77% of sessions).
 export function extractCostState(records: Record<string, unknown>[]): SessionCost | null {
   let costStateRecord: Record<string, unknown> | null = null
-  let continuedInSessionId: string | null = null
 
   for (const record of records) {
     if (record.type === 'cost-state') {
       costStateRecord = record
-    } else if (
-      record.type === 'continued-in' &&
-      typeof record.continuedInSessionId === 'string' &&
-      record.continuedInSessionId !== ''
-    ) {
-      continuedInSessionId = record.continuedInSessionId
     }
   }
 
@@ -73,7 +63,6 @@ export function extractCostState(records: Record<string, unknown>[]): SessionCos
     modelUsage,
     hasUnknownModelCost: costStateRecord.hasUnknownModelCost === true,
     isZeroed: totalCostUsd === 0 && Object.keys(modelUsage).length === 0,
-    continuedInSessionId,
     costStateStartTime:
       typeof costStateRecord.startTime === 'number'
         ? new Date(costStateRecord.startTime).toISOString()

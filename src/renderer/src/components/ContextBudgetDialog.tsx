@@ -52,6 +52,10 @@ export function ContextBudgetDialog({
             tokens, roughly 1% of a 200K-token reference window. Project skills aren&apos;t counted
             here.
           </p>
+          <p className="max-w-[72ch] text-left text-[13px] leading-relaxed text-muted-foreground">
+            This is a configured skill-listing budget, not the measured total shown under Usage →
+            Resident tax. That panel samples all resident context categories from a cold session.
+          </p>
         </DialogHeader>
 
         <div className="flex flex-col gap-2 border-t border-border pt-2">

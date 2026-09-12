@@ -18,6 +18,7 @@ import {
   getLintFindingsForSkill,
   getModelStats,
   getPluginDetail,
+  getResidentTaxStats,
   getSkillStats,
   getSkillById,
   getSkillInvocationLog,
@@ -275,6 +276,7 @@ app.whenReady().then(() => {
     cost: getCostStats(getDb()),
     models: getModelStats(getDb()),
     skills: getSkillStats(getDb()),
+    residentTax: getResidentTaxStats(getDb()),
     scanComplete
   }))
 

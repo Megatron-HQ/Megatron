@@ -7,6 +7,11 @@ interface SessionCostRow {
   continued_in_session_id: string | null
 }
 
+interface SessionLineageRow {
+  session_id: string
+  continued_in_session_id: string | null
+}
+
 interface ModelCostRow {
   session_id: string
   model: string
@@ -46,13 +51,22 @@ function resolveTerminalSession(
 }
 
 export function rebuildSessionSkillCosts(db: Database.Database): void {
-  const sessionCosts = db.prepare('SELECT * FROM session_cost').all() as SessionCostRow[]
+  const sessionCosts = db
+    .prepare(
+      `SELECT sc.session_id, sc.total_cost_usd, sc.is_zeroed, sm.continued_in_session_id
+       FROM session_cost sc
+       JOIN sessions_meta sm ON sm.session_id = sc.session_id`
+    )
+    .all() as SessionCostRow[]
   const terminalCosts = sessionCosts.filter(
     (row) => row.is_zeroed === 0 && row.continued_in_session_id === null
   )
   const terminalIds = new Set(terminalCosts.map((row) => row.session_id))
+  const lineageRows = db
+    .prepare('SELECT session_id, continued_in_session_id FROM sessions_meta')
+    .all() as SessionLineageRow[]
   const nextSessionById = new Map(
-    sessionCosts.map((row) => [row.session_id, row.continued_in_session_id] as const)
+    lineageRows.map((row) => [row.session_id, row.continued_in_session_id] as const)
   )
 
   const turnsByTerminalAndModel = new Map<string, Map<string, TurnWeightRow[]>>()

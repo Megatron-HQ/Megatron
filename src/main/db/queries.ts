@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3'
 import { dirname, join, resolve, sep } from 'path'
 import { CHARS_PER_TOKEN } from '../ingest/skill-parser'
+import { estimateResidentTokens } from '../ingest/token-estimate'
 import type {
   ActivityStats,
   ActivityWindow,
@@ -17,6 +18,7 @@ import type {
   PluginInstall,
   PluginRow,
   ProjectCount,
+  ResidentTaxStats,
   SkillInvocationEntry,
   SkillRow,
   SkillStats,
@@ -690,7 +692,7 @@ export function getActivityStats(db: Database.Database, now: Date = new Date()):
 // `now` only bounds the byDay zero-fill; every aggregate is filtered to PRICED_TERMINAL — a
 // self-contained cost figure: cost-state present and non-zero, and this session is its lineage's
 // terminal so its total isn't also carried on a later session (docs/usage-analytics.md hazard 3).
-const PRICED_TERMINAL = 'sc.is_zeroed = 0 AND sc.continued_in_session_id IS NULL'
+const PRICED_TERMINAL = 'sc.is_zeroed = 0 AND sm.continued_in_session_id IS NULL'
 
 export function getCostStats(db: Database.Database, now: Date = new Date()): CostStats | null {
   const summary = db
@@ -726,6 +728,7 @@ export function getCostStats(db: Database.Database, now: Date = new Date()): Cos
   const unusableSessionCount = countSince(
     `SELECT COUNT(*) AS n FROM sessions_meta
      WHERE started_at >= ?
+       AND continued_in_session_id IS NULL
        AND session_id NOT IN (SELECT session_id FROM session_cost WHERE is_zeroed = 0)`
   )
 
@@ -734,6 +737,7 @@ export function getCostStats(db: Database.Database, now: Date = new Date()): Cos
       `SELECT smc.model AS model, SUM(smc.cost_usd) AS costUsd
        FROM session_model_cost smc
        JOIN session_cost sc ON sc.session_id = smc.session_id
+       JOIN sessions_meta sm ON sm.session_id = sc.session_id
        WHERE ${PRICED_TERMINAL}
        GROUP BY smc.model
        ORDER BY costUsd DESC, smc.model ASC`
@@ -790,6 +794,96 @@ export function getCostStats(db: Database.Database, now: Date = new Date()): Cos
     byProject,
     byDay
   }
+}
+
+interface ResidentContextCandidateRow {
+  first_turn_at: string
+  model: string
+  claude_version: string | null
+  project: string
+  cache_read_tokens: number
+  measured_tokens: number
+  cost_state_started_at: string | null
+  skill_characters: number
+  skill_count: number
+  agent_characters: number
+  agent_count: number
+  hook_characters: number
+  hook_count: number
+  mcp_characters: number
+  mcp_count: number
+  instruction_characters: number
+  instruction_count: number
+}
+
+const MAX_COLD_CACHE_READ_TOKENS = 100
+const MAX_COST_START_OFFSET_MS = 5 * 60 * 1000
+
+export function getResidentTaxStats(db: Database.Database): ResidentTaxStats | null {
+  const candidates = db
+    .prepare(
+      `SELECT r.*, sm.cwd AS project
+       FROM resident_context_sample r
+       JOIN sessions_meta sm ON sm.session_id = r.session_id
+       WHERE r.cache_read_tokens <= ?
+         AND r.measured_tokens > 0
+         AND NOT EXISTS (
+           SELECT 1 FROM sessions_meta predecessor
+           WHERE predecessor.continued_in_session_id = r.session_id
+         )
+       ORDER BY r.first_turn_at DESC, r.session_id ASC`
+    )
+    .all(MAX_COLD_CACHE_READ_TOKENS) as ResidentContextCandidateRow[]
+
+  for (const candidate of candidates) {
+    if (candidate.cost_state_started_at !== null) {
+      const firstTurnTime = new Date(candidate.first_turn_at).getTime()
+      const costStartTime = new Date(candidate.cost_state_started_at).getTime()
+      if (
+        Number.isNaN(firstTurnTime) ||
+        Number.isNaN(costStartTime) ||
+        Math.abs(firstTurnTime - costStartTime) > MAX_COST_START_OFFSET_MS
+      ) {
+        continue
+      }
+    }
+
+    const skills = estimateResidentTokens(candidate.skill_characters)
+    const agents = estimateResidentTokens(candidate.agent_characters)
+    const hooks = estimateResidentTokens(candidate.hook_characters)
+    const mcp = estimateResidentTokens(candidate.mcp_characters)
+    const instructions = estimateResidentTokens(candidate.instruction_characters)
+    const itemizedTotal = skills + agents + hooks + mcp + instructions
+    if (itemizedTotal > candidate.measured_tokens) continue
+
+    return {
+      measuredTokens: candidate.measured_tokens,
+      sampledAt: candidate.first_turn_at,
+      project: candidate.project,
+      model: candidate.model,
+      claudeVersion: candidate.claude_version,
+      categories: [
+        { key: 'skills', tokens: skills, itemCount: candidate.skill_count, estimated: true },
+        { key: 'agents', tokens: agents, itemCount: candidate.agent_count, estimated: true },
+        { key: 'hooks', tokens: hooks, itemCount: candidate.hook_count, estimated: true },
+        { key: 'mcp', tokens: mcp, itemCount: candidate.mcp_count, estimated: true },
+        {
+          key: 'instructions',
+          tokens: instructions,
+          itemCount: candidate.instruction_count,
+          estimated: true
+        },
+        {
+          key: 'remainder',
+          tokens: candidate.measured_tokens - itemizedTotal,
+          itemCount: null,
+          estimated: false
+        }
+      ]
+    }
+  }
+
+  return null
 }
 
 interface ModelTurnRow {
@@ -888,6 +982,7 @@ interface SkillStatsCostRow {
   session_id: string
   total_cost_usd: number
   is_zeroed: number
+  has_cost: number
   continued_in_session_id: string | null
   output_tokens: number
 }
@@ -903,7 +998,9 @@ function resolvePricedTerminal(
     visited.add(currentSessionId)
     const cost = costsBySession.get(currentSessionId)
     if (cost === undefined) return null
-    if (cost.continued_in_session_id === null) return cost.is_zeroed === 0 ? cost : null
+    if (cost.continued_in_session_id === null) {
+      return cost.has_cost === 1 && cost.is_zeroed === 0 ? cost : null
+    }
     currentSessionId = cost.continued_in_session_id
   }
 
@@ -1107,14 +1204,16 @@ export function getSkillStats(db: Database.Database, now: Date = new Date()): Sk
   const costRows = db
     .prepare(
       `SELECT
-         sc.session_id,
-         sc.total_cost_usd,
-         sc.is_zeroed,
-         sc.continued_in_session_id,
+         sm.session_id,
+         COALESCE(sc.total_cost_usd, 0) AS total_cost_usd,
+         COALESCE(sc.is_zeroed, 1) AS is_zeroed,
+         CASE WHEN sc.session_id IS NULL THEN 0 ELSE 1 END AS has_cost,
+         sm.continued_in_session_id,
          COALESCE(SUM(smc.output_tokens), 0) AS output_tokens
-       FROM session_cost sc
+       FROM sessions_meta sm
+       LEFT JOIN session_cost sc ON sc.session_id = sm.session_id
        LEFT JOIN session_model_cost smc ON smc.session_id = sc.session_id
-       GROUP BY sc.session_id`
+       GROUP BY sm.session_id`
     )
     .all() as SkillStatsCostRow[]
   const costsBySession = new Map(costRows.map((row) => [row.session_id, row]))
@@ -1158,7 +1257,7 @@ function countPricedSessionsWithoutSkill(
   costsBySession: Map<string, SkillStatsCostRow>
 ): number {
   const pricedTerminalCount = costRows.filter(
-    (row) => row.is_zeroed === 0 && row.continued_in_session_id === null
+    (row) => row.has_cost === 1 && row.is_zeroed === 0 && row.continued_in_session_id === null
   ).length
   const reachedTerminals = new Set<string>()
   const sessionIds = db.prepare(`SELECT DISTINCT session_id FROM skill_invocations`).all() as {

@@ -94,14 +94,14 @@ window — a real design difference, not a bug in either counter).
 `sessions_meta.transcript_parser_version` is part of the scan cache — a parser-semantic change
 bumps the named parser version, forcing one safe reindex even when the transcript's mtime/size
 are unchanged, so a newly-supported transcript format applies to already-indexed history, not
-just future writes. This one constant now covers **all four consumers of the walk** — the
+just future writes. This one constant now covers **all five consumers of the walk** — the
 skill-invocation extraction, the session-meta extraction, the Usage view PR2 `cost-state`
-extraction that populates `session_cost` / `session_model_cost`, and the PR4 per-turn extraction
-that populates `turn_usage`. A change to
+extraction that populates `session_cost` / `session_model_cost`, the PR4 per-turn extraction
+that populates `turn_usage`, and the PR5 numeric resident-context extraction. A change to
 `cost-parser.ts`'s semantics bumps `TRANSCRIPT_PARSER_VERSION` just like an invocation-parser
 change does; there is deliberately no separate `cost_parser_version` (`docs/usage-analytics.md`
 §8). PR2 bumped it `3 → 4`, PR4 turn ingestion bumped it `4 → 5`, and cross-file resume-replay
-deduplication bumped it `5 → 6`.
+deduplication bumped it `5 → 6`; PR5 bumped it `6 → 7`.
 
 `turn_usage.logical_turn_key` and `turn_usage.source_uuid` are global deduplication seams. A
 resume/continue may copy prior assistant records into a new session file without `isSidechain`,
