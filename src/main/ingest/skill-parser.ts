@@ -93,8 +93,8 @@ function parseFrontmatter(content: string, fallbackName: string): ParsedFrontmat
   return { name, description, license, metadata_json, disableModelInvocation }
 }
 
-export function parseSkillDirectory(dirPath: string): ParsedSkill {
-  const fallbackName = basename(dirPath)
+export function parseSkillDirectory(dirPath: string, fallbackNameOverride?: string): ParsedSkill {
+  const fallbackName = fallbackNameOverride ?? basename(dirPath)
   const skillMdPath = join(dirPath, 'SKILL.md')
 
   const fileContents = allowedReadFileSync(skillMdPath)

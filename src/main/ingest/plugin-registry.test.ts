@@ -72,6 +72,13 @@ function writePluginSkill(installPath: string, skillName: string, frontmatter: s
   writeFileSync(join(dirPath, 'SKILL.md'), frontmatter)
 }
 
+// Mirrors a single-skill, root-style plugin (e.g. humanizer): SKILL.md sits directly at
+// installPath, with no `skills/` container dir at all.
+function writeRootPluginSkill(installPath: string, frontmatter: string): void {
+  mkdirSync(installPath, { recursive: true })
+  writeFileSync(join(installPath, 'SKILL.md'), frontmatter)
+}
+
 // Mirrors a real installed plugin's `.claude-plugin/plugin.json` declaring a hooks manifest
 // (e.g. ponytail's `"hooks": "./hooks/claude-codex-hooks.json"`) plus the manifest file itself.
 function writePluginManifestWithHooks(
@@ -444,6 +451,87 @@ describe('scanPluginRegistry', () => {
     expect(skills).toHaveLength(1)
     expect(skills[0].created_at).toBeNull()
     expect(skills[0].modified_at).toBeNull()
+  })
+
+  it('finds a root-style plugin skill whose SKILL.md sits directly at installPath, with no skills/ dir', () => {
+    const installPath = join(tmpDir, 'install-a')
+    writeRootPluginSkill(
+      installPath,
+      '---\nname: plugin-skill\ndescription: A root-style skill\n---\nBody'
+    )
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir)
+
+    const skills = pluginSkills()
+    expect(skills).toHaveLength(1)
+    expect(skills[0]).toMatchObject({
+      name: 'plugin-a:plugin-skill',
+      source_path: installPath,
+      description: 'A root-style skill'
+    })
+  })
+
+  it('names a nameless root-style skill after the plugin, not the version-string install dir basename', () => {
+    // installPath's basename is a version string, exactly like Claude Code's real cache layout
+    // (~/.claude/plugins/cache/<marketplace>/<name>/<version>/) — the failure mode this guards
+    // against is a skill silently named "plugin-a:3.0.0" that orphans its invocations.
+    const installPath = join(tmpDir, 'cache', 'plugin-a', '3.0.0')
+    writeRootPluginSkill(installPath, '---\ndescription: No name key\n---\nBody')
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '3.0.0' }]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir)
+
+    expect(pluginSkills().map((skill) => skill.name)).toEqual(['plugin-a:plugin-a'])
+  })
+
+  it('finds both a container skill and a root-style skill for the same plugin install', () => {
+    const installPath = join(tmpDir, 'install-a')
+    writePluginSkill(installPath, 'container-skill', '---\nname: container-skill\n---\nBody')
+    writeFileSync(join(installPath, 'SKILL.md'), '---\nname: root-skill\n---\nBody')
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir)
+
+    expect(
+      pluginSkills()
+        .map((skill) => skill.name)
+        .sort()
+    ).toEqual(['plugin-a:container-skill', 'plugin-a:root-skill'])
+  })
+
+  it('removes a root-style skill row after its plugin is uninstalled', () => {
+    const installPath = join(tmpDir, 'install-a')
+    writeRootPluginSkill(installPath, '---\nname: plugin-skill\n---\nBody')
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir)
+    expect(pluginSkills()).toHaveLength(1)
+
+    writeInstalledPlugins({ version: 2, plugins: {} })
+    scanPluginRegistry(db, pluginsDir)
+
+    expect(pluginSkills()).toHaveLength(0)
   })
 
   it("captures the plugin's declared hook event names onto its skill rows", () => {

@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3'
 import { homedir } from 'os'
-import { join, resolve } from 'path'
+import { dirname, join, resolve } from 'path'
 import { writeSkillScan, writeSkillScanAuthoritative, type SkillScanRow } from '../db/queries'
 import {
   allowedExistsSync,
@@ -186,6 +186,38 @@ function readPluginHookEvents(installPath: string): string | null {
   return eventNames.length > 0 ? JSON.stringify(eventNames) : null
 }
 
+function buildPluginSkillRow(
+  dirPath: string,
+  fallbackNameOverride: string | undefined,
+  name: string,
+  marketplace: string,
+  hookEvents: string | null,
+  skillDisabledReason: string | null
+): SkillScanRow {
+  const parsed = parseSkillDirectory(dirPath, fallbackNameOverride)
+  return {
+    // Claude Code invokes and records a plugin skill under this namespaced form
+    // (e.g. `impeccable:impeccable`), never the bare SKILL.md name — skill_invocations
+    // joins on this text with no FK (docs/data-model.md), so a bare name here silently
+    // orphans every invocation of every plugin skill from its usage stats.
+    name: `${name}:${parsed.name}`,
+    source_path: dirPath,
+    plugin_name: `${name}@${marketplace}`,
+    description: parsed.description,
+    est_listing_tokens: parsed.est_listing_tokens,
+    est_body_tokens: parsed.est_body_tokens,
+    license: parsed.license,
+    metadata_json: parsed.metadata_json,
+    created_at: null,
+    modified_at: null,
+    hook_events: hookEvents,
+    disabled_reason: skillDisabledReason,
+    // Frontmatter only — plugin skills already ignore skillOverrides (see
+    // docs/skill-scanner.md), and their rows have no project_root to scope it.
+    model_invocable: parsed.disableModelInvocation ? 0 : 1
+  }
+}
+
 export function scanPluginRegistry(
   db: Database.Database,
   pluginsDir: string = resolve(homedir(), '.claude', 'plugins'),
@@ -344,40 +376,58 @@ export function scanPluginRegistry(
 
         const hookEvents = readPluginHookEvents(installPath)
 
+        // Two real on-disk shapes for an installed plugin's skill(s) — verified against this
+        // machine's actual ~/.claude/plugins/cache, not assumed from a manifest field (a
+        // manifest's declared `skills` path doesn't reliably match the installed layout; see
+        // docs/skill-scanner.md). Container: `<installPath>/skills/<name>/SKILL.md` (most
+        // plugins). Root: `<installPath>/SKILL.md` directly — single-skill plugins like
+        // humanizer, whose manifest declares `"skills": ["./"]`. Independent checks: a plugin
+        // could in principle have both.
         const skillsDir = join(installPath, 'skills')
         const skillsDirectory = readAllowedDirectory(skillsDir)
-        if (skillsDirectory.status === 'unavailable') {
+        const hasRootSkill = allowedExistsSync(join(installPath, 'SKILL.md'))
+
+        if (skillsDirectory.status === 'unavailable' && !hasRootSkill) {
           pluginSkillScanIsAuthoritative = false
           continue
         }
-        readableSkillRoots.push(skillsDir)
 
-        for (const entryName of skillsDirectory.entries) {
-          const dirPath = join(skillsDir, entryName)
-          if (!allowedExistsSync(join(dirPath, 'SKILL.md'))) continue
+        if (skillsDirectory.status !== 'unavailable') {
+          readableSkillRoots.push(skillsDir)
 
-          const parsed = parseSkillDirectory(dirPath)
-          skillRows.push({
-            // Claude Code invokes and records a plugin skill under this namespaced form
-            // (e.g. `impeccable:impeccable`), never the bare SKILL.md name — skill_invocations
-            // joins on this text with no FK (docs/data-model.md), so a bare name here silently
-            // orphans every invocation of every plugin skill from its usage stats.
-            name: `${name}:${parsed.name}`,
-            source_path: dirPath,
-            plugin_name: `${name}@${marketplace}`,
-            description: parsed.description,
-            est_listing_tokens: parsed.est_listing_tokens,
-            est_body_tokens: parsed.est_body_tokens,
-            license: parsed.license,
-            metadata_json: parsed.metadata_json,
-            created_at: null,
-            modified_at: null,
-            hook_events: hookEvents,
-            disabled_reason: skillDisabledReason,
-            // Frontmatter only — plugin skills already ignore skillOverrides (see
-            // docs/skill-scanner.md), and their rows have no project_root to scope it.
-            model_invocable: parsed.disableModelInvocation ? 0 : 1
-          })
+          for (const entryName of skillsDirectory.entries) {
+            const dirPath = join(skillsDir, entryName)
+            if (!allowedExistsSync(join(dirPath, 'SKILL.md'))) continue
+
+            skillRows.push(
+              buildPluginSkillRow(
+                dirPath,
+                undefined,
+                name,
+                marketplace,
+                hookEvents,
+                skillDisabledReason
+              )
+            )
+          }
+        }
+
+        if (hasRootSkill) {
+          // The row's parent dir, matching writeSkillScan's delete predicate
+          // (`rootDirSet.has(dirname(path))`) — the version-container dir only ever holds this
+          // plugin's own version installs, so this also reconciles a stale row left by a prior
+          // version.
+          readableSkillRoots.push(dirname(installPath))
+          skillRows.push(
+            buildPluginSkillRow(
+              installPath,
+              name,
+              name,
+              marketplace,
+              hookEvents,
+              skillDisabledReason
+            )
+          )
         }
       }
     }
