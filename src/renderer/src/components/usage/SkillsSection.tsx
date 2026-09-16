@@ -4,6 +4,7 @@ import { InvocationTrend } from './InvocationTrend'
 import { RankedList } from './RankedList'
 import { SkillAssociationTable } from './SkillAssociationTable'
 import { formatCount } from './chart-utils'
+import { getSkillDisplayName } from '@/lib/source-name'
 import { cn } from '@/lib/utils'
 import type {
   SkillStats,
@@ -146,11 +147,10 @@ export function SkillsSection({
 
       <ChartBlock label="Top skills" empty={empty} emptyMessage={emptyMessage}>
         <RankedList
-          items={window.bySkill.map((row) => ({
-            label: row.skillName,
-            fullLabel: row.skillName,
-            value: row.count
-          }))}
+          items={window.bySkill.map((row) => {
+            const displayName = getSkillDisplayName(row.skillName, row.sourceType)
+            return { label: displayName, fullLabel: displayName, value: row.count }
+          })}
           formatValue={formatCount}
           noun="skills"
         />

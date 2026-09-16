@@ -340,6 +340,7 @@ export interface ModelStats {
 export interface SkillInvocationCount {
   skillName: string
   count: number
+  sourceType: SourceType | null
 }
 
 export interface SkillTrendBucket {

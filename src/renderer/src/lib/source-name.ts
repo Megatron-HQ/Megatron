@@ -25,6 +25,23 @@ export function getProjectNameFromPath(sourcePath?: string): string {
   return 'project'
 }
 
+// Claude Code invokes plugin skills as `plugin-name:skill-name`, and skills.name (queries.ts)
+// stores that exact string so usage joins keep working — but a Source badge next to this text
+// already names the plugin, so showing it twice is redundant. This strips it for display only.
+export function getSkillDisplayName(
+  name: string,
+  sourceType: SourceType | null,
+  pluginName?: string | null
+): string {
+  if (sourceType !== 'plugin') return name
+  if (pluginName) {
+    const prefix = `${getPluginBareName(pluginName)}:`
+    return name.startsWith(prefix) ? name.slice(prefix.length) : name
+  }
+  const colonIndex = name.indexOf(':')
+  return colonIndex === -1 ? name : name.slice(colonIndex + 1)
+}
+
 export function getSourceDisplayName(
   type: SourceType,
   sourcePath?: string,

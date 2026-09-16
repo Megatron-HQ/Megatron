@@ -21,7 +21,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { parseHookEvents } from '@/lib/hook-events'
 import { hasDisableModelInvocationFrontmatter, parseExtraFrontmatterFields } from '@/lib/markdown'
 import { groupInvocationEntries } from '@/lib/invocation-grouping'
-import { getFolderBasename } from '@/lib/source-name'
+import { getFolderBasename, getSkillDisplayName } from '@/lib/source-name'
 import { TRIGGER_META } from '@/lib/trigger-meta'
 import { cn } from '@/lib/utils'
 import type { ProjectCount, SkillRow, SkillUsageDetail, TriggerType } from '../../../shared/ipc'
@@ -132,7 +132,9 @@ export function SkillDetail({
           >
             <ArrowLeft className="size-4" />
           </Button>
-          <h2 className="min-w-0 truncate text-base font-semibold">{skill.name}</h2>
+          <h2 className="min-w-0 truncate text-base font-semibold">
+            {getSkillDisplayName(skill.name, skill.source_type, skill.plugin_name)}
+          </h2>
         </div>
         <Button
           onClick={onViewFiles}
@@ -528,7 +530,7 @@ function UsageSection({
         open={historyOpen}
         onOpenChange={setHistoryOpen}
         skillId={skill.id}
-        skillName={skill.name}
+        skillName={getSkillDisplayName(skill.name, skill.source_type, skill.plugin_name)}
         initialTriggerFilter={initialTriggerFilter}
       />
     </section>

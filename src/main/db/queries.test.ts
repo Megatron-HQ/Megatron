@@ -2460,9 +2460,9 @@ describe('getSkillStats', () => {
 
     const window = getSkillStats(db, NOW).last24h
     expect(window.bySkill).toEqual([
-      { skillName: 'alpha', count: 2 },
-      { skillName: 'beta', count: 1 },
-      { skillName: 'gamma', count: 1 }
+      { skillName: 'alpha', count: 2, sourceType: null },
+      { skillName: 'beta', count: 1, sourceType: null },
+      { skillName: 'gamma', count: 1, sourceType: null }
     ])
     expect(window.byTriggerType).toEqual([
       { trigger_type: 'user_invoked', count: 2 },
@@ -2638,6 +2638,30 @@ describe('getSkillStats', () => {
         associatedOutputTokens: 0
       })
     }
+  })
+
+  it('includes sourceType on bySkill rows, resolved the same way as associations', () => {
+    insertSkill('ponytail:ponytail-audit', { source_type: 'plugin' })
+    insertSession('s1', '2026-09-09T16:00:00.000Z')
+    insertInvocation({
+      uuid: 'a1',
+      sessionId: 's1',
+      skillName: 'ponytail:ponytail-audit',
+      invokedAt: '2026-09-09T16:00:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'b1',
+      sessionId: 's1',
+      skillName: 'unregistered-skill',
+      invokedAt: '2026-09-09T16:05:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).last24h.bySkill).toEqual(
+      expect.arrayContaining([
+        { skillName: 'ponytail:ponytail-audit', count: 1, sourceType: 'plugin' },
+        { skillName: 'unregistered-skill', count: 1, sourceType: null }
+      ])
+    )
   })
 
   it('resolves an association skillId and sourceType by shadowing precedence', () => {

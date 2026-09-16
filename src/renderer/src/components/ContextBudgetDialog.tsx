@@ -9,6 +9,7 @@ import {
 import { TextLink } from '@/components/TextLink'
 import { heaviestBudgetSkills } from '@/lib/context-budget'
 import { SOURCE_ICON, SYNCED_ICON } from '@/lib/source-icon'
+import { getSkillDisplayName } from '@/lib/source-name'
 import type { ContextBudget, SkillRow } from '../../../shared/ipc'
 
 interface ContextBudgetDialogProps {
@@ -139,7 +140,9 @@ export function ContextBudgetDialog({
                     className="flex items-center gap-2 rounded-md px-1 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
                   >
                     <Icon className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="flex-1 truncate">{skill.name}</span>
+                    <span className="flex-1 truncate">
+                      {getSkillDisplayName(skill.name, skill.source_type, skill.plugin_name)}
+                    </span>
                     <span className="font-mono text-xs tabular-nums text-muted-foreground">
                       {skill.est_listing_tokens.toLocaleString()} tokens ({usesLabel})
                     </span>

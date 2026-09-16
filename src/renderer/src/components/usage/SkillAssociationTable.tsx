@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { TriangleAlert } from 'lucide-react'
 import type { SkillCostAttribution } from '../../../../shared/ipc'
 import { TextLink } from '@/components/TextLink'
+import { getSkillDisplayName } from '@/lib/source-name'
 import { formatCount, formatUsd } from './chart-utils'
 
 const INITIAL_ROWS = 8
@@ -45,7 +46,10 @@ export function SkillAssociationTable({
           <tbody>
             {visibleRows.map((row) => {
               const clickable = row.skillId !== null && onSelectSkill !== undefined
-              const label = row.skillName ?? 'General work'
+              const label =
+                row.skillName !== null
+                  ? getSkillDisplayName(row.skillName, row.sourceType)
+                  : 'General work'
               return (
                 <tr
                   key={row.skillName ?? '__general__'}

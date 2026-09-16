@@ -1070,7 +1070,11 @@ function reduceSkillStatsWindow(
   }
 
   const bySkill = [...skillCounts.entries()]
-    .map(([skillName, count]) => ({ skillName, count }))
+    .map(([skillName, count]) => ({
+      skillName,
+      count,
+      sourceType: skillIndex.get(skillName)?.source_type ?? null
+    }))
     .sort((a, b) => b.count - a.count || a.skillName.localeCompare(b.skillName))
   const triggerOrder: TriggerTypeCount['trigger_type'][] = [
     'user_invoked',
