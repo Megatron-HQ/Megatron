@@ -42,15 +42,16 @@ function addTurn(
   sourceUuid: string,
   model: string,
   outputTokens: number,
-  activeSkill: string | null
+  activeSkill: string | null,
+  invokedAt = '2026-01-01T00:00:01.000Z'
 ): void {
   db.prepare(
     `INSERT INTO turn_usage
        (logical_turn_key, source_uuid, session_id, turn_index, model, input_tokens,
         cache_read_tokens, cache_creation_tokens, cache_creation_5m_tokens,
         cache_creation_1h_tokens, output_tokens, active_skill, invoked_at)
-     VALUES (?, ?, ?, 0, ?, 0, 0, 0, 0, 0, ?, ?, '2026-01-01T00:00:01.000Z')`
-  ).run(`message:${sourceUuid}`, sourceUuid, sessionId, model, outputTokens, activeSkill)
+     VALUES (?, ?, ?, 0, ?, 0, 0, 0, 0, 0, ?, ?, ?)`
+  ).run(`message:${sourceUuid}`, sourceUuid, sessionId, model, outputTokens, activeSkill, invokedAt)
 }
 
 function allocations(): Array<{
@@ -72,6 +73,61 @@ beforeEach(() => {
 })
 
 describe('rebuildSessionSkillCosts', () => {
+  it('keeps each skill cost share at the time of its turn', () => {
+    addSession('terminal')
+    addCost('terminal', 8)
+    addModelCost('terminal', 'claude-opus-5', 8)
+    addTurn('terminal', 'turn-a', 'claude-opus-5', 3, 'review', '2026-01-01T23:00:00.000Z')
+    addTurn('terminal', 'turn-b', 'claude-opus-5', 1, null, '2026-01-02T01:00:00.000Z')
+
+    rebuildSessionSkillCosts(db)
+
+    expect(
+      db
+        .prepare(
+          `SELECT session_id, skill_name, allocated_at, est_cost_usd
+           FROM timed_skill_cost ORDER BY allocated_at`
+        )
+        .all()
+    ).toEqual([
+      {
+        session_id: 'terminal',
+        skill_name: 'review',
+        allocated_at: '2026-01-01T23:00:00.000Z',
+        est_cost_usd: 6
+      },
+      {
+        session_id: 'terminal',
+        skill_name: null,
+        allocated_at: '2026-01-02T01:00:00.000Z',
+        est_cost_usd: 2
+      }
+    ])
+  })
+
+  it('places unattributed residual cost in General work across recorded turn times', () => {
+    addSession('terminal')
+    addCost('terminal', 10)
+    addModelCost('terminal', 'claude-opus-5', 8)
+    addTurn('terminal', 'turn-a', 'claude-opus-5', 3, 'review', '2026-01-01T23:00:00.000Z')
+    addTurn('terminal', 'turn-b', 'claude-opus-5', 1, null, '2026-01-02T01:00:00.000Z')
+
+    rebuildSessionSkillCosts(db)
+
+    expect(
+      db
+        .prepare(
+          `SELECT skill_name, allocated_at, SUM(est_cost_usd) AS cost
+           FROM timed_skill_cost GROUP BY skill_name, allocated_at ORDER BY allocated_at, skill_name`
+        )
+        .all()
+    ).toEqual([
+      { skill_name: null, allocated_at: '2026-01-01T23:00:00.000Z', cost: 1.5 },
+      { skill_name: 'review', allocated_at: '2026-01-01T23:00:00.000Z', cost: 6 },
+      { skill_name: null, allocated_at: '2026-01-02T01:00:00.000Z', cost: 2.5 }
+    ])
+  })
+
   it('weights each priced model by output tokens and assigns residual cost to General work', () => {
     addSession('terminal')
     addCost('terminal', 10)

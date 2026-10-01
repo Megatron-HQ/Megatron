@@ -228,3 +228,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_session_skill_cost_named
 CREATE UNIQUE INDEX IF NOT EXISTS idx_session_skill_cost_general
   ON session_skill_cost(session_id)
   WHERE skill_name IS NULL;
+
+-- Time-stamped shares of the same priced terminal cost, for rolling Skills windows.
+CREATE TABLE IF NOT EXISTS timed_skill_cost (
+  id INTEGER PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES session_cost(session_id) ON DELETE CASCADE,
+  skill_name TEXT,
+  allocated_at TEXT NOT NULL,
+  est_cost_usd REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_timed_skill_cost_allocated_at
+  ON timed_skill_cost(allocated_at);

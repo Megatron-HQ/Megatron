@@ -6,6 +6,7 @@ import { SkillAssociationTable } from './SkillAssociationTable'
 import { formatCount } from './chart-utils'
 import { getSkillDisplayName } from '@/lib/source-name'
 import { cn } from '@/lib/utils'
+import type { SkillInvocationSelection } from './SkillInvocationDialog'
 import type {
   SkillStats,
   SkillStatsWindow,
@@ -105,11 +106,13 @@ function SkillStat({
 export function SkillsSection({
   stats,
   windowKey,
-  onSelectSkill
+  onSelectSkill,
+  onShowInvocations
 }: {
   stats: SkillStats
   windowKey: SkillStatsWindowKey
   onSelectSkill?: (skillId: number) => void
+  onShowInvocations: (selection: SkillInvocationSelection) => void
 }): React.JSX.Element {
   const reduceMotion = useReducedMotion() === true
   const window = selectedWindow(stats, windowKey)
@@ -142,14 +145,45 @@ export function SkillsSection({
       </div>
 
       <ChartBlock label="Invocations over time" empty={empty} emptyMessage={emptyMessage}>
-        <InvocationTrend data={window.trend} window={windowKey} />
+        <InvocationTrend
+          data={window.trend}
+          window={windowKey}
+          onSelectBucket={(bucket, label) => {
+            if (!bucket.startAt || !bucket.endAt) return
+            onShowInvocations({ title: label, startAt: bucket.startAt, endAt: bucket.endAt })
+          }}
+        />
       </ChartBlock>
 
       <ChartBlock label="Top skills" empty={empty} emptyMessage={emptyMessage}>
         <RankedList
           items={window.bySkill.map((row) => {
             const displayName = getSkillDisplayName(row.skillName, row.sourceType)
-            return { label: displayName, fullLabel: displayName, value: row.count }
+            return {
+              label: displayName,
+              fullLabel: row.skillName,
+              value: row.count,
+              actionLabel:
+                row.skillId !== null
+                  ? `Open ${displayName} detail`
+                  : `View ${displayName} invocations`,
+              onSelect: () => {
+                if (row.skillId !== null && onSelectSkill) {
+                  onSelectSkill(row.skillId)
+                  return
+                }
+                onShowInvocations({
+                  title: displayName,
+                  startAt: window.startAt,
+                  endAt: window.endAt,
+                  skillName: row.skillName,
+                  note:
+                    row.resolution === 'missing'
+                      ? 'This skill is no longer installed.'
+                      : 'This name cannot be tied to one current installation.'
+                })
+              }
+            }
           })}
           formatValue={formatCount}
           noun="skills"
@@ -168,13 +202,35 @@ export function SkillsSection({
         />
       </ChartBlock>
 
-      <ChartBlock
-        label="Estimated cost attribution"
-        empty={stats.attribution.rows.length === 0}
-        emptyMessage="No cost attribution data yet"
-      >
-        <SkillAssociationTable attribution={stats.attribution} onSelectSkill={onSelectSkill} />
-      </ChartBlock>
+      <div className="flex flex-col gap-2">
+        <ChartBlock
+          label="Estimated cost attribution"
+          empty={window.attribution.rows.length === 0}
+          emptyMessage={`No cost attribution data in the last ${windowKey === '24h' ? '24 hours' : windowKey === '7d' ? '7 days' : '30 days'}`}
+        >
+          <SkillAssociationTable
+            attribution={window.attribution}
+            startAt={window.startAt}
+            endAt={window.endAt}
+            onSelectSkill={onSelectSkill}
+            onShowInvocations={onShowInvocations}
+          />
+        </ChartBlock>
+        {window.attribution.hasUndatedCost && (
+          <p className="max-w-[620px] text-[11px] text-muted-foreground">
+            Across all tracked history, some cost has no turn timestamp. It is excluded from every
+            selected-window total.
+          </p>
+        )}
+        {window.unpricedInvocationCount > 0 && (
+          <p className="max-w-[620px] text-[11px] text-muted-foreground">
+            {formatCount(window.unpricedInvocationCount)} recorded skill{' '}
+            {window.unpricedInvocationCount === 1 ? 'invocation has' : 'invocations have'} no usable
+            cost total. {window.unpricedInvocationCount === 1 ? 'It is' : 'They are'} excluded from
+            estimated cost, not counted as General work.
+          </p>
+        )}
+      </div>
     </section>
   )
 }

@@ -192,7 +192,12 @@ as the final fallback. It stores per-turn shape and active-skill state only; it 
 produce dollar totals. Main and `subagents/*.jsonl` turns are included, while `cost-state` remains
 the sole dollar source. `session_skill_cost` materializes each priced terminal's proportional split
 by per-model output-token weight; `skill_name IS NULL` is the unique General work bucket. Both are
-derived cache data rebuilt during `scanTranscripts` and cleared by `db:reset`.
+derived cache data rebuilt during `scanTranscripts` and cleared by `db:reset`. The later
+`timed_skill_cost` table stores each allocated share at its logical turn time, with an index on
+`allocated_at`. It powers the Skills panel's rolling dollar windows. Untimed cost stays in
+`session_skill_cost` and is disclosed as excluded from those windows. Skill invocations whose
+lineage has no usable priced terminal are counted separately in each window and omitted from dollar
+attribution; they do not become General work.
 
 `allowed_paths` is the Tier-2 grant list the folder picker persists to (`folders:list` /
 `folders:pickAndAdd` / `folders:revoke`) — no separate restart-persistence mechanism, the table
@@ -259,9 +264,11 @@ same lineage rule `getCostStats` applies), then associated once per skill. A `sk
 to a single `skills.id` for click-through by shadowing precedence (global > project > synced) — a
 separate encoding of the same rule `SKILLS_WITH_USAGE_SELECT` uses, answering "which row wins for
 this name" rather than "which row shadows this one". PR4 preserves those windowed activity fields
-for the top of the panel, but replaces the overlapping cost table with an all-history read over
-`session_skill_cost`. Display cents use largest-remainder rounding, so every visible row sums
-exactly to the visible total. See `docs/usage-analytics.md`.
+for the top of the panel; the cost table now reads `timed_skill_cost` within the same rolling
+window. Display cents use largest-remainder rounding, so every visible row sums
+exactly to the visible total. Project cost rows link to Detail only when all contributing terminal
+lineages stay within one current project root; otherwise they open filtered history. See
+`docs/usage-analytics.md`.
 
 **`disabled_reason` (added 2026-08-21)**: nullable `TEXT` on `skills`, stamped at Scan time —
 `NULL` when enabled, `'plugin'` when the owning plugin's `enabledPlugins` entry in `settings.json`
@@ -290,7 +297,8 @@ still counted (accounting for it needs a name-token estimator that does not exis
 precedence Claude Code itself uses (verified against
 [code.claude.com/docs/en/skills](https://code.claude.com/docs/en/skills)): personal (global)
 always overrides a same-named project skill, everywhere, unconditionally; plugin skills use a
-`plugin-name:skill-name` namespace and can't collide with anything.
+`plugin-name:skill-name` namespace and can't collide with anything. The exception is a synced
+global copy: any non-synced same-named skill has higher priority.
 
 - A project skill shadowed by a same-named global skill can never actually fire. Its count is
   forced to `0` (not left to a bare name join) and `SkillRow.shadowed_by_skill_id` points at the
@@ -310,7 +318,7 @@ always overrides a same-named project skill, everywhere, unconditionally; plugin
   global or project — shadows it, same forced-`0`-count/NULL-`last_invoked_at` treatment as
   above, via a second `WHEN` branch in the `shadowed_by_skill_id` subquery
   (`skills.is_synced = 1 AND ns.is_synced = 0`, `COALESCE`d with the existing
-  global-shadows-project branch since a row can only be shadowed one way at a time).
+  global-shadows-project branch). A synced global copy does not shadow a non-synced project skill.
 - **Nested project skills are not a shadowing relationship (closed 2026-08-18, was Gap 1 in
   `docs/scanner-coverage-gaps.md`)**: a monorepo package's own `.claude/skills/`
   (`docs/skill-scanner.md`) can share a bare name with the repo's top-level project skill —

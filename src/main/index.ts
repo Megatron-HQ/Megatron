@@ -22,6 +22,7 @@ import {
   getSkillStats,
   getSkillById,
   getSkillInvocationLog,
+  getSkillInvocationSlice,
   getSkillUsageDetail,
   listAllowedPaths,
   listPlugins,
@@ -52,6 +53,8 @@ import {
   type OpenSkillResult,
   type PluginActionInput,
   type SkillInvocationEntry,
+  type SkillInvocationRecord,
+  type SkillInvocationSliceInput,
   type ThemePreference
 } from '../shared/ipc'
 
@@ -279,6 +282,12 @@ app.whenReady().then(() => {
     residentTax: getResidentTaxStats(getDb()),
     scanComplete
   }))
+
+  ipcMain.handle(
+    IPC_CHANNELS.usageSkillInvocations,
+    (_event, input: SkillInvocationSliceInput): SkillInvocationRecord[] =>
+      getSkillInvocationSlice(getDb(), input)
+  )
 
   ipcMain.on(IPC_CHANNELS.getInitialSection, (event) => {
     event.returnValue = resolveInitialSection(themeStore)

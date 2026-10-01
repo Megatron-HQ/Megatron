@@ -5,15 +5,22 @@ import type { SkillCostAttribution } from '../../../../shared/ipc'
 import { TextLink } from '@/components/TextLink'
 import { getSkillDisplayName } from '@/lib/source-name'
 import { formatCount, formatUsd } from './chart-utils'
+import type { SkillInvocationSelection } from './SkillInvocationDialog'
 
 const INITIAL_ROWS = 8
 
 export function SkillAssociationTable({
   attribution,
-  onSelectSkill
+  startAt,
+  endAt,
+  onSelectSkill,
+  onShowInvocations
 }: {
   attribution: SkillCostAttribution
+  startAt: string
+  endAt: string
   onSelectSkill?: (skillId: number) => void
+  onShowInvocations: (selection: SkillInvocationSelection) => void
 }): React.JSX.Element {
   const reduceMotion = useReducedMotion() === true
   const [expanded, setExpanded] = useState(false)
@@ -24,8 +31,8 @@ export function SkillAssociationTable({
     <div className="flex flex-col gap-2">
       <p className="max-w-[620px] text-[11px] text-muted-foreground">
         Estimated API-equivalent cost is attributed within each priced model by output-token share.
-        Unpriced, unmatched, and residual cost is assigned to General work. Rows are additive and
-        cover all cost-tracked history, independent of the activity window above.
+        Cost without a model or turn match, plus residual session cost, is assigned to General work
+        when turn times are available. Rows are additive within the selected activity window.
       </p>
       {attribution.hasUnknownModelCost && (
         <p className="flex max-w-[620px] items-start gap-1.5 text-[11px] text-muted-foreground">
@@ -46,6 +53,7 @@ export function SkillAssociationTable({
           <tbody>
             {visibleRows.map((row) => {
               const clickable = row.skillId !== null && onSelectSkill !== undefined
+              const historyClickable = row.skillName !== null && row.skillId === null
               const label =
                 row.skillName !== null
                   ? getSkillDisplayName(row.skillName, row.sourceType)
@@ -68,7 +76,29 @@ export function SkillAssociationTable({
                       {clickable ? (
                         <TextLink
                           className="min-w-0 text-[13px]"
+                          aria-label={`Open ${label} detail`}
                           onClick={() => onSelectSkill?.(row.skillId as number)}
+                        >
+                          <span className="truncate" title={label}>
+                            {label}
+                          </span>
+                        </TextLink>
+                      ) : historyClickable ? (
+                        <TextLink
+                          className="min-w-0 text-[13px]"
+                          aria-label={`View ${label} invocations`}
+                          onClick={() =>
+                            onShowInvocations({
+                              title: label,
+                              startAt,
+                              endAt,
+                              skillName: row.skillName as string,
+                              note:
+                                row.resolution === 'missing'
+                                  ? 'This skill is no longer installed.'
+                                  : 'This historical name cannot be tied to one current installation.'
+                            })
+                          }
                         >
                           <span className="truncate" title={label}>
                             {label}
@@ -86,7 +116,7 @@ export function SkillAssociationTable({
                       )}
                       {row.skillName !== null && row.skillId === null && (
                         <span className="shrink-0 text-[11px] text-muted-foreground">
-                          unresolved
+                          {row.resolution === 'missing' ? 'removed' : 'unresolved'}
                         </span>
                       )}
                     </span>

@@ -9,6 +9,8 @@ import type {
   PluginDetailResult,
   PluginRow,
   SkillInvocationEntry,
+  SkillInvocationRecord,
+  SkillInvocationSliceInput,
   SkillsListResult,
   ThemePreference,
   UsageOverview
@@ -32,6 +34,7 @@ interface Api {
   updatePlugin: (input: PluginActionInput) => Promise<PluginActionResult>
   uninstallPlugin: (input: PluginActionInput) => Promise<PluginActionResult>
   getUsageOverview: () => Promise<UsageOverview>
+  getUsageSkillInvocations: (input: SkillInvocationSliceInput) => Promise<SkillInvocationRecord[]>
   getInitialSection: () => AppSection
   setLastSection: (section: AppSection) => Promise<void>
   rescan: () => Promise<void>

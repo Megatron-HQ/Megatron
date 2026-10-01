@@ -21,7 +21,8 @@ export const IPC_CHANNELS = {
   rescan: 'app:rescan',
   revealDataFolder: 'app:revealDataFolder',
   getVersion: 'app:getVersion',
-  usageOverview: 'usage:overview'
+  usageOverview: 'usage:overview',
+  usageSkillInvocations: 'usage:skillInvocations'
 } as const
 
 export interface AllowedPathRow {
@@ -130,6 +131,18 @@ export interface SkillInvocationEntry {
   cwd: string // from sessions_meta
   git_branch: string | null // NULL when cwd isn't a git repo
   agent_id: string | null // subagent filename stem; NULL for main-session invocations
+}
+
+export interface SkillInvocationRecord extends SkillInvocationEntry {
+  skillName: string
+  skillId: number | null
+  sourceType: SourceType | null
+}
+
+export interface SkillInvocationSliceInput {
+  startAt: string
+  endAt: string
+  skillName?: string
 }
 
 export interface SkillUsageDetail {
@@ -341,11 +354,15 @@ export interface SkillInvocationCount {
   skillName: string
   count: number
   sourceType: SourceType | null
+  skillId: number | null
+  resolution: 'installed' | 'ambiguous' | 'missing'
 }
 
 export interface SkillTrendBucket {
   key: string // ISO hour start for 24h; YYYY-MM-DD local date for 7d/30d
   count: number
+  startAt: string // inclusive, clipped to the rolling window
+  endAt: string // exclusive, clipped to the overview snapshot
 }
 
 export interface SkillCostAssociation {
@@ -363,13 +380,17 @@ export interface SkillCostAssociation {
 
 export interface SkillStatsWindow {
   window: SkillStatsWindowKey
+  startAt: string
+  endAt: string
   invocationCount: number
+  unpricedInvocationCount: number
   skillCount: number
   sessionCount: number
   bySkill: SkillInvocationCount[]
   byTriggerType: TriggerTypeCount[]
   trend: SkillTrendBucket[]
   associations: SkillCostAssociation[]
+  attribution: SkillCostAttribution
 }
 
 export interface SkillStats {
@@ -380,7 +401,6 @@ export interface SkillStats {
   // caption. Spans all cost-tracked history, NOT the selected window (mirrors getCostStats,
   // which also ignores the 24h/7d/30d toggle).
   pricedSessionsWithoutSkill: number
-  attribution: SkillCostAttribution
 }
 
 export interface SkillCostAttributionRow {
@@ -390,12 +410,14 @@ export interface SkillCostAttributionRow {
   trackedSessionCount: number
   estimatedCostCents: number
   share: number
+  resolution: 'installed' | 'ambiguous' | 'missing' | 'general'
 }
 
 export interface SkillCostAttribution {
   totalEstimatedCostCents: number
   trackedSessionCount: number
   hasUnknownModelCost: boolean
+  hasUndatedCost: boolean
   rows: SkillCostAttributionRow[]
 }
 

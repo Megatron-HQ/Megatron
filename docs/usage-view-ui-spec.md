@@ -1065,16 +1065,39 @@ PR3 association table.
 ## M2. Skills attribution replacement
 
 - Windowed invocation stats, trend, top skills, and trigger mix remain unchanged.
-- The last block is **Estimated cost attribution**, covering all cost-tracked history independent
-  of the Skills window. Columns: Work bucket / Tracked sessions / Share / Estimated cost, plus a
+- The last block is **Estimated cost attribution**, using the selected Skills window. Columns:
+  Work bucket / Tracked sessions / Share / Estimated cost, plus a
   total footer.
-- Named installed skills link to Detail. Unresolved historical names are separate plain-text rows.
+- Named installed skills link to Detail when the name has one clear target. Removed and ambiguous
+  historical names open a window-filtered invocation dialog.
   **General work** is a non-clickable final row after all named skills.
+- A project cost row links to Detail only when every contributing session in its continuation
+  lineage belongs to that one current project installation. Otherwise it opens invocation history
+  with an unresolved label. Synced global copies rank below non-synced project skills.
 - Server-side largest-remainder cent allocation guarantees that displayed row cents sum exactly to
   the displayed total. A visible method note explains output-token weighting and the General bucket;
   unknown model cost adds the existing warning treatment.
 - The table preserves §S's ambient monochrome row fill, expandable first-eight-row treatment,
   reduced-motion guard, `min-w-[620px]`, and internal horizontal scrolling.
+
+## M3. Skills window and drilldown amendment (2026-09-30)
+
+- The 24h/7d/30d Skills control also selects a time-stamped attribution ledger. Cost-state remains
+  the dollar source; model cost is apportioned over logical turns by output-token share, then each
+  turn's timestamp places its share in a rolling window. General work remains an additive row.
+  Cost without a turn timestamp is excluded from window totals with a visible explanation that the
+  caveat spans all tracked history. Invocations whose lineage has no usable cost total remain in
+  activity counts and show a per-window unpriced count beneath the cost block. They are excluded
+  from dollars rather than counted as General work.
+- The trend covers the exact rolling cutoff. Because calendar hours and local days may be partial at
+  both ends, 24h can show 25 hour buckets, 7d eight day buckets, and 30d 31 day buckets. Each bucket
+  carries the exact bounds used by its read-only invocation query, so its displayed count matches
+  its dialog. A nonempty bar opens a newest-first timeline with skill, time, project, trigger, and
+  recorded prompt, plus search and trigger filtering.
+- Top skills keeps its name-based ranking. One unambiguous installed target opens Detail; removed
+  or same-named project skills open a selected-window invocation dialog. From a chart dialog, Detail
+  Back restores the same dialog and selected bucket. All existing Usage window selections persist
+  during the app session.
 
 ---
 

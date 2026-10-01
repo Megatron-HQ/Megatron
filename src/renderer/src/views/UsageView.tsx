@@ -14,6 +14,7 @@ import { Punchcard } from '@/components/usage/Punchcard'
 import { RankedList } from '@/components/usage/RankedList'
 import { SpendBar } from '@/components/usage/SpendBar'
 import { SkillsSection, SkillWindowToggle } from '@/components/usage/SkillsSection'
+import type { SkillInvocationSelection } from '@/components/usage/SkillInvocationDialog'
 import { ModelsSection } from '@/components/usage/ModelsSection'
 import { ResidentTaxSection } from '@/components/usage/ResidentTaxSection'
 import { formatCount, formatUsd } from '@/components/usage/chart-utils'
@@ -43,7 +44,8 @@ export function UsageView({
   onModelWindowChange,
   skillWindow,
   onSkillWindowChange,
-  onSelectSkill
+  onSelectSkill,
+  onShowInvocations
 }: {
   panel: UsagePanel
   activityWindow: ActivityWindowKey
@@ -53,6 +55,7 @@ export function UsageView({
   skillWindow: SkillStatsWindowKey
   onSkillWindowChange: (window: SkillStatsWindowKey) => void
   onSelectSkill?: (skillId: number) => void
+  onShowInvocations: (selection: SkillInvocationSelection) => void
 }): React.JSX.Element {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const reduceMotion = useReducedMotion() === true
@@ -130,6 +133,7 @@ export function UsageView({
                   stats={data.skills}
                   windowKey={skillWindow}
                   onSelectSkill={onSelectSkill}
+                  onShowInvocations={onShowInvocations}
                 />
               ) : panel === 'skills' ? (
                 <SkillsEmpty />

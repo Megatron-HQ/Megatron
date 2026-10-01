@@ -12,6 +12,8 @@ function parseLocalDate(value: string): Date {
 interface TrendBucket {
   key: string
   count: number
+  startAt?: string
+  endAt?: string
 }
 
 function shortLabel(bucket: TrendBucket, window: SkillStatsWindowKey): string {
@@ -38,11 +40,13 @@ function detailLabel(bucket: TrendBucket, window: SkillStatsWindowKey): string {
 export function InvocationTrend({
   data,
   window,
-  nounSingular = 'skill invocation'
+  nounSingular = 'skill invocation',
+  onSelectBucket
 }: {
   data: TrendBucket[]
   window: SkillStatsWindowKey
   nounSingular?: string
+  onSelectBucket?: (bucket: TrendBucket, label: string) => void
 }): React.JSX.Element {
   const reduceMotion = useReducedMotion() === true
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
@@ -66,7 +70,16 @@ export function InvocationTrend({
               type="button"
               key={bucket.key}
               aria-label={`${detailLabel(bucket, window)}: ${bucket.count} ${nounSingular}${bucket.count === 1 ? '' : 's'}`}
-              className="relative flex h-full flex-1 items-end outline-none"
+              aria-disabled={onSelectBucket && bucket.count === 0 ? true : undefined}
+              className={cn(
+                'relative flex h-full flex-1 items-end outline-none',
+                onSelectBucket &&
+                  bucket.count > 0 &&
+                  'cursor-pointer focus-visible:ring-1 focus-visible:ring-ring'
+              )}
+              onClick={() => {
+                if (bucket.count > 0) onSelectBucket?.(bucket, detailLabel(bucket, window))
+              }}
               onMouseEnter={() => setHoveredIndex(index)}
               onFocus={() => setHoveredIndex(index)}
               onBlur={() => setHoveredIndex(null)}

@@ -23,6 +23,28 @@ interface TurnWeightRow {
   model: string
   output_tokens: number
   active_skill: string | null
+  invoked_at: string
+}
+
+interface TimedAllocation {
+  skillName: string | null
+  allocatedAt: string
+  amount: number
+}
+
+function spreadGeneralCost(
+  allocations: TimedAllocation[],
+  turns: TurnWeightRow[],
+  amount: number
+): void {
+  if (turns.length === 0 || amount <= 0) return
+  const tokenTotal = turns.reduce((sum, turn) => sum + Math.max(0, turn.output_tokens), 0)
+  for (const turn of turns) {
+    const weight = tokenTotal > 0 ? Math.max(0, turn.output_tokens) / tokenTotal : 1 / turns.length
+    if (weight > 0) {
+      allocations.push({ skillName: null, allocatedAt: turn.invoked_at, amount: amount * weight })
+    }
+  }
 }
 
 function addAmount(
@@ -71,7 +93,7 @@ export function rebuildSessionSkillCosts(db: Database.Database): void {
 
   const turnsByTerminalAndModel = new Map<string, Map<string, TurnWeightRow[]>>()
   const turns = db
-    .prepare('SELECT session_id, model, output_tokens, active_skill FROM turn_usage')
+    .prepare('SELECT session_id, model, output_tokens, active_skill, invoked_at FROM turn_usage')
     .all() as TurnWeightRow[]
   for (const turn of turns) {
     const terminalId = resolveTerminalSession(turn.session_id, nextSessionById, terminalIds)
@@ -96,13 +118,20 @@ export function rebuildSessionSkillCosts(db: Database.Database): void {
   const insert = db.prepare(
     `INSERT INTO session_skill_cost (session_id, skill_name, est_cost_usd) VALUES (?, ?, ?)`
   )
+  const insertTimed = db.prepare(
+    `INSERT INTO timed_skill_cost (session_id, skill_name, allocated_at, est_cost_usd)
+     VALUES (?, ?, ?, ?)`
+  )
   const rebuild = db.transaction(() => {
     db.prepare('DELETE FROM session_skill_cost').run()
+    db.prepare('DELETE FROM timed_skill_cost').run()
 
     for (const terminal of terminalCosts) {
       const allocations = new Map<string | null, number>()
+      const timedAllocations: TimedAllocation[] = []
       let pricedModelTotal = 0
       const turnsByModel = turnsByTerminalAndModel.get(terminal.session_id) ?? new Map()
+      const allTurns = [...turnsByModel.values()].flat()
 
       for (const modelCost of modelCostsByTerminal.get(terminal.session_id) ?? []) {
         if (modelCost.cost_usd <= 0) continue
@@ -114,19 +143,31 @@ export function rebuildSessionSkillCosts(db: Database.Database): void {
         )
         if (outputTokenTotal === 0) {
           addAmount(allocations, null, modelCost.cost_usd)
+          spreadGeneralCost(timedAllocations, allTurns, modelCost.cost_usd)
           continue
         }
         for (const turn of modelTurns) {
           const weight = Math.max(0, turn.output_tokens) / outputTokenTotal
-          addAmount(allocations, turn.active_skill, modelCost.cost_usd * weight)
+          const amount = modelCost.cost_usd * weight
+          addAmount(allocations, turn.active_skill, amount)
+          if (amount > 0) {
+            timedAllocations.push({
+              skillName: turn.active_skill,
+              allocatedAt: turn.invoked_at,
+              amount
+            })
+          }
         }
       }
 
       if (pricedModelTotal < terminal.total_cost_usd) {
-        addAmount(allocations, null, terminal.total_cost_usd - pricedModelTotal)
+        const residual = terminal.total_cost_usd - pricedModelTotal
+        addAmount(allocations, null, residual)
+        spreadGeneralCost(timedAllocations, allTurns, residual)
       } else if (pricedModelTotal > terminal.total_cost_usd && pricedModelTotal > 0) {
         const scale = terminal.total_cost_usd / pricedModelTotal
         for (const [skillName, amount] of allocations) allocations.set(skillName, amount * scale)
+        for (const allocation of timedAllocations) allocation.amount *= scale
       }
 
       if (allocations.size === 0 && terminal.total_cost_usd > 0) {
@@ -134,6 +175,14 @@ export function rebuildSessionSkillCosts(db: Database.Database): void {
       }
       for (const [skillName, amount] of allocations) {
         if (amount > 0) insert.run(terminal.session_id, skillName, amount)
+      }
+      for (const allocation of timedAllocations) {
+        insertTimed.run(
+          terminal.session_id,
+          allocation.skillName,
+          allocation.allocatedAt,
+          allocation.amount
+        )
       }
     }
   })

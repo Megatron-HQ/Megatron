@@ -882,20 +882,23 @@ export const scenarios = [
   },
   {
     // Restored click-through: an installed skill's row links to its detail page (skillId
-    // resolved by shadowing precedence); uninstalled-skill rows stay plain text. Landing on
+    // resolved by shadowing precedence); historical names open a filtered log. Landing on
     // SkillDetail also proves the section auto-switches to Skills and the filter is cleared.
     name: 'usage-skills-association-clickthrough',
     screen: 'usage',
     shouldSkip: async (window) => {
       await openUsagePanel(window, 'Skills')
-      const links = window.getByRole('table').getByRole('button')
+      const links = window.getByRole('table').getByRole('button', { name: /Open .* detail/ })
       return (await links.count()) === 0
         ? 'no installed skills in the association table on this machine'
         : null
     },
     async run(window) {
       await openUsagePanel(window, 'Skills')
-      const link = window.getByRole('table').getByRole('button').first()
+      const link = window
+        .getByRole('table')
+        .getByRole('button', { name: /Open .* detail/ })
+        .first()
       await link.scrollIntoViewIfNeeded()
       await link.click()
       const backButton = window.getByRole('button', { name: 'Back to skills' })
@@ -917,16 +920,91 @@ export const scenarios = [
     screen: 'usage',
     shouldSkip: async (window) => {
       await openUsagePanel(window, 'Skills')
-      const links = window.getByRole('table').getByRole('button')
+      const links = window.getByRole('table').getByRole('button', { name: /Open .* detail/ })
       return (await links.count()) === 0
         ? 'no installed skills in the association table on this machine'
         : null
     },
     async run(window) {
       await openUsagePanel(window, 'Skills')
-      const link = window.getByRole('table').getByRole('button').first()
+      const link = window
+        .getByRole('table')
+        .getByRole('button', { name: /Open .* detail/ })
+        .first()
       await link.scrollIntoViewIfNeeded()
       await link.hover()
+    }
+  },
+  {
+    name: 'usage-skills-trend-dialog',
+    screen: 'usage',
+    shouldSkip: async (window) => {
+      await openUsagePanel(window, 'Skills')
+      const chart = window.getByText('Invocations over time', { exact: true }).locator('..')
+      return (await chart.getByRole('button', { name: /: [1-9]/ }).count()) === 0
+        ? 'no nonempty skill trend bucket on this machine'
+        : null
+    },
+    async run(window) {
+      await openUsagePanel(window, 'Skills')
+      const chart = window.getByText('Invocations over time', { exact: true }).locator('..')
+      await chart
+        .getByRole('button', { name: /: [1-9]/ })
+        .first()
+        .click()
+      await window.getByRole('dialog').getByText('Skill invocations', { exact: false }).waitFor()
+    }
+  },
+  {
+    name: 'usage-skills-top-skill-detail',
+    screen: 'usage',
+    shouldSkip: async (window) => {
+      await openUsagePanel(window, 'Skills')
+      const list = window.getByText('Top skills', { exact: true }).locator('..')
+      return (await list.getByRole('button', { name: /Open .* detail/ }).count()) === 0
+        ? 'no installed top skill in the current window'
+        : null
+    },
+    async run(window) {
+      await openUsagePanel(window, 'Skills')
+      const list = window.getByText('Top skills', { exact: true }).locator('..')
+      await list
+        .getByRole('button', { name: /Open .* detail/ })
+        .first()
+        .click()
+      await window.getByRole('button', { name: 'Back to skills' }).waitFor()
+    }
+  },
+  {
+    name: 'usage-skills-dialog-detail-back',
+    screen: 'usage',
+    shouldSkip: async (window) => {
+      await openUsagePanel(window, 'Skills')
+      const chart = window.getByText('Invocations over time', { exact: true }).locator('..')
+      const bar = chart.getByRole('button', { name: /: [1-9]/ }).first()
+      if ((await bar.count()) === 0) return 'no nonempty skill trend bucket on this machine'
+      await bar.click()
+      const dialog = window.getByRole('dialog')
+      const links = dialog.getByRole('button', { name: /Open .* detail/ })
+      const hasLink = (await links.count()) > 0
+      await window.keyboard.press('Escape')
+      await dialog.waitFor({ state: 'detached' })
+      return hasLink ? null : 'no installed skill in the selected bucket'
+    },
+    async run(window) {
+      await openUsagePanel(window, 'Skills')
+      const chart = window.getByText('Invocations over time', { exact: true }).locator('..')
+      await chart
+        .getByRole('button', { name: /: [1-9]/ })
+        .first()
+        .click()
+      await window
+        .getByRole('dialog')
+        .getByRole('button', { name: /Open .* detail/ })
+        .first()
+        .click()
+      await window.getByRole('button', { name: 'Back to skills' }).click()
+      await window.getByRole('dialog').getByText('Skill invocations', { exact: false }).waitFor()
     }
   },
   {

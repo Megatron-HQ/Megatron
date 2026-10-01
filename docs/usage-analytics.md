@@ -480,6 +480,19 @@ true total, and yields an honest "general work" bucket.
   covers just over 600 MiB total with one 150 MiB session and asserts cold ≤30 s, cached ≤1 s,
   post-scan RSS growth <128 MiB, and zero skipped logical turns.
 
+**2026-09-30 window follow-up:** `timed_skill_cost` stores the time-stamped shares produced by the
+same allocation pass as `session_skill_cost`. `getSkillStats` filters those shares by the exact
+24h/7d/30d rolling cutoff, reconciles cents within each window, and keeps General work additive.
+Residual cost is distributed over available turn times by output-token weight. Cost with no turn
+timestamp cannot be placed in a window; it remains in the all-history session ledger and causes a
+visible caveat in Skills. Trend buckets carry clipped start/end instants so their invocation
+drilldowns and counts use identical bounds. Each window also counts skill invocations whose
+continuation lineage has no usable priced terminal; these remain in activity but are excluded from
+dollar attribution, not placed in General work. The Skills panel explains that gap. Named project
+cost rows link to Detail only when one current installation matches every contributing session's
+lineage project; otherwise the name opens filtered invocation history. Non-synced skills take
+precedence over synced global copies when resolving links.
+
 ### Cost ingest rules (restating the hazards as procedure) — **as shipped, PR2**
 
 1. For each main transcript, read **only the last** `type:"cost-state"` line (`extractCostState`).

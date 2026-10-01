@@ -8,6 +8,10 @@ import { PluginSidebar } from '@/components/PluginSidebar'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { Sidebar } from '@/components/Sidebar'
 import { UsageSidebar, type UsagePanel } from '@/components/UsageSidebar'
+import {
+  SkillInvocationDialog,
+  type SkillInvocationSelection
+} from '@/components/usage/SkillInvocationDialog'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { TREE_WIDTH_DEFAULT } from '@/lib/file-tree'
 import { matchesPluginFilter, type PluginFilter } from '@/lib/plugin-filter'
@@ -29,7 +33,7 @@ type View =
   { kind: 'list' } | { kind: 'detail'; skillId: number } | { kind: 'files'; skillId: number }
 
 type PluginView = { kind: 'list' } | { kind: 'detail'; name: string; marketplace: string }
-type SkillBackTarget = 'inventory' | 'usage-skills'
+type SkillBackTarget = 'inventory' | 'usage-skills' | 'usage-skills-dialog'
 
 // Real value always arrives from the listSkills IPC round-trip almost immediately; this only
 // covers the brief pre-response instant, so it deliberately doesn't guess at the real limit
@@ -60,6 +64,9 @@ function App(): React.JSX.Element {
   const [usageActivityWindow, setUsageActivityWindow] = useState<ActivityWindowKey>('30d')
   const [usageModelWindow, setUsageModelWindow] = useState<SkillStatsWindowKey>('30d')
   const [usageSkillWindow, setUsageSkillWindow] = useState<SkillStatsWindowKey>('30d')
+  const [skillInvocationSelection, setSkillInvocationSelection] =
+    useState<SkillInvocationSelection | null>(null)
+  const [skillInvocationOpen, setSkillInvocationOpen] = useState(false)
   const [skillBackTarget, setSkillBackTarget] = useState<SkillBackTarget>('inventory')
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -180,6 +187,25 @@ function App(): React.JSX.Element {
     setView({ kind: 'detail', skillId })
   }
 
+  function openDetailFromInvocationDialog(skillId: number): void {
+    setSkillInvocationOpen(false)
+    setFilter({ kind: 'all' })
+    setSkillBackTarget('usage-skills-dialog')
+    handleSectionChange('skills')
+    setView({ kind: 'detail', skillId })
+  }
+
+  function showSkillInvocations(selection: SkillInvocationSelection): void {
+    setSkillInvocationSelection(selection)
+    setSkillInvocationOpen(true)
+  }
+
+  function changeSkillWindow(windowKey: SkillStatsWindowKey): void {
+    setSkillInvocationOpen(false)
+    setSkillInvocationSelection(null)
+    setUsageSkillWindow(windowKey)
+  }
+
   function navigateSkillDetail(skillId: number): void {
     setFilter({ kind: 'all' })
     setView({ kind: 'detail', skillId })
@@ -187,9 +213,10 @@ function App(): React.JSX.Element {
 
   function leaveSkillDetail(): void {
     setView({ kind: 'list' })
-    if (skillBackTarget === 'usage-skills') {
+    if (skillBackTarget === 'usage-skills' || skillBackTarget === 'usage-skills-dialog') {
       setUsagePanel('skills')
       handleSectionChange('usage')
+      if (skillBackTarget === 'usage-skills-dialog') setSkillInvocationOpen(true)
     }
   }
 
@@ -334,13 +361,23 @@ function App(): React.JSX.Element {
                 modelWindow={usageModelWindow}
                 onModelWindowChange={setUsageModelWindow}
                 skillWindow={usageSkillWindow}
-                onSkillWindowChange={setUsageSkillWindow}
+                onSkillWindowChange={changeSkillWindow}
                 onSelectSkill={openDetailFromUsage}
+                onShowInvocations={showSkillInvocations}
               />
             </>
           )}
         </div>
       </div>
+      {skillInvocationSelection && (
+        <SkillInvocationDialog
+          key={`${skillInvocationSelection.startAt}:${skillInvocationSelection.endAt}:${skillInvocationSelection.skillName ?? ''}`}
+          open={section === 'usage' && skillInvocationOpen}
+          onOpenChange={setSkillInvocationOpen}
+          selection={skillInvocationSelection}
+          onSelectSkill={openDetailFromInvocationDialog}
+        />
+      )}
       <CommandPalette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}

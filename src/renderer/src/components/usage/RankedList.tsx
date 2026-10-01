@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { TextLink } from '@/components/TextLink'
 
 const TOP_N = 8
 
@@ -8,6 +9,8 @@ export interface RankedItem {
   label: string // display name (basename)
   value: number
   fullLabel: string // full string shown on hover
+  onSelect?: () => void
+  actionLabel?: string
 }
 
 interface RankedListProps {
@@ -55,7 +58,17 @@ export function RankedList({ items, formatValue, noun }: RankedListProps): React
         />
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="relative flex-1 truncate pr-3 text-[13px]">{item.label}</span>
+            {item.onSelect ? (
+              <TextLink
+                onClick={item.onSelect}
+                aria-label={item.actionLabel}
+                className="min-w-0 flex-1 truncate pr-3 text-left text-[13px]"
+              >
+                {item.label}
+              </TextLink>
+            ) : (
+              <span className="relative flex-1 truncate pr-3 text-[13px]">{item.label}</span>
+            )}
           </TooltipTrigger>
           <TooltipContent>{item.fullLabel}</TooltipContent>
         </Tooltip>

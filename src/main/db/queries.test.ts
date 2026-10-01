@@ -17,6 +17,7 @@ import {
   getResidentTaxStats,
   getSkillById,
   getSkillInvocationLog,
+  getSkillInvocationSlice,
   getSkillStats,
   getSkillUsageDetail,
   insertLintFindings,
@@ -976,6 +977,59 @@ describe('global-shadows-project detection', () => {
 })
 
 describe('synced-shadowed-by-non-synced detection', () => {
+  it('lets an unsynced project skill outrank a synced global skill', () => {
+    const syncedId = insertSkill('deploy', {
+      source_type: 'global',
+      is_synced: 1,
+      source_path: '/synced/deploy'
+    })
+    const projectId = insertSkill('deploy', {
+      source_type: 'project',
+      project_root: '/repo',
+      source_path: '/repo/.claude/skills/deploy'
+    })
+    insertSession('project-session', '/repo')
+    insertInvocation({
+      source_uuid: 'project-invocation',
+      session_id: 'project-session',
+      skill_name: 'deploy',
+      invoked_at: '2026-09-09T16:00:00.000Z'
+    })
+    db.prepare(
+      `INSERT INTO session_cost
+         (session_id, total_cost_usd, has_unknown_model_cost, is_zeroed)
+       VALUES ('project-session', 1, 0, 0)`
+    ).run()
+    db.prepare(
+      `INSERT INTO timed_skill_cost (session_id, skill_name, allocated_at, est_cost_usd)
+       VALUES ('project-session', 'deploy', '2026-09-09T16:00:00.000Z', 1)`
+    ).run()
+
+    expect(getSkillById(db, syncedId)).toMatchObject({
+      total_invocations: 0,
+      shadowed_by_skill_id: projectId
+    })
+    expect(getSkillById(db, projectId)).toMatchObject({
+      total_invocations: 1,
+      shadowed_by_skill_id: null
+    })
+    expect(
+      getSkillStats(db, new Date('2026-09-09T17:00:00.000Z')).last24h.bySkill[0]
+    ).toMatchObject({
+      skillId: projectId,
+      resolution: 'installed'
+    })
+    expect(
+      getSkillStats(db, new Date('2026-09-09T17:00:00.000Z')).last24h.attribution.rows[0]
+    ).toMatchObject({ skillId: projectId, resolution: 'installed' })
+    expect(
+      getSkillInvocationSlice(db, {
+        startAt: '2026-09-09T15:00:00.000Z',
+        endAt: '2026-09-09T17:00:00.000Z'
+      })[0].skillId
+    ).toBe(projectId)
+  })
+
   it('zeroes a synced skill invocation count when a non-synced skill shares its name', () => {
     const nonSyncedId = insertSkill('deploy', { source_type: 'global' })
     insertSkill('deploy', { source_type: 'global', is_synced: 1, source_path: '/synced/deploy' })
@@ -2381,6 +2435,268 @@ describe('getSkillStats', () => {
     ).run(sessionId, model, outputTokens)
   }
 
+  it('counts skill invocations without a usable cost total in each selected window', () => {
+    insertSession('recent-unpriced', '2026-09-09T16:00:00.000Z')
+    insertSession('older-unpriced', '2026-09-07T16:00:00.000Z')
+    insertSession('zeroed', '2026-09-09T15:00:00.000Z')
+    insertSession('priced', '2026-09-09T14:00:00.000Z')
+    insertCost({ sessionId: 'zeroed', totalCostUsd: 0, isZeroed: 1 })
+    insertCost({ sessionId: 'priced', totalCostUsd: 1 })
+    insertInvocation({
+      uuid: 'recent',
+      sessionId: 'recent-unpriced',
+      skillName: 'humanizer',
+      invokedAt: '2026-09-09T16:00:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'older',
+      sessionId: 'older-unpriced',
+      skillName: 'humanizer',
+      invokedAt: '2026-09-07T16:00:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'zeroed',
+      sessionId: 'zeroed',
+      skillName: 'humanizer',
+      invokedAt: '2026-09-09T15:00:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'priced',
+      sessionId: 'priced',
+      skillName: 'humanizer',
+      invokedAt: '2026-09-09T14:00:00.000Z'
+    })
+
+    const stats = getSkillStats(db, NOW)
+
+    expect(stats.last24h.unpricedInvocationCount).toBe(2)
+    expect(stats.last7d.unpricedInvocationCount).toBe(3)
+    expect(stats.last30d.unpricedInvocationCount).toBe(3)
+  })
+
+  it('treats a continued session as priced when its terminal has a usable cost total', () => {
+    insertSession('earlier', '2026-09-09T14:00:00.000Z')
+    insertSession('terminal', '2026-09-09T16:00:00.000Z')
+    insertCost({ sessionId: 'earlier', totalCostUsd: 0, continuedInSessionId: 'terminal' })
+    insertCost({ sessionId: 'terminal', totalCostUsd: 2 })
+    insertInvocation({
+      uuid: 'continued-invocation',
+      sessionId: 'earlier',
+      skillName: 'humanizer',
+      invokedAt: '2026-09-09T14:00:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).last24h.unpricedInvocationCount).toBe(0)
+  })
+
+  it('limits attributed dollars to turn times inside each rolling window', () => {
+    insertSkill('alpha')
+    insertSession('crossing', '2026-09-07T16:00:00.000Z')
+    insertCost({ sessionId: 'crossing', totalCostUsd: 1 })
+    db.prepare(
+      `INSERT INTO session_skill_cost (session_id, skill_name, est_cost_usd)
+       VALUES ('crossing', 'alpha', 1)`
+    ).run()
+    const insertTimed = db.prepare(
+      `INSERT INTO timed_skill_cost (session_id, skill_name, allocated_at, est_cost_usd)
+       VALUES ('crossing', 'alpha', ?, ?)`
+    )
+    insertTimed.run('2026-09-07T16:00:00.000Z', 0.4)
+    insertTimed.run('2026-09-09T16:00:00.000Z', 0.6)
+
+    const stats = getSkillStats(db, NOW)
+
+    expect(stats.last24h.attribution.totalEstimatedCostCents).toBe(60)
+    expect(stats.last7d.attribution.totalEstimatedCostCents).toBe(100)
+    expect(stats.last30d.attribution.totalEstimatedCostCents).toBe(100)
+  })
+
+  it('discloses cost that has no timestamp instead of placing it in a window', () => {
+    insertSession('undated', '2026-09-09T16:00:00.000Z')
+    insertCost({ sessionId: 'undated', totalCostUsd: 3 })
+    db.prepare(
+      `INSERT INTO session_skill_cost (session_id, skill_name, est_cost_usd)
+       VALUES ('undated', NULL, 3)`
+    ).run()
+
+    const attribution = getSkillStats(db, NOW).last24h.attribution
+
+    expect(attribution.totalEstimatedCostCents).toBe(0)
+    expect(attribution.hasUndatedCost).toBe(true)
+  })
+
+  it('includes the partial first hour and day in clickable trend buckets', () => {
+    insertSession('edge', '2026-09-02T17:30:00.000Z')
+    insertInvocation({
+      uuid: 'first-hour',
+      sessionId: 'edge',
+      skillName: 'alpha',
+      invokedAt: '2026-09-08T17:30:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'first-day',
+      sessionId: 'edge',
+      skillName: 'alpha',
+      invokedAt: '2026-09-02T17:30:00.000Z'
+    })
+
+    const stats = getSkillStats(db, NOW)
+
+    expect(stats.last24h.trend.reduce((sum, bucket) => sum + bucket.count, 0)).toBe(1)
+    expect(stats.last24h.trend[0]).toMatchObject({
+      key: '2026-09-08T17:00:00.000Z',
+      startAt: '2026-09-08T17:00:00.000Z',
+      endAt: '2026-09-08T18:00:00.000Z',
+      count: 1
+    })
+    expect(stats.last7d.trend.reduce((sum, bucket) => sum + bucket.count, 0)).toBe(2)
+    expect(stats.last7d.trend[0]).toMatchObject({
+      key: '2026-09-02',
+      startAt: '2026-09-02T17:00:00.000Z',
+      count: 1
+    })
+  })
+
+  it('does not choose one project detail for a combined same-name ranking', () => {
+    insertSkill('alpha', {
+      source_type: 'project',
+      source_path: '/repo-a/.claude/skills/alpha',
+      project_root: '/repo-a'
+    })
+    insertSkill('alpha', {
+      source_type: 'project',
+      source_path: '/repo-b/.claude/skills/alpha',
+      project_root: '/repo-b'
+    })
+    insertSession('a', '2026-09-09T15:00:00.000Z')
+    insertSession('b', '2026-09-09T16:00:00.000Z')
+    db.prepare("UPDATE sessions_meta SET cwd = '/repo-a' WHERE session_id = 'a'").run()
+    db.prepare("UPDATE sessions_meta SET cwd = '/repo-b' WHERE session_id = 'b'").run()
+    insertInvocation({
+      uuid: 'a',
+      sessionId: 'a',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T15:00:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'b',
+      sessionId: 'b',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T16:00:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).last24h.bySkill[0]).toMatchObject({
+      skillName: 'alpha',
+      count: 2,
+      skillId: null,
+      resolution: 'ambiguous'
+    })
+  })
+
+  it('does not link combined same-name cost to an arbitrary project skill', () => {
+    insertSkill('alpha', {
+      source_type: 'project',
+      source_path: '/repo-a/skills/alpha',
+      project_root: '/repo-a'
+    })
+    insertSkill('alpha', {
+      source_type: 'project',
+      source_path: '/repo-b/skills/alpha',
+      project_root: '/repo-b'
+    })
+    insertSession('a', '2026-09-09T15:00:00.000Z')
+    insertSession('b', '2026-09-09T16:00:00.000Z')
+    insertCost({ sessionId: 'a', totalCostUsd: 1 })
+    insertCost({ sessionId: 'b', totalCostUsd: 1 })
+    const insertTimed = db.prepare(
+      `INSERT INTO timed_skill_cost (session_id, skill_name, allocated_at, est_cost_usd)
+       VALUES (?, 'alpha', '2026-09-09T16:00:00.000Z', 1)`
+    )
+    insertTimed.run('a')
+    insertTimed.run('b')
+
+    expect(getSkillStats(db, NOW).last24h.attribution.rows[0]).toMatchObject({
+      skillName: 'alpha',
+      skillId: null,
+      resolution: 'ambiguous',
+      estimatedCostCents: 200
+    })
+  })
+
+  it('does not link historical project cost to a different current project skill', () => {
+    insertSkill('alpha', {
+      source_type: 'project',
+      project_root: '/repo-a',
+      source_path: '/repo-a/.claude/skills/alpha'
+    })
+    insertSession('old-repo', '2026-09-09T15:00:00.000Z')
+    db.prepare("UPDATE sessions_meta SET cwd = '/repo-b' WHERE session_id = 'old-repo'").run()
+    insertCost({ sessionId: 'old-repo', totalCostUsd: 1 })
+    db.prepare(
+      `INSERT INTO timed_skill_cost (session_id, skill_name, allocated_at, est_cost_usd)
+       VALUES ('old-repo', 'alpha', '2026-09-09T16:00:00.000Z', 1)`
+    ).run()
+
+    expect(getSkillStats(db, NOW).last24h.attribution.rows[0]).toMatchObject({
+      skillName: 'alpha',
+      skillId: null,
+      resolution: 'ambiguous'
+    })
+  })
+
+  it('keeps a project cost link when every lineage session belongs to its project', () => {
+    const projectId = insertSkill('alpha', {
+      source_type: 'project',
+      project_root: '/repo-a',
+      source_path: '/repo-a/.claude/skills/alpha'
+    })
+    insertSession('project-cost', '2026-09-09T15:00:00.000Z')
+    db.prepare("UPDATE sessions_meta SET cwd = '/repo-a' WHERE session_id = 'project-cost'").run()
+    insertCost({ sessionId: 'project-cost', totalCostUsd: 1 })
+    db.prepare(
+      `INSERT INTO timed_skill_cost (session_id, skill_name, allocated_at, est_cost_usd)
+       VALUES ('project-cost', 'alpha', '2026-09-09T16:00:00.000Z', 1)`
+    ).run()
+
+    expect(getSkillStats(db, NOW).last24h.attribution.rows[0]).toMatchObject({
+      skillName: 'alpha',
+      skillId: projectId,
+      resolution: 'installed'
+    })
+  })
+
+  it('does not link project cost when its continuation crosses project roots', () => {
+    insertSkill('alpha', {
+      source_type: 'project',
+      project_root: '/repo-a',
+      source_path: '/repo-a/.claude/skills/alpha'
+    })
+    insertSession('earlier-project', '2026-09-09T14:00:00.000Z')
+    insertSession('terminal-project', '2026-09-09T15:00:00.000Z')
+    db.prepare(
+      "UPDATE sessions_meta SET cwd = '/repo-b' WHERE session_id = 'earlier-project'"
+    ).run()
+    db.prepare(
+      "UPDATE sessions_meta SET cwd = '/repo-a' WHERE session_id = 'terminal-project'"
+    ).run()
+    insertCost({
+      sessionId: 'earlier-project',
+      totalCostUsd: 0,
+      continuedInSessionId: 'terminal-project'
+    })
+    insertCost({ sessionId: 'terminal-project', totalCostUsd: 1 })
+    db.prepare(
+      `INSERT INTO timed_skill_cost (session_id, skill_name, allocated_at, est_cost_usd)
+       VALUES ('terminal-project', 'alpha', '2026-09-09T16:00:00.000Z', 1)`
+    ).run()
+
+    expect(getSkillStats(db, NOW).last24h.attribution.rows[0]).toMatchObject({
+      skillName: 'alpha',
+      skillId: null,
+      resolution: 'ambiguous'
+    })
+  })
+
   it('returns a zero-valued 24-hour window when no skill invocations are indexed', () => {
     expect(getSkillStats(db, NOW).last24h.invocationCount).toBe(0)
   })
@@ -2459,7 +2775,7 @@ describe('getSkillStats', () => {
     })
 
     const window = getSkillStats(db, NOW).last24h
-    expect(window.bySkill).toEqual([
+    expect(window.bySkill).toMatchObject([
       { skillName: 'alpha', count: 2, sourceType: null },
       { skillName: 'beta', count: 1, sourceType: null },
       { skillName: 'gamma', count: 1, sourceType: null }
@@ -2492,18 +2808,19 @@ describe('getSkillStats', () => {
       invokedAt: '2026-09-09T17:30:00.000Z'
     })
 
-    const stats = getSkillStats(db, NOW)
-    expect(stats.last24h.trend).toHaveLength(24)
-    expect(stats.last24h.trend[0]).toEqual({ key: '2026-09-08T18:00:00.000Z', count: 1 })
-    expect(stats.last24h.trend[23]).toEqual({ key: '2026-09-09T17:00:00.000Z', count: 2 })
+    const stats = getSkillStats(db, new Date('2026-09-09T17:45:00.000Z'))
+    expect(stats.last24h.trend).toHaveLength(25)
+    expect(stats.last24h.trend[0]).toMatchObject({ key: '2026-09-08T17:00:00.000Z', count: 0 })
+    expect(stats.last24h.trend[1]).toMatchObject({ key: '2026-09-08T18:00:00.000Z', count: 1 })
+    expect(stats.last24h.trend[24]).toMatchObject({ key: '2026-09-09T17:00:00.000Z', count: 2 })
     expect(stats.last24h.trend.reduce((sum, bucket) => sum + bucket.count, 0)).toBe(3)
 
-    expect(stats.last7d.trend).toHaveLength(7)
-    expect(stats.last7d.trend[0].key).toBe('2026-09-03')
-    expect(stats.last7d.trend[5]).toEqual({ key: '2026-09-08', count: 1 })
-    expect(stats.last7d.trend[6]).toEqual({ key: '2026-09-09', count: 2 })
-    expect(stats.last30d.trend).toHaveLength(30)
-    expect(stats.last30d.trend[0].key).toBe('2026-08-11')
+    expect(stats.last7d.trend).toHaveLength(8)
+    expect(stats.last7d.trend[0].key).toBe('2026-09-02')
+    expect(stats.last7d.trend[6]).toMatchObject({ key: '2026-09-08', count: 1 })
+    expect(stats.last7d.trend[7]).toMatchObject({ key: '2026-09-09', count: 2 })
+    expect(stats.last30d.trend).toHaveLength(31)
+    expect(stats.last30d.trend[0].key).toBe('2026-08-10')
   })
 
   it('associates each usable session once per skill without attributing cost per invocation', () => {
@@ -2658,8 +2975,18 @@ describe('getSkillStats', () => {
 
     expect(getSkillStats(db, NOW).last24h.bySkill).toEqual(
       expect.arrayContaining([
-        { skillName: 'ponytail:ponytail-audit', count: 1, sourceType: 'plugin' },
-        { skillName: 'unregistered-skill', count: 1, sourceType: null }
+        expect.objectContaining({
+          skillName: 'ponytail:ponytail-audit',
+          count: 1,
+          sourceType: 'plugin',
+          resolution: 'installed'
+        }),
+        expect.objectContaining({
+          skillName: 'unregistered-skill',
+          count: 1,
+          sourceType: null,
+          resolution: 'missing'
+        })
       ])
     )
   })
@@ -2775,7 +3102,7 @@ describe('getSkillStats', () => {
     expect(getSkillStats(db, NOW).pricedSessionsWithoutSkill).toBe(0)
   })
 
-  it('returns all-history attributed cost with exact displayed-cent reconciliation', () => {
+  it('reconciles displayed cents within the selected window', () => {
     const alphaId = insertSkill('alpha')
     insertSession('s1', '2026-09-09T14:00:00.000Z')
     insertCost({ sessionId: 's1', totalCostUsd: 1 })
@@ -2785,8 +3112,15 @@ describe('getSkillStats', () => {
     insert.run('s1', 'alpha', 0.334)
     insert.run('s1', 'missing-skill', 0.333)
     insert.run('s1', null, 0.333)
+    const insertTimed = db.prepare(
+      `INSERT INTO timed_skill_cost (session_id, skill_name, allocated_at, est_cost_usd)
+       VALUES ('s1', ?, '2026-09-09T14:00:00.000Z', ?)`
+    )
+    insertTimed.run('alpha', 0.334)
+    insertTimed.run('missing-skill', 0.333)
+    insertTimed.run(null, 0.333)
 
-    const attribution = getSkillStats(db, NOW).attribution
+    const attribution = getSkillStats(db, NOW).last24h.attribution
 
     expect(attribution.totalEstimatedCostCents).toBe(100)
     expect(attribution.rows).toEqual([
@@ -2799,6 +3133,40 @@ describe('getSkillStats', () => {
       expect.objectContaining({ skillName: null, estimatedCostCents: 33 })
     ])
     expect(attribution.rows.reduce((sum, row) => sum + row.estimatedCostCents, 0)).toBe(100)
+  })
+})
+
+describe('getSkillInvocationSlice', () => {
+  it('returns exactly the invocations inside a half-open chart bucket', () => {
+    const alphaId = insertSkill('alpha')
+    db.prepare(
+      `INSERT INTO sessions_meta
+         (session_id, cwd, started_at, message_count, source_mtime_ms)
+       VALUES ('slice-session', '/repo', '2026-09-09T14:00:00.000Z', 0, 0)`
+    ).run()
+    const insert = db.prepare(
+      `INSERT INTO skill_invocations
+         (source_uuid, session_id, skill_name, invoked_at, trigger_type)
+       VALUES (?, 'slice-session', ?, ?, 'user_invoked')`
+    )
+    insert.run('at-start', 'alpha', '2026-09-09T14:00:00.000Z')
+    insert.run('inside', 'alpha', '2026-09-09T14:30:00.000Z')
+    insert.run('other-skill', 'beta', '2026-09-09T14:45:00.000Z')
+    insert.run('at-end', 'alpha', '2026-09-09T15:00:00.000Z')
+
+    const range = {
+      startAt: '2026-09-09T14:00:00.000Z',
+      endAt: '2026-09-09T15:00:00.000Z'
+    }
+    const all = getSkillInvocationSlice(db, range)
+    const alpha = getSkillInvocationSlice(db, { ...range, skillName: 'alpha' })
+
+    expect(all.map((entry) => entry.skillName)).toEqual(['beta', 'alpha', 'alpha'])
+    expect(alpha.map((entry) => entry.invoked_at)).toEqual([
+      '2026-09-09T14:30:00.000Z',
+      '2026-09-09T14:00:00.000Z'
+    ])
+    expect(alpha[0].skillId).toBe(alphaId)
   })
 })
 

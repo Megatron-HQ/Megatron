@@ -20,6 +20,8 @@ import type {
   ProjectCount,
   ResidentTaxStats,
   SkillInvocationEntry,
+  SkillInvocationRecord,
+  SkillInvocationSliceInput,
   SkillRow,
   SkillStats,
   SkillCostAttribution,
@@ -45,7 +47,7 @@ const PARAMETERIZED_PROJECT_PATH_SCOPE = projectPathScopeSql('sm.cwd', '@root')
 // Live aggregate, not a stored count — skill_invocations is append-only and joined by
 // skill_name (no FK, per the locked no-FK decision), so this can never fall out of sync.
 //
-// Precedence rule (verified against code.claude.com/docs/en/skills): personal/global always
+// Precedence rule (verified against code.claude.com/docs/en/skills): non-synced personal/global
 // overrides a same-named project skill, everywhere, unconditionally — so a shadowed project
 // skill can never actually have fired. Its count is forced to 0 rather than left to a bare
 // name join, which would otherwise credit it with invocations that really ran the global one.
@@ -62,6 +64,7 @@ const SKILLS_WITH_USAGE_SELECT = `
         (
           SELECT g.id FROM skills g
           WHERE g.source_type = 'global' AND g.name = skills.name AND skills.source_type = 'project'
+            AND (g.is_synced = 0 OR skills.is_synced = 1)
           LIMIT 1
         ),
         (
@@ -460,6 +463,120 @@ export function getSkillInvocationLog(
        ${limitClause}`
     )
     .all(params) as SkillInvocationEntry[]
+}
+
+interface SkillTargetRow {
+  id: number
+  name: string
+  source_type: SourceType
+  project_root: string | null
+  is_synced: number
+}
+
+function loadSkillTargets(db: Database.Database): Map<string, SkillTargetRow[]> {
+  const targets = new Map<string, SkillTargetRow[]>()
+  const rows = db
+    .prepare('SELECT id, name, source_type, project_root, is_synced FROM skills')
+    .all() as SkillTargetRow[]
+  for (const row of rows) targets.set(row.name, [...(targets.get(row.name) ?? []), row])
+  return targets
+}
+
+function preferredSkillTargets(named: SkillTargetRow[]): SkillTargetRow[] {
+  const nonSynced = named.filter((row) => row.is_synced === 0)
+  const active = nonSynced.length > 0 ? nonSynced : named
+  const globals = active.filter((row) => row.source_type === 'global')
+  return globals.length > 0 ? globals : active
+}
+
+function isWithinProject(cwd: string, projectRoot: string): boolean {
+  return (
+    cwd === projectRoot ||
+    PROJECT_PATH_SEPARATORS.some((separator) => cwd.startsWith(projectRoot + separator))
+  )
+}
+
+function costTargetMatchesLineage(
+  target: SkillTargetRow,
+  sessionIds: Set<string>,
+  lineageCwdsByTerminal: Map<string, Set<string>>
+): boolean {
+  if (target.source_type !== 'project') return true
+  const projectRoot = target.project_root
+  if (projectRoot === null) return false
+  for (const sessionId of sessionIds) {
+    const lineageCwds = lineageCwdsByTerminal.get(sessionId)
+    if (lineageCwds === undefined || lineageCwds.size === 0) return false
+    if ([...lineageCwds].some((cwd) => !isWithinProject(cwd, projectRoot))) {
+      return false
+    }
+  }
+  return true
+}
+
+function resolveSkillTarget(
+  skillName: string,
+  cwd: string,
+  targets: Map<string, SkillTargetRow[]>
+): SkillTargetRow | null {
+  const matching = preferredSkillTargets(targets.get(skillName) ?? []).filter((row) => {
+    if (row.source_type !== 'project') return true
+    if (row.project_root === null) return false
+    return isWithinProject(cwd, row.project_root)
+  })
+  return matching.length === 1 ? matching[0] : null
+}
+
+export function getSkillInvocationSlice(
+  db: Database.Database,
+  input: SkillInvocationSliceInput
+): SkillInvocationRecord[] {
+  const start = new Date(input.startAt)
+  const end = new Date(input.endAt)
+  if (
+    Number.isNaN(start.getTime()) ||
+    Number.isNaN(end.getTime()) ||
+    start.toISOString() !== input.startAt ||
+    end.toISOString() !== input.endAt ||
+    end <= start ||
+    end.getTime() - start.getTime() > 31 * DAY_MS + 1 ||
+    (input.skillName !== undefined && input.skillName.trim() === '')
+  ) {
+    throw new RangeError('Invalid skill invocation time range')
+  }
+
+  const skillClause = input.skillName === undefined ? '' : 'AND si.skill_name = @skillName'
+  const rows = db
+    .prepare(
+      `SELECT si.skill_name, si.invoked_at, si.trigger_type, si.agent_id,
+              COALESCE(si.preceding_user_text,
+                CASE WHEN si.args_text IS NOT NULL AND si.args_text != ''
+                     THEN '/' || si.skill_name || ' ' || si.args_text
+                     ELSE '/' || si.skill_name END) AS preceding_user_text,
+              sm.cwd, sm.git_branch
+       FROM skill_invocations si
+       JOIN sessions_meta sm ON sm.session_id = si.session_id
+       WHERE si.invoked_at >= @startAt AND si.invoked_at < @endAt ${skillClause}
+       ORDER BY si.invoked_at DESC, si.id DESC`
+    )
+    .all({ startAt: input.startAt, endAt: input.endAt, skillName: input.skillName }) as Array<
+    SkillInvocationEntry & { skill_name: string }
+  >
+  const targets = loadSkillTargets(db)
+  return rows.map((row) => {
+    const target = resolveSkillTarget(row.skill_name, row.cwd, targets)
+    return {
+      preceding_user_text: row.preceding_user_text,
+      invoked_at: row.invoked_at,
+      trigger_type: row.trigger_type,
+      cwd: row.cwd,
+      git_branch: row.git_branch,
+      agent_id: row.agent_id,
+      skillName: row.skill_name,
+      skillId: target?.id ?? null,
+      sourceType: target?.source_type ?? null
+    }
+  })
 }
 
 // Claude Code's real truncation threshold is 8,000 characters — from its compiled binary:
@@ -976,10 +1093,12 @@ interface SkillStatsInvocationRow {
   skill_name: string
   invoked_at: string
   trigger_type: TriggerTypeCount['trigger_type']
+  cwd: string
 }
 
 interface SkillStatsCostRow {
   session_id: string
+  cwd: string
   total_cost_usd: number
   is_zeroed: number
   has_cost: number
@@ -1013,6 +1132,8 @@ function buildSkillTrend(
   window: '24h' | '7d' | '30d',
   days: number
 ): SkillStatsWindow['trend'] {
+  const cutoff = new Date(now.getTime() - days * DAY_MS)
+  const endExclusive = new Date(now.getTime() + 1)
   if (window === '24h') {
     const counts = new Map<string, number>()
     for (const row of rows) {
@@ -1022,13 +1143,21 @@ function buildSkillTrend(
       counts.set(key, (counts.get(key) ?? 0) + 1)
     }
 
-    const anchor = new Date(now)
-    anchor.setMinutes(0, 0, 0)
-    return Array.from({ length: 24 }, (_, index) => {
-      const hour = new Date(anchor.getTime() - (23 - index) * 60 * 60 * 1000)
+    const buckets: SkillStatsWindow['trend'] = []
+    const hour = new Date(cutoff)
+    hour.setMinutes(0, 0, 0)
+    while (hour <= now) {
+      const nextHour = new Date(hour.getTime() + 60 * 60 * 1000)
       const key = hour.toISOString()
-      return { key, count: counts.get(key) ?? 0 }
-    })
+      buckets.push({
+        key,
+        count: counts.get(key) ?? 0,
+        startAt: new Date(Math.max(hour.getTime(), cutoff.getTime())).toISOString(),
+        endAt: new Date(Math.min(nextHour.getTime(), endExclusive.getTime())).toISOString()
+      })
+      hour.setTime(nextHour.getTime())
+    }
+    return buckets
   }
 
   const counts = new Map<string, number>()
@@ -1037,26 +1166,42 @@ function buildSkillTrend(
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
 
-  const anchor = new Date(now)
-  anchor.setHours(12, 0, 0, 0)
-  return Array.from({ length: days }, (_, index) => {
-    const day = new Date(anchor)
-    day.setDate(day.getDate() - (days - 1 - index))
+  const buckets: SkillStatsWindow['trend'] = []
+  const day = new Date(cutoff)
+  day.setHours(0, 0, 0, 0)
+  while (day <= now) {
+    const nextDay = new Date(day)
+    nextDay.setDate(nextDay.getDate() + 1)
     const key = localDateKey(day)
-    return { key, count: counts.get(key) ?? 0 }
-  })
+    buckets.push({
+      key,
+      count: counts.get(key) ?? 0,
+      startAt: new Date(Math.max(day.getTime(), cutoff.getTime())).toISOString(),
+      endAt: new Date(Math.min(nextDay.getTime(), endExclusive.getTime())).toISOString()
+    })
+    day.setTime(nextDay.getTime())
+  }
+  return buckets
 }
 
 function reduceSkillStatsWindow(
   rows: SkillStatsInvocationRow[],
   costsBySession: Map<string, SkillStatsCostRow>,
   skillIndex: Map<string, { id: number; source_type: SourceType }>,
+  skillTargets: Map<string, SkillTargetRow[]>,
   now: Date,
   window: '24h' | '7d' | '30d',
-  days: number
+  days: number,
+  attribution: SkillCostAttribution
 ): SkillStatsWindow {
   const cutoff = new Date(now.getTime() - days * DAY_MS)
-  const inWindow = rows.filter((row) => new Date(row.invoked_at) >= cutoff)
+  const inWindow = rows.filter((row) => {
+    const invokedAt = new Date(row.invoked_at)
+    return invokedAt >= cutoff && invokedAt <= now
+  })
+  const unpricedInvocationCount = inWindow.filter(
+    (row) => resolvePricedTerminal(row.session_id, costsBySession) === null
+  ).length
   const skillCounts = new Map<string, number>()
   const triggerCounts = new Map<TriggerTypeCount['trigger_type'], number>()
   const skillSessions = new Map<string, Set<string>>()
@@ -1070,11 +1215,30 @@ function reduceSkillStatsWindow(
   }
 
   const bySkill = [...skillCounts.entries()]
-    .map(([skillName, count]) => ({
-      skillName,
-      count,
-      sourceType: skillIndex.get(skillName)?.source_type ?? null
-    }))
+    .map(([skillName, count]) => {
+      const targets = new Map<number, SkillTargetRow>()
+      let hasUnresolvedInvocation = false
+      for (const row of inWindow) {
+        if (row.skill_name !== skillName) continue
+        const target = resolveSkillTarget(skillName, row.cwd, skillTargets)
+        if (target === null) hasUnresolvedInvocation = true
+        else targets.set(target.id, target)
+      }
+      const uniqueTarget =
+        !hasUnresolvedInvocation && targets.size === 1 ? [...targets.values()][0] : null
+      return {
+        skillName,
+        count,
+        sourceType: uniqueTarget?.source_type ?? null,
+        skillId: uniqueTarget?.id ?? null,
+        resolution:
+          uniqueTarget !== null
+            ? ('installed' as const)
+            : skillTargets.has(skillName)
+              ? ('ambiguous' as const)
+              : ('missing' as const)
+      }
+    })
     .sort((a, b) => b.count - a.count || a.skillName.localeCompare(b.skillName))
   const triggerOrder: TriggerTypeCount['trigger_type'][] = [
     'user_invoked',
@@ -1119,32 +1283,55 @@ function reduceSkillStatsWindow(
 
   return {
     window,
+    startAt: cutoff.toISOString(),
+    endAt: new Date(now.getTime() + 1).toISOString(),
     invocationCount: inWindow.length,
+    unpricedInvocationCount,
     skillCount: new Set(inWindow.map((row) => row.skill_name)).size,
     sessionCount: new Set(inWindow.map((row) => row.session_id)).size,
     bySkill,
     byTriggerType,
     trend: buildSkillTrend(inWindow, now, window, days),
-    associations
+    associations,
+    attribution
   }
 }
 
 function getSkillCostAttribution(
   db: Database.Database,
-  skillIndex: Map<string, { id: number; source_type: SourceType }>
+  skillTargets: Map<string, SkillTargetRow[]>,
+  lineageCwdsByTerminal: Map<string, Set<string>>,
+  cutoff: string,
+  asOf: string,
+  hasUndatedCost: boolean
 ): SkillCostAttribution {
-  const rawRows = db
+  const sessionRows = db
     .prepare(
-      `SELECT skill_name, COUNT(DISTINCT session_id) AS tracked_session_count,
-              SUM(est_cost_usd) AS estimated_cost_usd
-       FROM session_skill_cost
-       GROUP BY skill_name`
+      `SELECT skill_name, session_id, SUM(est_cost_usd) AS estimated_cost_usd
+       FROM timed_skill_cost
+       WHERE allocated_at >= ? AND allocated_at <= ?
+       GROUP BY skill_name, session_id`
     )
-    .all() as Array<{
+    .all(cutoff, asOf) as Array<{
     skill_name: string | null
-    tracked_session_count: number
+    session_id: string
     estimated_cost_usd: number
   }>
+  const bySkill = new Map<
+    string | null,
+    { skill_name: string | null; sessionIds: Set<string>; estimated_cost_usd: number }
+  >()
+  for (const row of sessionRows) {
+    const grouped = bySkill.get(row.skill_name) ?? {
+      skill_name: row.skill_name,
+      sessionIds: new Set<string>(),
+      estimated_cost_usd: 0
+    }
+    grouped.sessionIds.add(row.session_id)
+    grouped.estimated_cost_usd += row.estimated_cost_usd
+    bySkill.set(row.skill_name, grouped)
+  }
+  const rawRows = [...bySkill.values()]
   const totalCostUsd = rawRows.reduce((sum, row) => sum + row.estimated_cost_usd, 0)
   const targetCents = Math.round(totalCostUsd * 100)
   const rounded = rawRows.map((row) => {
@@ -1164,12 +1351,27 @@ function getSkillCostAttribution(
 
   const rows = rounded
     .map(({ row, cents }) => {
-      const skill = row.skill_name === null ? undefined : skillIndex.get(row.skill_name)
+      const named = row.skill_name === null ? [] : (skillTargets.get(row.skill_name) ?? [])
+      const effective = preferredSkillTargets(named)
+      const candidate = effective.length === 1 ? effective[0] : null
+      const skill =
+        candidate !== null &&
+        costTargetMatchesLineage(candidate, row.sessionIds, lineageCwdsByTerminal)
+          ? candidate
+          : null
       return {
         skillName: row.skill_name,
         skillId: skill?.id ?? null,
         sourceType: skill?.source_type ?? null,
-        trackedSessionCount: row.tracked_session_count,
+        resolution:
+          row.skill_name === null
+            ? ('general' as const)
+            : skill !== null
+              ? ('installed' as const)
+              : named.length > 0
+                ? ('ambiguous' as const)
+                : ('missing' as const),
+        trackedSessionCount: row.sessionIds.size,
         estimatedCostCents: cents,
         share: targetCents > 0 ? cents / targetCents : 0
       }
@@ -1184,15 +1386,17 @@ function getSkillCostAttribution(
     .prepare(
       `SELECT COUNT(DISTINCT ssc.session_id) AS tracked_session_count,
               COALESCE(MAX(sc.has_unknown_model_cost), 0) AS has_unknown_model_cost
-       FROM session_skill_cost ssc
-       JOIN session_cost sc ON sc.session_id = ssc.session_id`
+       FROM timed_skill_cost ssc
+       JOIN session_cost sc ON sc.session_id = ssc.session_id
+       WHERE ssc.allocated_at >= ? AND ssc.allocated_at <= ?`
     )
-    .get() as { tracked_session_count: number; has_unknown_model_cost: number }
+    .get(cutoff, asOf) as { tracked_session_count: number; has_unknown_model_cost: number }
 
   return {
     totalEstimatedCostCents: targetCents,
     trackedSessionCount: summary.tracked_session_count,
     hasUnknownModelCost: summary.has_unknown_model_cost === 1,
+    hasUndatedCost,
     rows
   }
 }
@@ -1200,15 +1404,17 @@ function getSkillCostAttribution(
 export function getSkillStats(db: Database.Database, now: Date = new Date()): SkillStats {
   const rows = db
     .prepare(
-      `SELECT session_id, skill_name, invoked_at, trigger_type
-       FROM skill_invocations
-       WHERE invoked_at >= ?`
+      `SELECT si.session_id, si.skill_name, si.invoked_at, si.trigger_type, sm.cwd
+       FROM skill_invocations si
+       JOIN sessions_meta sm ON sm.session_id = si.session_id
+       WHERE si.invoked_at >= ?`
     )
     .all(new Date(now.getTime() - 30 * DAY_MS).toISOString()) as SkillStatsInvocationRow[]
   const costRows = db
     .prepare(
       `SELECT
          sm.session_id,
+         sm.cwd,
          COALESCE(sc.total_cost_usd, 0) AS total_cost_usd,
          COALESCE(sc.is_zeroed, 1) AS is_zeroed,
          CASE WHEN sc.session_id IS NULL THEN 0 ELSE 1 END AS has_cost,
@@ -1221,6 +1427,23 @@ export function getSkillStats(db: Database.Database, now: Date = new Date()): Sk
     )
     .all() as SkillStatsCostRow[]
   const costsBySession = new Map(costRows.map((row) => [row.session_id, row]))
+  const lineageCwdsByTerminal = new Map<string, Set<string>>()
+  for (const row of costRows) {
+    const terminal = resolvePricedTerminal(row.session_id, costsBySession)
+    if (terminal === null) continue
+    const cwds = lineageCwdsByTerminal.get(terminal.session_id) ?? new Set<string>()
+    cwds.add(row.cwd)
+    lineageCwdsByTerminal.set(terminal.session_id, cwds)
+  }
+  const skillTargets = loadSkillTargets(db)
+  const costCoverage = db
+    .prepare(
+      `SELECT
+       (SELECT COALESCE(SUM(est_cost_usd), 0) FROM session_skill_cost) AS session_total,
+       (SELECT COALESCE(SUM(est_cost_usd), 0) FROM timed_skill_cost) AS timed_total`
+    )
+    .get() as { session_total: number; timed_total: number }
+  const hasUndatedCost = costCoverage.session_total - costCoverage.timed_total > 0.000001
 
   // One winning skills row per name, by the same precedence SKILLS_WITH_USAGE_SELECT resolves
   // (global > project > synced) — but answering the opposite question: "which row wins for this
@@ -1234,8 +1457,9 @@ export function getSkillStats(db: Database.Database, now: Date = new Date()): Sk
            WHERE s1.id = (
              SELECT s2.id FROM skills s2
              WHERE s2.name = s1.name
-             ORDER BY CASE s2.source_type WHEN 'global' THEN 0 WHEN 'project' THEN 1 ELSE 2 END,
-                      s2.is_synced, s2.id
+             ORDER BY s2.is_synced,
+                      CASE s2.source_type WHEN 'global' THEN 0 WHEN 'project' THEN 1 ELSE 2 END,
+                      s2.id
              LIMIT 1
            )`
         )
@@ -1244,11 +1468,58 @@ export function getSkillStats(db: Database.Database, now: Date = new Date()): Sk
   )
 
   return {
-    last24h: reduceSkillStatsWindow(rows, costsBySession, skillIndex, now, '24h', 1),
-    last7d: reduceSkillStatsWindow(rows, costsBySession, skillIndex, now, '7d', 7),
-    last30d: reduceSkillStatsWindow(rows, costsBySession, skillIndex, now, '30d', 30),
-    pricedSessionsWithoutSkill: countPricedSessionsWithoutSkill(db, costRows, costsBySession),
-    attribution: getSkillCostAttribution(db, skillIndex)
+    last24h: reduceSkillStatsWindow(
+      rows,
+      costsBySession,
+      skillIndex,
+      skillTargets,
+      now,
+      '24h',
+      1,
+      getSkillCostAttribution(
+        db,
+        skillTargets,
+        lineageCwdsByTerminal,
+        new Date(now.getTime() - DAY_MS).toISOString(),
+        now.toISOString(),
+        hasUndatedCost
+      )
+    ),
+    last7d: reduceSkillStatsWindow(
+      rows,
+      costsBySession,
+      skillIndex,
+      skillTargets,
+      now,
+      '7d',
+      7,
+      getSkillCostAttribution(
+        db,
+        skillTargets,
+        lineageCwdsByTerminal,
+        new Date(now.getTime() - 7 * DAY_MS).toISOString(),
+        now.toISOString(),
+        hasUndatedCost
+      )
+    ),
+    last30d: reduceSkillStatsWindow(
+      rows,
+      costsBySession,
+      skillIndex,
+      skillTargets,
+      now,
+      '30d',
+      30,
+      getSkillCostAttribution(
+        db,
+        skillTargets,
+        lineageCwdsByTerminal,
+        new Date(now.getTime() - 30 * DAY_MS).toISOString(),
+        now.toISOString(),
+        hasUndatedCost
+      )
+    ),
+    pricedSessionsWithoutSkill: countPricedSessionsWithoutSkill(db, costRows, costsBySession)
   }
 }
 

@@ -24,6 +24,8 @@ live": when two skills share a name, Claude Code picks one by source, in this or
 then personal (global, `~/.claude/skills/`), then project (`.claude/skills/`). A personal skill
 always wins over a same-named project skill, in every project, unconditionally — the project one
 becomes permanently unreachable while the personal one exists with that name.
+Claude.ai-synced global copies are the exception: a non-synced project skill of the same name
+outranks a synced copy, as described in `docs/data-model.md`.
 
 Plugin skills are exempt from all of this: they're namespaced as `plugin-name:skill-name`, so a
 plugin skill structurally can't collide with a global, project, or another plugin's skill. This is
