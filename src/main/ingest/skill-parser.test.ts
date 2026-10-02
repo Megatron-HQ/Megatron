@@ -135,6 +135,11 @@ describe('parseSkillDirectory', () => {
     })
   })
 
+  it('uses the fallback name override instead of the directory basename when frontmatter name is absent', () => {
+    const dirPath = writeSkill('3.0.0', '---\ndescription: A skill\n---\nBody')
+    expect(parseSkillDirectory(dirPath, 'humanizer').name).toBe('humanizer')
+  })
+
   it('falls back to basename and null description when SKILL.md does not exist', () => {
     const dirPath = join(tmpDir, 'no-skill-md')
     mkdirSync(dirPath, { recursive: true })

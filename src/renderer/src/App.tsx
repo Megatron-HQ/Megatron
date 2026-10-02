@@ -7,6 +7,11 @@ import { PluginActionToasts, type PluginActionToast } from '@/components/PluginA
 import { PluginSidebar } from '@/components/PluginSidebar'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { Sidebar } from '@/components/Sidebar'
+import { UsageSidebar, type UsagePanel } from '@/components/UsageSidebar'
+import {
+  SkillInvocationDialog,
+  type SkillInvocationSelection
+} from '@/components/usage/SkillInvocationDialog'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { TREE_WIDTH_DEFAULT } from '@/lib/file-tree'
 import { matchesPluginFilter, type PluginFilter } from '@/lib/plugin-filter'
@@ -16,12 +21,20 @@ import { SkillInventory } from './views/SkillInventory'
 import { SkillFileViewer } from './views/SkillFileViewer'
 import { PluginDetail } from './views/PluginDetail'
 import { PluginInventory } from './views/PluginInventory'
-import type { AppSection, ContextBudget, ThemePreference } from '../../shared/ipc'
+import { UsageView, type ActivityWindowKey } from './views/UsageView'
+import type {
+  AppSection,
+  ContextBudget,
+  CostWindowKey,
+  SkillStatsWindowKey,
+  ThemePreference
+} from '../../shared/ipc'
 
 type View =
   { kind: 'list' } | { kind: 'detail'; skillId: number } | { kind: 'files'; skillId: number }
 
 type PluginView = { kind: 'list' } | { kind: 'detail'; name: string; marketplace: string }
+type SkillBackTarget = 'inventory' | 'usage-skills' | 'usage-skills-dialog'
 
 // Real value always arrives from the listSkills IPC round-trip almost immediately; this only
 // covers the brief pre-response instant, so it deliberately doesn't guess at the real limit
@@ -48,6 +61,15 @@ function App(): React.JSX.Element {
   const [section, setSection] = useState<AppSection>(() => window.api.getInitialSection())
   const [pluginView, setPluginView] = useState<PluginView>({ kind: 'list' })
   const [pluginFilter, setPluginFilter] = useState<PluginFilter>({ kind: 'all' })
+  const [usagePanel, setUsagePanel] = useState<UsagePanel>('activity')
+  const [usageActivityWindow, setUsageActivityWindow] = useState<ActivityWindowKey>('30d')
+  const [usageCostWindow, setUsageCostWindow] = useState<CostWindowKey>('30d')
+  const [usageModelWindow, setUsageModelWindow] = useState<SkillStatsWindowKey>('30d')
+  const [usageSkillWindow, setUsageSkillWindow] = useState<SkillStatsWindowKey>('30d')
+  const [skillInvocationSelection, setSkillInvocationSelection] =
+    useState<SkillInvocationSelection | null>(null)
+  const [skillInvocationOpen, setSkillInvocationOpen] = useState(false)
+  const [skillBackTarget, setSkillBackTarget] = useState<SkillBackTarget>('inventory')
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [foldersDialogOpen, setFoldersDialogOpen] = useState(false)
@@ -80,6 +102,7 @@ function App(): React.JSX.Element {
         void queryClient.invalidateQueries({ queryKey: ['skill-files'] })
         void queryClient.invalidateQueries({ queryKey: ['plugins'] })
         void queryClient.invalidateQueries({ queryKey: ['plugin-detail'] })
+        void queryClient.invalidateQueries({ queryKey: ['usage'] })
       }),
     [queryClient]
   )
@@ -144,8 +167,59 @@ function App(): React.JSX.Element {
     // Opening a skill detail always means "show me the Skills section" — without
     // this, selecting a skill from the command palette while on the Plugins tab
     // sets the view but leaves the Plugins branch rendered, so nothing happens.
+    setSkillBackTarget('inventory')
     handleSectionChange('skills')
     setView({ kind: 'detail', skillId })
+  }
+
+  function openDetailFromAnywhere(skillId: number): void {
+    // Callers that surface a skill from outside the current filtered list (command palette,
+    // context-budget dialog and command palette need the filter cleared, or
+    // "back" from the detail page lands on a list that doesn't contain what was just opened.
+    // Mirrors selectPluginFromPalette. SkillInventory keeps plain openDetail — its rows are
+    // already in-filter, so back should return to that same filtered list.
+    setFilter({ kind: 'all' })
+    openDetail(skillId)
+  }
+
+  function openDetailFromUsage(skillId: number): void {
+    setFilter({ kind: 'all' })
+    setSkillBackTarget('usage-skills')
+    handleSectionChange('skills')
+    setView({ kind: 'detail', skillId })
+  }
+
+  function openDetailFromInvocationDialog(skillId: number): void {
+    setSkillInvocationOpen(false)
+    setFilter({ kind: 'all' })
+    setSkillBackTarget('usage-skills-dialog')
+    handleSectionChange('skills')
+    setView({ kind: 'detail', skillId })
+  }
+
+  function showSkillInvocations(selection: SkillInvocationSelection): void {
+    setSkillInvocationSelection(selection)
+    setSkillInvocationOpen(true)
+  }
+
+  function changeSkillWindow(windowKey: SkillStatsWindowKey): void {
+    setSkillInvocationOpen(false)
+    setSkillInvocationSelection(null)
+    setUsageSkillWindow(windowKey)
+  }
+
+  function navigateSkillDetail(skillId: number): void {
+    setFilter({ kind: 'all' })
+    setView({ kind: 'detail', skillId })
+  }
+
+  function leaveSkillDetail(): void {
+    setView({ kind: 'list' })
+    if (skillBackTarget === 'usage-skills' || skillBackTarget === 'usage-skills-dialog') {
+      setUsagePanel('skills')
+      handleSectionChange('usage')
+      if (skillBackTarget === 'usage-skills-dialog') setSkillInvocationOpen(true)
+    }
   }
 
   function handleSectionChange(next: AppSection): void {
@@ -220,7 +294,7 @@ function App(): React.JSX.Element {
                 filter={filter}
                 onFilterChange={handleFilterChange}
                 contextBudget={contextBudget}
-                onSelectSkill={openDetail}
+                onSelectSkill={openDetailFromAnywhere}
                 skills={skills}
                 folders={folders}
               />
@@ -228,9 +302,9 @@ function App(): React.JSX.Element {
                 <SkillDetail
                   key={view.skillId}
                   skillId={view.skillId}
-                  onBack={() => setView({ kind: 'list' })}
+                  onBack={leaveSkillDetail}
                   onViewFiles={() => setView({ kind: 'files', skillId: view.skillId })}
-                  onNavigate={openDetail}
+                  onNavigate={navigateSkillDetail}
                 />
               ) : view.kind === 'files' ? (
                 <SkillFileViewer
@@ -252,7 +326,7 @@ function App(): React.JSX.Element {
                 />
               )}
             </>
-          ) : (
+          ) : section === 'plugins' ? (
             <>
               <PluginSidebar
                 plugins={plugins}
@@ -279,14 +353,40 @@ function App(): React.JSX.Element {
                 />
               )}
             </>
+          ) : (
+            <>
+              <UsageSidebar panel={usagePanel} onPanelChange={setUsagePanel} />
+              <UsageView
+                panel={usagePanel}
+                activityWindow={usageActivityWindow}
+                onActivityWindowChange={setUsageActivityWindow}
+                costWindow={usageCostWindow}
+                onCostWindowChange={setUsageCostWindow}
+                modelWindow={usageModelWindow}
+                onModelWindowChange={setUsageModelWindow}
+                skillWindow={usageSkillWindow}
+                onSkillWindowChange={changeSkillWindow}
+                onSelectSkill={openDetailFromUsage}
+                onShowInvocations={showSkillInvocations}
+              />
+            </>
           )}
         </div>
       </div>
+      {skillInvocationSelection && (
+        <SkillInvocationDialog
+          key={`${skillInvocationSelection.startAt}:${skillInvocationSelection.endAt}:${skillInvocationSelection.skillName ?? ''}`}
+          open={section === 'usage' && skillInvocationOpen}
+          onOpenChange={setSkillInvocationOpen}
+          selection={skillInvocationSelection}
+          onSelectSkill={openDetailFromInvocationDialog}
+        />
+      )}
       <CommandPalette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
         skills={skills}
-        onSelect={openDetail}
+        onSelect={openDetailFromAnywhere}
         plugins={plugins}
         onSelectPlugin={selectPluginFromPalette}
       />

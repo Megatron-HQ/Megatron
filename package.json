@@ -25,7 +25,8 @@
     "build:unpack": "npm run build && electron-builder --dir",
     "build:mac": "npm run build && electron-builder --mac",
     "db": "node scripts/db.mjs open",
-    "db:reset": "node scripts/db.mjs reset"
+    "db:reset": "node scripts/db.mjs reset",
+    "explore:usage": "node scripts/explore-usage.mjs"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

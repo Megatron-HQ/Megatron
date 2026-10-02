@@ -36,6 +36,7 @@ import { SYNCED_ICON } from '@/lib/source-icon'
 import {
   getFolderBasename,
   getPluginBareName,
+  getSkillDisplayName,
   getSourceSortKey,
   getSourceTooltip
 } from '@/lib/source-name'
@@ -63,69 +64,73 @@ const COLUMN_WIDTH: Record<string, string> = {
 
 const SYNCED_TOOLTIP = getSourceTooltip('global', undefined, undefined, true)
 
-const nameColumn = columnHelper.accessor('name', {
-  header: 'Name',
-  sortFn: 'text',
-  cell: (info) => {
-    const row = info.row.original
-    return (
-      <span className="flex min-w-0 items-center gap-1.5">
-        <span className="truncate">{info.getValue()}</span>
-        {row.is_synced === 1 && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <SYNCED_ICON className="size-3 shrink-0 text-muted-foreground" />
-            </TooltipTrigger>
-            <TooltipContent>{SYNCED_TOOLTIP}</TooltipContent>
-          </Tooltip>
-        )}
-        {row.hook_events !== null && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Webhook className="size-3 shrink-0 text-muted-foreground" />
-            </TooltipTrigger>
-            <TooltipContent>
-              Also runs via hooks: {parseHookEvents(row.hook_events).join(', ')}
-            </TooltipContent>
-          </Tooltip>
-        )}
-        {row.model_invocable === 0 && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <BotOff className="size-3 shrink-0 text-muted-foreground" />
-            </TooltipTrigger>
-            <TooltipContent>
-              User-invocable only — Claude won&apos;t auto-invoke this. Run it with{' '}
-              <span className="font-mono">/{row.name}</span>.
-            </TooltipContent>
-          </Tooltip>
-        )}
-        {row.shadowed_by_skill_id !== null && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <AlertTriangle className="size-3 shrink-0 text-warning" />
-            </TooltipTrigger>
-            <TooltipContent>
-              A global skill with the same name always wins. This one can never run.
-            </TooltipContent>
-          </Tooltip>
-        )}
-        {row.disabled_reason !== null && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Power className="size-3 shrink-0 text-disabled-flag" />
-            </TooltipTrigger>
-            <TooltipContent>
-              {row.disabled_reason === 'plugin'
-                ? 'Plugin is disabled — not loaded into context.'
-                : 'Disabled via /skills — not loaded into context.'}
-            </TooltipContent>
-          </Tooltip>
-        )}
-      </span>
-    )
+const nameColumn = columnHelper.accessor(
+  (row) => getSkillDisplayName(row.name, row.source_type, row.plugin_name),
+  {
+    id: 'name',
+    header: 'Name',
+    sortFn: 'text',
+    cell: (info) => {
+      const row = info.row.original
+      return (
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate">{info.getValue()}</span>
+          {row.is_synced === 1 && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <SYNCED_ICON className="size-3 shrink-0 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent>{SYNCED_TOOLTIP}</TooltipContent>
+            </Tooltip>
+          )}
+          {row.hook_events !== null && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Webhook className="size-3 shrink-0 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent>
+                Also runs via hooks: {parseHookEvents(row.hook_events).join(', ')}
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {row.model_invocable === 0 && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <BotOff className="size-3 shrink-0 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent>
+                User-invocable only — Claude won&apos;t auto-invoke this. Run it with{' '}
+                <span className="font-mono">/{row.name}</span>.
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {row.shadowed_by_skill_id !== null && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <AlertTriangle className="size-3 shrink-0 text-warning" />
+              </TooltipTrigger>
+              <TooltipContent>
+                A global skill with the same name always wins. This one can never run.
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {row.disabled_reason !== null && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Power className="size-3 shrink-0 text-disabled-flag" />
+              </TooltipTrigger>
+              <TooltipContent>
+                {row.disabled_reason === 'plugin'
+                  ? 'Plugin is disabled — not loaded into context.'
+                  : 'Disabled via /skills — not loaded into context.'}
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </span>
+      )
+    }
   }
-})
+)
 
 const statusColumn = columnHelper.accessor('lint_status', {
   id: 'status',

@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { ContextBudgetDialog } from '@/components/ContextBudgetDialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { budgetStatus } from '@/lib/context-budget'
+import { useElementGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
 import { getFolderBasename, getPluginBareName, getProjectNameFromPath } from '@/lib/source-name'
 import type { SourceFilter } from '@/lib/source-filter'
@@ -40,6 +41,8 @@ export function Sidebar({
 }: SidebarProps): React.JSX.Element {
   const [projectExpanded, setProjectExpanded] = useState(false)
   const [pluginExpanded, setPluginExpanded] = useState(false)
+  const { containerRef, highlightRect, onItemHover, onMouseLeave, transition } =
+    useElementGlideHighlight<HTMLElement>()
 
   const projects = useMemo<ProjectSidebarItem[]>(() => {
     const map = new Map<string, ProjectSidebarItem>()
@@ -121,11 +124,13 @@ export function Sidebar({
   function handleProjectClick(): void {
     onFilterChange({ kind: 'project' })
     setProjectExpanded((open) => !open)
+    onItemHover(null)
   }
 
   function handlePluginClick(): void {
     onFilterChange({ kind: 'plugin' })
     setPluginExpanded((open) => !open)
+    onItemHover(null)
   }
 
   return (
@@ -135,15 +140,33 @@ export function Sidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto px-2">
-        <nav className="flex flex-col gap-0.5">
+        <nav
+          ref={containerRef}
+          className="relative flex flex-col gap-0.5"
+          onMouseLeave={onMouseLeave}
+        >
+          {highlightRect && (
+            <motion.div
+              className="pointer-events-none absolute z-0 rounded-md bg-accent"
+              initial={false}
+              animate={{
+                top: highlightRect.top,
+                left: highlightRect.left,
+                width: highlightRect.width,
+                height: highlightRect.height
+              }}
+              transition={transition}
+            />
+          )}
           <button
             type="button"
             onClick={() => onFilterChange({ kind: 'all' })}
+            onMouseEnter={(e) => onItemHover(e.currentTarget)}
             className={cn(
-              'flex h-8 items-center gap-2 rounded-md px-2 text-left text-sm transition-colors',
+              'relative z-10 flex h-8 items-center gap-2 rounded-md px-2 text-left text-sm transition-colors',
               filter.kind === 'all'
                 ? 'bg-accent-lime text-accent-lime-foreground'
-                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                : 'text-muted-foreground hover:text-accent-foreground'
             )}
           >
             <List className="size-4 shrink-0" />
@@ -153,11 +176,12 @@ export function Sidebar({
           <button
             type="button"
             onClick={() => onFilterChange({ kind: 'global' })}
+            onMouseEnter={(e) => onItemHover(e.currentTarget)}
             className={cn(
-              'flex h-8 items-center gap-2 rounded-md px-2 text-left text-sm transition-colors',
+              'relative z-10 flex h-8 items-center gap-2 rounded-md px-2 text-left text-sm transition-colors',
               filter.kind === 'global'
                 ? 'bg-accent-lime text-accent-lime-foreground'
-                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                : 'text-muted-foreground hover:text-accent-foreground'
             )}
           >
             <Globe className="size-4 shrink-0" />
@@ -166,13 +190,14 @@ export function Sidebar({
 
           <div className="flex flex-col">
             <div
+              onMouseEnter={(e) => onItemHover(e.currentTarget)}
               className={cn(
-                'flex h-8 items-center justify-between rounded-md px-2 text-sm transition-colors',
+                'relative z-10 flex h-8 items-center justify-between rounded-md px-2 text-sm transition-colors',
                 filter.kind === 'project' && !filter.projectRoot
                   ? 'bg-accent-lime text-accent-lime-foreground'
                   : filter.kind === 'project'
-                    ? 'text-foreground hover:bg-accent'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                    ? 'text-foreground'
+                    : 'text-muted-foreground hover:text-accent-foreground'
               )}
             >
               <button
@@ -185,7 +210,10 @@ export function Sidebar({
               </button>
               <button
                 type="button"
-                onClick={() => setProjectExpanded((open) => !open)}
+                onClick={() => {
+                  setProjectExpanded((open) => !open)
+                  onItemHover(null)
+                }}
                 aria-expanded={projectExpanded}
                 aria-label={projectExpanded ? 'Collapse project list' : 'Expand project list'}
                 className="-mr-1 shrink-0 rounded p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -225,11 +253,12 @@ export function Sidebar({
                             onClick={() =>
                               onFilterChange({ kind: 'project', projectRoot: project.path })
                             }
+                            onMouseEnter={(e) => onItemHover(e.currentTarget)}
                             className={cn(
-                              'flex h-7 items-center justify-between gap-1.5 rounded-md px-2 text-left text-xs transition-colors',
+                              'relative z-10 flex h-7 items-center justify-between gap-1.5 rounded-md px-2 text-left text-xs transition-colors',
                               isSelected
                                 ? 'bg-accent-lime font-medium text-accent-lime-foreground'
-                                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                                : 'text-muted-foreground hover:text-accent-foreground'
                             )}
                           >
                             <span className="truncate">{project.name}</span>
@@ -255,13 +284,14 @@ export function Sidebar({
 
           <div className="flex flex-col">
             <div
+              onMouseEnter={(e) => onItemHover(e.currentTarget)}
               className={cn(
-                'flex h-8 items-center justify-between rounded-md px-2 text-sm transition-colors',
+                'relative z-10 flex h-8 items-center justify-between rounded-md px-2 text-sm transition-colors',
                 filter.kind === 'plugin' && !filter.pluginName
                   ? 'bg-accent-lime text-accent-lime-foreground'
                   : filter.kind === 'plugin'
-                    ? 'text-foreground hover:bg-accent'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                    ? 'text-foreground'
+                    : 'text-muted-foreground hover:text-accent-foreground'
               )}
             >
               <button
@@ -274,7 +304,10 @@ export function Sidebar({
               </button>
               <button
                 type="button"
-                onClick={() => setPluginExpanded((open) => !open)}
+                onClick={() => {
+                  setPluginExpanded((open) => !open)
+                  onItemHover(null)
+                }}
                 aria-expanded={pluginExpanded}
                 aria-label={pluginExpanded ? 'Collapse plugin list' : 'Expand plugin list'}
                 className="-mr-1 shrink-0 rounded p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -314,11 +347,12 @@ export function Sidebar({
                             onClick={() =>
                               onFilterChange({ kind: 'plugin', pluginName: plugin.pluginName })
                             }
+                            onMouseEnter={(e) => onItemHover(e.currentTarget)}
                             className={cn(
-                              'flex h-7 items-center justify-between gap-1.5 rounded-md px-2 text-left text-xs transition-colors',
+                              'relative z-10 flex h-7 items-center justify-between gap-1.5 rounded-md px-2 text-left text-xs transition-colors',
                               isSelected
                                 ? 'bg-accent-lime font-medium text-accent-lime-foreground'
-                                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                                : 'text-muted-foreground hover:text-accent-foreground'
                             )}
                           >
                             <span className="truncate">{plugin.displayName}</span>

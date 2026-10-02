@@ -1,6 +1,6 @@
 import { Blocks } from 'lucide-react'
 import { SOURCE_ICON, SYNCED_ICON } from '@/lib/source-icon'
-import { getSourceDisplayName } from '@/lib/source-name'
+import { getSkillDisplayName, getSourceDisplayName } from '@/lib/source-name'
 import {
   CommandDialog,
   CommandEmpty,
@@ -82,7 +82,9 @@ export function CommandPalette({
                 <Icon className="size-4" />
                 <div className="flex flex-1 flex-col overflow-hidden">
                   <div className="flex items-center gap-2">
-                    <span className="truncate">{skill.name}</span>
+                    <span className="truncate">
+                      {getSkillDisplayName(skill.name, skill.source_type, skill.plugin_name)}
+                    </span>
                     <span className="truncate text-[11px] text-muted-foreground">
                       · {sourceName}
                     </span>
