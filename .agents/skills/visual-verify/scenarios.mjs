@@ -9,10 +9,10 @@
 // Implementing a UI change that adds a new screen, nav destination, or major
 // state includes adding its scenario here in the same change — see SKILL.md.
 //
-// Every scenario carries a `screen` — one of the nine names in SKILL.md's "Scope
+// Every scenario carries a `screen` — one of the ten names in SKILL.md's "Scope
 // the run" table (skill-inventory, skill-detail, skill-file-viewer, sidebar,
 // command-palette, context-budget-dialog, settings-dialog, plugin-inventory,
-// plugin-detail), tagged by what the screenshot is actually testing. It's what
+// plugin-detail, usage), tagged by what the screenshot is actually testing. It's what
 // `npm run verify:visual -- --only <screen>` filters on. The two interaction
 // guards (sidebar-filter-closes-open-detail, command-palette-skill-from-plugins-
 // section) list both screens they span. A new scenario MUST have one.
@@ -119,6 +119,66 @@ async function skipWithoutUserInvocableOnlySkills(window) {
   return count === 0 ? 'no user-invocable-only skills found locally' : null
 }
 
+/** Rail click → Usage section, landing on the Activity retrospective. */
+async function openUsageSection(window) {
+  await window.getByRole('button', { name: 'Usage', exact: true }).click()
+  await window
+    .getByRole('navigation', { name: 'Usage panels' })
+    .getByRole('button', { name: 'Activity', exact: true })
+    .click()
+  await window.locator('header').getByText('Activity', { exact: true }).waitFor()
+}
+
+async function openUsagePanel(window, panelName) {
+  await openUsageSection(window)
+  await window
+    .getByRole('navigation', { name: 'Usage panels' })
+    .getByRole('button', { name: panelName, exact: true })
+    .click()
+  await window.locator('header').getByText(panelName, { exact: true }).waitFor()
+}
+
+/**
+ * The Cost section renders one of two shapes depending on whether this machine has any priced
+ * `cost-state` history — the SpendBar/RankedList/DayStrip body, or the inline "No cost data yet."
+ * empty state. Its two scenarios each skip the case they don't cover.
+ */
+async function costDataPresent(window) {
+  await openUsagePanel(window, 'Cost')
+  return (await window.getByText('No cost data yet.').count()) === 0
+}
+
+async function skipWithoutCostDay(window) {
+  await openUsagePanel(window, 'Cost')
+  await window
+    .getByRole('radiogroup', { name: 'Cost window' })
+    .getByRole('radio', { name: '30 days' })
+    .click()
+  return (await window.locator('button[aria-haspopup="dialog"]').count()) > 0
+    ? null
+    : 'no timestamped cost days in the last 30 days'
+}
+
+async function openHourlyCost(window) {
+  await openUsagePanel(window, 'Cost')
+  await window
+    .getByRole('radiogroup', { name: 'Cost window' })
+    .getByRole('radio', { name: '24 hours' })
+    .click()
+}
+
+async function skipWithoutCostHour(window) {
+  await openHourlyCost(window)
+  return (await window.locator('button[aria-haspopup="dialog"]').count()) > 0
+    ? null
+    : 'no timestamped cost hours in the last 24 hours'
+}
+
+async function residentTaxDataPresent(window) {
+  await openUsagePanel(window, 'Resident tax')
+  return (await window.getByText('No cold-session sample yet').count()) === 0
+}
+
 /**
  * Scenarios pinned to a skill by name (see the header note above) hard-fail the whole run when
  * that skill is no longer installed, taking every later scenario down with them. Skipping is the
@@ -129,6 +189,23 @@ function skipWithoutNamedSkill(skillName) {
     const count = await window.locator(`tbody tr:has-text("${skillName}")`).count()
     return count === 0 ? `no skill named "${skillName}" installed locally` : null
   }
+}
+
+async function skipWithoutAutoInvocationData(window) {
+  await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
+  return (await window.getByRole('button', { name: /Auto invocations/ }).count()) === 0
+    ? 'grill-me has no autonomous invocation data in the local index'
+    : null
+}
+
+async function skipWithoutGroupedImageRun(window) {
+  await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
+  const viewAll = window.getByRole('button', { name: /View all/ })
+  if ((await viewAll.count()) === 0) return 'grill-me has no full activity log in the local index'
+  await viewAll.click()
+  return (await window.getByRole('button', { name: /screenshots ·/ }).count()) === 0
+    ? 'grill-me has no grouped image run in the local index'
+    : null
 }
 
 /** @type {Scenario[]} */
@@ -317,6 +394,7 @@ export const scenarios = [
     // that the click reached the right initial filter, not just that a dialog opened.
     name: 'skill-detail-usage-bar-filtered-activity',
     screen: 'skill-detail',
+    shouldSkip: skipWithoutAutoInvocationData,
     async run(window) {
       await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
       await window.getByRole('button', { name: /Auto invocations/ }).click()
@@ -338,6 +416,7 @@ export const scenarios = [
     // robust to that drift. Left unexpanded so this capture covers the collapsed state.
     name: 'skill-detail-activity-dialog-grouped',
     screen: 'skill-detail',
+    shouldSkip: skipWithoutGroupedImageRun,
     async run(window) {
       await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
       await window.getByRole('button', { name: /View all/ }).click()
@@ -351,6 +430,7 @@ export const scenarios = [
     // showing the per-screenshot timestamp/dimensions list that justifies the summary above it.
     name: 'skill-detail-activity-dialog-group-expanded',
     screen: 'skill-detail',
+    shouldSkip: skipWithoutGroupedImageRun,
     async run(window) {
       await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
       await window.getByRole('button', { name: /View all/ }).click()
@@ -674,6 +754,427 @@ export const scenarios = [
     async run(window) {
       await openPluginsSection(window)
       await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
+    }
+  },
+  {
+    // The AppRail's third destination: the Usage retrospective. Default (30-day) window —
+    // stat cells, the by-day strip, the punchcard, and the by-project bar list, all reduced
+    // from this developer's real ~/.claude/history.jsonl.
+    name: 'usage-activity-default',
+    screen: 'usage',
+    async run(window) {
+      await openUsageSection(window)
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // The page-global 7d/30d toggle switched to "7 days" — every windowed figure retunes.
+    name: 'usage-activity-7-day',
+    screen: 'usage',
+    async run(window) {
+      await openUsageSection(window)
+      await window
+        .getByRole('radiogroup', { name: 'Activity window' })
+        .getByRole('radio', { name: '7 days' })
+        .click()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'usage-activity-24-hour',
+    screen: 'usage',
+    async run(window) {
+      await openUsageSection(window)
+      await window
+        .getByRole('radiogroup', { name: 'Activity window' })
+        .getByRole('radio', { name: '24 hours' })
+        .click()
+      await window.getByText('By hour', { exact: true }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'usage-window-persists-across-rail-switch',
+    screen: 'usage',
+    async run(window) {
+      await openUsageSection(window)
+      const activityWindow = window.getByRole('radiogroup', { name: 'Activity window' })
+      await activityWindow.getByRole('radio', { name: '24 hours' }).click()
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'Usage', exact: true }).click()
+      await activityWindow.getByRole('radio', { name: '24 hours', checked: true }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // The lower half of the Activity section — the punchcard's marginal bars and the
+    // By-project RankedList, both below the fold at the default window height.
+    name: 'usage-activity-by-project',
+    screen: 'usage',
+    async run(window) {
+      await openUsageSection(window)
+      await window.getByText('By project', { exact: true }).first().scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // The Cost section with real data — the merged hero-$/spend-bar, the by-project RankedList,
+    // and the by-day strip, all from this machine's own priced cost-state history.
+    name: 'cost-section',
+    screen: 'usage',
+    shouldSkip: async (window) =>
+      (await costDataPresent(window)) ? null : 'no priced cost-state history on this machine',
+    async run(window) {
+      await openUsagePanel(window, 'Cost')
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // The Cost section's inline empty state — only reachable on a machine with no priced
+    // cost-state line anywhere in ~/.claude.
+    name: 'cost-section-no-data',
+    screen: 'usage',
+    shouldSkip: async (window) =>
+      (await costDataPresent(window))
+        ? 'cost data present — the empty state does not render'
+        : null,
+    async run(window) {
+      await openUsagePanel(window, 'Cost')
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'cost-7-day',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Cost')
+      await window
+        .getByRole('radiogroup', { name: 'Cost window' })
+        .getByRole('radio', { name: '7 days' })
+        .click()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'cost-24-hour',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Cost')
+      await window
+        .getByRole('radiogroup', { name: 'Cost window' })
+        .getByRole('radio', { name: '24 hours' })
+        .click()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'cost-day-dialog',
+    screen: 'usage',
+    shouldSkip: skipWithoutCostDay,
+    async run(window) {
+      await openUsagePanel(window, 'Cost')
+      await window.locator('button[aria-haspopup="dialog"]').first().click()
+      await window.getByRole('dialog', { name: /Cost details/ }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'cost-hour-dialog',
+    screen: 'usage',
+    shouldSkip: skipWithoutCostHour,
+    async run(window) {
+      await openHourlyCost(window)
+      await window.locator('button[aria-haspopup="dialog"]').first().click()
+      await window.getByRole('dialog', { name: /Cost details/ }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'cost-hour-dialog-dark',
+    screen: 'usage',
+    shouldSkip: skipWithoutCostHour,
+    async run(window) {
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('radio', { name: 'Dark', exact: true }).click()
+      await window.keyboard.press('Escape')
+      await window.getByRole('dialog').waitFor({ state: 'hidden' })
+      await openHourlyCost(window)
+      await window.locator('button[aria-haspopup="dialog"]').first().click()
+      await window.getByRole('dialog', { name: /Cost details/ }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'cost-hour-keyboard-return',
+    screen: 'usage',
+    shouldSkip: skipWithoutCostHour,
+    async run(window) {
+      await openHourlyCost(window)
+      const hour = window.locator('button[aria-haspopup="dialog"]').first()
+      await hour.focus()
+      for (const key of ['Enter', 'Space']) {
+        await window.keyboard.press(key)
+        await window.getByRole('dialog', { name: /Cost details/ }).waitFor()
+        await window.keyboard.press('Escape')
+        await window.getByRole('dialog').waitFor({ state: 'hidden' })
+        await window.waitForTimeout(MOTION_SETTLE_MS)
+      }
+    }
+  },
+  {
+    name: 'cost-day-keyboard-return',
+    screen: 'usage',
+    shouldSkip: skipWithoutCostDay,
+    async run(window) {
+      await openUsagePanel(window, 'Cost')
+      const day = window.locator('button[aria-haspopup="dialog"]').first()
+      await day.focus()
+      await window.keyboard.press('Enter')
+      await window.getByRole('dialog', { name: /Cost details/ }).waitFor()
+      await window.keyboard.press('Escape')
+      await window.getByRole('dialog').waitFor({ state: 'hidden' })
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'cost-window-persists-across-rail-switch',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Cost')
+      const control = window.getByRole('radiogroup', { name: 'Cost window' })
+      await control.getByRole('radio', { name: '7 days' }).click()
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'Usage', exact: true }).click()
+      await control.getByRole('radio', { name: '7 days', checked: true }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // PR4's default 30-day Models section: independent window control, summaries, and the
+    // horizontally scrollable model-by-effort matrix with column and row totals.
+    name: 'usage-models-default',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Models')
+      await window.getByText('Model × effort', { exact: true }).scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'usage-resident-tax',
+    screen: 'usage',
+    shouldSkip: async (window) =>
+      (await residentTaxDataPresent(window)) ? null : 'no eligible cold-session sample',
+    async run(window) {
+      await openUsagePanel(window, 'Resident tax')
+      await window.getByText('Measured turn-one resident tokens', { exact: true }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'usage-resident-tax-no-data',
+    screen: 'usage',
+    shouldSkip: async (window) =>
+      (await residentTaxDataPresent(window)) ? 'eligible cold-session sample present' : null,
+    async run(window) {
+      await openUsagePanel(window, 'Resident tax')
+      await window.getByText('No cold-session sample yet', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'usage-resident-tax-dark',
+    screen: 'usage',
+    shouldSkip: async (window) =>
+      (await residentTaxDataPresent(window)) ? null : 'no eligible cold-session sample',
+    async run(window) {
+      const isDark = await window.evaluate(() =>
+        document.documentElement.classList.contains('dark')
+      )
+      if (!isDark) {
+        await window.getByRole('button', { name: 'Settings' }).click()
+        await window.getByRole('radio', { name: 'Dark' }).click()
+        await window.keyboard.press('Escape')
+        await window.getByRole('dialog').waitFor({ state: 'detached' })
+      }
+      await openUsagePanel(window, 'Resident tax')
+      await window.getByText('Measured turn-one resident tokens', { exact: true }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // PR3's default 30-day Skills section: its own window control, stat cells, trend,
+    // ranked skill/trigger lists, and the session-association ledger — including the
+    // restored ambient cost row-fill, per-row source tags, and skill-name links.
+    name: 'usage-skills-default',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Skills')
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // Restored click-through: an installed skill's row links to its detail page (skillId
+    // resolved by shadowing precedence); historical names open a filtered log. Landing on
+    // SkillDetail also proves the section auto-switches to Skills and the filter is cleared.
+    name: 'usage-skills-association-clickthrough',
+    screen: 'usage',
+    shouldSkip: async (window) => {
+      await openUsagePanel(window, 'Skills')
+      const links = window.getByRole('table').getByRole('button', { name: /Open .* detail/ })
+      return (await links.count()) === 0
+        ? 'no installed skills in the association table on this machine'
+        : null
+    },
+    async run(window) {
+      await openUsagePanel(window, 'Skills')
+      const link = window
+        .getByRole('table')
+        .getByRole('button', { name: /Open .* detail/ })
+        .first()
+      await link.scrollIntoViewIfNeeded()
+      await link.click()
+      const backButton = window.getByRole('button', { name: 'Back to skills' })
+      await backButton.waitFor()
+      await backButton.click()
+      await window.locator('header').getByText('Skills', { exact: true }).waitFor()
+      const currentPanel = await window
+        .getByRole('navigation', { name: 'Usage panels' })
+        .getByRole('button', { name: 'Skills', exact: true })
+        .getAttribute('aria-current')
+      if (currentPanel !== 'page') throw new Error('Usage Skills panel was not restored')
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // TextLink's underline sweep must span only the skill name, not the whole (wide) table
+    // cell — the link shrink-wraps its text. At-rest capture shows nothing, so hover it.
+    name: 'usage-skills-association-link-hover',
+    screen: 'usage',
+    shouldSkip: async (window) => {
+      await openUsagePanel(window, 'Skills')
+      const links = window.getByRole('table').getByRole('button', { name: /Open .* detail/ })
+      return (await links.count()) === 0
+        ? 'no installed skills in the association table on this machine'
+        : null
+    },
+    async run(window) {
+      await openUsagePanel(window, 'Skills')
+      const link = window
+        .getByRole('table')
+        .getByRole('button', { name: /Open .* detail/ })
+        .first()
+      await link.scrollIntoViewIfNeeded()
+      await link.hover()
+    }
+  },
+  {
+    name: 'usage-skills-trend-dialog',
+    screen: 'usage',
+    shouldSkip: async (window) => {
+      await openUsagePanel(window, 'Skills')
+      const chart = window.getByText('Invocations over time', { exact: true }).locator('..')
+      return (await chart.getByRole('button', { name: /: [1-9]/ }).count()) === 0
+        ? 'no nonempty skill trend bucket on this machine'
+        : null
+    },
+    async run(window) {
+      await openUsagePanel(window, 'Skills')
+      const chart = window.getByText('Invocations over time', { exact: true }).locator('..')
+      await chart
+        .getByRole('button', { name: /: [1-9]/ })
+        .first()
+        .click()
+      await window.getByRole('dialog').getByText('Skill invocations', { exact: false }).waitFor()
+    }
+  },
+  {
+    name: 'usage-skills-top-skill-detail',
+    screen: 'usage',
+    shouldSkip: async (window) => {
+      await openUsagePanel(window, 'Skills')
+      const list = window.getByText('Top skills', { exact: true }).locator('..')
+      return (await list.getByRole('button', { name: /Open .* detail/ }).count()) === 0
+        ? 'no installed top skill in the current window'
+        : null
+    },
+    async run(window) {
+      await openUsagePanel(window, 'Skills')
+      const list = window.getByText('Top skills', { exact: true }).locator('..')
+      await list
+        .getByRole('button', { name: /Open .* detail/ })
+        .first()
+        .click()
+      await window.getByRole('button', { name: 'Back to skills' }).waitFor()
+    }
+  },
+  {
+    name: 'usage-skills-dialog-detail-back',
+    screen: 'usage',
+    shouldSkip: async (window) => {
+      await openUsagePanel(window, 'Skills')
+      const chart = window.getByText('Invocations over time', { exact: true }).locator('..')
+      const bar = chart.getByRole('button', { name: /: [1-9]/ }).first()
+      if ((await bar.count()) === 0) return 'no nonempty skill trend bucket on this machine'
+      await bar.click()
+      const dialog = window.getByRole('dialog')
+      const links = dialog.getByRole('button', { name: /Open .* detail/ })
+      const hasLink = (await links.count()) > 0
+      await window.keyboard.press('Escape')
+      await dialog.waitFor({ state: 'detached' })
+      return hasLink ? null : 'no installed skill in the selected bucket'
+    },
+    async run(window) {
+      await openUsagePanel(window, 'Skills')
+      const chart = window.getByText('Invocations over time', { exact: true }).locator('..')
+      await chart
+        .getByRole('button', { name: /: [1-9]/ })
+        .first()
+        .click()
+      await window
+        .getByRole('dialog')
+        .getByRole('button', { name: /Open .* detail/ })
+        .first()
+        .click()
+      await window.getByRole('button', { name: 'Back to skills' }).click()
+      await window.getByRole('dialog').getByText('Skill invocations', { exact: false }).waitFor()
+    }
+  },
+  {
+    // Skills owns a separate 24h/7d/30d control; changing it must leave Activity's
+    // page-global control alone while retuning the Skills stats and hourly trend.
+    name: 'usage-skills-24-hour',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Skills')
+      await window
+        .getByRole('radiogroup', { name: 'Skill activity window' })
+        .getByRole('radio', { name: '24 hours' })
+        .click()
+      await window.getByText('Invocations over time', { exact: true }).scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // The Tier-3 table must keep the association-not-attribution disclosure, the skill-less
+    // sessions caption, the ambient cost row-fill, and all numeric columns readable at both
+    // window sizes and in dark mode.
+    name: 'usage-skills-association-dark',
+    screen: 'usage',
+    async run(window) {
+      const isDark = () =>
+        window.evaluate(() => document.documentElement.classList.contains('dark'))
+      if (!(await isDark())) {
+        await window.getByRole('button', { name: 'Settings' }).click()
+        await window.getByRole('radio', { name: 'Dark' }).click()
+        await window.keyboard.press('Escape')
+        await window.getByRole('dialog').waitFor({ state: 'detached' })
+      }
+      await window.waitForFunction(() => document.documentElement.classList.contains('dark'))
+      await openUsagePanel(window, 'Skills')
+      await window
+        .getByText('Estimated API-equivalent cost is attributed', { exact: false })
+        .scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   }
 ]

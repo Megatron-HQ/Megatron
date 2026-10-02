@@ -2,12 +2,21 @@ import type Database from 'better-sqlite3'
 import { homedir } from 'os'
 import { basename, join, resolve } from 'path'
 import {
-  allowedReadFileSync,
   allowedStatSync,
   isPathAllowed,
-  readAllowedDirectory
+  readAllowedDirectory,
+  visitAllowedUtf8LinesSync
 } from '../permissions'
 import type { TriggerType } from '../../shared/ipc'
+import {
+  extractCostState,
+  extractTurnUsage,
+  toModelCostRows,
+  type SessionCost,
+  type TurnUsageRow
+} from './cost-parser'
+import { rebuildSessionSkillCosts } from './skill-cost-allocation'
+import { extractResidentContextSample, type ResidentContextSample } from './resident-context-parser'
 
 export interface TranscriptSession {
   session_id: string
@@ -15,6 +24,7 @@ export interface TranscriptSession {
   git_branch: string | null
   started_at: string
   message_count: number
+  continued_in_session_id: string | null
 }
 
 export interface TranscriptInvocation {
@@ -36,7 +46,11 @@ interface InvocationCandidate {
 }
 
 const PRECEDING_TEXT_MAX_CHARS = 2000
-const TRANSCRIPT_PARSER_VERSION = 3
+// Bumps on any parser-semantic change across the whole walk, cost-state included (no separate
+// cost_parser_version — see docs/usage-analytics.md §8). A bump forces one safe reindex of all
+// already-indexed sessions. 3→4: cost-state; 4→5: turn usage; 5→6: replay dedup;
+// 6→7: independent lineage plus numeric resident-context samples.
+const TRANSCRIPT_PARSER_VERSION = 7
 
 function truncatePrecedingText(text: string | null): string | null {
   return text === null ? null : text.slice(0, PRECEDING_TEXT_MAX_CHARS)
@@ -45,27 +59,50 @@ function truncatePrecedingText(text: string | null): string | null {
 export interface TranscriptParse {
   session: TranscriptSession | null
   invocations: TranscriptInvocation[]
+  turns: TurnUsageRow[]
+  // The last cost-state line's parsed shape, or null when the transcript has none (pre-v2.1.241
+  // history). Main transcripts only — subagent cost is already inside the parent's total.
+  cost: SessionCost | null
+  resident: ResidentContextSample | null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function parseLines(filePath: string): Record<string, unknown>[] {
-  const contents = allowedReadFileSync(filePath)
-  if (contents === null) return []
+function compactRecord(record: Record<string, unknown>): Record<string, unknown> {
+  if (record.type !== 'user' && record.type !== 'assistant') return record
+  const message = record.message
+  if (!isRecord(message) || !Array.isArray(message.content)) return record
 
-  const raw = contents.toString('utf8').split('\n')
+  const content = message.content.flatMap((block): Record<string, unknown>[] => {
+    if (!isRecord(block)) return []
+    if (block.type === 'tool_result') return [{ type: 'tool_result' }]
+    if (block.type === 'tool_use' && block.name === 'Skill') return [block]
+    if (block.type === 'text' && typeof block.text === 'string') {
+      return [
+        block.text.includes(BASE_DIRECTORY_MARKER)
+          ? { type: 'text', text: BASE_DIRECTORY_MARKER }
+          : block
+      ]
+    }
+    return []
+  })
+
+  return { ...record, message: { ...message, content } }
+}
+
+function parseLines(filePath: string): Record<string, unknown>[] {
   const records: Record<string, unknown>[] = []
-  for (const line of raw) {
-    if (line.trim() === '') continue
+  visitAllowedUtf8LinesSync(filePath, (line) => {
+    if (line.trim() === '') return
     try {
       const parsed: unknown = JSON.parse(line)
-      if (isRecord(parsed)) records.push(parsed)
+      if (isRecord(parsed)) records.push(compactRecord(parsed))
     } catch {
-      continue
+      return
     }
-  }
+  })
   return records
 }
 
@@ -85,13 +122,24 @@ function extractSession(records: Record<string, unknown>[]): TranscriptSession |
   const messageCount = records.filter(
     (record) => record.type === 'user' || record.type === 'assistant'
   ).length
+  const continuedInSessionId = records.reduce<string | null>((latest, record) => {
+    if (
+      record.type !== 'continued-in' ||
+      typeof record.continuedInSessionId !== 'string' ||
+      record.continuedInSessionId === ''
+    ) {
+      return latest
+    }
+    return record.continuedInSessionId
+  }, null)
 
   return {
     session_id: metaRecord.sessionId,
     cwd: metaRecord.cwd as string,
     git_branch: gitBranch,
     started_at: startedAt,
-    message_count: messageCount
+    message_count: messageCount,
+    continued_in_session_id: continuedInSessionId
   }
 }
 
@@ -326,21 +374,39 @@ function extractInvocations(
 
 export function parseTranscript(filePath: string): TranscriptParse {
   if (!isPathAllowed(filePath)) {
-    return { session: null, invocations: [] }
+    return { session: null, invocations: [], turns: [], cost: null, resident: null }
   }
 
   const records = parseLines(filePath)
-  return { session: extractSession(records), invocations: extractInvocations(records) }
+  return {
+    session: extractSession(records),
+    invocations: extractInvocations(records),
+    turns: extractTurnUsage(records),
+    cost: extractCostState(records),
+    resident: extractResidentContextSample(records)
+  }
+}
+
+interface SubagentParse {
+  invocations: TranscriptInvocation[]
+  turns: TurnUsageRow[]
+}
+
+function parseSubagent(filePath: string): SubagentParse {
+  if (!isPathAllowed(filePath)) return { invocations: [], turns: [] }
+  const agentId = basename(filePath, '.jsonl')
+  const records = parseLines(filePath)
+  return {
+    invocations: extractInvocations(records, agentId),
+    turns: extractTurnUsage(records, agentId)
+  }
 }
 
 // Deliberately never calls extractSession: every record in a subagent file carries the parent
 // session's own sessionId and cwd, so upserting a "session" from this file would overwrite the
 // parent's real sessions_meta row with the subagent's own started_at/message_count.
 export function parseSubagentInvocations(filePath: string): TranscriptInvocation[] {
-  if (!isPathAllowed(filePath)) return []
-
-  const agentId = basename(filePath, '.jsonl')
-  return extractInvocations(parseLines(filePath), agentId)
+  return parseSubagent(filePath).invocations
 }
 
 export function scanTranscripts(
@@ -349,16 +415,17 @@ export function scanTranscripts(
 ): void {
   const upsertSession = db.prepare(`
     INSERT INTO sessions_meta
-      (session_id, cwd, git_branch, started_at, message_count, source_mtime_ms, source_size_bytes,
-       transcript_parser_version)
+      (session_id, cwd, git_branch, started_at, message_count, continued_in_session_id,
+       source_mtime_ms, source_size_bytes, transcript_parser_version)
     VALUES
-      (@session_id, @cwd, @git_branch, @started_at, @message_count, @source_mtime_ms, @source_size_bytes,
-       @transcript_parser_version)
+      (@session_id, @cwd, @git_branch, @started_at, @message_count, @continued_in_session_id,
+       @source_mtime_ms, @source_size_bytes, @transcript_parser_version)
     ON CONFLICT(session_id) DO UPDATE SET
       cwd = excluded.cwd,
       git_branch = excluded.git_branch,
       started_at = excluded.started_at,
       message_count = excluded.message_count,
+      continued_in_session_id = excluded.continued_in_session_id,
       source_mtime_ms = excluded.source_mtime_ms,
       source_size_bytes = excluded.source_size_bytes,
       transcript_parser_version = excluded.transcript_parser_version
@@ -371,6 +438,60 @@ export function scanTranscripts(
   `)
 
   const deleteSessionInvocations = db.prepare('DELETE FROM skill_invocations WHERE session_id = ?')
+  const deleteSessionTurns = db.prepare('DELETE FROM turn_usage WHERE session_id = ?')
+
+  // Resumed sessions replay prior assistant records, sometimes under a different session id.
+  // Both global uniques are deliberate dedup seams. This UPSERT form ignores only uniqueness
+  // conflicts; foreign-key, NOT NULL, and CHECK violations still fail the scan loudly.
+  const insertTurn = db.prepare(`
+    INSERT INTO turn_usage
+      (logical_turn_key, source_uuid, session_id, request_id, message_id, turn_index, model,
+       effort, input_tokens, cache_read_tokens, cache_creation_tokens,
+       cache_creation_5m_tokens, cache_creation_1h_tokens, output_tokens, thinking_tokens,
+       web_search_requests, agent_id, active_skill, invoked_at)
+    VALUES
+      (@logical_turn_key, @source_uuid, @session_id, @request_id, @message_id, @turn_index, @model,
+       @effort, @input_tokens, @cache_read_tokens, @cache_creation_tokens,
+       @cache_creation_5m_tokens, @cache_creation_1h_tokens, @output_tokens, @thinking_tokens,
+       @web_search_requests, @agent_id, @active_skill, @invoked_at)
+    ON CONFLICT DO NOTHING
+  `)
+
+  // session_model_cost rows cascade off session_cost (ON DELETE CASCADE); FKs are enabled by
+  // applySchema, so a bare DELETE here also clears the per-model rows.
+  const deleteSessionCost = db.prepare('DELETE FROM session_cost WHERE session_id = ?')
+
+  const insertSessionCost = db.prepare(`
+    INSERT INTO session_cost
+      (session_id, total_cost_usd, has_unknown_model_cost, is_zeroed)
+    VALUES
+      (@session_id, @total_cost_usd, @has_unknown_model_cost, @is_zeroed)
+  `)
+
+  const deleteResidentContextSample = db.prepare(
+    'DELETE FROM resident_context_sample WHERE session_id = ?'
+  )
+  const insertResidentContextSample = db.prepare(`
+    INSERT INTO resident_context_sample
+      (session_id, first_turn_at, model, claude_version, cache_read_tokens, measured_tokens,
+       cost_state_started_at, skill_characters, skill_count, agent_characters, agent_count,
+       hook_characters, hook_count, mcp_characters, mcp_count, instruction_characters,
+       instruction_count)
+    VALUES
+      (@session_id, @first_turn_at, @model, @claude_version, @cache_read_tokens, @measured_tokens,
+       @cost_state_started_at, @skill_characters, @skill_count, @agent_characters, @agent_count,
+       @hook_characters, @hook_count, @mcp_characters, @mcp_count, @instruction_characters,
+       @instruction_count)
+  `)
+
+  const insertModelCost = db.prepare(`
+    INSERT INTO session_model_cost
+      (session_id, model, cost_usd, input_tokens, output_tokens, thinking_tokens,
+       cache_read_tokens, cache_creation_tokens, web_search_requests)
+    VALUES
+      (@session_id, @model, @cost_usd, @input_tokens, @output_tokens, @thinking_tokens,
+       @cache_read_tokens, @cache_creation_tokens, @web_search_requests)
+  `)
 
   const getStoredMtime = db.prepare(
     `SELECT source_mtime_ms, source_size_bytes, transcript_parser_version
@@ -458,31 +579,65 @@ export function scanTranscripts(
           transcript_parser_version: TRANSCRIPT_PARSER_VERSION
         })
         deleteSessionInvocations.run(parsed.session.session_id)
+        deleteSessionTurns.run(parsed.session.session_id)
+        deleteSessionCost.run(parsed.session.session_id)
+        deleteResidentContextSample.run(parsed.session.session_id)
+        if (parsed.cost !== null) {
+          insertSessionCost.run({
+            session_id: parsed.session.session_id,
+            total_cost_usd: parsed.cost.totalCostUsd,
+            has_unknown_model_cost: parsed.cost.hasUnknownModelCost ? 1 : 0,
+            is_zeroed: parsed.cost.isZeroed ? 1 : 0
+          })
+          for (const row of toModelCostRows(parsed.cost)) {
+            insertModelCost.run({ session_id: parsed.session.session_id, ...row })
+          }
+        }
+        if (parsed.resident !== null) insertResidentContextSample.run(parsed.resident)
         for (const invocation of parsed.invocations) {
           insertInvocation.run(invocation)
         }
+        for (const turn of parsed.turns) {
+          insertTurn.run(turn)
+        }
         for (const subagentFilePath of subagentFilePaths) {
-          for (const invocation of parseSubagentInvocations(subagentFilePath)) {
+          const subagent = parseSubagent(subagentFilePath)
+          for (const invocation of subagent.invocations) {
             insertInvocation.run(invocation)
           }
+          for (const turn of subagent.turns) insertTurn.run(turn)
         }
       }
     }
 
-    if (!scanIsAuthoritative) return
+    if (!scanIsAuthoritative) {
+      rebuildSessionSkillCosts(db)
+      return
+    }
 
+    // session_cost is deleted before sessions_meta: its FK to sessions_meta has no cascade, so a
+    // parent row can't go first. session_model_cost follows session_cost via cascade.
     if (seenSessionIds.size === 0) {
       db.prepare('DELETE FROM skill_invocations').run()
+      db.prepare('DELETE FROM turn_usage').run()
+      db.prepare('DELETE FROM session_cost').run()
       db.prepare('DELETE FROM sessions_meta').run()
     } else {
       const placeholders = [...seenSessionIds].map(() => '?').join(', ')
       db.prepare(`DELETE FROM skill_invocations WHERE session_id NOT IN (${placeholders})`).run(
         ...seenSessionIds
       )
+      db.prepare(`DELETE FROM turn_usage WHERE session_id NOT IN (${placeholders})`).run(
+        ...seenSessionIds
+      )
+      db.prepare(`DELETE FROM session_cost WHERE session_id NOT IN (${placeholders})`).run(
+        ...seenSessionIds
+      )
       db.prepare(`DELETE FROM sessions_meta WHERE session_id NOT IN (${placeholders})`).run(
         ...seenSessionIds
       )
     }
+    rebuildSessionSkillCosts(db)
   })
 
   runScan()

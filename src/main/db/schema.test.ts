@@ -9,7 +9,7 @@ beforeEach(() => {
 })
 
 describe('applySchema', () => {
-  it('creates all six tables', () => {
+  it('creates every table', () => {
     applySchema(db)
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -22,9 +22,79 @@ describe('applySchema', () => {
         'skill_invocations',
         'plugin_registry',
         'allowed_paths',
-        'lint_findings'
+        'lint_findings',
+        'prompt_history',
+        'session_cost',
+        'session_model_cost',
+        'turn_usage',
+        'session_skill_cost',
+        'resident_context_sample'
       ])
     )
+  })
+
+  it('stores continuation lineage independently from cost and resident samples as numeric-only data', () => {
+    applySchema(db)
+
+    const sessionColumns = db
+      .prepare('PRAGMA table_info(sessions_meta)')
+      .all()
+      .map((row) => (row as { name: string }).name)
+    const costColumns = db
+      .prepare('PRAGMA table_info(session_cost)')
+      .all()
+      .map((row) => (row as { name: string }).name)
+    const residentColumns = db
+      .prepare('PRAGMA table_info(resident_context_sample)')
+      .all()
+      .map((row) => (row as { name: string }).name)
+
+    expect(sessionColumns).toContain('continued_in_session_id')
+    expect(costColumns).not.toContain('continued_in_session_id')
+    expect(residentColumns).toEqual(
+      expect.arrayContaining([
+        'session_id',
+        'first_turn_at',
+        'model',
+        'cache_read_tokens',
+        'measured_tokens',
+        'skill_characters',
+        'agent_characters',
+        'hook_characters',
+        'mcp_characters',
+        'instruction_characters'
+      ])
+    )
+    expect(residentColumns).not.toContain('content')
+  })
+
+  it('rejects duplicate logical turns and duplicate General-work buckets', () => {
+    applySchema(db)
+    db.prepare(
+      `INSERT INTO sessions_meta (session_id, cwd, git_branch, started_at, message_count, source_mtime_ms)
+       VALUES ('session-1', '/cwd', NULL, ?, 0, 0)`
+    ).run(new Date().toISOString())
+    db.prepare(
+      `INSERT INTO session_cost (session_id, total_cost_usd) VALUES ('session-1', 2.5)`
+    ).run()
+
+    const insertTurn = db.prepare(
+      `INSERT INTO turn_usage
+         (logical_turn_key, source_uuid, session_id, turn_index, model, input_tokens,
+          cache_read_tokens, cache_creation_tokens, cache_creation_5m_tokens,
+          cache_creation_1h_tokens, output_tokens, invoked_at)
+       VALUES (?, ?, 'session-1', 0, 'claude-sonnet-5', 0, 0, 0, 0, 0, 1, ?)`
+    )
+    const now = new Date().toISOString()
+    insertTurn.run('message:m-1', 'uuid-1', now)
+    expect(() => insertTurn.run('message:m-1', 'uuid-2', now)).toThrow()
+
+    const insertGeneral = db.prepare(
+      `INSERT INTO session_skill_cost (session_id, skill_name, est_cost_usd)
+       VALUES ('session-1', NULL, ?)`
+    )
+    insertGeneral.run(1)
+    expect(() => insertGeneral.run(1.5)).toThrow()
   })
 
   it('rejects an invalid lint_findings.severity', () => {
@@ -79,6 +149,31 @@ describe('applySchema', () => {
     expect(db.prepare('SELECT COUNT(*) as count FROM lint_findings').get()).toEqual({ count: 1 })
     db.prepare('DELETE FROM skills WHERE id = ?').run(skill.id)
     expect(db.prepare('SELECT COUNT(*) as count FROM lint_findings').get()).toEqual({ count: 0 })
+  })
+
+  it('cascades deletion of session_model_cost rows when the parent session_cost row is deleted', () => {
+    applySchema(db)
+    db.prepare(
+      `INSERT INTO sessions_meta (session_id, cwd, git_branch, started_at, message_count, source_mtime_ms)
+       VALUES ('session-1', '/cwd', NULL, ?, 0, 0)`
+    ).run(new Date().toISOString())
+    db.prepare(
+      `INSERT INTO session_cost (session_id, total_cost_usd) VALUES ('session-1', 2.5)`
+    ).run()
+    db.prepare(
+      `INSERT INTO session_model_cost
+         (session_id, model, cost_usd, input_tokens, output_tokens, thinking_tokens,
+          cache_read_tokens, cache_creation_tokens, web_search_requests)
+       VALUES ('session-1', 'claude-sonnet-5', 2.5, 100, 200, 50, 3000, 400, 0)`
+    ).run()
+
+    expect(db.prepare('SELECT COUNT(*) AS count FROM session_model_cost').get()).toEqual({
+      count: 1
+    })
+    db.prepare('DELETE FROM session_cost WHERE session_id = ?').run('session-1')
+    expect(db.prepare('SELECT COUNT(*) AS count FROM session_model_cost').get()).toEqual({
+      count: 0
+    })
   })
 
   it('rejects a duplicate allowed_paths.path', () => {

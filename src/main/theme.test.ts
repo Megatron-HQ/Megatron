@@ -60,4 +60,14 @@ describe('resolveInitialSection', () => {
     setStoredSection(store, 'plugins')
     expect(resolveInitialSection(store)).toBe('plugins')
   })
+
+  it('round-trips the usage section', () => {
+    setStoredSection(store, 'usage')
+    expect(resolveInitialSection(store)).toBe('usage')
+  })
+
+  it('falls back to skills when the stored value is not a known section', () => {
+    store.set('lastSection', 'no-such-section' as never)
+    expect(resolveInitialSection(store)).toBe('skills')
+  })
 })

@@ -20,7 +20,9 @@ export const IPC_CHANNELS = {
   setLastSection: 'app:setLastSection',
   rescan: 'app:rescan',
   revealDataFolder: 'app:revealDataFolder',
-  getVersion: 'app:getVersion'
+  getVersion: 'app:getVersion',
+  usageOverview: 'usage:overview',
+  usageSkillInvocations: 'usage:skillInvocations'
 } as const
 
 export interface AllowedPathRow {
@@ -131,6 +133,18 @@ export interface SkillInvocationEntry {
   agent_id: string | null // subagent filename stem; NULL for main-session invocations
 }
 
+export interface SkillInvocationRecord extends SkillInvocationEntry {
+  skillName: string
+  skillId: number | null
+  sourceType: SourceType | null
+}
+
+export interface SkillInvocationSliceInput {
+  startAt: string
+  endAt: string
+  skillName?: string
+}
+
 export interface SkillUsageDetail {
   byTriggerType: TriggerTypeCount[]
   byProject: ProjectCount[]
@@ -219,4 +233,255 @@ export interface PluginActionInput {
   projectPath: string | null
 }
 
-export type AppSection = 'skills' | 'plugins'
+// The runtime list resolveInitialSection validates a stored value against, plus the derived
+// union — one source so the two can't drift.
+export const APP_SECTIONS = ['skills', 'plugins', 'usage'] as const
+export type AppSection = (typeof APP_SECTIONS)[number]
+
+export interface ActivityProjectCount {
+  project: string // raw cwd string, matches sessions_meta.cwd
+  count: number
+}
+
+export interface ActivityDay {
+  date: string // YYYY-MM-DD, local time
+  count: number
+  weekday: number // 0 = Sunday, server-computed so the renderer never re-parses `date`
+}
+
+export interface ActivityHour {
+  key: string // ISO start of a rolling one-hour bucket
+  count: number
+}
+
+export interface ActivityWindow {
+  days: 1 | 7 | 30
+  activeDays: number
+  sessions: number
+  prompts: number
+  slashCommands: number
+  byHour: number[] // length 24, local time
+  byWeekday: number[] // length 7, index 0 = Sunday, local time
+  // 7 rows × 24 cols, [weekday][hour], row 0 = Sunday, local time — the punchcard.
+  // byHour / byWeekday are its margins, summed out of it and kept for reuse.
+  byHourWeekday: number[][]
+  byProject: ActivityProjectCount[] // full list, count desc
+  byDay: ActivityDay[] // zero-filled, ascending
+}
+
+export interface Activity24HourWindow extends ActivityWindow {
+  days: 1
+  hourlyTrend: ActivityHour[] // 24 zero-filled rolling buckets, ascending
+}
+
+export interface ActivityStats {
+  last24h: Activity24HourWindow
+  last7d: ActivityWindow
+  last30d: ActivityWindow
+  generatedAt: string
+}
+
+// The Cost section (docs/usage-view-ui-spec.md §C). Read verbatim from Claude Code's per-session
+// `cost-state` remains the dollar source. Rolling windows use its proportional activity-time
+// shares; coverage metadata describes all retained priced terminal sessions.
+export type CostWindowKey = '24h' | '7d' | '30d'
+export const UNATTRIBUTED_COST_MODEL = 'unattributed'
+export interface CostModelSpend {
+  model: string // normalized key (date suffix stripped) — formatModelName / modelSeriesVar assume this
+  costUsd: number
+}
+
+export interface CostProjectSpend {
+  project: string // raw cwd path, matches sessions_meta.cwd
+  costUsd: number
+}
+
+export interface CostDay {
+  date: string // YYYY-MM-DD, local time
+  costUsd: number
+  weekday: number // 0 = Sunday, server-computed
+  startAt: string // clipped, inclusive ISO boundary
+  endAt: string // clipped, exclusive ISO boundary
+  partial: boolean
+  pricedSessionCount: number
+  hasUnknownModelCost: boolean
+  byModel: CostModelSpend[]
+  byProject: CostProjectSpend[]
+}
+
+export interface CostHour {
+  startAt: string
+  endAt: string
+  costUsd: number
+  pricedSessionCount: number
+  hasUnknownModelCost: boolean
+  byModel: CostModelSpend[]
+  byProject: CostProjectSpend[]
+}
+
+export interface CostWindow {
+  days: 1 | 7 | 30
+  startAt: string
+  endAt: string
+  totalCostUsd: number
+  pricedSessionCount: number // distinct priced terminals contributing timestamped shares
+  hasUnknownModelCost: boolean
+  byModel: CostModelSpend[]
+  byProject: CostProjectSpend[]
+  byDay: CostDay[] // all local dates intersecting the rolling window, zero-filled
+  byHourChronological: CostHour[] // exactly 24 entries for 24h, empty for longer windows
+  byHourWeekday: number[][] // local [weekday][hour], Sunday = 0
+  byHour: number[] // matrix column totals
+  byWeekday: number[] // matrix row totals
+}
+
+export interface CostStats {
+  trackedSince: string
+  totalTrackedCostUsd: number
+  pricedSessionCount: number
+  preTrackingSessionCount: number
+  unusableSessionCount: number
+  undatedCostUsd: number // retained cost without activity timestamps, excluded from windows
+  undatedSessionCount: number
+  last24h: CostWindow
+  last7d: CostWindow
+  last30d: CostWindow
+}
+
+export type SkillStatsWindowKey = '24h' | '7d' | '30d'
+export type RecordedEffort = 'xhigh' | 'high' | 'medium' | 'low'
+export type EffortBucket = RecordedEffort | 'not_recorded'
+
+export interface ModelTurnSummary {
+  model: string
+  turnCount: number
+  outputTokens: number
+}
+
+export interface EffortTurnSummary {
+  effort: EffortBucket
+  turnCount: number
+  outputTokens: number
+}
+
+export interface ModelEffortRow {
+  model: string
+  byEffort: Record<EffortBucket, number>
+  total: number
+}
+
+export interface ModelStatsWindow {
+  window: SkillStatsWindowKey
+  turnCount: number
+  modelCount: number
+  outputTokens: number
+  byModel: ModelTurnSummary[]
+  byEffort: EffortTurnSummary[]
+  matrix: ModelEffortRow[]
+}
+
+export interface ModelStats {
+  last24h: ModelStatsWindow
+  last7d: ModelStatsWindow
+  last30d: ModelStatsWindow
+}
+
+export interface SkillInvocationCount {
+  skillName: string
+  count: number
+  sourceType: SourceType | null
+  skillId: number | null
+  resolution: 'installed' | 'ambiguous' | 'missing'
+}
+
+export interface SkillTrendBucket {
+  key: string // ISO hour start for 24h; YYYY-MM-DD local date for 7d/30d
+  count: number
+  startAt: string // inclusive, clipped to the rolling window
+  endAt: string // exclusive, clipped to the overview snapshot
+}
+
+export interface SkillCostAssociation {
+  skillName: string
+  // Resolved skills row (global > project > synced precedence) — the click-through target.
+  // null = no matching skills row (uninstalled / renamed / plugin-not-installed / leaked
+  // built-in like `run`); the row renders without click-through.
+  skillId: number | null
+  sourceType: SourceType | null
+  sessionCount: number
+  trackedSessionCount: number
+  associatedCostUsd: number
+  associatedOutputTokens: number
+}
+
+export interface SkillStatsWindow {
+  window: SkillStatsWindowKey
+  startAt: string
+  endAt: string
+  invocationCount: number
+  unpricedInvocationCount: number
+  skillCount: number
+  sessionCount: number
+  bySkill: SkillInvocationCount[]
+  byTriggerType: TriggerTypeCount[]
+  trend: SkillTrendBucket[]
+  associations: SkillCostAssociation[]
+  attribution: SkillCostAttribution
+}
+
+export interface SkillStats {
+  last24h: SkillStatsWindow
+  last7d: SkillStatsWindow
+  last30d: SkillStatsWindow
+  // Priced, lineage-terminal sessions that no skill invocation resolves to — for the Skills
+  // caption. Spans all cost-tracked history, NOT the selected window. Cost's displayed
+  // totals are independently windowed; this Skills coverage caption remains dataset-wide.
+  pricedSessionsWithoutSkill: number
+}
+
+export interface SkillCostAttributionRow {
+  skillName: string | null // null = General work
+  skillId: number | null
+  sourceType: SourceType | null
+  trackedSessionCount: number
+  estimatedCostCents: number
+  share: number
+  resolution: 'installed' | 'ambiguous' | 'missing' | 'general'
+}
+
+export interface SkillCostAttribution {
+  totalEstimatedCostCents: number
+  trackedSessionCount: number
+  hasUnknownModelCost: boolean
+  hasUndatedCost: boolean
+  rows: SkillCostAttributionRow[]
+}
+
+export type ResidentTaxCategoryKey =
+  'skills' | 'agents' | 'hooks' | 'mcp' | 'instructions' | 'remainder'
+
+export interface ResidentTaxCategory {
+  key: ResidentTaxCategoryKey
+  tokens: number
+  itemCount: number | null
+  estimated: boolean
+}
+
+export interface ResidentTaxStats {
+  measuredTokens: number
+  sampledAt: string
+  project: string
+  model: string
+  claudeVersion: string | null
+  categories: ResidentTaxCategory[]
+}
+
+export interface UsageOverview {
+  activity: ActivityStats
+  // null iff pricedSessionCount === 0 — no session has usable cost-state.
+  cost: CostStats | null
+  models: ModelStats
+  skills: SkillStats
+  residentTax: ResidentTaxStats | null
+  scanComplete: boolean
+}

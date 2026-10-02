@@ -78,7 +78,9 @@ Each doc below is authoritative for the locked decisions it owns.
 | --------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | `docs/skill-scanner.md`     | The 3 skill sources; `.agents/skills/` out of scope; symlinks followed | Touching `src/main/ingest/skills-scanner.ts` or `plugin-registry.ts` |
 | `docs/transcript-ingest.md` | `isSidechain`/`subagents/` double-count rule; `trigger_type`           | Touching `src/main/ingest/transcript-scanner.ts`                     |
-| `docs/data-model.md`        | `better-sqlite3`; index schema; no-FK join; plugin identity            | Touching `src/main/db/` or plugin parsing                            |
+| `docs/data-model.md`        | `better-sqlite3`; index schema; no-FK join; plugin identity; `prompt_history` | Touching `src/main/db/` or plugin parsing                            |
+| `docs/usage-analytics.md`   | The 5-PR "Usage" feature; `history.jsonl` retention; `cost-state` hazards; what's PR1 vs PR2–5 | `src/main/ingest/` usage extraction, `src/main/db/` usage tables, or the Usage view |
+| `docs/usage-view-ui-spec.md` | Usage-view renderer authority — layout, `components/usage/` chart vocabulary, `--usage-*` tokens, motion, the DESIGN.md departures | Any `src/renderer/src/views/UsageView.tsx` or `components/usage/` work |
 | `DESIGN.md`                 | Visual design system — colors, type, layout, elevation, shapes, components | Any `src/renderer/` UI work                                          |
 | `docs/mvp-build-spec.md`    | Milestones, linter rules, frontmatter parsing, what's still open       | Assuming a decision hasn't been made yet                             |
 | `docs/environment-setup.md` | M0 install quirks (npm allowlist, silent `extract-zip` no-op)          | `npm run dev` failing with `Error: Electron uninstall`               |

@@ -1,3 +1,7 @@
+// Pinned before any import so getActivityStats' JS-side .getHours()/.getDay() bucketing is
+// deterministic. Etc/GMT+5 is UTC-5 with no DST, so a UTC instant maps to one fixed local hour.
+process.env.TZ = 'Etc/GMT+5'
+
 import Database from 'better-sqlite3'
 import { resolve } from 'path'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -5,10 +9,16 @@ import { applySchema } from './schema'
 import {
   addAllowedPath,
   deleteSkillsForProjectRoot,
+  getActivityStats,
   getContextBudget,
+  getCostStats,
+  getModelStats,
   getPluginDetail,
+  getResidentTaxStats,
   getSkillById,
   getSkillInvocationLog,
+  getSkillInvocationSlice,
+  getSkillStats,
   getSkillUsageDetail,
   insertLintFindings,
   listAllowedPaths,
@@ -967,6 +977,59 @@ describe('global-shadows-project detection', () => {
 })
 
 describe('synced-shadowed-by-non-synced detection', () => {
+  it('lets an unsynced project skill outrank a synced global skill', () => {
+    const syncedId = insertSkill('deploy', {
+      source_type: 'global',
+      is_synced: 1,
+      source_path: '/synced/deploy'
+    })
+    const projectId = insertSkill('deploy', {
+      source_type: 'project',
+      project_root: '/repo',
+      source_path: '/repo/.claude/skills/deploy'
+    })
+    insertSession('project-session', '/repo')
+    insertInvocation({
+      source_uuid: 'project-invocation',
+      session_id: 'project-session',
+      skill_name: 'deploy',
+      invoked_at: '2026-09-09T16:00:00.000Z'
+    })
+    db.prepare(
+      `INSERT INTO session_cost
+         (session_id, total_cost_usd, has_unknown_model_cost, is_zeroed)
+       VALUES ('project-session', 1, 0, 0)`
+    ).run()
+    db.prepare(
+      `INSERT INTO timed_skill_cost (session_id, skill_name, allocated_at, est_cost_usd)
+       VALUES ('project-session', 'deploy', '2026-09-09T16:00:00.000Z', 1)`
+    ).run()
+
+    expect(getSkillById(db, syncedId)).toMatchObject({
+      total_invocations: 0,
+      shadowed_by_skill_id: projectId
+    })
+    expect(getSkillById(db, projectId)).toMatchObject({
+      total_invocations: 1,
+      shadowed_by_skill_id: null
+    })
+    expect(
+      getSkillStats(db, new Date('2026-09-09T17:00:00.000Z')).last24h.bySkill[0]
+    ).toMatchObject({
+      skillId: projectId,
+      resolution: 'installed'
+    })
+    expect(
+      getSkillStats(db, new Date('2026-09-09T17:00:00.000Z')).last24h.attribution.rows[0]
+    ).toMatchObject({ skillId: projectId, resolution: 'installed' })
+    expect(
+      getSkillInvocationSlice(db, {
+        startAt: '2026-09-09T15:00:00.000Z',
+        endAt: '2026-09-09T17:00:00.000Z'
+      })[0].skillId
+    ).toBe(projectId)
+  })
+
   it('zeroes a synced skill invocation count when a non-synced skill shares its name', () => {
     const nonSyncedId = insertSkill('deploy', { source_type: 'global' })
     insertSkill('deploy', { source_type: 'global', is_synced: 1, source_path: '/synced/deploy' })
@@ -1764,5 +1827,1434 @@ describe('getPluginDetail', () => {
     const detail = getPluginDetail(db, 'plugin-a', 'market-1')
     expect(detail?.errorCount).toBe(1)
     expect(detail?.warningCount).toBe(1)
+  })
+})
+
+describe('getActivityStats', () => {
+  const NOW = new Date('2026-08-20T12:00:00.000Z') // local Thu 2026-08-20 07:00 (UTC-5)
+
+  function insertPrompt(overrides: {
+    typed_at: string
+    session_id?: string
+    project?: string
+    is_slash_command?: 0 | 1
+  }): void {
+    db.prepare(
+      `INSERT INTO prompt_history (session_id, project, typed_at, is_slash_command)
+       VALUES (@session_id, @project, @typed_at, @is_slash_command)`
+    ).run({
+      session_id: overrides.session_id ?? 's1',
+      project: overrides.project ?? '/repo-a',
+      typed_at: overrides.typed_at,
+      is_slash_command: overrides.is_slash_command ?? 0
+    })
+  }
+
+  // A,B,C,D + slash E land inside the 7-day window; F,G + slash H are 30-day only; I predates
+  // the 30-day SQL bound entirely.
+  function seedFixture(): void {
+    insertPrompt({ typed_at: '2026-08-19T02:00:00.000Z', session_id: 's1', project: '/repo-a' }) // A
+    insertPrompt({ typed_at: '2026-08-19T02:30:00.000Z', session_id: 's1', project: '/repo-a' }) // B
+    insertPrompt({ typed_at: '2026-08-17T15:00:00.000Z', session_id: 's2', project: '/repo-b' }) // C
+    insertPrompt({ typed_at: '2026-08-14T09:00:00.000Z', session_id: 's3', project: '/repo-a' }) // D
+    insertPrompt({
+      typed_at: '2026-08-19T06:00:00.000Z',
+      session_id: 's1',
+      project: '/repo-a',
+      is_slash_command: 1
+    }) // E
+    insertPrompt({ typed_at: '2026-08-01T12:00:00.000Z', session_id: 's4', project: '/repo-c' }) // F
+    insertPrompt({ typed_at: '2026-07-25T12:00:00.000Z', session_id: 's4', project: '/repo-c' }) // G
+    insertPrompt({
+      typed_at: '2026-07-25T13:00:00.000Z',
+      session_id: 's5',
+      project: '/repo-c',
+      is_slash_command: 1
+    }) // H
+    insertPrompt({ typed_at: '2026-07-21T11:59:59.000Z', session_id: 's6', project: '/repo-a' }) // I
+  }
+
+  it('counts prompts inside the rolling 24-hour cutoff', () => {
+    insertPrompt({ typed_at: '2026-08-19T12:00:00.000Z', session_id: 'inside' })
+    insertPrompt({ typed_at: '2026-08-19T11:59:59.000Z', session_id: 'outside' })
+
+    expect(getActivityStats(db, NOW)).toMatchObject({
+      last24h: { days: 1, prompts: 1 }
+    })
+  })
+
+  it('zero-fills 24 chronological hourly prompt buckets', () => {
+    insertPrompt({ typed_at: '2026-08-19T12:00:00.000Z', session_id: 'first' })
+    insertPrompt({ typed_at: '2026-08-19T13:15:00.000Z', session_id: 'second' })
+    insertPrompt({ typed_at: '2026-08-20T11:59:59.000Z', session_id: 'last' })
+    insertPrompt({
+      typed_at: '2026-08-20T11:30:00.000Z',
+      session_id: 'slash',
+      is_slash_command: 1
+    })
+
+    const hourlyTrend = Reflect.get(getActivityStats(db, NOW).last24h, 'hourlyTrend')
+    expect(hourlyTrend).toHaveLength(24)
+    expect(hourlyTrend[0]).toEqual({ key: '2026-08-19T12:00:00.000Z', count: 1 })
+    expect(hourlyTrend[1]).toEqual({ key: '2026-08-19T13:00:00.000Z', count: 1 })
+    expect(hourlyTrend[23]).toEqual({ key: '2026-08-20T11:00:00.000Z', count: 1 })
+    expect(
+      hourlyTrend.reduce((sum: number, bucket: { count: number }) => sum + bucket.count, 0)
+    ).toBe(3)
+  })
+
+  it('generatedAt is the passed-in now, and both windows carry their day count', () => {
+    const stats = getActivityStats(db, NOW)
+    expect(stats.generatedAt).toBe('2026-08-20T12:00:00.000Z')
+    expect(stats.last7d.days).toBe(7)
+    expect(stats.last30d.days).toBe(30)
+  })
+
+  it('counts real prompts only in the 7-day window, excluding slash commands', () => {
+    seedFixture()
+    const w = getActivityStats(db, NOW).last7d
+    expect(w.prompts).toBe(4)
+    expect(w.slashCommands).toBe(1)
+    expect(w.sessions).toBe(3)
+    expect(w.activeDays).toBe(3)
+  })
+
+  it('widens to the 30-day window: more prompts, sessions, active days, slash commands', () => {
+    seedFixture()
+    const w = getActivityStats(db, NOW).last30d
+    expect(w.prompts).toBe(6)
+    expect(w.slashCommands).toBe(2)
+    expect(w.sessions).toBe(4)
+    expect(w.activeDays).toBe(5)
+  })
+
+  it('includes a prompt exactly at the 7-day cutoff and excludes one a second earlier', () => {
+    insertPrompt({ typed_at: '2026-08-13T12:00:00.000Z' })
+    insertPrompt({ typed_at: '2026-08-13T11:59:59.000Z' })
+    const stats = getActivityStats(db, NOW)
+    expect(stats.last7d.prompts).toBe(1)
+    expect(stats.last30d.prompts).toBe(2)
+  })
+
+  it('excludes prompts older than 30 days', () => {
+    insertPrompt({ typed_at: '2026-07-21T12:00:00.000Z' })
+    insertPrompt({ typed_at: '2026-07-21T11:59:59.000Z' })
+    expect(getActivityStats(db, NOW).last30d.prompts).toBe(1)
+  })
+
+  it('places each prompt in the [weekday][hour] punchcard cell, local time', () => {
+    seedFixture()
+    const w = getActivityStats(db, NOW).last7d
+    expect(w.byHourWeekday).toHaveLength(7)
+    expect(w.byHourWeekday[0]).toHaveLength(24)
+    expect(w.byHourWeekday[2][21]).toBe(2) // A + B: Tue 21:00 local
+    expect(w.byHourWeekday[1][10]).toBe(1) // C: Mon 10:00 local
+    expect(w.byHourWeekday[5][4]).toBe(1) // D: Fri 04:00 local
+    // E (slash) would be Wed 01:00 — not counted
+    expect(w.byHourWeekday[3][1]).toBe(0)
+  })
+
+  it('derives byHour and byWeekday as the margins of byHourWeekday', () => {
+    seedFixture()
+    for (const w of [getActivityStats(db, NOW).last7d, getActivityStats(db, NOW).last30d]) {
+      const hourMargins = Array.from({ length: 24 }, (_, h) =>
+        w.byHourWeekday.reduce((sum, row) => sum + row[h], 0)
+      )
+      const weekdayMargins = w.byHourWeekday.map((row) => row.reduce((sum, n) => sum + n, 0))
+      expect(w.byHour).toEqual(hourMargins)
+      expect(w.byWeekday).toEqual(weekdayMargins)
+      expect(w.byHour.reduce((a, b) => a + b, 0)).toBe(w.prompts)
+      expect(w.byWeekday.reduce((a, b) => a + b, 0)).toBe(w.prompts)
+    }
+  })
+
+  it('ranks byProject by count descending', () => {
+    seedFixture()
+    expect(getActivityStats(db, NOW).last30d.byProject).toEqual([
+      { project: '/repo-a', count: 3 },
+      { project: '/repo-c', count: 2 },
+      { project: '/repo-b', count: 1 }
+    ])
+  })
+
+  it('zero-fills byDay across the window with a server-computed weekday', () => {
+    seedFixture()
+    const { byDay } = getActivityStats(db, NOW).last7d
+    expect(byDay).toHaveLength(7)
+    expect(byDay[0]).toEqual({ date: '2026-08-14', count: 1, weekday: 5 })
+    expect(byDay[6]).toEqual({ date: '2026-08-20', count: 0, weekday: 4 })
+    expect(byDay.find((d) => d.date === '2026-08-18')).toEqual({
+      date: '2026-08-18',
+      count: 2,
+      weekday: 2
+    })
+    expect(byDay.reduce((sum, d) => sum + d.count, 0)).toBe(4)
+  })
+
+  it('spans 30 ascending days for the 30-day window', () => {
+    seedFixture()
+    const { byDay } = getActivityStats(db, NOW).last30d
+    expect(byDay).toHaveLength(30)
+    expect(byDay[0].date).toBe('2026-07-22')
+    expect(byDay[29].date).toBe('2026-08-20')
+    expect(byDay.find((d) => d.date === '2026-07-25')).toEqual({
+      date: '2026-07-25',
+      count: 1,
+      weekday: 6
+    })
+    expect(byDay.reduce((sum, d) => sum + d.count, 0)).toBe(6)
+  })
+
+  it('returns zeroed windows when there is no prompt history', () => {
+    const w = getActivityStats(db, NOW).last7d
+    expect(w.prompts).toBe(0)
+    expect(w.sessions).toBe(0)
+    expect(w.activeDays).toBe(0)
+    expect(w.byProject).toEqual([])
+    expect(w.byHour).toEqual(Array(24).fill(0))
+    expect(w.byWeekday).toEqual(Array(7).fill(0))
+    expect(w.byDay).toHaveLength(7)
+  })
+})
+
+describe('getCostStats', () => {
+  const NOW = new Date('2026-09-07T12:00:00.000Z') // local Mon 2026-09-07 07:00 (UTC-5)
+
+  function meta(
+    sessionId: string,
+    startedAt: string,
+    cwd = '/repo-a',
+    continuedInSessionId: string | null = null
+  ): void {
+    db.prepare(
+      `INSERT INTO sessions_meta
+         (session_id, cwd, git_branch, started_at, message_count, continued_in_session_id,
+          source_mtime_ms)
+       VALUES (?, ?, NULL, ?, 0, ?, 0)`
+    ).run(sessionId, cwd, startedAt, continuedInSessionId)
+  }
+
+  function addCost(overrides: {
+    session_id: string
+    started_at: string
+    cwd?: string
+    total_cost_usd?: number
+    has_unknown_model_cost?: 0 | 1
+    is_zeroed?: 0 | 1
+    continued_in_session_id?: string | null
+    models?: { model: string; cost_usd: number }[]
+  }): void {
+    meta(
+      overrides.session_id,
+      overrides.started_at,
+      overrides.cwd ?? '/repo-a',
+      overrides.continued_in_session_id ?? null
+    )
+    db.prepare(
+      `INSERT INTO session_cost
+         (session_id, total_cost_usd, has_unknown_model_cost, is_zeroed)
+       VALUES (?, ?, ?, ?)`
+    ).run(
+      overrides.session_id,
+      overrides.total_cost_usd ?? 0,
+      overrides.has_unknown_model_cost ?? 0,
+      overrides.is_zeroed ?? 0
+    )
+    for (const m of overrides.models ?? []) {
+      db.prepare(
+        `INSERT INTO session_model_cost
+           (session_id, model, cost_usd, input_tokens, output_tokens, thinking_tokens,
+            cache_read_tokens, cache_creation_tokens, web_search_requests)
+         VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0)`
+      ).run(overrides.session_id, m.model, m.cost_usd)
+      db.prepare(
+        'INSERT INTO timed_skill_cost (session_id, model, allocated_at, est_cost_usd) VALUES (?, ?, ?, ?)'
+      ).run(overrides.session_id, m.model, overrides.started_at, m.cost_usd)
+    }
+    const residual =
+      (overrides.total_cost_usd ?? 0) -
+      (overrides.models ?? []).reduce((sum, model) => sum + model.cost_usd, 0)
+    if (residual > 0) {
+      db.prepare(
+        'INSERT INTO timed_skill_cost (session_id, allocated_at, est_cost_usd) VALUES (?, ?, ?)'
+      ).run(overrides.session_id, overrides.started_at, residual)
+    }
+  }
+
+  // p1/p2/p3 are priced terminals; z1 is zeroed; n1 is a non-terminal (continued into another);
+  // pre1/pre2 predate the first priced session; crash1 is after it but has no cost row.
+  function seedFixture(): void {
+    addCost({
+      session_id: 'p1',
+      started_at: '2026-08-21T15:00:00.000Z', // local Fri Aug 21 10:00
+      cwd: '/repo-a',
+      total_cost_usd: 100,
+      models: [
+        { model: 'claude-sonnet-5', cost_usd: 80 },
+        { model: 'claude-opus-5', cost_usd: 20 }
+      ]
+    })
+    addCost({
+      session_id: 'p2',
+      started_at: '2026-08-25T18:00:00.000Z', // local Tue Aug 25 13:00
+      cwd: '/repo-b',
+      total_cost_usd: 50,
+      has_unknown_model_cost: 1,
+      models: [{ model: 'claude-sonnet-5', cost_usd: 50 }]
+    })
+    addCost({
+      session_id: 'p3',
+      started_at: '2026-09-06T02:00:00.000Z', // local Sat Sep 5 21:00
+      cwd: '/repo-a',
+      total_cost_usd: 30,
+      models: [{ model: 'claude-haiku-4-5', cost_usd: 30 }]
+    })
+    addCost({ session_id: 'z1', started_at: '2026-08-30T12:00:00.000Z', is_zeroed: 1 })
+    addCost({
+      session_id: 'n1',
+      started_at: '2026-09-01T12:00:00.000Z',
+      total_cost_usd: 999,
+      continued_in_session_id: 'p3',
+      models: [{ model: 'claude-sonnet-5', cost_usd: 999 }]
+    })
+    meta('pre1', '2026-07-01T12:00:00.000Z')
+    meta('pre2', '2026-08-01T12:00:00.000Z')
+    meta('crash1', '2026-09-02T12:00:00.000Z')
+  }
+
+  it('returns null when there is no priced, lineage-terminal session', () => {
+    addCost({ session_id: 'z1', started_at: '2026-08-30T12:00:00.000Z', is_zeroed: 1 })
+    addCost({
+      session_id: 'n1',
+      started_at: '2026-09-01T12:00:00.000Z',
+      total_cost_usd: 999,
+      continued_in_session_id: 'x'
+    })
+    expect(getCostStats(db, NOW)).toBeNull()
+  })
+
+  it('sums only priced terminals into totalCostUsd and pricedSessionCount', () => {
+    seedFixture()
+    const stats = getCostStats(db, NOW)!
+    expect(stats.totalTrackedCostUsd).toBe(180)
+    expect(stats.pricedSessionCount).toBe(3)
+  })
+
+  it('sets trackedSince to the earliest priced-terminal started_at', () => {
+    seedFixture()
+    expect(getCostStats(db, NOW)!.trackedSince).toBe('2026-08-21T15:00:00.000Z')
+  })
+
+  it('counts sessions before trackedSince as preTrackingSessionCount, pure date cut', () => {
+    seedFixture()
+    expect(getCostStats(db, NOW)!.preTrackingSessionCount).toBe(2)
+  })
+
+  it('counts zeroed and cost-row-less sessions after trackedSince as unusable, excluding non-terminals', () => {
+    seedFixture()
+    expect(getCostStats(db, NOW)!.unusableSessionCount).toBe(2) // z1 + crash1, not n1
+  })
+
+  it('counts a pre-trackedSince zeroed session as pre-tracking, not unusable', () => {
+    addCost({
+      session_id: 'p1',
+      started_at: '2026-08-21T15:00:00.000Z',
+      total_cost_usd: 10,
+      models: [{ model: 'claude-sonnet-5', cost_usd: 10 }]
+    })
+    addCost({ session_id: 'early-zero', started_at: '2026-08-01T00:00:00.000Z', is_zeroed: 1 })
+    const stats = getCostStats(db, NOW)!
+    expect(stats.preTrackingSessionCount).toBe(1)
+    expect(stats.unusableSessionCount).toBe(0)
+  })
+
+  it('propagates hasUnknownModelCost from any priced terminal', () => {
+    seedFixture()
+    expect(getCostStats(db, NOW)!.last30d.hasUnknownModelCost).toBe(true)
+  })
+
+  it('does not propagate hasUnknownModelCost from a non-terminal row', () => {
+    addCost({
+      session_id: 'p1',
+      started_at: '2026-08-21T15:00:00.000Z',
+      total_cost_usd: 10,
+      models: [{ model: 'claude-sonnet-5', cost_usd: 10 }]
+    })
+    addCost({
+      session_id: 'n1',
+      started_at: '2026-09-01T12:00:00.000Z',
+      total_cost_usd: 5,
+      has_unknown_model_cost: 1,
+      continued_in_session_id: 'p1'
+    })
+    expect(getCostStats(db, NOW)!.last30d.hasUnknownModelCost).toBe(false)
+  })
+
+  it('aggregates byModel across priced terminals, descending with a model tie-break', () => {
+    seedFixture()
+    expect(getCostStats(db, NOW)!.last30d.byModel).toEqual([
+      { model: 'claude-sonnet-5', costUsd: 130 },
+      { model: 'claude-haiku-4-5', costUsd: 30 },
+      { model: 'claude-opus-5', costUsd: 20 }
+    ])
+  })
+
+  it('aggregates byProject by cwd across priced terminals, descending with a cwd tie-break', () => {
+    seedFixture()
+    expect(getCostStats(db, NOW)!.last30d.byProject).toEqual([
+      { project: '/repo-a', costUsd: 130 },
+      { project: '/repo-b', costUsd: 50 }
+    ])
+  })
+
+  it('breaks equal byModel / byProject sums by name ascending', () => {
+    addCost({
+      session_id: 'p1',
+      started_at: '2026-08-21T15:00:00.000Z',
+      cwd: '/zzz',
+      total_cost_usd: 10,
+      models: [{ model: 'claude-sonnet-5', cost_usd: 10 }]
+    })
+    addCost({
+      session_id: 'p2',
+      started_at: '2026-08-22T15:00:00.000Z',
+      cwd: '/aaa',
+      total_cost_usd: 10,
+      models: [{ model: 'claude-opus-5', cost_usd: 10 }]
+    })
+    const stats = getCostStats(db, NOW)!
+    expect(stats.last30d.byModel.map((m) => m.model)).toEqual(['claude-opus-5', 'claude-sonnet-5'])
+    expect(stats.last30d.byProject.map((p) => p.project)).toEqual(['/aaa', '/zzz'])
+  })
+
+  it('zero-fills all dates intersecting the rolling period with a server-computed weekday', () => {
+    seedFixture()
+    const { byDay } = getCostStats(db, NOW)!.last30d
+    expect(byDay).toHaveLength(31)
+    expect(byDay.find((day) => day.date === '2026-08-21')).toMatchObject({
+      date: '2026-08-21',
+      costUsd: 100,
+      weekday: new Date(2026, 7, 21).getDay()
+    })
+    expect(byDay.at(-1)).toMatchObject({
+      date: '2026-09-07',
+      costUsd: 0,
+      weekday: new Date(2026, 8, 7).getDay()
+    })
+    expect(byDay.find((d) => d.date === '2026-08-25')?.costUsd).toBe(50)
+    expect(byDay.find((d) => d.date === '2026-09-05')?.costUsd).toBe(30)
+    expect(byDay.reduce((sum, d) => sum + d.costUsd, 0)).toBe(180)
+  })
+})
+
+describe('getResidentTaxStats', () => {
+  function addCandidate(overrides: {
+    sessionId: string
+    firstTurnAt: string
+    project?: string
+    cacheReadTokens?: number
+    measuredTokens?: number
+    costStateStartedAt?: string | null
+    skillCharacters?: number
+    agentCharacters?: number
+    hookCharacters?: number
+    mcpCharacters?: number
+    instructionCharacters?: number
+  }): void {
+    db.prepare(
+      `INSERT INTO sessions_meta
+         (session_id, cwd, started_at, message_count, source_mtime_ms)
+       VALUES (?, ?, ?, 1, 0)`
+    ).run(overrides.sessionId, overrides.project ?? '/repo', overrides.firstTurnAt)
+    db.prepare(
+      `INSERT INTO resident_context_sample
+         (session_id, first_turn_at, model, claude_version, cache_read_tokens, measured_tokens,
+          cost_state_started_at, skill_characters, skill_count, agent_characters, agent_count,
+          hook_characters, hook_count, mcp_characters, mcp_count, instruction_characters,
+          instruction_count)
+       VALUES (?, ?, 'claude-sonnet-5', '2.1.261', ?, ?, ?, ?, 2, ?, 1, ?, 1, ?, 1, ?, 1)`
+    ).run(
+      overrides.sessionId,
+      overrides.firstTurnAt,
+      overrides.cacheReadTokens ?? 0,
+      overrides.measuredTokens ?? 100,
+      overrides.costStateStartedAt ?? null,
+      overrides.skillCharacters ?? 0,
+      overrides.agentCharacters ?? 0,
+      overrides.hookCharacters ?? 0,
+      overrides.mcpCharacters ?? 0,
+      overrides.instructionCharacters ?? 0
+    )
+  }
+
+  it('returns null when no eligible candidate exists', () => {
+    addCandidate({
+      sessionId: 'warm',
+      firstTurnAt: '2026-09-11T12:00:00.000Z',
+      cacheReadTokens: 101
+    })
+
+    expect(getResidentTaxStats(db)).toBeNull()
+  })
+
+  it('selects the newest strict cold sample and returns a measured total with estimated parts', () => {
+    addCandidate({
+      sessionId: 'older',
+      firstTurnAt: '2026-09-11T12:00:00.000Z',
+      measuredTokens: 200
+    })
+    addCandidate({
+      sessionId: 'selected',
+      firstTurnAt: '2026-09-11T13:00:00.000Z',
+      project: 'C:\\work\\megatron',
+      cacheReadTokens: 100,
+      measuredTokens: 100,
+      costStateStartedAt: '2026-09-11T12:55:00.000Z',
+      skillCharacters: 4,
+      agentCharacters: 3,
+      hookCharacters: 0,
+      mcpCharacters: 1,
+      instructionCharacters: 6
+    })
+
+    expect(getResidentTaxStats(db)).toEqual({
+      measuredTokens: 100,
+      sampledAt: '2026-09-11T13:00:00.000Z',
+      project: 'C:\\work\\megatron',
+      model: 'claude-sonnet-5',
+      claudeVersion: '2.1.261',
+      categories: [
+        { key: 'skills', tokens: 2, itemCount: 2, estimated: true },
+        { key: 'agents', tokens: 1, itemCount: 1, estimated: true },
+        { key: 'hooks', tokens: 0, itemCount: 1, estimated: true },
+        { key: 'mcp', tokens: 1, itemCount: 1, estimated: true },
+        { key: 'instructions', tokens: 2, itemCount: 1, estimated: true },
+        { key: 'remainder', tokens: 94, itemCount: null, estimated: false }
+      ]
+    })
+  })
+
+  it('falls back past overflow, stale cost-state, warm-cache, and continuation-target candidates', () => {
+    addCandidate({
+      sessionId: 'valid',
+      firstTurnAt: '2026-09-11T12:00:00.000Z',
+      measuredTokens: 50
+    })
+    addCandidate({
+      sessionId: 'overflow',
+      firstTurnAt: '2026-09-11T13:00:00.000Z',
+      measuredTokens: 1,
+      skillCharacters: 4
+    })
+    addCandidate({
+      sessionId: 'stale-cost',
+      firstTurnAt: '2026-09-11T14:00:00.000Z',
+      costStateStartedAt: '2026-09-11T13:54:59.000Z'
+    })
+    addCandidate({
+      sessionId: 'warm',
+      firstTurnAt: '2026-09-11T15:00:00.000Z',
+      cacheReadTokens: 101
+    })
+    addCandidate({
+      sessionId: 'continued-target',
+      firstTurnAt: '2026-09-11T16:00:00.000Z'
+    })
+    db.prepare(
+      `INSERT INTO sessions_meta
+         (session_id, cwd, started_at, message_count, continued_in_session_id, source_mtime_ms)
+       VALUES ('source', '/repo', '2026-09-11T15:59:00.000Z', 1, 'continued-target', 0)`
+    ).run()
+
+    expect(getResidentTaxStats(db)).toEqual(
+      expect.objectContaining({ sampledAt: '2026-09-11T12:00:00.000Z', measuredTokens: 50 })
+    )
+  })
+
+  it('accepts exact estimate equality and a missing optional cost-state', () => {
+    addCandidate({
+      sessionId: 'exact',
+      firstTurnAt: '2026-09-11T12:00:00.000Z',
+      measuredTokens: 2,
+      skillCharacters: 4,
+      costStateStartedAt: null
+    })
+
+    expect(getResidentTaxStats(db)?.categories.at(-1)).toEqual({
+      key: 'remainder',
+      tokens: 0,
+      itemCount: null,
+      estimated: false
+    })
+  })
+})
+
+describe('getSkillStats', () => {
+  const NOW = new Date('2026-09-09T17:00:00.000Z') // local Wed 2026-09-09 12:00 (UTC-5)
+
+  function insertSession(sessionId: string, startedAt: string): void {
+    db.prepare(
+      `INSERT INTO sessions_meta
+         (session_id, cwd, git_branch, started_at, message_count, source_mtime_ms)
+       VALUES (?, '/repo', NULL, ?, 0, 0)`
+    ).run(sessionId, startedAt)
+  }
+
+  function insertInvocation(overrides: {
+    uuid: string
+    sessionId: string
+    skillName: string
+    invokedAt: string
+    triggerType?: 'user_invoked' | 'autonomous' | 'subagent'
+  }): void {
+    db.prepare(
+      `INSERT INTO skill_invocations
+         (source_uuid, session_id, skill_name, invoked_at, trigger_type)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(
+      overrides.uuid,
+      overrides.sessionId,
+      overrides.skillName,
+      overrides.invokedAt,
+      overrides.triggerType ?? 'user_invoked'
+    )
+  }
+
+  function insertCost(overrides: {
+    sessionId: string
+    totalCostUsd: number
+    continuedInSessionId?: string | null
+    isZeroed?: 0 | 1
+  }): void {
+    db.prepare('UPDATE sessions_meta SET continued_in_session_id = ? WHERE session_id = ?').run(
+      overrides.continuedInSessionId ?? null,
+      overrides.sessionId
+    )
+    db.prepare(
+      `INSERT INTO session_cost
+         (session_id, total_cost_usd, has_unknown_model_cost, is_zeroed)
+       VALUES (?, ?, 0, ?)`
+    ).run(overrides.sessionId, overrides.totalCostUsd, overrides.isZeroed ?? 0)
+  }
+
+  function insertModelOutput(sessionId: string, model: string, outputTokens: number): void {
+    db.prepare(
+      `INSERT INTO session_model_cost
+         (session_id, model, cost_usd, input_tokens, output_tokens, thinking_tokens,
+          cache_read_tokens, cache_creation_tokens, web_search_requests)
+       VALUES (?, ?, 0, 0, ?, 0, 0, 0, 0)`
+    ).run(sessionId, model, outputTokens)
+  }
+
+  it('counts skill invocations without a usable cost total in each selected window', () => {
+    insertSession('recent-unpriced', '2026-09-09T16:00:00.000Z')
+    insertSession('older-unpriced', '2026-09-07T16:00:00.000Z')
+    insertSession('zeroed', '2026-09-09T15:00:00.000Z')
+    insertSession('priced', '2026-09-09T14:00:00.000Z')
+    insertCost({ sessionId: 'zeroed', totalCostUsd: 0, isZeroed: 1 })
+    insertCost({ sessionId: 'priced', totalCostUsd: 1 })
+    insertInvocation({
+      uuid: 'recent',
+      sessionId: 'recent-unpriced',
+      skillName: 'humanizer',
+      invokedAt: '2026-09-09T16:00:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'older',
+      sessionId: 'older-unpriced',
+      skillName: 'humanizer',
+      invokedAt: '2026-09-07T16:00:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'zeroed',
+      sessionId: 'zeroed',
+      skillName: 'humanizer',
+      invokedAt: '2026-09-09T15:00:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'priced',
+      sessionId: 'priced',
+      skillName: 'humanizer',
+      invokedAt: '2026-09-09T14:00:00.000Z'
+    })
+
+    const stats = getSkillStats(db, NOW)
+
+    expect(stats.last24h.unpricedInvocationCount).toBe(2)
+    expect(stats.last7d.unpricedInvocationCount).toBe(3)
+    expect(stats.last30d.unpricedInvocationCount).toBe(3)
+  })
+
+  it('treats a continued session as priced when its terminal has a usable cost total', () => {
+    insertSession('earlier', '2026-09-09T14:00:00.000Z')
+    insertSession('terminal', '2026-09-09T16:00:00.000Z')
+    insertCost({ sessionId: 'earlier', totalCostUsd: 0, continuedInSessionId: 'terminal' })
+    insertCost({ sessionId: 'terminal', totalCostUsd: 2 })
+    insertInvocation({
+      uuid: 'continued-invocation',
+      sessionId: 'earlier',
+      skillName: 'humanizer',
+      invokedAt: '2026-09-09T14:00:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).last24h.unpricedInvocationCount).toBe(0)
+  })
+
+  it('limits attributed dollars to turn times inside each rolling window', () => {
+    insertSkill('alpha')
+    insertSession('crossing', '2026-09-07T16:00:00.000Z')
+    insertCost({ sessionId: 'crossing', totalCostUsd: 1 })
+    db.prepare(
+      `INSERT INTO session_skill_cost (session_id, skill_name, est_cost_usd)
+       VALUES ('crossing', 'alpha', 1)`
+    ).run()
+    const insertTimed = db.prepare(
+      `INSERT INTO timed_skill_cost (session_id, skill_name, allocated_at, est_cost_usd)
+       VALUES ('crossing', 'alpha', ?, ?)`
+    )
+    insertTimed.run('2026-09-07T16:00:00.000Z', 0.4)
+    insertTimed.run('2026-09-09T16:00:00.000Z', 0.6)
+
+    const stats = getSkillStats(db, NOW)
+
+    expect(stats.last24h.attribution.totalEstimatedCostCents).toBe(60)
+    expect(stats.last7d.attribution.totalEstimatedCostCents).toBe(100)
+    expect(stats.last30d.attribution.totalEstimatedCostCents).toBe(100)
+  })
+
+  it('discloses cost that has no timestamp instead of placing it in a window', () => {
+    insertSession('undated', '2026-09-09T16:00:00.000Z')
+    insertCost({ sessionId: 'undated', totalCostUsd: 3 })
+    db.prepare(
+      `INSERT INTO session_skill_cost (session_id, skill_name, est_cost_usd)
+       VALUES ('undated', NULL, 3)`
+    ).run()
+
+    const attribution = getSkillStats(db, NOW).last24h.attribution
+
+    expect(attribution.totalEstimatedCostCents).toBe(0)
+    expect(attribution.hasUndatedCost).toBe(true)
+  })
+
+  it('includes the partial first hour and day in clickable trend buckets', () => {
+    insertSession('edge', '2026-09-02T17:30:00.000Z')
+    insertInvocation({
+      uuid: 'first-hour',
+      sessionId: 'edge',
+      skillName: 'alpha',
+      invokedAt: '2026-09-08T17:30:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'first-day',
+      sessionId: 'edge',
+      skillName: 'alpha',
+      invokedAt: '2026-09-02T17:30:00.000Z'
+    })
+
+    const stats = getSkillStats(db, NOW)
+
+    expect(stats.last24h.trend.reduce((sum, bucket) => sum + bucket.count, 0)).toBe(1)
+    expect(stats.last24h.trend[0]).toMatchObject({
+      key: '2026-09-08T17:00:00.000Z',
+      startAt: '2026-09-08T17:00:00.000Z',
+      endAt: '2026-09-08T18:00:00.000Z',
+      count: 1
+    })
+    expect(stats.last7d.trend.reduce((sum, bucket) => sum + bucket.count, 0)).toBe(2)
+    expect(stats.last7d.trend[0]).toMatchObject({
+      key: '2026-09-02',
+      startAt: '2026-09-02T17:00:00.000Z',
+      count: 1
+    })
+  })
+
+  it('does not choose one project detail for a combined same-name ranking', () => {
+    insertSkill('alpha', {
+      source_type: 'project',
+      source_path: '/repo-a/.claude/skills/alpha',
+      project_root: '/repo-a'
+    })
+    insertSkill('alpha', {
+      source_type: 'project',
+      source_path: '/repo-b/.claude/skills/alpha',
+      project_root: '/repo-b'
+    })
+    insertSession('a', '2026-09-09T15:00:00.000Z')
+    insertSession('b', '2026-09-09T16:00:00.000Z')
+    db.prepare("UPDATE sessions_meta SET cwd = '/repo-a' WHERE session_id = 'a'").run()
+    db.prepare("UPDATE sessions_meta SET cwd = '/repo-b' WHERE session_id = 'b'").run()
+    insertInvocation({
+      uuid: 'a',
+      sessionId: 'a',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T15:00:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'b',
+      sessionId: 'b',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T16:00:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).last24h.bySkill[0]).toMatchObject({
+      skillName: 'alpha',
+      count: 2,
+      skillId: null,
+      resolution: 'ambiguous'
+    })
+  })
+
+  it('does not link combined same-name cost to an arbitrary project skill', () => {
+    insertSkill('alpha', {
+      source_type: 'project',
+      source_path: '/repo-a/skills/alpha',
+      project_root: '/repo-a'
+    })
+    insertSkill('alpha', {
+      source_type: 'project',
+      source_path: '/repo-b/skills/alpha',
+      project_root: '/repo-b'
+    })
+    insertSession('a', '2026-09-09T15:00:00.000Z')
+    insertSession('b', '2026-09-09T16:00:00.000Z')
+    insertCost({ sessionId: 'a', totalCostUsd: 1 })
+    insertCost({ sessionId: 'b', totalCostUsd: 1 })
+    const insertTimed = db.prepare(
+      `INSERT INTO timed_skill_cost (session_id, skill_name, allocated_at, est_cost_usd)
+       VALUES (?, 'alpha', '2026-09-09T16:00:00.000Z', 1)`
+    )
+    insertTimed.run('a')
+    insertTimed.run('b')
+
+    expect(getSkillStats(db, NOW).last24h.attribution.rows[0]).toMatchObject({
+      skillName: 'alpha',
+      skillId: null,
+      resolution: 'ambiguous',
+      estimatedCostCents: 200
+    })
+  })
+
+  it('does not link historical project cost to a different current project skill', () => {
+    insertSkill('alpha', {
+      source_type: 'project',
+      project_root: '/repo-a',
+      source_path: '/repo-a/.claude/skills/alpha'
+    })
+    insertSession('old-repo', '2026-09-09T15:00:00.000Z')
+    db.prepare("UPDATE sessions_meta SET cwd = '/repo-b' WHERE session_id = 'old-repo'").run()
+    insertCost({ sessionId: 'old-repo', totalCostUsd: 1 })
+    db.prepare(
+      `INSERT INTO timed_skill_cost (session_id, skill_name, allocated_at, est_cost_usd)
+       VALUES ('old-repo', 'alpha', '2026-09-09T16:00:00.000Z', 1)`
+    ).run()
+
+    expect(getSkillStats(db, NOW).last24h.attribution.rows[0]).toMatchObject({
+      skillName: 'alpha',
+      skillId: null,
+      resolution: 'ambiguous'
+    })
+  })
+
+  it('keeps a project cost link when every lineage session belongs to its project', () => {
+    const projectId = insertSkill('alpha', {
+      source_type: 'project',
+      project_root: '/repo-a',
+      source_path: '/repo-a/.claude/skills/alpha'
+    })
+    insertSession('project-cost', '2026-09-09T15:00:00.000Z')
+    db.prepare("UPDATE sessions_meta SET cwd = '/repo-a' WHERE session_id = 'project-cost'").run()
+    insertCost({ sessionId: 'project-cost', totalCostUsd: 1 })
+    db.prepare(
+      `INSERT INTO timed_skill_cost (session_id, skill_name, allocated_at, est_cost_usd)
+       VALUES ('project-cost', 'alpha', '2026-09-09T16:00:00.000Z', 1)`
+    ).run()
+
+    expect(getSkillStats(db, NOW).last24h.attribution.rows[0]).toMatchObject({
+      skillName: 'alpha',
+      skillId: projectId,
+      resolution: 'installed'
+    })
+  })
+
+  it('does not link project cost when its continuation crosses project roots', () => {
+    insertSkill('alpha', {
+      source_type: 'project',
+      project_root: '/repo-a',
+      source_path: '/repo-a/.claude/skills/alpha'
+    })
+    insertSession('earlier-project', '2026-09-09T14:00:00.000Z')
+    insertSession('terminal-project', '2026-09-09T15:00:00.000Z')
+    db.prepare(
+      "UPDATE sessions_meta SET cwd = '/repo-b' WHERE session_id = 'earlier-project'"
+    ).run()
+    db.prepare(
+      "UPDATE sessions_meta SET cwd = '/repo-a' WHERE session_id = 'terminal-project'"
+    ).run()
+    insertCost({
+      sessionId: 'earlier-project',
+      totalCostUsd: 0,
+      continuedInSessionId: 'terminal-project'
+    })
+    insertCost({ sessionId: 'terminal-project', totalCostUsd: 1 })
+    db.prepare(
+      `INSERT INTO timed_skill_cost (session_id, skill_name, allocated_at, est_cost_usd)
+       VALUES ('terminal-project', 'alpha', '2026-09-09T16:00:00.000Z', 1)`
+    ).run()
+
+    expect(getSkillStats(db, NOW).last24h.attribution.rows[0]).toMatchObject({
+      skillName: 'alpha',
+      skillId: null,
+      resolution: 'ambiguous'
+    })
+  })
+
+  it('returns a zero-valued 24-hour window when no skill invocations are indexed', () => {
+    expect(getSkillStats(db, NOW).last24h.invocationCount).toBe(0)
+  })
+
+  it('applies rolling window cutoffs and counts distinct skills and sessions', () => {
+    insertSession('recent', '2026-09-09T16:00:00.000Z')
+    insertSession('week', '2026-09-07T17:00:00.000Z')
+    insertSession('month', '2026-08-30T17:00:00.000Z')
+    insertSession('old', '2026-08-01T17:00:00.000Z')
+
+    insertInvocation({
+      uuid: 'recent-1',
+      sessionId: 'recent',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T16:00:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'recent-2',
+      sessionId: 'recent',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T16:30:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'week-1',
+      sessionId: 'week',
+      skillName: 'beta',
+      invokedAt: '2026-09-07T17:00:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'month-1',
+      sessionId: 'month',
+      skillName: 'alpha',
+      invokedAt: '2026-08-30T17:00:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'old-1',
+      sessionId: 'old',
+      skillName: 'gamma',
+      invokedAt: '2026-08-01T17:00:00.000Z'
+    })
+
+    const stats = getSkillStats(db, NOW)
+    expect(stats.last24h).toMatchObject({ invocationCount: 2, skillCount: 1, sessionCount: 1 })
+    expect(stats.last7d).toMatchObject({ invocationCount: 3, skillCount: 2, sessionCount: 2 })
+    expect(stats.last30d).toMatchObject({ invocationCount: 4, skillCount: 2, sessionCount: 3 })
+  })
+
+  it('ranks skills by invocation count and preserves trigger classifications', () => {
+    insertSession('s1', '2026-09-09T15:00:00.000Z')
+    insertSession('s2', '2026-09-09T16:00:00.000Z')
+    insertInvocation({
+      uuid: 'a1',
+      sessionId: 's1',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T15:00:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'a2',
+      sessionId: 's2',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T16:00:00.000Z',
+      triggerType: 'autonomous'
+    })
+    insertInvocation({
+      uuid: 'g1',
+      sessionId: 's2',
+      skillName: 'gamma',
+      invokedAt: '2026-09-09T16:15:00.000Z',
+      triggerType: 'subagent'
+    })
+    insertInvocation({
+      uuid: 'b1',
+      sessionId: 's1',
+      skillName: 'beta',
+      invokedAt: '2026-09-09T15:30:00.000Z'
+    })
+
+    const window = getSkillStats(db, NOW).last24h
+    expect(window.bySkill).toMatchObject([
+      { skillName: 'alpha', count: 2, sourceType: null },
+      { skillName: 'beta', count: 1, sourceType: null },
+      { skillName: 'gamma', count: 1, sourceType: null }
+    ])
+    expect(window.byTriggerType).toEqual([
+      { trigger_type: 'user_invoked', count: 2 },
+      { trigger_type: 'autonomous', count: 1 },
+      { trigger_type: 'subagent', count: 1 }
+    ])
+  })
+
+  it('zero-fills chronological hourly and daily trend buckets in local time', () => {
+    insertSession('s1', '2026-09-08T18:00:00.000Z')
+    insertInvocation({
+      uuid: 'first-hour',
+      sessionId: 's1',
+      skillName: 'alpha',
+      invokedAt: '2026-09-08T18:15:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'last-hour-1',
+      sessionId: 's1',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T17:05:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'last-hour-2',
+      sessionId: 's1',
+      skillName: 'beta',
+      invokedAt: '2026-09-09T17:30:00.000Z'
+    })
+
+    const stats = getSkillStats(db, new Date('2026-09-09T17:45:00.000Z'))
+    expect(stats.last24h.trend).toHaveLength(25)
+    expect(stats.last24h.trend[0]).toMatchObject({ key: '2026-09-08T17:00:00.000Z', count: 0 })
+    expect(stats.last24h.trend[1]).toMatchObject({ key: '2026-09-08T18:00:00.000Z', count: 1 })
+    expect(stats.last24h.trend[24]).toMatchObject({ key: '2026-09-09T17:00:00.000Z', count: 2 })
+    expect(stats.last24h.trend.reduce((sum, bucket) => sum + bucket.count, 0)).toBe(3)
+
+    expect(stats.last7d.trend).toHaveLength(8)
+    expect(stats.last7d.trend[0].key).toBe('2026-09-02')
+    expect(stats.last7d.trend[6]).toMatchObject({ key: '2026-09-08', count: 1 })
+    expect(stats.last7d.trend[7]).toMatchObject({ key: '2026-09-09', count: 2 })
+    expect(stats.last30d.trend).toHaveLength(31)
+    expect(stats.last30d.trend[0].key).toBe('2026-08-10')
+  })
+
+  it('associates each usable session once per skill without attributing cost per invocation', () => {
+    insertSession('priced-1', '2026-09-09T14:00:00.000Z')
+    insertSession('priced-2', '2026-09-09T15:00:00.000Z')
+    insertSession('untracked', '2026-09-09T16:00:00.000Z')
+    insertCost({ sessionId: 'priced-1', totalCostUsd: 10 })
+    insertCost({ sessionId: 'priced-2', totalCostUsd: 5 })
+    insertModelOutput('priced-1', 'claude-sonnet-5', 200)
+    insertModelOutput('priced-1', 'claude-opus-5', 100)
+    insertModelOutput('priced-2', 'claude-sonnet-5', 50)
+
+    insertInvocation({
+      uuid: 'alpha-1',
+      sessionId: 'priced-1',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T14:05:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'alpha-2',
+      sessionId: 'priced-1',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T14:10:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'beta-1',
+      sessionId: 'priced-1',
+      skillName: 'beta',
+      invokedAt: '2026-09-09T14:15:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'alpha-3',
+      sessionId: 'priced-2',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T15:05:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'alpha-4',
+      sessionId: 'untracked',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T16:05:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'gamma-1',
+      sessionId: 'untracked',
+      skillName: 'gamma',
+      invokedAt: '2026-09-09T16:10:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).last24h.associations).toEqual([
+      {
+        skillName: 'alpha',
+        skillId: null,
+        sourceType: null,
+        sessionCount: 3,
+        trackedSessionCount: 2,
+        associatedCostUsd: 15,
+        associatedOutputTokens: 350
+      },
+      {
+        skillName: 'beta',
+        skillId: null,
+        sourceType: null,
+        sessionCount: 1,
+        trackedSessionCount: 1,
+        associatedCostUsd: 10,
+        associatedOutputTokens: 300
+      },
+      {
+        skillName: 'gamma',
+        skillId: null,
+        sourceType: null,
+        sessionCount: 1,
+        trackedSessionCount: 0,
+        associatedCostUsd: 0,
+        associatedOutputTokens: 0
+      }
+    ])
+  })
+
+  it('resolves continued sessions to one priced terminal and rejects unusable lineages', () => {
+    for (const sessionId of ['ancestor', 'terminal', 'zeroed', 'broken', 'cycle-a', 'cycle-b']) {
+      insertSession(sessionId, '2026-09-09T14:00:00.000Z')
+    }
+    insertCost({ sessionId: 'ancestor', totalCostUsd: 3, continuedInSessionId: 'terminal' })
+    insertCost({ sessionId: 'terminal', totalCostUsd: 7 })
+    insertModelOutput('terminal', 'claude-sonnet-5', 700)
+    insertCost({ sessionId: 'zeroed', totalCostUsd: 0, isZeroed: 1 })
+    insertCost({ sessionId: 'broken', totalCostUsd: 2, continuedInSessionId: 'missing' })
+    insertCost({ sessionId: 'cycle-a', totalCostUsd: 4, continuedInSessionId: 'cycle-b' })
+    insertCost({ sessionId: 'cycle-b', totalCostUsd: 5, continuedInSessionId: 'cycle-a' })
+
+    insertInvocation({
+      uuid: 'ancestor-alpha',
+      sessionId: 'ancestor',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T14:05:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'zeroed-beta',
+      sessionId: 'zeroed',
+      skillName: 'beta',
+      invokedAt: '2026-09-09T14:15:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'broken-gamma',
+      sessionId: 'broken',
+      skillName: 'gamma',
+      invokedAt: '2026-09-09T14:20:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'cycle-delta',
+      sessionId: 'cycle-a',
+      skillName: 'delta',
+      invokedAt: '2026-09-09T14:25:00.000Z'
+    })
+
+    const associations = getSkillStats(db, NOW).last24h.associations
+    expect(associations.find((row) => row.skillName === 'alpha')).toEqual({
+      skillName: 'alpha',
+      skillId: null,
+      sourceType: null,
+      sessionCount: 1,
+      trackedSessionCount: 1,
+      associatedCostUsd: 7,
+      associatedOutputTokens: 700
+    })
+    for (const skillName of ['beta', 'gamma', 'delta']) {
+      expect(associations.find((row) => row.skillName === skillName)).toMatchObject({
+        trackedSessionCount: 0,
+        associatedCostUsd: 0,
+        associatedOutputTokens: 0
+      })
+    }
+  })
+
+  it('includes sourceType on bySkill rows, resolved the same way as associations', () => {
+    insertSkill('ponytail:ponytail-audit', { source_type: 'plugin' })
+    insertSession('s1', '2026-09-09T16:00:00.000Z')
+    insertInvocation({
+      uuid: 'a1',
+      sessionId: 's1',
+      skillName: 'ponytail:ponytail-audit',
+      invokedAt: '2026-09-09T16:00:00.000Z'
+    })
+    insertInvocation({
+      uuid: 'b1',
+      sessionId: 's1',
+      skillName: 'unregistered-skill',
+      invokedAt: '2026-09-09T16:05:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).last24h.bySkill).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          skillName: 'ponytail:ponytail-audit',
+          count: 1,
+          sourceType: 'plugin',
+          resolution: 'installed'
+        }),
+        expect.objectContaining({
+          skillName: 'unregistered-skill',
+          count: 1,
+          sourceType: null,
+          resolution: 'missing'
+        })
+      ])
+    )
+  })
+
+  it('resolves an association skillId and sourceType by shadowing precedence', () => {
+    const globalId = insertSkill('alpha', { source_type: 'global' })
+    insertSkill('alpha', {
+      source_type: 'project',
+      project_root: '/repo',
+      source_path: '/repo/.claude/skills/alpha'
+    })
+    insertSession('s1', '2026-09-09T16:00:00.000Z')
+    insertInvocation({
+      uuid: 'a1',
+      sessionId: 's1',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T16:00:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).last24h.associations[0]).toMatchObject({
+      skillName: 'alpha',
+      skillId: globalId,
+      sourceType: 'global'
+    })
+  })
+
+  it('resolves an association to the non-synced skill when a synced skill shares the name', () => {
+    const globalId = insertSkill('alpha', { source_type: 'global', is_synced: 0 })
+    insertSkill('alpha', {
+      source_type: 'global',
+      is_synced: 1,
+      source_path: '/synced/alpha'
+    })
+    insertSession('s1', '2026-09-09T16:00:00.000Z')
+    insertInvocation({
+      uuid: 'a1',
+      sessionId: 's1',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T16:00:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).last24h.associations[0]).toMatchObject({
+      skillId: globalId,
+      sourceType: 'global'
+    })
+  })
+
+  it('reports null skillId and sourceType when no skills row matches the invocation name', () => {
+    insertSession('s1', '2026-09-09T16:00:00.000Z')
+    insertInvocation({
+      uuid: 'g1',
+      sessionId: 's1',
+      skillName: 'ghost',
+      invokedAt: '2026-09-09T16:00:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).last24h.associations[0]).toMatchObject({
+      skillName: 'ghost',
+      skillId: null,
+      sourceType: null
+    })
+  })
+
+  it('counts priced terminals that no skill resolves to as pricedSessionsWithoutSkill', () => {
+    insertSession('with-skill', '2026-09-09T14:00:00.000Z')
+    insertSession('no-skill', '2026-09-09T15:00:00.000Z')
+    insertCost({ sessionId: 'with-skill', totalCostUsd: 10 })
+    insertCost({ sessionId: 'no-skill', totalCostUsd: 5 })
+    insertInvocation({
+      uuid: 'a1',
+      sessionId: 'with-skill',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T14:05:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).pricedSessionsWithoutSkill).toBe(1)
+  })
+
+  it('excludes a priced terminal from the skill-less count when its only invocation predates the 30-day window', () => {
+    insertSession('old', '2026-07-26T17:00:00.000Z')
+    insertCost({ sessionId: 'old', totalCostUsd: 5 })
+    insertInvocation({
+      uuid: 'old-1',
+      sessionId: 'old',
+      skillName: 'alpha',
+      invokedAt: '2026-07-26T17:00:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).pricedSessionsWithoutSkill).toBe(0)
+  })
+
+  it('does not count non-terminal or zeroed sessions toward the skill-less count', () => {
+    insertSession('non-terminal', '2026-09-09T14:00:00.000Z')
+    insertSession('zeroed', '2026-09-09T15:00:00.000Z')
+    insertCost({ sessionId: 'non-terminal', totalCostUsd: 3, continuedInSessionId: 'gone' })
+    insertCost({ sessionId: 'zeroed', totalCostUsd: 0, isZeroed: 1 })
+
+    expect(getSkillStats(db, NOW).pricedSessionsWithoutSkill).toBe(0)
+  })
+
+  it('does not count a terminal reached only through an ancestor invocation as skill-less', () => {
+    insertSession('ancestor', '2026-09-09T14:00:00.000Z')
+    insertSession('terminal', '2026-09-09T15:00:00.000Z')
+    insertCost({ sessionId: 'ancestor', totalCostUsd: 3, continuedInSessionId: 'terminal' })
+    insertCost({ sessionId: 'terminal', totalCostUsd: 7 })
+    insertInvocation({
+      uuid: 'anc-1',
+      sessionId: 'ancestor',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T14:05:00.000Z'
+    })
+
+    expect(getSkillStats(db, NOW).pricedSessionsWithoutSkill).toBe(0)
+  })
+
+  it('reconciles displayed cents within the selected window', () => {
+    const alphaId = insertSkill('alpha')
+    insertSession('s1', '2026-09-09T14:00:00.000Z')
+    insertCost({ sessionId: 's1', totalCostUsd: 1 })
+    const insert = db.prepare(
+      'INSERT INTO session_skill_cost (session_id, skill_name, est_cost_usd) VALUES (?, ?, ?)'
+    )
+    insert.run('s1', 'alpha', 0.334)
+    insert.run('s1', 'missing-skill', 0.333)
+    insert.run('s1', null, 0.333)
+    const insertTimed = db.prepare(
+      `INSERT INTO timed_skill_cost (session_id, skill_name, allocated_at, est_cost_usd)
+       VALUES ('s1', ?, '2026-09-09T14:00:00.000Z', ?)`
+    )
+    insertTimed.run('alpha', 0.334)
+    insertTimed.run('missing-skill', 0.333)
+    insertTimed.run(null, 0.333)
+
+    const attribution = getSkillStats(db, NOW).last24h.attribution
+
+    expect(attribution.totalEstimatedCostCents).toBe(100)
+    expect(attribution.rows).toEqual([
+      expect.objectContaining({ skillName: 'alpha', skillId: alphaId, estimatedCostCents: 34 }),
+      expect.objectContaining({
+        skillName: 'missing-skill',
+        skillId: null,
+        estimatedCostCents: 33
+      }),
+      expect.objectContaining({ skillName: null, estimatedCostCents: 33 })
+    ])
+    expect(attribution.rows.reduce((sum, row) => sum + row.estimatedCostCents, 0)).toBe(100)
+  })
+})
+
+describe('getSkillInvocationSlice', () => {
+  it('returns exactly the invocations inside a half-open chart bucket', () => {
+    const alphaId = insertSkill('alpha')
+    db.prepare(
+      `INSERT INTO sessions_meta
+         (session_id, cwd, started_at, message_count, source_mtime_ms)
+       VALUES ('slice-session', '/repo', '2026-09-09T14:00:00.000Z', 0, 0)`
+    ).run()
+    const insert = db.prepare(
+      `INSERT INTO skill_invocations
+         (source_uuid, session_id, skill_name, invoked_at, trigger_type)
+       VALUES (?, 'slice-session', ?, ?, 'user_invoked')`
+    )
+    insert.run('at-start', 'alpha', '2026-09-09T14:00:00.000Z')
+    insert.run('inside', 'alpha', '2026-09-09T14:30:00.000Z')
+    insert.run('other-skill', 'beta', '2026-09-09T14:45:00.000Z')
+    insert.run('at-end', 'alpha', '2026-09-09T15:00:00.000Z')
+
+    const range = {
+      startAt: '2026-09-09T14:00:00.000Z',
+      endAt: '2026-09-09T15:00:00.000Z'
+    }
+    const all = getSkillInvocationSlice(db, range)
+    const alpha = getSkillInvocationSlice(db, { ...range, skillName: 'alpha' })
+
+    expect(all.map((entry) => entry.skillName)).toEqual(['beta', 'alpha', 'alpha'])
+    expect(alpha.map((entry) => entry.invoked_at)).toEqual([
+      '2026-09-09T14:30:00.000Z',
+      '2026-09-09T14:00:00.000Z'
+    ])
+    expect(alpha[0].skillId).toBe(alphaId)
+  })
+})
+
+describe('getModelStats', () => {
+  const NOW = new Date('2026-09-09T17:00:00.000Z')
+
+  function addTurn(overrides: {
+    uuid: string
+    at: string
+    model: string
+    effort: string | null
+    outputTokens: number
+  }): void {
+    const sessionId = `session-${overrides.uuid}`
+    db.prepare(
+      `INSERT INTO sessions_meta
+         (session_id, cwd, started_at, message_count, source_mtime_ms)
+       VALUES (?, '/repo', ?, 1, 0)`
+    ).run(sessionId, overrides.at)
+    db.prepare(
+      `INSERT INTO turn_usage
+         (logical_turn_key, source_uuid, session_id, turn_index, model, effort, input_tokens,
+          cache_read_tokens, cache_creation_tokens, cache_creation_5m_tokens,
+          cache_creation_1h_tokens, output_tokens, invoked_at)
+       VALUES (?, ?, ?, 0, ?, ?, 0, 0, 0, 0, 0, ?, ?)`
+    ).run(
+      `message:${overrides.uuid}`,
+      overrides.uuid,
+      sessionId,
+      overrides.model,
+      overrides.effort,
+      overrides.outputTokens,
+      overrides.at
+    )
+  }
+
+  it('summarizes valid and unpriced turns by model and effort in independent windows', () => {
+    addTurn({
+      uuid: 'recent-opus',
+      at: '2026-09-09T16:00:00.000Z',
+      model: 'claude-opus-5',
+      effort: 'high',
+      outputTokens: 40
+    })
+    addTurn({
+      uuid: 'recent-sonnet',
+      at: '2026-09-09T15:00:00.000Z',
+      model: 'claude-sonnet-5',
+      effort: null,
+      outputTokens: 20
+    })
+    addTurn({
+      uuid: 'week-opus',
+      at: '2026-09-06T15:00:00.000Z',
+      model: 'claude-opus-5',
+      effort: 'low',
+      outputTokens: 10
+    })
+
+    const stats = getModelStats(db, NOW)
+    expect(stats.last24h).toMatchObject({ turnCount: 2, modelCount: 2, outputTokens: 60 })
+    expect(stats.last7d.turnCount).toBe(3)
+    expect(stats.last24h.byEffort).toEqual([
+      { effort: 'high', turnCount: 1, outputTokens: 40 },
+      { effort: 'not_recorded', turnCount: 1, outputTokens: 20 }
+    ])
+    expect(stats.last24h.matrix).toEqual([
+      {
+        model: 'claude-opus-5',
+        byEffort: { xhigh: 0, high: 1, medium: 0, low: 0, not_recorded: 0 },
+        total: 1
+      },
+      {
+        model: 'claude-sonnet-5',
+        byEffort: { xhigh: 0, high: 0, medium: 0, low: 0, not_recorded: 1 },
+        total: 1
+      }
+    ])
   })
 })

@@ -9,9 +9,10 @@ Implementation: `src/main/ingest/transcript-scanner.ts`. Table shapes live in
 
 ## Locked decisions
 
-| Area                    | Decision                                                                                                                                                            |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Transcript double-count | Filter `isSidechain === false` on a **main** transcript's own lines; a dedicated `subagents/*.jsonl` file is read in full instead, tagged `trigger_type='subagent'` |
+| Area                    | Decision                                                                                                                                                                                                                                                                                                    |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Transcript double-count | Filter `isSidechain === false` on a **main** transcript's own lines; a dedicated `subagents/*.jsonl` file is read in full instead, tagged `trigger_type='subagent'`                                                                                                                                         |
+| Cost is main-only       | `parseTranscript` runs `extractCostState` on the main transcript's records; `parseSubagentInvocations` **never** extracts cost. A subagent's token cost is already inside the parent session's `cost-state` total (`docs/usage-analytics.md` hazard 5) — pricing `subagents/*.jsonl` too would double-count |
 
 **Why**: `isSidechain` marks inline sidechain records interleaved in a main transcript (excluded
 there, to avoid double-counting). Separately, Claude Code writes each subagent's own conversation
@@ -93,7 +94,22 @@ window — a real design difference, not a bug in either counter).
 `sessions_meta.transcript_parser_version` is part of the scan cache — a parser-semantic change
 bumps the named parser version, forcing one safe reindex even when the transcript's mtime/size
 are unchanged, so a newly-supported transcript format applies to already-indexed history, not
-just future writes.
+just future writes. This one constant now covers **all five consumers of the walk** — the
+skill-invocation extraction, the session-meta extraction, the Usage view PR2 `cost-state`
+extraction that populates `session_cost` / `session_model_cost`, the PR4 per-turn extraction
+that populates `turn_usage`, and the PR5 numeric resident-context extraction. A change to
+`cost-parser.ts`'s semantics bumps `TRANSCRIPT_PARSER_VERSION` just like an invocation-parser
+change does; there is deliberately no separate `cost_parser_version` (`docs/usage-analytics.md`
+§8). PR2 bumped it `3 → 4`, PR4 turn ingestion bumped it `4 → 5`, and cross-file resume-replay
+deduplication bumped it `5 → 6`; PR5 bumped it `6 → 7`.
+
+`turn_usage.logical_turn_key` and `turn_usage.source_uuid` are global deduplication seams. A
+resume/continue may copy prior assistant records into a new session file without `isSidechain`,
+and a main/subagent pair may expose the same logical record twice. Turn insertion uses `ON CONFLICT
+DO NOTHING` so either identity collision retains one canonical row while genuinely new turns in
+the later file still ingest. Do not scope these keys to `session_id`: that avoids the constraint
+error by storing the replay twice, which corrupts model/effort counts and proportional skill-cost
+allocation.
 
 ## Schema
 

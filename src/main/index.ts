@@ -8,14 +8,21 @@ import Store from 'electron-store'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { getDb } from './db'
+import { disableChromiumHttpCache } from './chromium-cache'
 import {
   addAllowedPath,
   deleteSkillsForProjectRoot,
+  getActivityStats,
   getContextBudget,
+  getCostStats,
   getLintFindingsForSkill,
+  getModelStats,
   getPluginDetail,
+  getResidentTaxStats,
+  getSkillStats,
   getSkillById,
   getSkillInvocationLog,
+  getSkillInvocationSlice,
   getSkillUsageDetail,
   listAllowedPaths,
   listPlugins,
@@ -33,6 +40,7 @@ import {
 import { scanSkills } from './ingest/skills-scanner'
 import { scanPluginRegistry } from './ingest/plugin-registry'
 import { scanTranscripts } from './ingest/transcript-scanner'
+import { scanPromptHistory } from './ingest/prompt-history-scanner'
 import { runAllScans } from './ingest/scan-all'
 import { runLinter } from './linter'
 import { readSkillFiles, readSkillMd } from './skill-files'
@@ -45,8 +53,14 @@ import {
   type OpenSkillResult,
   type PluginActionInput,
   type SkillInvocationEntry,
+  type SkillInvocationRecord,
+  type SkillInvocationSliceInput,
   type ThemePreference
 } from '../shared/ipc'
+
+// Megatron's renderer is bundled locally, so an HTTP cache adds corruption risk without a
+// production benefit. This must run before Electron creates its default session.
+disableChromiumHttpCache(app.commandLine)
 
 const themeStore: ThemeStore = new Store({ name: 'preferences' })
 let scanComplete = false
@@ -58,9 +72,13 @@ function notifyScanComplete(): void {
 }
 
 function scanAndNotify(): void {
-  runAllScans(getDb(), [scanSkills, scanPluginRegistry, scanTranscripts, runLinter], (error) => {
-    console.error('[ingest] scan failed', error)
-  })
+  runAllScans(
+    getDb(),
+    [scanSkills, scanPluginRegistry, scanTranscripts, scanPromptHistory, runLinter],
+    (error) => {
+      console.error('[ingest] scan failed', error)
+    }
+  )
   scanComplete = true
   notifyScanComplete()
 }
@@ -254,6 +272,26 @@ app.whenReady().then(() => {
     if (result.ok) scanAndNotify()
     return result
   })
+
+  // Composes like skills:list — the renderer polls until scanComplete.
+  ipcMain.handle(IPC_CHANNELS.usageOverview, () => {
+    const now = new Date()
+    const db = getDb()
+    return {
+      activity: getActivityStats(db, now),
+      cost: getCostStats(db, now),
+      models: getModelStats(db, now),
+      skills: getSkillStats(db, now),
+      residentTax: getResidentTaxStats(db),
+      scanComplete
+    }
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.usageSkillInvocations,
+    (_event, input: SkillInvocationSliceInput): SkillInvocationRecord[] =>
+      getSkillInvocationSlice(getDb(), input)
+  )
 
   ipcMain.on(IPC_CHANNELS.getInitialSection, (event) => {
     event.returnValue = resolveInitialSection(themeStore)

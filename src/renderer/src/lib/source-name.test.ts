@@ -3,6 +3,7 @@ import {
   getFolderBasename,
   getPluginBareName,
   getProjectNameFromPath,
+  getSkillDisplayName,
   getSourceDisplayName,
   getSourceSortKey,
   getSourceTooltip
@@ -110,6 +111,33 @@ describe('source-name helpers', () => {
       expect(getSourceTooltip('plugin')).toBe(
         'Plugin skill — read-only, may be overwritten on update.'
       )
+    })
+  })
+
+  describe('getSkillDisplayName', () => {
+    it('strips the exact plugin-name prefix when pluginName is given', () => {
+      expect(getSkillDisplayName('ponytail:ponytail-audit', 'plugin', 'ponytail@ponytail')).toBe(
+        'ponytail-audit'
+      )
+      expect(getSkillDisplayName('impeccable:impeccable', 'plugin', 'impeccable@impeccable')).toBe(
+        'impeccable'
+      )
+    })
+
+    it('leaves the name untouched if the prefix does not match', () => {
+      expect(getSkillDisplayName('other:skill-name', 'plugin', 'ponytail@ponytail')).toBe(
+        'other:skill-name'
+      )
+    })
+
+    it('falls back to splitting on the first colon when no pluginName is given', () => {
+      expect(getSkillDisplayName('ponytail:ponytail-audit', 'plugin')).toBe('ponytail-audit')
+    })
+
+    it('returns the name unchanged for non-plugin source types', () => {
+      expect(getSkillDisplayName('my-skill', 'global', null)).toBe('my-skill')
+      expect(getSkillDisplayName('my-skill', 'project')).toBe('my-skill')
+      expect(getSkillDisplayName('my-skill', null)).toBe('my-skill')
     })
   })
 

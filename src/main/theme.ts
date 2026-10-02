@@ -1,5 +1,5 @@
 import type Store from 'electron-store'
-import type { AppSection, ThemePreference } from '../shared/ipc'
+import { APP_SECTIONS, type AppSection, type ThemePreference } from '../shared/ipc'
 
 export type ThemeStore = Store<{ theme?: ThemePreference; lastSection?: AppSection }>
 
@@ -20,5 +20,6 @@ export function setStoredSection(store: ThemeStore, section: AppSection): void {
 }
 
 export function resolveInitialSection(store: ThemeStore): AppSection {
-  return store.get('lastSection') ?? 'skills'
+  const stored = store.get('lastSection')
+  return APP_SECTIONS.includes(stored as AppSection) ? (stored as AppSection) : 'skills'
 }

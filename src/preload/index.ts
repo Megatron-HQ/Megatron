@@ -11,8 +11,11 @@ import {
   type PluginDetailResult,
   type PluginRow,
   type SkillInvocationEntry,
+  type SkillInvocationRecord,
+  type SkillInvocationSliceInput,
   type SkillsListResult,
-  type ThemePreference
+  type ThemePreference,
+  type UsageOverview
 } from '../shared/ipc'
 
 // Custom APIs for renderer
@@ -45,6 +48,9 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.updatePlugin, input),
   uninstallPlugin: (input: PluginActionInput): Promise<PluginActionResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.uninstallPlugin, input),
+  getUsageOverview: (): Promise<UsageOverview> => ipcRenderer.invoke(IPC_CHANNELS.usageOverview),
+  getUsageSkillInvocations: (input: SkillInvocationSliceInput): Promise<SkillInvocationRecord[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.usageSkillInvocations, input),
   getInitialSection: (): AppSection => ipcRenderer.sendSync(IPC_CHANNELS.getInitialSection),
   setLastSection: (section: AppSection): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.setLastSection, section),

@@ -46,6 +46,22 @@ _Avoid_: Conversation, chat
 The on-disk record of a Session's turns, owned and formatted by Claude Code itself. Megatron reads it to derive Sessions and Skill Invocations; never edits it.
 _Avoid_: Log, history
 
+**Prompt History**:
+Claude Code's `~/.claude/history.jsonl` — one line per prompt the user submitted, carrying the time, project, and Session id but **no Session turns and no Skill Invocations**. A separate data source from the Transcript. Claude Code prunes it to `cleanupPeriodDays` (~30 days by default), so Megatron's `prompt_history` mirror is capped by design — it is wiped and reloaded whole on every Scan, and stores no prompt text.
+_Avoid_: Transcript (that's the turn-by-turn record), Activity (that's the derived view)
+
+**Prompt**:
+One line of Prompt History that is a real request to the model — anything that is not a Bare Command. The Activity view's headline counts (prompts, sessions, active days, busiest hours, per-project split) are all over Prompts only.
+_Avoid_: Message, turn
+
+**Bare Command**:
+A Prompt History line that is only a slash command with no arguments (`/clear`, `/quit`) — Claude Code tool control, not a request to the model. Detected by the `^/[a-z][\w-]*$` heuristic, which also catches a skill run typed with no arguments (`/visual-verify`); the ~1% imprecision is accepted and undercounts Prompts. Counted and shown separately, never as a Prompt.
+_Avoid_: Slash command (a `/skill arg` line with arguments is a Prompt, not a Bare Command)
+
+**Activity**:
+The first section of the Usage view — a retrospective over Prompt History for a rolling 7- or 30-day window: active days, sessions, prompts, a by-day strip, an hour×weekday punchcard, and a per-project split. Derived, never stored; recomputed from `prompt_history` on each request.
+_Avoid_: Usage (the whole view), Insights (Claude Code's own separate feature)
+
 **Skill Invocation**:
 One recorded event of a Skill being called during a Session. Distinct from the Skill itself: a Skill is static and either exists or doesn't; an Invocation is a historical fact — it happened once, at a specific time, in a specific Session — and is immutable once recorded.
 _Avoid_: Call, usage, run

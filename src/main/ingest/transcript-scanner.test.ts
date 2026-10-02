@@ -1,5 +1,13 @@
 import Database from 'better-sqlite3'
-import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'fs'
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync
+} from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -57,6 +65,28 @@ function metaLine(overrides: Record<string, unknown> = {}): Record<string, unkno
   }
 }
 
+function costStateLine(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    type: 'cost-state',
+    sessionId: 'sess-1',
+    totalCostUSD: 2.5,
+    startTime: 1704067500000,
+    modelUsage: {
+      'claude-sonnet-5': {
+        inputTokens: 100,
+        outputTokens: 200,
+        thinkingTokens: 50,
+        cacheReadInputTokens: 3000,
+        cacheCreationInputTokens: 400,
+        webSearchRequests: 0,
+        costUSD: 2.5
+      }
+    },
+    hasUnknownModelCost: false,
+    ...overrides
+  }
+}
+
 function skillInvocationLine(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     type: 'assistant',
@@ -78,7 +108,52 @@ function skillInvocationLine(overrides: Record<string, unknown> = {}): Record<st
   }
 }
 
+function assistantUsageLine(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    type: 'assistant',
+    sessionId: 'sess-1',
+    timestamp: '2024-01-01T00:02:00.000Z',
+    uuid: 'uuid-turn-1',
+    requestId: 'request-1',
+    isSidechain: false,
+    message: {
+      id: 'message-1',
+      model: 'claude-sonnet-5-20260901',
+      usage: { input_tokens: 10, output_tokens: 20 },
+      content: [{ type: 'text', text: 'done' }]
+    },
+    ...overrides
+  }
+}
+
 describe('parseTranscript', () => {
+  it('extracts one logical usage turn from repeated physical assistant records', () => {
+    const filePath = writeTranscriptFile(tmpDir, 'sess-1', [
+      metaLine(),
+      assistantUsageLine(),
+      assistantUsageLine({
+        uuid: 'uuid-turn-2',
+        message: {
+          id: 'message-1',
+          model: 'claude-sonnet-5-20260901',
+          usage: { input_tokens: 10, output_tokens: 20 },
+          content: [{ type: 'tool_use', name: 'Read', input: {} }]
+        }
+      })
+    ])
+
+    expect(parseTranscript(filePath).turns).toEqual([
+      expect.objectContaining({
+        logical_turn_key: 'message:message-1',
+        source_uuid: 'uuid-turn-1',
+        session_id: 'sess-1',
+        model: 'claude-sonnet-5',
+        output_tokens: 20,
+        agent_id: null
+      })
+    ])
+  })
+
   it('uses a later cwd-bearing line when line 0 is a header with no cwd', () => {
     const filePath = writeTranscriptFile(tmpDir, 'sess-1', [{ type: 'mode' }, metaLine()])
 
@@ -89,7 +164,75 @@ describe('parseTranscript', () => {
       cwd: '/repo',
       git_branch: 'main',
       started_at: '2024-01-01T00:00:00.000Z',
-      message_count: 1
+      message_count: 1,
+      continued_in_session_id: null
+    })
+  })
+
+  it('extracts continuation lineage into session metadata without requiring cost-state', () => {
+    const filePath = writeTranscriptFile(tmpDir, 'sess-1', [
+      metaLine(),
+      {
+        type: 'continued-in',
+        sessionId: 'sess-1',
+        continuedInSessionId: 'sess-2'
+      }
+    ])
+
+    expect(parseTranscript(filePath).session).toEqual(
+      expect.objectContaining({ continued_in_session_id: 'sess-2' })
+    )
+  })
+
+  it('extracts a numeric resident-context candidate without retaining attachment text', () => {
+    const filePath = writeTranscriptFile(tmpDir, 'sess-1', [
+      metaLine({ version: '2.1.261' }),
+      {
+        type: 'attachment',
+        sessionId: 'sess-1',
+        timestamp: '2024-01-01T00:01:00.000Z',
+        uuid: 'attachment-1',
+        isSidechain: false,
+        attachment: {
+          type: 'skill_listing',
+          isInitial: true,
+          content: 'abcdef',
+          skillCount: 2,
+          names: ['one', 'two']
+        }
+      },
+      assistantUsageLine({
+        message: {
+          id: 'message-1',
+          model: 'claude-sonnet-5',
+          usage: {
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 1200,
+            output_tokens: 20
+          },
+          content: []
+        }
+      })
+    ])
+
+    expect(parseTranscript(filePath).resident).toEqual({
+      session_id: 'sess-1',
+      first_turn_at: '2024-01-01T00:02:00.000Z',
+      model: 'claude-sonnet-5',
+      claude_version: '2.1.261',
+      cache_read_tokens: 0,
+      measured_tokens: 1200,
+      cost_state_started_at: null,
+      skill_characters: 6,
+      skill_count: 2,
+      agent_characters: 0,
+      agent_count: 0,
+      hook_characters: 0,
+      hook_count: 0,
+      mcp_characters: 0,
+      mcp_count: 0,
+      instruction_characters: 0,
+      instruction_count: 0
     })
   })
 
@@ -639,6 +782,24 @@ describe('parseTranscript', () => {
     expect(parseTranscript(filePath).invocations[0].agent_id).toBeNull()
   })
 
+  describe('cost-state extraction', () => {
+    it('returns a non-null cost when the transcript carries a cost-state line', () => {
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [metaLine(), costStateLine()])
+
+      expect(parseTranscript(filePath).cost?.totalCostUsd).toBe(2.5)
+    })
+
+    it('returns a null cost when the transcript has no cost-state line', () => {
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [metaLine(), skillInvocationLine()])
+
+      expect(parseTranscript(filePath).cost).toBeNull()
+    })
+
+    it('returns a null cost for a path outside the allowed roots', () => {
+      expect(parseTranscript('/etc/passwd').cost).toBeNull()
+    })
+  })
+
   describe('preceding_user_text capture', () => {
     it('captures the nearest preceding user message on the tool_use path', () => {
       const trigger = metaLine({ message: { content: 'please look into the flaky test' } })
@@ -829,6 +990,7 @@ describe('scanTranscripts', () => {
     git_branch: string | null
     started_at: string
     message_count: number
+    continued_in_session_id: string | null
     source_mtime_ms: number
   }
 
@@ -843,6 +1005,33 @@ describe('scanTranscripts', () => {
 
   function allInvocations(): unknown[] {
     return db.prepare('SELECT * FROM skill_invocations').all()
+  }
+
+  function costRow(sessionId: string): Record<string, unknown> | undefined {
+    return db.prepare('SELECT * FROM session_cost WHERE session_id = ?').get(sessionId) as
+      Record<string, unknown> | undefined
+  }
+
+  function modelCostRows(sessionId: string): Record<string, unknown>[] {
+    return db
+      .prepare('SELECT * FROM session_model_cost WHERE session_id = ? ORDER BY model')
+      .all(sessionId) as Record<string, unknown>[]
+  }
+
+  function turnRows(sessionId: string): Record<string, unknown>[] {
+    return db
+      .prepare('SELECT * FROM turn_usage WHERE session_id = ? ORDER BY turn_index, agent_id')
+      .all(sessionId) as Record<string, unknown>[]
+  }
+
+  function residentRow(sessionId: string): Record<string, unknown> | undefined {
+    return db
+      .prepare('SELECT * FROM resident_context_sample WHERE session_id = ?')
+      .get(sessionId) as Record<string, unknown> | undefined
+  }
+
+  function count(table: string): number {
+    return (db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get() as { c: number }).c
   }
 
   beforeEach(() => {
@@ -862,6 +1051,362 @@ describe('scanTranscripts', () => {
 
     expect(getSession('sess-1')).toBeTruthy()
     expect(allInvocations()).toHaveLength(1)
+  })
+
+  it('persists and replaces one numeric resident-context sample per session', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    const filePath = writeTranscriptFile(projectDir, 'sess-1', [
+      metaLine({ version: '2.1.261' }),
+      {
+        type: 'attachment',
+        timestamp: '2024-01-01T00:01:00.000Z',
+        attachment: { type: 'skill_listing', isInitial: true, content: 'abcdef', skillCount: 2 }
+      },
+      assistantUsageLine({
+        message: {
+          model: 'claude-sonnet-5',
+          usage: { cache_read_input_tokens: 0, cache_creation_input_tokens: 1200 }
+        }
+      })
+    ])
+
+    scanTranscripts(db, projectsDir)
+    expect(residentRow('sess-1')).toMatchObject({
+      measured_tokens: 1200,
+      skill_characters: 6,
+      skill_count: 2
+    })
+
+    writeFileSync(filePath, linesToJsonl([metaLine(), assistantUsageLine()]))
+    const future = new Date(Date.now() + 2000)
+    utimesSync(filePath, future, future)
+    scanTranscripts(db, projectsDir)
+
+    expect(residentRow('sess-1')).toBeUndefined()
+  })
+
+  it('replaces logical turn rows on rescan instead of retaining stale usage', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    const filePath = writeTranscriptFile(projectDir, 'sess-1', [metaLine(), assistantUsageLine()])
+    scanTranscripts(db, projectsDir)
+    expect(turnRows('sess-1')).toHaveLength(1)
+
+    writeFileSync(
+      filePath,
+      linesToJsonl([
+        metaLine(),
+        assistantUsageLine({
+          uuid: 'uuid-turn-new',
+          requestId: 'request-new',
+          message: {
+            id: 'message-new',
+            model: 'claude-opus-5',
+            usage: { input_tokens: 30, output_tokens: 40 },
+            content: []
+          }
+        })
+      ])
+    )
+    const future = new Date(Date.now() + 2000)
+    utimesSync(filePath, future, future)
+    scanTranscripts(db, projectsDir)
+
+    expect(turnRows('sess-1')).toEqual([
+      expect.objectContaining({ source_uuid: 'uuid-turn-new', model: 'claude-opus-5' })
+    ])
+  })
+
+  it('deduplicates assistant turns replayed across resumed session files without rolling back the scan', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    writeTranscriptFile(projectDir, 'sess-original', [
+      metaLine({ sessionId: 'sess-original', uuid: 'uuid-meta-original' }),
+      assistantUsageLine({
+        sessionId: 'sess-original',
+        uuid: 'uuid-replayed',
+        requestId: 'request-replayed',
+        message: {
+          id: 'message-replayed',
+          model: 'claude-sonnet-5',
+          usage: { input_tokens: 10, output_tokens: 20 },
+          content: []
+        }
+      })
+    ])
+    const resumedFilePath = writeTranscriptFile(projectDir, 'sess-resumed', [
+      metaLine({
+        sessionId: 'sess-resumed',
+        uuid: 'uuid-meta-resumed',
+        timestamp: '2024-01-02T00:00:00.000Z'
+      }),
+      assistantUsageLine({
+        sessionId: 'sess-resumed',
+        uuid: 'uuid-replayed',
+        requestId: 'request-replayed',
+        message: {
+          id: 'message-replayed',
+          model: 'claude-sonnet-5',
+          usage: { input_tokens: 10, output_tokens: 20 },
+          content: []
+        }
+      }),
+      assistantUsageLine({
+        sessionId: 'sess-resumed',
+        uuid: 'uuid-resumed-new',
+        requestId: 'request-resumed-new',
+        timestamp: '2024-01-02T00:02:00.000Z',
+        message: {
+          id: 'message-resumed-new',
+          model: 'claude-opus-5',
+          usage: { input_tokens: 30, output_tokens: 40 },
+          content: []
+        }
+      })
+    ])
+
+    expect(() => scanTranscripts(db, projectsDir)).not.toThrow()
+    expect(
+      allSessions()
+        .map((session) => session.session_id)
+        .sort()
+    ).toEqual(['sess-original', 'sess-resumed'])
+    expect(
+      db
+        .prepare('SELECT source_uuid FROM turn_usage ORDER BY source_uuid')
+        .all()
+        .map((row) => (row as { source_uuid: string }).source_uuid)
+    ).toEqual(['uuid-replayed', 'uuid-resumed-new'])
+
+    appendFileSync(
+      resumedFilePath,
+      `\n${JSON.stringify(
+        assistantUsageLine({
+          sessionId: 'sess-resumed',
+          uuid: 'uuid-resumed-later',
+          requestId: 'request-resumed-later',
+          timestamp: '2024-01-02T00:03:00.000Z',
+          message: {
+            id: 'message-resumed-later',
+            model: 'claude-haiku-4-5',
+            usage: { input_tokens: 5, output_tokens: 10 },
+            content: []
+          }
+        })
+      )}`
+    )
+    const future = new Date(Date.now() + 2000)
+    utimesSync(resumedFilePath, future, future)
+
+    expect(() => scanTranscripts(db, projectsDir)).not.toThrow()
+    expect(
+      db
+        .prepare('SELECT source_uuid FROM turn_usage ORDER BY source_uuid')
+        .all()
+        .map((row) => (row as { source_uuid: string }).source_uuid)
+    ).toEqual(['uuid-replayed', 'uuid-resumed-later', 'uuid-resumed-new'])
+  })
+
+  it('deduplicates replayed logical turns when their physical source UUIDs differ', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    writeTranscriptFile(projectDir, 'sess-original', [
+      metaLine({ sessionId: 'sess-original', uuid: 'uuid-meta-original' }),
+      assistantUsageLine({
+        sessionId: 'sess-original',
+        uuid: 'uuid-physical-original',
+        requestId: 'request-original',
+        message: {
+          id: 'message-replayed',
+          model: 'claude-sonnet-5',
+          usage: { output_tokens: 20 },
+          content: []
+        }
+      })
+    ])
+    writeTranscriptFile(projectDir, 'sess-resumed', [
+      metaLine({ sessionId: 'sess-resumed', uuid: 'uuid-meta-resumed' }),
+      assistantUsageLine({
+        sessionId: 'sess-resumed',
+        uuid: 'uuid-physical-resumed',
+        requestId: 'request-resumed',
+        message: {
+          id: 'message-replayed',
+          model: 'claude-sonnet-5',
+          usage: { output_tokens: 20 },
+          content: []
+        }
+      })
+    ])
+
+    expect(() => scanTranscripts(db, projectsDir)).not.toThrow()
+    expect(count('sessions_meta')).toBe(2)
+    expect(count('turn_usage')).toBe(1)
+  })
+
+  it('deduplicates a reused source UUID when its logical turn identifiers disagree', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    writeTranscriptFile(projectDir, 'sess-original', [
+      metaLine({ sessionId: 'sess-original', uuid: 'uuid-meta-original' }),
+      assistantUsageLine({
+        sessionId: 'sess-original',
+        uuid: 'uuid-reused',
+        requestId: 'request-original',
+        message: {
+          id: 'message-original',
+          model: 'claude-sonnet-5',
+          usage: { output_tokens: 20 },
+          content: []
+        }
+      })
+    ])
+    writeTranscriptFile(projectDir, 'sess-resumed', [
+      metaLine({ sessionId: 'sess-resumed', uuid: 'uuid-meta-resumed' }),
+      assistantUsageLine({
+        sessionId: 'sess-resumed',
+        uuid: 'uuid-reused',
+        requestId: 'request-resumed',
+        message: {
+          id: 'message-resumed',
+          model: 'claude-sonnet-5',
+          usage: { output_tokens: 20 },
+          content: []
+        }
+      })
+    ])
+
+    expect(() => scanTranscripts(db, projectsDir)).not.toThrow()
+    expect(count('sessions_meta')).toBe(2)
+    expect(count('turn_usage')).toBe(1)
+  })
+
+  it('deduplicates a logical turn repeated between a main transcript and its subagent file', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    writeTranscriptFile(projectDir, 'sess-1', [metaLine(), assistantUsageLine()])
+    writeSubagentTranscriptFile(projectDir, 'sess-1', 'agent-replay', [
+      assistantUsageLine({ isSidechain: true })
+    ])
+
+    expect(() => scanTranscripts(db, projectsDir)).not.toThrow()
+    expect(count('turn_usage')).toBe(1)
+  })
+
+  it('does not inflate terminal skill-cost allocation with replayed lineage turns', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    writeTranscriptFile(projectDir, 'sess-original', [
+      metaLine({ sessionId: 'sess-original', uuid: 'uuid-meta-original' }),
+      assistantUsageLine({
+        sessionId: 'sess-original',
+        uuid: 'uuid-replayed',
+        requestId: 'request-replayed',
+        attributionSkill: 'skill-a',
+        message: {
+          id: 'message-replayed',
+          model: 'claude-sonnet-5',
+          usage: { output_tokens: 20 },
+          content: []
+        }
+      }),
+      { type: 'continued-in', sessionId: 'sess-original', continuedInSessionId: 'sess-resumed' },
+      costStateLine({ sessionId: 'sess-original', totalCostUSD: 1 })
+    ])
+    writeTranscriptFile(projectDir, 'sess-resumed', [
+      metaLine({
+        sessionId: 'sess-resumed',
+        uuid: 'uuid-meta-resumed',
+        timestamp: '2024-01-02T00:00:00.000Z'
+      }),
+      assistantUsageLine({
+        sessionId: 'sess-resumed',
+        uuid: 'uuid-replayed',
+        requestId: 'request-replayed',
+        attributionSkill: 'skill-a',
+        message: {
+          id: 'message-replayed',
+          model: 'claude-sonnet-5',
+          usage: { output_tokens: 20 },
+          content: []
+        }
+      }),
+      assistantUsageLine({
+        sessionId: 'sess-resumed',
+        uuid: 'uuid-resumed-new',
+        requestId: 'request-resumed-new',
+        timestamp: '2024-01-02T00:02:00.000Z',
+        attributionSkill: 'skill-b',
+        message: {
+          id: 'message-resumed-new',
+          model: 'claude-sonnet-5',
+          usage: { output_tokens: 40 },
+          content: []
+        }
+      }),
+      costStateLine({
+        sessionId: 'sess-resumed',
+        totalCostUSD: 6,
+        modelUsage: {
+          'claude-sonnet-5': {
+            inputTokens: 0,
+            outputTokens: 60,
+            thinkingTokens: 0,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            webSearchRequests: 0,
+            costUSD: 6
+          }
+        }
+      })
+    ])
+
+    expect(() => scanTranscripts(db, projectsDir)).not.toThrow()
+    expect(
+      db
+        .prepare(
+          `SELECT skill_name, est_cost_usd
+           FROM session_skill_cost ORDER BY skill_name`
+        )
+        .all()
+    ).toEqual([
+      { skill_name: 'skill-a', est_cost_usd: 2 },
+      { skill_name: 'skill-b', est_cost_usd: 4 }
+    ])
+  })
+
+  it('ingests subagent usage under the parent session with its agent id', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    writeTranscriptFile(projectDir, 'sess-1', [metaLine()])
+    writeSubagentTranscriptFile(projectDir, 'sess-1', 'agent-abc123', [
+      assistantUsageLine({
+        isSidechain: true,
+        uuid: 'uuid-subagent',
+        requestId: 'request-subagent'
+      })
+    ])
+
+    scanTranscripts(db, projectsDir)
+
+    expect(turnRows('sess-1')).toEqual([
+      expect.objectContaining({ source_uuid: 'uuid-subagent', agent_id: 'agent-abc123' })
+    ])
+  })
+
+  it('rebuilds skill cost attribution after ingesting turns and cost state', () => {
+    writeTranscriptFile(join(projectsDir, 'project-a'), 'sess-1', [
+      metaLine(),
+      skillInvocationLine(),
+      assistantUsageLine({
+        message: {
+          id: 'message-after-skill',
+          model: 'claude-sonnet-5',
+          usage: { output_tokens: 200 },
+          content: []
+        }
+      }),
+      costStateLine()
+    ])
+
+    scanTranscripts(db, projectsDir)
+
+    expect(db.prepare('SELECT skill_name, est_cost_usd FROM session_skill_cost').all()).toEqual([
+      { skill_name: 'my-skill', est_cost_usd: 2.5 }
+    ])
   })
 
   it('ignores a .jsonl file sitting flat directly under projectsDir', () => {
@@ -1061,4 +1606,206 @@ describe('scanTranscripts', () => {
     expect(getSession('sess-1')).toBeUndefined()
     expect(allInvocations()).toHaveLength(0)
   })
+
+  describe('cost-state ingest', () => {
+    it('writes one session_cost row and its session_model_cost rows from a cost-state line', () => {
+      writeTranscriptFile(join(projectsDir, 'project-a'), 'sess-1', [
+        metaLine(),
+        costStateLine({ totalCostUSD: 3.14, hasUnknownModelCost: true })
+      ])
+
+      scanTranscripts(db, projectsDir)
+
+      expect(costRow('sess-1')).toMatchObject({
+        session_id: 'sess-1',
+        total_cost_usd: 3.14,
+        has_unknown_model_cost: 1,
+        is_zeroed: 0
+      })
+      expect(modelCostRows('sess-1')).toEqual([
+        expect.objectContaining({ model: 'claude-sonnet-5', cost_usd: 2.5, input_tokens: 100 })
+      ])
+    })
+
+    it('stores the continued-in lineage link for a non-terminal session', () => {
+      writeTranscriptFile(join(projectsDir, 'project-a'), 'sess-1', [
+        metaLine(),
+        { type: 'continued-in', sessionId: 'sess-1', continuedInSessionId: 'sess-2' },
+        costStateLine()
+      ])
+
+      scanTranscripts(db, projectsDir)
+
+      expect(getSession('sess-1')).toMatchObject({ continued_in_session_id: 'sess-2' })
+      expect(costRow('sess-1')).not.toHaveProperty('continued_in_session_id')
+    })
+
+    it('stores an all-zeroed cost-state row flagged is_zeroed with no model rows', () => {
+      writeTranscriptFile(join(projectsDir, 'project-a'), 'sess-1', [
+        metaLine(),
+        costStateLine({ totalCostUSD: 0, modelUsage: {} })
+      ])
+
+      scanTranscripts(db, projectsDir)
+
+      expect(costRow('sess-1')).toMatchObject({ is_zeroed: 1, total_cost_usd: 0 })
+      expect(modelCostRows('sess-1')).toHaveLength(0)
+    })
+
+    it('writes no session_cost row for a transcript with no cost-state line', () => {
+      writeTranscriptFile(join(projectsDir, 'project-a'), 'sess-1', [
+        metaLine(),
+        skillInvocationLine()
+      ])
+
+      scanTranscripts(db, projectsDir)
+
+      expect(costRow('sess-1')).toBeUndefined()
+    })
+
+    it('replaces cost rows on an mtime-change rescan, leaving no stale model rows', () => {
+      const projectDir = join(projectsDir, 'project-a')
+      const filePath = writeTranscriptFile(projectDir, 'sess-1', [
+        metaLine(),
+        costStateLine({ modelUsage: { 'claude-opus-5': { costUSD: 9, inputTokens: 1 } } })
+      ])
+      scanTranscripts(db, projectsDir)
+      expect(modelCostRows('sess-1')).toEqual([expect.objectContaining({ model: 'claude-opus-5' })])
+
+      writeFileSync(
+        filePath,
+        linesToJsonl([
+          metaLine(),
+          costStateLine({
+            totalCostUSD: 1,
+            modelUsage: { 'claude-sonnet-5': { costUSD: 1, inputTokens: 2 } }
+          })
+        ])
+      )
+      const future = new Date(Date.now() + 60000)
+      utimesSync(filePath, future, future)
+      scanTranscripts(db, projectsDir)
+
+      expect(modelCostRows('sess-1')).toEqual([
+        expect.objectContaining({ model: 'claude-sonnet-5' })
+      ])
+      expect(costRow('sess-1')).toMatchObject({ total_cost_usd: 1 })
+    })
+
+    it('drops session_cost and cascades session_model_cost when a transcript is deleted', () => {
+      const projectDir = join(projectsDir, 'project-a')
+      writeTranscriptFile(projectDir, 'sess-1', [metaLine(), costStateLine()])
+      scanTranscripts(db, projectsDir)
+      expect(costRow('sess-1')).toBeTruthy()
+      expect(modelCostRows('sess-1')).toHaveLength(1)
+
+      rmSync(projectDir, { recursive: true, force: true })
+      scanTranscripts(db, projectsDir)
+
+      expect(costRow('sess-1')).toBeUndefined()
+      expect(count('session_model_cost')).toBe(0)
+    })
+
+    it('clears session_cost and session_model_cost in a full cleanup', () => {
+      writeTranscriptFile(join(projectsDir, 'project-a'), 'sess-1', [metaLine(), costStateLine()])
+      scanTranscripts(db, projectsDir)
+      expect(costRow('sess-1')).toBeTruthy()
+
+      rmSync(projectsDir, { recursive: true, force: true })
+      mkdirSync(projectsDir, { recursive: true })
+
+      expect(() => scanTranscripts(db, projectsDir)).not.toThrow()
+      expect(count('session_cost')).toBe(0)
+      expect(count('session_model_cost')).toBe(0)
+    })
+
+    it('does not price a cost-state line that appears inside a subagents/ file', () => {
+      const projectDir = join(projectsDir, 'project-a')
+      writeTranscriptFile(projectDir, 'sess-1', [metaLine()])
+      writeSubagentTranscriptFile(projectDir, 'sess-1', 'agent-abc123', [
+        skillInvocationLine({ sessionId: 'sess-1', isSidechain: true }),
+        costStateLine({ sessionId: 'sess-1', totalCostUSD: 99 })
+      ])
+
+      scanTranscripts(db, projectsDir)
+
+      expect(costRow('sess-1')).toBeUndefined()
+    })
+
+    it('reindexes session_cost for an unchanged transcript when the parser version changes', () => {
+      writeTranscriptFile(join(projectsDir, 'project-a'), 'sess-1', [metaLine(), costStateLine()])
+      scanTranscripts(db, projectsDir)
+      expect(costRow('sess-1')).toBeTruthy()
+
+      db.prepare('DELETE FROM session_cost WHERE session_id = ?').run('sess-1')
+      db.prepare('UPDATE sessions_meta SET transcript_parser_version = 0 WHERE session_id = ?').run(
+        'sess-1'
+      )
+
+      scanTranscripts(db, projectsDir)
+
+      expect(costRow('sess-1')).toBeTruthy()
+    })
+  })
 })
+
+describe.skipIf(process.env.RUN_PR4_BENCHMARK !== '1')('PR4 ingest performance envelope', () => {
+  it('scans 600 MiB including one 150 MiB session within the cold, cached, and RSS budgets', () => {
+    const projectsDir = join(tmpDir, 'benchmark-projects')
+    const projectDir = join(projectsDir, 'project-a')
+    mkdirSync(projectDir, { recursive: true })
+    const megabyteToolResult = 'x'.repeat(1024 * 1024)
+    const sessionSizesMiB = [150, 50, 50, 50, 50, 50, 50, 50, 50, 50]
+
+    sessionSizesMiB.forEach((sizeMiB, index) => {
+      const sessionId = `benchmark-${index}`
+      const filePath = join(projectDir, `${sessionId}.jsonl`)
+      writeFileSync(filePath, `${JSON.stringify(metaLine({ sessionId, uuid: `meta-${index}` }))}\n`)
+      const toolResultLine = `${JSON.stringify({
+        type: 'user',
+        sessionId,
+        message: { content: [{ type: 'tool_result', content: megabyteToolResult }] }
+      })}\n`
+      for (let block = 0; block < sizeMiB; block += 1) appendFileSync(filePath, toolResultLine)
+      appendFileSync(
+        filePath,
+        JSON.stringify(
+          assistantUsageLine({
+            sessionId,
+            uuid: `turn-${index}`,
+            requestId: `request-${index}`,
+            message: {
+              id: `message-${index}`,
+              model: 'claude-sonnet-5',
+              usage: { output_tokens: 1 },
+              content: []
+            }
+          })
+        )
+      )
+    })
+
+    const database = new Database(':memory:')
+    applySchema(database)
+    const rssBefore = process.memoryUsage().rss
+    const coldStartedAt = performance.now()
+    scanTranscripts(database, projectsDir)
+    const coldElapsedMs = performance.now() - coldStartedAt
+    const rssDeltaBytes = process.memoryUsage().rss - rssBefore
+
+    const cachedStartedAt = performance.now()
+    scanTranscripts(database, projectsDir)
+    const cachedElapsedMs = performance.now() - cachedStartedAt
+
+    expect(countRows(database, 'sessions_meta')).toBe(10)
+    expect(countRows(database, 'turn_usage')).toBe(10)
+    expect(coldElapsedMs).toBeLessThanOrEqual(30_000)
+    expect(rssDeltaBytes).toBeLessThan(128 * 1024 * 1024)
+    expect(cachedElapsedMs).toBeLessThanOrEqual(1_000)
+  }, 60_000)
+})
+
+function countRows(database: Database.Database, table: string): number {
+  return (database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number })
+    .count
+}

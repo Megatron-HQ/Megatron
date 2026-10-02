@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { TREE_WIDTH_MAX, TREE_WIDTH_MIN, TREE_WIDTH_STEP } from '@/lib/file-tree'
 import { isMarkdownFile } from '@/lib/markdown'
+import { getSkillDisplayName } from '@/lib/source-name'
 import { cn } from '@/lib/utils'
 
 interface SkillFileViewerProps {
@@ -135,7 +136,9 @@ export function SkillFileViewer({
         >
           <ArrowLeft className="size-4" />
         </Button>
-        <h2 className="min-w-0 truncate text-[13px] font-medium">{skill.name}</h2>
+        <h2 className="min-w-0 truncate text-[13px] font-medium">
+          {getSkillDisplayName(skill.name, skill.source_type, skill.plugin_name)}
+        </h2>
       </div>
 
       <LintFindingsPanel key={skillId} findings={findings} />

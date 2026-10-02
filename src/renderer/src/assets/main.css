@@ -36,11 +36,28 @@
   /* Acid lime brand accent — same literal value in both themes, per docs/design-system.md */
   --accent-lime: #e4f222;
   --accent-lime-foreground: oklch(0.145 0 0);
+  /* Usage view chart ink — monochrome, no hue, no second accent (docs/usage-view-ui-spec.md
+     §4.1). `--usage-bar` is the default full-ink bar fill; `--usage-bar-quiet` is opt-in per
+     chart for context / de-emphasized bars. */
+  --usage-bar: oklch(0.145 0 0);
+  --usage-bar-quiet: oklch(0.7 0 0);
+  /* Data-series color — the third functional color layer (DESIGN.md §C11, docs/usage-view-ui-spec.md
+     §C3). Chart *series identity* only, scoped to by-model charts (Cost spend bar; PR4). Assigned
+     by model family, never by rank. `dataviz` reference slots 1-3, CVD-validated both themes. An
+     unmapped family folds to --usage-bar-quiet, never a generated hue. */
+  --usage-series-1: #2a78d6; /* sonnet */
+  --usage-series-2: #eb6834; /* opus */
+  --usage-series-3: #1baf7a; /* haiku */
 }
 
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
+  --usage-bar: oklch(0.985 0 0);
+  --usage-bar-quiet: oklch(0.45 0 0);
+  --usage-series-1: #3987e5; /* sonnet */
+  --usage-series-2: #d95926; /* opus */
+  --usage-series-3: #199e70; /* haiku */
   --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
@@ -83,6 +100,11 @@
   --color-disabled-flag: var(--disabled-flag);
   --color-accent-lime: var(--accent-lime);
   --color-accent-lime-foreground: var(--accent-lime-foreground);
+  --color-usage-bar: var(--usage-bar);
+  --color-usage-bar-quiet: var(--usage-bar-quiet);
+  --color-usage-series-1: var(--usage-series-1);
+  --color-usage-series-2: var(--usage-series-2);
+  --color-usage-series-3: var(--usage-series-3);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -134,6 +156,18 @@
     transparent 1.5px
   );
   background-size: 5px 5px;
+}
+
+/* Usage view — the 3-4 primary stat numerals only. 30px is a deliberate, scoped departure from
+   the 16px/600 No-Hero-Type ceiling (docs/usage-view-ui-spec.md §8); Geist Mono keeps it inside
+   the "Mono for data" principle so only size departs. */
+.text-usage-stat {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 30px;
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
 }
 
 @layer base {
