@@ -172,6 +172,71 @@ describe('rolling Cost windows', () => {
     )
   })
 
+  it('scopes hourly details to contributing shares and counts each session once', () => {
+    addSession('a', 7)
+    addSession('b', 4, { project: '/repo-b', unknown: 1 })
+    addShare('a', '2026-09-07T10:10:00.000Z', 2)
+    addShare('a', '2026-09-07T10:20:00.000Z', 3, 'claude-sonnet-5')
+    addShare('a', '2026-09-07T11:10:00.000Z', 2)
+    addShare('b', '2026-09-07T10:30:00.000Z', 4, null)
+    const hours = getCostStats(db, NOW)!.last24h.byHourChronological
+    expect(hours[22]).toMatchObject({
+      costUsd: 9,
+      pricedSessionCount: 2,
+      hasUnknownModelCost: true,
+      byModel: [
+        { model: 'unattributed', costUsd: 4 },
+        { model: 'claude-sonnet-5', costUsd: 3 },
+        { model: 'claude-opus-5', costUsd: 2 }
+      ],
+      byProject: [
+        { project: '/repo-a', costUsd: 5 },
+        { project: '/repo-b', costUsd: 4 }
+      ]
+    })
+    expect(hours[23]).toMatchObject({
+      costUsd: 2,
+      pricedSessionCount: 1,
+      hasUnknownModelCost: false,
+      byModel: [{ model: 'claude-opus-5', costUsd: 2 }],
+      byProject: [{ project: '/repo-a', costUsd: 2 }]
+    })
+    expect(hours[0]).toMatchObject({
+      costUsd: 0,
+      pricedSessionCount: 0,
+      hasUnknownModelCost: false,
+      byModel: [],
+      byProject: []
+    })
+  })
+
+  it('keeps hourly details within rolling boundaries including the as-of instant', () => {
+    addSession('edges', 31)
+    addShare('edges', '2026-09-06T12:30:59.999Z', 1)
+    addShare('edges', '2026-09-06T12:31:00.000Z', 2)
+    addShare('edges', '2026-09-06T13:31:00.000Z', 4, 'claude-sonnet-5')
+    addShare('edges', '2026-09-07T12:31:00.000Z', 8, null)
+    addShare('edges', '2026-09-07T12:31:00.001Z', 16)
+    const window = getCostStats(db, new Date('2026-09-07T12:31:00.000Z'))!.last24h
+    expect(window.byHourChronological[0]).toMatchObject({
+      startAt: '2026-09-06T12:31:00.000Z',
+      endAt: '2026-09-06T13:31:00.000Z',
+      costUsd: 2,
+      byModel: [{ model: 'claude-opus-5', costUsd: 2 }]
+    })
+    expect(window.byHourChronological[1]).toMatchObject({
+      costUsd: 4,
+      byModel: [{ model: 'claude-sonnet-5', costUsd: 4 }]
+    })
+    expect(window.byHourChronological[23]).toMatchObject({
+      endAt: '2026-09-07T12:31:00.001Z',
+      costUsd: 8,
+      byModel: [{ model: 'unattributed', costUsd: 8 }]
+    })
+    expect(window.totalCostUsd).toBe(14)
+    expect(window.byHourChronological.reduce((total, hour) => total + hour.costUsd, 0)).toBe(14)
+  })
+
   it('groups repeated DST hours into the local punchcard without losing daily cost', () => {
     const previousTimezone = process.env.TZ
     process.env.TZ = 'America/Chicago'
@@ -183,6 +248,18 @@ describe('rolling Cost windows', () => {
       expect(stats).toHaveProperty('last7d')
       expect(stats.last7d.byHourWeekday[0][1]).toBe(5)
       expect(stats.last7d.byDay.find((day) => day.date === '2026-11-01')?.costUsd).toBe(5)
+      const hours = getCostStats(db, new Date('2026-11-01T12:00:00.000Z'))!.last24h
+        .byHourChronological
+      expect(hours[18]).toMatchObject({
+        startAt: '2026-11-01T06:00:00.000Z',
+        costUsd: 2,
+        byModel: [{ model: 'claude-opus-5', costUsd: 2 }]
+      })
+      expect(hours[19]).toMatchObject({
+        startAt: '2026-11-01T07:00:00.000Z',
+        costUsd: 3,
+        byModel: [{ model: 'claude-opus-5', costUsd: 3 }]
+      })
     } finally {
       if (previousTimezone === undefined) delete process.env.TZ
       else process.env.TZ = previousTimezone

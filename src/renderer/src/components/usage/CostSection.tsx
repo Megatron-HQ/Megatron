@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react'
 import { CircleDollarSign, TriangleAlert } from 'lucide-react'
 import { getFolderBasename } from '@/lib/source-name'
-import type { CostStats, CostWindowKey } from '../../../../shared/ipc'
+import type { CostHour, CostStats, CostWindowKey } from '../../../../shared/ipc'
 import { ChartBlock } from './ChartBlock'
-import { CostDayDialog, COST_ATTRIBUTION_NOTE } from './CostDayDialog'
+import { CostDetailsDialog, COST_ATTRIBUTION_NOTE } from './CostDetailsDialog'
 import { CostHourStrip } from './CostHourStrip'
 import { DayStrip } from './DayStrip'
 import { Punchcard } from './Punchcard'
@@ -20,7 +20,9 @@ export function CostSection({
   cost: CostStats | null
   windowKey: CostWindowKey
 }): React.JSX.Element {
-  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [selectedBucket, setSelectedBucket] = useState<
+    { kind: 'day'; key: string } | { kind: 'hour'; hour: CostHour } | null
+  >(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   if (!cost)
@@ -38,7 +40,12 @@ export function CostSection({
   const windowLabel = windowKey === '24h' ? '24 hours' : `${window.days} days`
   const empty = window.totalCostUsd === 0
   const emptyMessage = `No timestamped cost in the last ${windowLabel}`
-  const selectedDay = window.byDay.find((day) => day.date === selectedDate) ?? null
+  const selectedDetails =
+    selectedBucket?.kind === 'day'
+      ? (window.byDay.find((day) => day.date === selectedBucket.key) ?? null)
+      : selectedBucket?.kind === 'hour'
+        ? selectedBucket.hour
+        : null
   return (
     <section className="flex flex-col gap-6 py-8">
       <div className="flex flex-col gap-2">
@@ -78,7 +85,14 @@ export function CostSection({
       </div>
       {windowKey === '24h' ? (
         <ChartBlock label="By hour" empty={empty} emptyMessage={emptyMessage}>
-          <CostHourStrip data={window.byHourChronological} />
+          <CostHourStrip
+            data={window.byHourChronological}
+            onSelectHour={(hour, trigger) => {
+              triggerRef.current = trigger
+              setSelectedBucket({ kind: 'hour', hour })
+              setDialogOpen(true)
+            }}
+          />
         </ChartBlock>
       ) : (
         <>
@@ -94,7 +108,7 @@ export function CostSection({
               formatValue={formatDollars}
               onSelectDay={(day, trigger) => {
                 triggerRef.current = trigger
-                setSelectedDate(day.date)
+                setSelectedBucket({ kind: 'day', key: day.date })
                 setDialogOpen(true)
               }}
             />
@@ -120,8 +134,8 @@ export function CostSection({
           noun="projects"
         />
       </ChartBlock>
-      <CostDayDialog
-        day={selectedDay}
+      <CostDetailsDialog
+        bucket={selectedDetails}
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onRestoreFocus={() => triggerRef.current?.focus()}

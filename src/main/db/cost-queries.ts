@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3'
 import { UNATTRIBUTED_COST_MODEL } from '../../shared/ipc'
-import type { CostDay, CostStats, CostWindow } from '../../shared/ipc'
+import type { CostDay, CostHour, CostStats, CostWindow } from '../../shared/ipc'
 
 const HOUR_MS = 60 * 60 * 1000
 const DAY_MS = 24 * HOUR_MS
@@ -85,6 +85,28 @@ function buildDailyCost(rows: TimedCostRow[], startAt: Date, endAt: Date): CostD
   return buckets
 }
 
+function buildHourlyCost(rows: TimedCostRow[], startAt: Date, endAt: Date): CostHour[] {
+  const rowsByHour = Array.from({ length: 24 }, () => [] as TimedCostRow[])
+  for (const row of rows) {
+    const index = Math.min(
+      23,
+      Math.floor((new Date(row.allocatedAt).getTime() - startAt.getTime()) / HOUR_MS)
+    )
+    rowsByHour[index].push(row)
+  }
+  return rowsByHour.map((hourRows, index) => {
+    const { totalCostUsd, ...details } = summarizeShares(hourRows)
+    return {
+      startAt: new Date(startAt.getTime() + index * HOUR_MS).toISOString(),
+      endAt: new Date(
+        index === 23 ? endAt.getTime() : startAt.getTime() + (index + 1) * HOUR_MS
+      ).toISOString(),
+      costUsd: totalCostUsd,
+      ...details
+    }
+  })
+}
+
 function buildCostWindow(rows: TimedCostRow[], now: Date, days: 1 | 7 | 30): CostWindow {
   const startAt = new Date(now.getTime() - days * DAY_MS)
   const endAt = new Date(now.getTime() + 1)
@@ -92,23 +114,9 @@ function buildCostWindow(rows: TimedCostRow[], now: Date, days: 1 | 7 | 30): Cos
     (row) => row.allocatedAt >= startAt.toISOString() && row.allocatedAt < endAt.toISOString()
   )
   const byHourWeekday = Array.from({ length: 7 }, () => Array<number>(24).fill(0))
-  const byHourChronological =
-    days === 1
-      ? Array.from({ length: 24 }, (_, index) => ({
-          startAt: new Date(startAt.getTime() + index * HOUR_MS).toISOString(),
-          endAt: new Date(
-            index === 23 ? endAt.getTime() : startAt.getTime() + (index + 1) * HOUR_MS
-          ).toISOString(),
-          costUsd: 0
-        }))
-      : []
   for (const row of inWindow) {
     const timestamp = new Date(row.allocatedAt)
     byHourWeekday[timestamp.getDay()][timestamp.getHours()] += row.costUsd
-    if (days === 1) {
-      const index = Math.min(23, Math.floor((timestamp.getTime() - startAt.getTime()) / HOUR_MS))
-      byHourChronological[index].costUsd += row.costUsd
-    }
   }
   return {
     days,
@@ -116,7 +124,7 @@ function buildCostWindow(rows: TimedCostRow[], now: Date, days: 1 | 7 | 30): Cos
     endAt: endAt.toISOString(),
     ...summarizeShares(inWindow),
     byDay: days === 1 ? [] : buildDailyCost(inWindow, startAt, endAt),
-    byHourChronological,
+    byHourChronological: days === 1 ? buildHourlyCost(inWindow, startAt, endAt) : [],
     byHourWeekday,
     byHour: Array.from({ length: 24 }, (_, hour) =>
       byHourWeekday.reduce((sum, row) => sum + row[hour], 0)

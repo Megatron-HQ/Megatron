@@ -397,11 +397,13 @@ remain governed by §C2–C3.
 - Cost's punchcard reuses Activity's Monday-first 7×24 grid, quantile opacity, crosshair, and
   hourly/weekday margins. Its cells and margins carry summed dollars in the selected period.
   Model colors stay scoped to the spend bar.
-- Clicking a nonzero daily column, or activating it with Enter/Space, opens a **Cost details**
-  dialog: selected date, clipped interval, estimated cost, contributing session count, model
+- Clicking a nonzero daily or hourly column, or activating it with Enter/Space, opens a **Cost details**
+  dialog: selected date, exact interval, estimated cost, contributing session count, model
   split, and project ranking. Its values come from the same overview response as the bar.
-  Escape/Close dismisses it and restores focus to that column. Zero dates support hover/focus
-  inspection without opening a dialog. Hourly and punchcard values support inspection only.
+  Hourly titles include local start/end times and timezone so repeated DST hours are distinguishable.
+  An open hourly dialog retains its captured interval and amounts when the overview refreshes.
+  Escape/Close dismisses it and restores focus to that column. Zero dates and hours support hover/focus
+  inspection without opening a dialog. Punchcard values support inspection only.
 - Partial dates are identified in hover/focus labels and the dialog. Preserve weekend shading,
   today's outline, existing hover behavior, project tooltips/disclosure, and reduced motion.
 - The overview Cost contract now contains `last24h`, `last7d`, and `last30d`, plus retained-history
@@ -409,7 +411,7 @@ remain governed by §C2–C3.
   exclusions are explicitly labeled as retained history. An empty period displays $0 and a
   period-specific message while keeping the window control available.
 
-Implementation: `components/usage/CostSection.tsx`, `CostHourStrip.tsx`, and `CostDayDialog.tsx`;
+Implementation: `components/usage/CostSection.tsx`, `CostHourStrip.tsx`, and `CostDetailsDialog.tsx`;
 `DayStrip` accepts an optional selection callback and `Punchcard` accepts a value formatter.
 
 **Scope:** the standalone Cost panel selected from the Usage sidebar — the tracked-window headline, the per-model

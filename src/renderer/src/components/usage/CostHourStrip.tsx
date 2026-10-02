@@ -21,7 +21,13 @@ function bucketLabel(hour: CostHour): string {
   return `${start}–${hourLabel(hour.endAt)} · ${formatUsd(hour.costUsd, { cents: true })}`
 }
 
-export function CostHourStrip({ data }: { data: CostHour[] }): React.JSX.Element {
+export function CostHourStrip({
+  data,
+  onSelectHour
+}: {
+  data: CostHour[]
+  onSelectHour: (hour: CostHour, trigger: HTMLButtonElement) => void
+}): React.JSX.Element {
   const reduceMotion = useReducedMotion() === true
   const [hovered, setHovered] = useState<number | null>(null)
   const maximum = Math.max(1, ...data.map((hour) => hour.costUsd))
@@ -33,15 +39,19 @@ export function CostHourStrip({ data }: { data: CostHour[] }): React.JSX.Element
         onMouseLeave={() => setHovered(null)}
       >
         {data.map((hour, index) => (
-          <div
-            key={hour.startAt}
-            tabIndex={0}
-            role="img"
+          <button
+            type="button"
+            key={index}
             aria-label={bucketLabel(hour)}
-            className="relative flex h-full min-w-0 flex-1 items-end outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            aria-disabled={hour.costUsd === 0}
+            aria-haspopup={hour.costUsd > 0 ? 'dialog' : undefined}
+            className={`relative flex h-full min-w-0 flex-1 items-end outline-none focus-visible:ring-1 focus-visible:ring-ring ${hour.costUsd > 0 ? 'cursor-pointer' : 'cursor-default'}`}
             onMouseEnter={() => setHovered(index)}
             onFocus={() => setHovered(index)}
             onBlur={() => setHovered(null)}
+            onClick={(event) => {
+              if (hour.costUsd > 0) onSelectHour(hour, event.currentTarget)
+            }}
           >
             <motion.span
               aria-hidden
@@ -64,7 +74,7 @@ export function CostHourStrip({ data }: { data: CostHour[] }): React.JSX.Element
                 className="pointer-events-none absolute inset-y-0 left-1/2 w-px bg-border"
               />
             )}
-          </div>
+          </button>
         ))}
       </div>
       <div className="mt-1 min-h-4 text-[11px] font-mono text-muted-foreground">

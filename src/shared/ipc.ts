@@ -313,6 +313,10 @@ export interface CostHour {
   startAt: string
   endAt: string
   costUsd: number
+  pricedSessionCount: number
+  hasUnknownModelCost: boolean
+  byModel: CostModelSpend[]
+  byProject: CostProjectSpend[]
 }
 
 export interface CostWindow {

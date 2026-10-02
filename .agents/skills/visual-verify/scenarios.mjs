@@ -159,6 +159,21 @@ async function skipWithoutCostDay(window) {
     : 'no timestamped cost days in the last 30 days'
 }
 
+async function openHourlyCost(window) {
+  await openUsagePanel(window, 'Cost')
+  await window
+    .getByRole('radiogroup', { name: 'Cost window' })
+    .getByRole('radio', { name: '24 hours' })
+    .click()
+}
+
+async function skipWithoutCostHour(window) {
+  await openHourlyCost(window)
+  return (await window.locator('button[aria-haspopup="dialog"]').count()) > 0
+    ? null
+    : 'no timestamped cost hours in the last 24 hours'
+}
+
 async function residentTaxDataPresent(window) {
   await openUsagePanel(window, 'Resident tax')
   return (await window.getByText('No cold-session sample yet').count()) === 0
@@ -861,6 +876,49 @@ export const scenarios = [
       await window.locator('button[aria-haspopup="dialog"]').first().click()
       await window.getByRole('dialog', { name: /Cost details/ }).waitFor()
       await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'cost-hour-dialog',
+    screen: 'usage',
+    shouldSkip: skipWithoutCostHour,
+    async run(window) {
+      await openHourlyCost(window)
+      await window.locator('button[aria-haspopup="dialog"]').first().click()
+      await window.getByRole('dialog', { name: /Cost details/ }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'cost-hour-dialog-dark',
+    screen: 'usage',
+    shouldSkip: skipWithoutCostHour,
+    async run(window) {
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('radio', { name: 'Dark', exact: true }).click()
+      await window.keyboard.press('Escape')
+      await window.getByRole('dialog').waitFor({ state: 'hidden' })
+      await openHourlyCost(window)
+      await window.locator('button[aria-haspopup="dialog"]').first().click()
+      await window.getByRole('dialog', { name: /Cost details/ }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'cost-hour-keyboard-return',
+    screen: 'usage',
+    shouldSkip: skipWithoutCostHour,
+    async run(window) {
+      await openHourlyCost(window)
+      const hour = window.locator('button[aria-haspopup="dialog"]').first()
+      await hour.focus()
+      for (const key of ['Enter', 'Space']) {
+        await window.keyboard.press(key)
+        await window.getByRole('dialog', { name: /Cost details/ }).waitFor()
+        await window.keyboard.press('Escape')
+        await window.getByRole('dialog').waitFor({ state: 'hidden' })
+        await window.waitForTimeout(MOTION_SETTLE_MS)
+      }
     }
   },
   {
