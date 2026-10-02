@@ -115,6 +115,51 @@ afterEach(() => {
 })
 
 describe('scanPluginRegistry', () => {
+  it('retains cached disablement when settings become invalid', () => {
+    const install = join(tmpDir, 'install')
+    writeRootPluginSkill(install, '---\nname: demo\n---\nBody')
+    writeInstalledPlugins({ plugins: { 'demo@market': [{ scope: 'user', installPath: install }] } })
+    writeUserSettings({ enabledPlugins: { 'demo@market': false } })
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+    writeFileSync(userSettingsPath, '{invalid')
+    expect(scanPluginRegistry(db, pluginsDir, userSettingsPath)).toMatchObject({
+      status: 'partial'
+    })
+    expect(allRegistry()[0].disabled_reason).toBe('plugin')
+    expect(pluginSkills()[0].disabled_reason).toBe('plugin')
+  })
+  it.each([{ plugins: null }, { plugins: [] }, { plugins: { 'demo@market': null } }])(
+    'preserves the registry on an invalid snapshot %j',
+    (invalid) => {
+      writeInstalledPlugins({
+        version: 2,
+        plugins: { 'demo@market': [{ scope: 'user', installPath: join(tmpDir, 'install') }] }
+      })
+      scanPluginRegistry(db, pluginsDir, userSettingsPath)
+      const before = allRegistry()
+      writeInstalledPlugins(invalid)
+      expect(scanPluginRegistry(db, pluginsDir, userSettingsPath)).toMatchObject({
+        status: 'partial'
+      })
+      expect(allRegistry()).toEqual(before)
+    }
+  )
+
+  it('preserves an unreadable root-style plugin skill', () => {
+    const install = join(tmpDir, 'install')
+    writeRootPluginSkill(install, '---\nname: demo\ndescription: useful\n---\nBody')
+    writeInstalledPlugins({ plugins: { 'demo@market': [{ scope: 'user', installPath: install }] } })
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+    const before = pluginSkills()
+    const read = permissions.readAllowedFile
+    vi.spyOn(permissions, 'readAllowedFile').mockImplementation((path, limit) =>
+      path === join(install, 'SKILL.md')
+        ? { status: 'unavailable', contents: null }
+        : read(path, limit)
+    )
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+    expect(pluginSkills()).toEqual(before)
+  })
   it('preserves unreadable container skills while refreshing a readable root skill', () => {
     const installPath = join(tmpDir, 'install-a')
     writePluginSkill(installPath, 'container-skill', '---\nname: container-skill\n---\nBody')

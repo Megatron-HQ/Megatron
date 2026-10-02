@@ -80,12 +80,18 @@ function parseFrontmatter(content: string, fallbackName: string): ParsedFrontmat
   const description = rawDescription === '' ? null : rawDescription
   const rawLicense = typeof record.license === 'string' ? record.license.trim() : ''
   const license = rawLicense === '' ? null : rawLicense
-  const metadata_json =
+  let metadata_json: string | null = null
+  if (
     typeof record.metadata === 'object' &&
     record.metadata !== null &&
     !Array.isArray(record.metadata)
-      ? JSON.stringify(record.metadata)
-      : null
+  ) {
+    try {
+      metadata_json = JSON.stringify(record.metadata)
+    } catch (error) {
+      if (!(error instanceof TypeError)) throw error
+    }
+  }
   // Strict `=== true`: YAML parses the bare `true` token as a boolean; a quoted "true", a
   // number, or any other value is not the opt-out.
   const disableModelInvocation = record['disable-model-invocation'] === true
@@ -93,11 +99,15 @@ function parseFrontmatter(content: string, fallbackName: string): ParsedFrontmat
   return { name, description, license, metadata_json, disableModelInvocation }
 }
 
-export function parseSkillDirectory(dirPath: string, fallbackNameOverride?: string): ParsedSkill {
+export function parseSkillDirectory(
+  dirPath: string,
+  fallbackNameOverride?: string,
+  contents?: Buffer
+): ParsedSkill {
   const fallbackName = fallbackNameOverride ?? basename(dirPath)
   const skillMdPath = join(dirPath, 'SKILL.md')
 
-  const fileContents = allowedReadFileSync(skillMdPath)
+  const fileContents = contents ?? allowedReadFileSync(skillMdPath)
   if (fileContents === null) {
     return {
       name: fallbackName,

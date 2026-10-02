@@ -17,6 +17,17 @@ afterEach(() => {
 })
 
 describe('readSkillFiles', () => {
+  it('bounds aggregate preview content and reports omitted bytes', () => {
+    grantPath(tmpDir)
+    writeFileSync(join(tmpDir, 'SKILL.md'), 'body')
+    for (let i = 0; i < 40; i++)
+      writeFileSync(join(tmpDir, `file-${i}.txt`), 'x'.repeat(128 * 1024))
+    const files = readSkillFiles(tmpDir)
+    const bytes = files.reduce((total, file) => total + Buffer.byteLength(file.content ?? ''), 0)
+    expect(bytes).toBeLessThanOrEqual(4 * 1024 * 1024)
+    expect(files.some((file) => (file.status as string) === 'preview_limit')).toBe(true)
+    expect(files[0].content).toBe('body')
+  })
   it('returns an empty array for a disallowed directory', () => {
     writeFileSync(join(tmpDir, 'SKILL.md'), '---\nname: test\n---\nBody')
 

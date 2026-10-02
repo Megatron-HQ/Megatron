@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { homedir, tmpdir } from 'os'
 import { join, resolve } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import * as permissions from './permissions'
 import {
   allowedExistsSync,
   allowedReaddirSync,
@@ -19,6 +20,50 @@ import {
 
 beforeEach(() => {
   resetGrantedPaths()
+})
+
+describe('bounded status-bearing reads', () => {
+  it('distinguishes denied, absent, oversized and readable files', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'megatron-read-status-'))
+    const file = join(dir, 'data')
+    const read = (
+      permissions as typeof permissions & {
+        readAllowedFile?: (
+          path: string,
+          limit?: number
+        ) => { status: string; contents: Buffer | null }
+      }
+    ).readAllowedFile
+    try {
+      writeFileSync(file, 'hello')
+      expect(read?.(file)?.status).toBe('unavailable')
+      grantPath(dir)
+      expect(read?.(join(dir, 'absent'))?.status).toBe('missing')
+      expect(read?.(file, 3)?.status).toBe('too_large')
+      expect(read?.(file, 5)?.contents?.toString()).toBe('hello')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects an oversized line without emitting truncated content', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'megatron-line-limit-'))
+    try {
+      grantPath(dir)
+      const file = join(dir, 'data')
+      writeFileSync(file, 'x'.repeat(2000))
+      const lines: string[] = []
+      const visit = visitAllowedUtf8LinesSync as (
+        path: string,
+        callback: (line: string) => void,
+        maxBytes?: number
+      ) => string
+      expect(visit(file, (line) => lines.push(line), 1024)).toBe('unavailable')
+      expect(lines).toEqual([])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('isPathAllowed', () => {

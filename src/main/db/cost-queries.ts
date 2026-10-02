@@ -111,7 +111,11 @@ function buildCostWindow(rows: TimedCostRow[], now: Date, days: 1 | 7 | 30): Cos
   const startAt = new Date(now.getTime() - days * DAY_MS)
   const endAt = new Date(now.getTime() + 1)
   const inWindow = rows.filter(
-    (row) => row.allocatedAt >= startAt.toISOString() && row.allocatedAt < endAt.toISOString()
+    (row) =>
+      Number.isFinite(row.costUsd) &&
+      row.costUsd >= 0 &&
+      new Date(row.allocatedAt) >= startAt &&
+      new Date(row.allocatedAt) < endAt
   )
   const byHourWeekday = Array.from({ length: 7 }, () => Array<number>(24).fill(0))
   for (const row of inWindow) {

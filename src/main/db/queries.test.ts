@@ -4,6 +4,7 @@ process.env.TZ = 'Etc/GMT+5'
 
 import Database from 'better-sqlite3'
 import { resolve } from 'path'
+import { grantPath, resetGrantedPaths } from '../permissions'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { applySchema } from './schema'
 import {
@@ -153,6 +154,7 @@ function insertInvocation(overrides: {
 }
 
 beforeEach(() => {
+  resetGrantedPaths()
   db = new Database(':memory:')
   applySchema(db)
 })
@@ -1528,6 +1530,17 @@ describe('getContextBudget', () => {
 })
 
 describe('listPlugins', () => {
+  it('recognizes parent grants covering a nested project', () => {
+    addAllowedPath(db, '/parent')
+    grantPath(resolve('/parent'))
+    insertPluginRegistry({
+      name: 'demo',
+      marketplace: 'market',
+      scope: 'project',
+      project_path: resolve('/parent/child')
+    })
+    expect(listPlugins(db)[0].installs[0].enablement_known).toBe(true)
+  })
   it('returns an empty array when no plugins are registered', () => {
     expect(listPlugins(db)).toEqual([])
   })
@@ -1724,6 +1737,7 @@ describe('listPlugins', () => {
   })
 
   it('reports enablement_known for a project install whose root is granted', () => {
+    grantPath(resolve('/repo'))
     addAllowedPath(db, '/repo')
     insertPluginRegistry({
       name: 'plugin-a',
@@ -1832,6 +1846,15 @@ describe('getPluginDetail', () => {
 
 describe('getActivityStats', () => {
   const NOW = new Date('2026-08-20T12:00:00.000Z') // local Thu 2026-08-20 07:00 (UTC-5)
+
+  it('includes the cutoff calendar day and excludes future activity', () => {
+    insertPrompt({ typed_at: '2026-08-13T13:00:00.000Z' })
+    insertPrompt({ typed_at: '2026-08-20T12:00:00.001Z' })
+    const window = getActivityStats(db, NOW).last7d
+    expect(window.prompts).toBe(1)
+    expect(window.byDay[0]).toEqual({ date: '2026-08-13', count: 1, weekday: 4 })
+    expect(window.byDay.reduce((sum, day) => sum + day.count, 0)).toBe(window.prompts)
+  })
 
   function insertPrompt(overrides: {
     typed_at: string
@@ -1980,9 +2003,10 @@ describe('getActivityStats', () => {
   it('zero-fills byDay across the window with a server-computed weekday', () => {
     seedFixture()
     const { byDay } = getActivityStats(db, NOW).last7d
-    expect(byDay).toHaveLength(7)
-    expect(byDay[0]).toEqual({ date: '2026-08-14', count: 1, weekday: 5 })
-    expect(byDay[6]).toEqual({ date: '2026-08-20', count: 0, weekday: 4 })
+    expect(byDay).toHaveLength(8)
+    expect(byDay[0]).toEqual({ date: '2026-08-13', count: 0, weekday: 4 })
+    expect(byDay[1]).toEqual({ date: '2026-08-14', count: 1, weekday: 5 })
+    expect(byDay[7]).toEqual({ date: '2026-08-20', count: 0, weekday: 4 })
     expect(byDay.find((d) => d.date === '2026-08-18')).toEqual({
       date: '2026-08-18',
       count: 2,
@@ -1991,12 +2015,12 @@ describe('getActivityStats', () => {
     expect(byDay.reduce((sum, d) => sum + d.count, 0)).toBe(4)
   })
 
-  it('spans 30 ascending days for the 30-day window', () => {
+  it('spans all calendar dates intersecting the rolling 30-day window', () => {
     seedFixture()
     const { byDay } = getActivityStats(db, NOW).last30d
-    expect(byDay).toHaveLength(30)
-    expect(byDay[0].date).toBe('2026-07-22')
-    expect(byDay[29].date).toBe('2026-08-20')
+    expect(byDay).toHaveLength(31)
+    expect(byDay[0].date).toBe('2026-07-21')
+    expect(byDay[30].date).toBe('2026-08-20')
     expect(byDay.find((d) => d.date === '2026-07-25')).toEqual({
       date: '2026-07-25',
       count: 1,
@@ -2013,7 +2037,7 @@ describe('getActivityStats', () => {
     expect(w.byProject).toEqual([])
     expect(w.byHour).toEqual(Array(24).fill(0))
     expect(w.byWeekday).toEqual(Array(7).fill(0))
-    expect(w.byDay).toHaveLength(7)
+    expect(w.byDay).toHaveLength(8)
   })
 })
 
@@ -3183,6 +3207,17 @@ describe('getSkillInvocationSlice', () => {
 
 describe('getModelStats', () => {
   const NOW = new Date('2026-09-09T17:00:00.000Z')
+
+  it('excludes future turns', () => {
+    addTurn({
+      uuid: 'future',
+      at: '2026-09-09T17:00:00.001Z',
+      model: 'demo',
+      effort: null,
+      outputTokens: 10
+    })
+    expect(getModelStats(db, NOW).last30d.turnCount).toBe(0)
+  })
 
   function addTurn(overrides: {
     uuid: string

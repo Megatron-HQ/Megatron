@@ -7,6 +7,9 @@ import { missingDescriptionRule } from './rules/missing-description'
 import { brokenFilePathsRule } from './rules/broken-file-paths'
 import { missingMcpServersRule } from './rules/missing-mcp-servers'
 import { nameCollisionRule } from './rules/name-collision'
+import { readAllowedFile } from '../permissions'
+import { join } from 'path'
+import type { ScanTaskResult } from '../../shared/ipc'
 
 export const RULES: LintRule[] = [
   yamlFrontmatterRule,
@@ -16,7 +19,9 @@ export const RULES: LintRule[] = [
   nameCollisionRule
 ]
 
-export function runLinter(db: Database.Database): void {
+export function runLinter(db: Database.Database): ScanTaskResult {
+  const preservedSkillIds: number[] = []
+  let partial = false
   const rawSkills = listSkills(db)
   const skills: SkillLintTarget[] = rawSkills.map((s) => ({
     id: s.id,
@@ -38,11 +43,19 @@ export function runLinter(db: Database.Database): void {
   const allFindings: (InsertLintFindingInput & { skill_id: number })[] = []
 
   for (const skill of skills) {
+    const read = readAllowedFile(join(skill.source_path, 'SKILL.md'))
+    if (read.status !== 'ok' && read.status !== 'missing') {
+      preservedSkillIds.push(skill.id)
+      partial = true
+      continue
+    }
+    const skillFindings: (InsertLintFindingInput & { skill_id: number })[] = []
+    let ruleFailed = false
     for (const rule of RULES) {
       try {
         const findings = rule.run(skill, context)
         for (const f of findings) {
-          allFindings.push({
+          skillFindings.push({
             skill_id: skill.id,
             rule_id: f.rule_id,
             severity: f.severity,
@@ -53,12 +66,17 @@ export function runLinter(db: Database.Database): void {
           })
         }
       } catch (err) {
+        ruleFailed = true
+        partial = true
         console.error(`[Linter] Error running rule ${rule.id} on ${skill.name}:`, err)
       }
     }
+    if (ruleFailed) preservedSkillIds.push(skill.id)
+    else allFindings.push(...skillFindings)
   }
 
-  replaceAllLintFindings(db, allFindings)
+  replaceAllLintFindings(db, allFindings, preservedSkillIds)
+  return { status: partial ? 'partial' : 'complete' }
 }
 
 export * from './types'

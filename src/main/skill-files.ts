@@ -1,15 +1,19 @@
 import { join, relative, sep } from 'path'
 import {
   allowedReaddirSync,
-  allowedReadFileSync,
+  readAllowedFile,
   allowedRealpathSync,
   allowedStatSync,
   isPathAllowed
 } from './permissions'
 
 const MAX_PREVIEW_BYTES = 256 * 1024
+const MAX_TOTAL_PREVIEW_BYTES = 4 * 1024 * 1024
+const MAX_PREVIEW_FILES = 1024
+const MAX_PREVIEW_ENTRIES = 4096
+const MAX_PREVIEW_DEPTH = 32
 
-export type FileStatus = 'ok' | 'too_large' | 'unreadable'
+export type FileStatus = 'ok' | 'too_large' | 'unreadable' | 'preview_limit'
 
 export interface SkillFile {
   relativePath: string
@@ -24,7 +28,16 @@ export function readSkillFiles(skillDir: string): SkillFile[] {
   if (canonicalRoot === null) return []
 
   const files: SkillFile[] = []
-  walk(skillDir, skillDir, files, new Set([canonicalRoot]))
+  const complete = walk(
+    skillDir,
+    skillDir,
+    files,
+    new Set([canonicalRoot]),
+    { bytes: 0, entries: 0 },
+    0
+  )
+  if (!complete)
+    files.push({ relativePath: '[Preview limit reached]', content: null, status: 'preview_limit' })
   return files.sort(bySkillMdFirstThenAlphabetical)
 }
 
@@ -41,9 +54,16 @@ function walk(
   root: string,
   dir: string,
   files: SkillFile[],
-  visitedDirectories: Set<string>
-): void {
-  for (const entryName of allowedReaddirSync(dir)) {
+  visitedDirectories: Set<string>,
+  budget: { bytes: number; entries: number },
+  depth: number
+): boolean {
+  if (depth > MAX_PREVIEW_DEPTH) return false
+  const entries = allowedReaddirSync(dir).sort((a, b) =>
+    a === 'SKILL.md' ? -1 : b === 'SKILL.md' ? 1 : a.localeCompare(b)
+  )
+  for (const entryName of entries) {
+    if (++budget.entries > MAX_PREVIEW_ENTRIES || files.length >= MAX_PREVIEW_FILES) return false
     if (entryName.startsWith('.')) continue
 
     const fullPath = join(dir, entryName)
@@ -55,21 +75,37 @@ function walk(
       if (canonicalPath === null || visitedDirectories.has(canonicalPath)) continue
 
       visitedDirectories.add(canonicalPath)
-      walk(root, fullPath, files, visitedDirectories)
+      if (!walk(root, fullPath, files, visitedDirectories, budget, depth + 1)) return false
     } else if (stats.isFile()) {
-      files.push(readOneFile(root, fullPath, stats.size))
+      const file = readOneFile(root, fullPath, stats.size, MAX_TOTAL_PREVIEW_BYTES - budget.bytes)
+      budget.bytes += Buffer.byteLength(file.content ?? '')
+      files.push(file)
     }
   }
+  return true
 }
 
-function readOneFile(root: string, fullPath: string, size: number): SkillFile {
+function readOneFile(
+  root: string,
+  fullPath: string,
+  size: number,
+  remainingBytes = MAX_PREVIEW_BYTES
+): SkillFile {
   const relativePath = relative(root, fullPath).split(sep).join('/')
 
   if (size > MAX_PREVIEW_BYTES) {
     return { relativePath, content: null, status: 'too_large' }
   }
 
-  const buffer = allowedReadFileSync(fullPath)
+  if (size > remainingBytes) return { relativePath, content: null, status: 'preview_limit' }
+  const read = readAllowedFile(fullPath, Math.min(MAX_PREVIEW_BYTES, remainingBytes))
+  if (read.status === 'too_large')
+    return {
+      relativePath,
+      content: null,
+      status: size > remainingBytes ? 'preview_limit' : 'too_large'
+    }
+  const buffer = read.contents
   if (buffer === null || buffer.includes(0)) {
     return { relativePath, content: null, status: 'unreadable' }
   }

@@ -111,6 +111,33 @@ describe('uninstallPlugin', () => {
 })
 
 describe('action result', () => {
+  it('supports scoped package identifiers without ambiguous marketplace syntax', async () => {
+    succeed()
+    expect((await enablePlugin({ ...input, name: '@scope/demo' })).ok).toBe(true)
+  })
+  it.each(['user & echo marker', '--help', '', null])(
+    'rejects an invalid runtime scope %s',
+    async (scope) => {
+      succeed()
+      const result = await enablePlugin({
+        ...input,
+        scope,
+        projectPath: projectRoot
+      } as unknown as typeof input)
+      expect(result.ok).toBe(false)
+      expect(mockedExecFile).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(['demo --help', '-demo', 'demo@other', 'demo\u007f'])(
+    'rejects ambiguous identifiers %s',
+    async (name) => {
+      succeed()
+      expect((await enablePlugin({ ...input, name })).ok).toBe(false)
+      expect(mockedExecFile).not.toHaveBeenCalled()
+    }
+  )
+
   it('resolves ok: true on success', async () => {
     succeed()
     expect(await enablePlugin(input)).toEqual({ ok: true })

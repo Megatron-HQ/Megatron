@@ -30,6 +30,9 @@ function attachment(
 }
 
 describe('extractResidentContextSample', () => {
+  it('rejects an invalid first-turn timestamp', () => {
+    expect(extractResidentContextSample([firstTurn({ timestamp: '2026-10-01garbage' })])).toBeNull()
+  })
   it('counts all itemized resident categories and keeps only numeric metadata', () => {
     const result = extractResidentContextSample([
       { type: 'user', version: '2.1.261' },

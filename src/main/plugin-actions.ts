@@ -1,5 +1,6 @@
 import { execFile } from 'child_process'
-import { isPathAllowed } from './permissions'
+import { isAbsolute } from 'path'
+import { allowedStatSync, isPathAllowed } from './permissions'
 import type { PluginActionInput, PluginActionResult } from '../shared/ipc'
 
 const CLAUDE_NOT_FOUND_MESSAGE =
@@ -14,7 +15,9 @@ const MISSING_PROJECT_PATH_MESSAGE =
 const UNGRANTED_PROJECT_MESSAGE =
   "Grant this plugin's project folder in Manage Folders before changing it, so Megatron can " +
   'read the result.'
-const WINDOWS_SHELL_META_CHARACTERS = new Set(['"', '%', '&', '|', '<', '>', '(', ')', '^', '!'])
+const PLUGIN_IDENTIFIER_PATTERN = /^(?:@[a-zA-Z0-9][a-zA-Z0-9._-]*\/)?[a-zA-Z0-9][a-zA-Z0-9._-]*$/
+const MARKETPLACE_IDENTIFIER_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
+const MAX_IDENTIFIER_LENGTH = 200
 const ACTION_IN_PROGRESS_MESSAGE =
   'Another action is already running for this plugin. Wait for it to finish.'
 
@@ -54,19 +57,20 @@ function runClaudePlugin(args: string[], cwd?: string): Promise<PluginActionResu
 // Always disambiguated as `name@marketplace` and passed an explicit --scope from the
 // plugin_registry row — the CLI's own cwd-based auto-detect defaults uninstall/update to
 // "user" scope when omitted, which is wrong for any other scope.
-function pluginId(input: PluginActionInput): string | null {
-  if (
-    hasWindowsShellControlCharacter(input.name) ||
-    hasWindowsShellControlCharacter(input.marketplace)
-  ) {
-    return null
-  }
-  return `${input.name}@${input.marketplace}`
-}
-
-function hasWindowsShellControlCharacter(value: string): boolean {
-  return [...value].some(
-    (character) => character.codePointAt(0)! < 32 || WINDOWS_SHELL_META_CHARACTERS.has(character)
+export function isPluginActionInput(input: unknown): input is PluginActionInput {
+  if (typeof input !== 'object' || input === null) return false
+  const value = input as Record<string, unknown>
+  return (
+    typeof value.name === 'string' &&
+    value.name.length <= MAX_IDENTIFIER_LENGTH &&
+    PLUGIN_IDENTIFIER_PATTERN.test(value.name) &&
+    typeof value.marketplace === 'string' &&
+    value.marketplace.length <= MAX_IDENTIFIER_LENGTH &&
+    MARKETPLACE_IDENTIFIER_PATTERN.test(value.marketplace) &&
+    ['user', 'project', 'local'].includes(value.scope as string) &&
+    (value.projectPath === null ||
+      (typeof value.projectPath === 'string' && isAbsolute(value.projectPath))) &&
+    (value.scope !== 'user' || value.projectPath === null)
   )
 }
 
@@ -81,6 +85,8 @@ function actionCwd(input: PluginActionInput): { cwd?: string } | { error: string
   // settings are unreadable, so the UI is showing Unknown, and Enable/Disable would be toggling
   // a switch whose current position Megatron just admitted it can't see.
   if (!isPathAllowed(input.projectPath)) return { error: UNGRANTED_PROJECT_MESSAGE }
+  if (!allowedStatSync(input.projectPath)?.isDirectory())
+    return { error: MISSING_PROJECT_PATH_MESSAGE }
   return { cwd: input.projectPath }
 }
 
@@ -88,11 +94,12 @@ function runPluginAction(
   input: PluginActionInput,
   verb: 'enable' | 'disable' | 'update' | 'uninstall'
 ): Promise<PluginActionResult> {
+  if (!isPluginActionInput(input))
+    return Promise.resolve({ ok: false, stderr: UNSAFE_PLUGIN_DETAILS_MESSAGE })
   const resolved = actionCwd(input)
   if ('error' in resolved) return Promise.resolve({ ok: false, stderr: resolved.error })
 
-  const id = pluginId(input)
-  if (!id) return Promise.resolve({ ok: false, stderr: UNSAFE_PLUGIN_DETAILS_MESSAGE })
+  const id = `${input.name}@${input.marketplace}`
 
   // Keyed on the install, not the plugin identity: a user install and a project install of one
   // plugin are independent switches, as are two projects installing the same plugin.

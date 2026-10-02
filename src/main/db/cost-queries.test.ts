@@ -42,6 +42,11 @@ beforeEach(() => {
 afterEach(() => db.close())
 
 describe('rolling Cost windows', () => {
+  it('ignores malformed cached share timestamps instead of crashing charts', () => {
+    addSession('bad-cache', 3)
+    addShare('bad-cache', '2026-09-06garbage', 3)
+    expect(getCostStats(db, NOW)?.last30d.totalCostUsd).toBe(0)
+  })
   it('uses activity time for an old session that crosses rolling cutoffs', () => {
     addSession('overnight', 10)
     addShare('overnight', '2026-08-20T12:00:00.000Z', 2)

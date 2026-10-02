@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3'
 import { dirname, join, resolve, sep } from 'path'
 import { CHARS_PER_TOKEN } from '../ingest/skill-parser'
 import { estimateResidentTokens } from '../ingest/token-estimate'
+import { readPluginEnablement } from '../ingest/claude-settings'
 import type {
   ActivityStats,
   ActivityWindow,
@@ -171,7 +172,8 @@ export function getLintFindingsForSkill(db: Database.Database, skillId: number):
 
 export function replaceAllLintFindings(
   db: Database.Database,
-  findings: (InsertLintFindingInput & { skill_id: number })[]
+  findings: (InsertLintFindingInput & { skill_id: number })[],
+  preservedSkillIds: number[] = []
 ): void {
   const insert = db.prepare(`
     INSERT INTO lint_findings (skill_id, rule_id, severity, message, detail, file_path, line_number, detected_at)
@@ -179,7 +181,11 @@ export function replaceAllLintFindings(
   `)
   const now = new Date().toISOString()
   const transaction = db.transaction(() => {
-    db.prepare('DELETE FROM lint_findings').run()
+    if (preservedSkillIds.length === 0) db.prepare('DELETE FROM lint_findings').run()
+    else
+      db.prepare(
+        `DELETE FROM lint_findings WHERE skill_id NOT IN (${preservedSkillIds.map(() => '?').join(', ')})`
+      ).run(...preservedSkillIds)
     for (const f of findings) {
       insert.run({
         skill_id: f.skill_id,
@@ -640,26 +646,25 @@ export function listPlugins(db: Database.Database): PluginRow[] {
     )
     .all() as Omit<PluginRow, 'installs'>[]
 
-  // enablement_known is joined against allowed_paths rather than stamped at scan time so it can't
-  // go stale when a grant is added or revoked between scans. permissions.ts seeds its in-memory
-  // grant set from this same table at startup, so the two always agree. A user install needs no
-  // grant (~/.claude/settings.json is Tier 1); a project/local install with no project_path has
-  // no root that could ever be granted, so it stays unknown.
+  // Resolve confidence against the current permission and settings state, including parent grants.
   const installs = db
     .prepare(
       `SELECT
          pr.name, pr.marketplace, pr.scope, pr.install_path, pr.installed_at, pr.last_updated,
          pr.git_commit_sha, pr.installed_version, pr.available_version, pr.disabled_reason,
-         NULLIF(pr.project_path, '') AS project_path,
-         CASE WHEN pr.scope = 'user' OR ap.path IS NOT NULL THEN 1 ELSE 0 END AS enablement_known
-       FROM plugin_registry pr
-       LEFT JOIN allowed_paths ap ON ap.path = pr.project_path`
+         NULLIF(pr.project_path, '') AS project_path
+       FROM plugin_registry pr`
     )
     .all() as (Omit<PluginInstall, 'enablement_known'> & {
     name: string
     marketplace: string
-    enablement_known: number
   })[]
+  const knownByProject = new Map<string, boolean>()
+  for (const row of installs) {
+    const key = row.scope === 'user' ? '' : row.project_path
+    if (key !== null && !knownByProject.has(key))
+      knownByProject.set(key, readPluginEnablement(key || undefined).known)
+  }
 
   return identities.map((identity) => ({
     ...identity,
@@ -675,7 +680,8 @@ export function listPlugins(db: Database.Database): PluginRow[] {
         installed_version: row.installed_version,
         available_version: row.available_version,
         disabled_reason: row.disabled_reason,
-        enablement_known: row.enablement_known === 1
+        enablement_known:
+          knownByProject.get(row.scope === 'user' ? '' : (row.project_path ?? '\0')) === true
       }))
   }))
 }
@@ -702,7 +708,9 @@ function reduceActivityWindow(
   days: 1 | 7 | 30
 ): ActivityWindow {
   const cutoff = new Date(now.getTime() - days * DAY_MS)
-  const inWindow = rows.filter((row) => new Date(row.typed_at) >= cutoff)
+  const inWindow = rows.filter(
+    (row) => new Date(row.typed_at) >= cutoff && new Date(row.typed_at) <= now
+  )
   const real = inWindow.filter((row) => row.is_slash_command === 0)
 
   const byHourWeekday = Array.from({ length: 7 }, () => Array<number>(24).fill(0))
@@ -726,16 +734,13 @@ function reduceActivityWindow(
   )
   const byWeekday = byHourWeekday.map((weekdayRow) => weekdayRow.reduce((sum, n) => sum + n, 0))
 
-  // `days` bars ending on now's local date. A noon anchor keeps setDate() rollback off any
-  // DST-skipped hour.
-  const anchor = new Date(now)
-  anchor.setHours(12, 0, 0, 0)
+  const cursor = new Date(cutoff)
+  cursor.setHours(0, 0, 0, 0)
   const byDay: ActivityWindow['byDay'] = []
-  for (let offset = days - 1; offset >= 0; offset--) {
-    const d = new Date(anchor)
-    d.setDate(d.getDate() - offset)
-    const date = localDateKey(d)
-    byDay.push({ date, count: dayCounts.get(date) ?? 0, weekday: d.getDay() })
+  while (cursor <= now) {
+    const date = localDateKey(cursor)
+    byDay.push({ date, count: dayCounts.get(date) ?? 0, weekday: cursor.getDay() })
+    cursor.setDate(cursor.getDate() + 1)
   }
 
   const byProject = [...projectCounts.entries()]
@@ -766,7 +771,7 @@ function buildActivityHourlyTrend(
   for (const row of rows) {
     if (row.is_slash_command === 1) continue
     const offsetMs = new Date(row.typed_at).getTime() - cutoffMs
-    if (offsetMs < 0 || offsetMs > DAY_MS) continue
+    if (!Number.isFinite(offsetMs) || offsetMs < 0 || offsetMs > DAY_MS) continue
     const index = Math.min(23, Math.floor(offsetMs / HOUR_MS))
     counts[index] += 1
   }
@@ -909,7 +914,9 @@ function reduceModelStatsWindow(
   days: number
 ): ModelStatsWindow {
   const cutoff = now.getTime() - days * DAY_MS
-  const inWindow = rows.filter((row) => new Date(row.invoked_at).getTime() >= cutoff)
+  const inWindow = rows.filter(
+    (row) => new Date(row.invoked_at).getTime() >= cutoff && new Date(row.invoked_at) <= now
+  )
   const byModelMap = new Map<string, { turnCount: number; outputTokens: number }>()
   const byEffortMap = new Map<string, { turnCount: number; outputTokens: number }>()
   const matrixMap = new Map<string, Record<(typeof EFFORT_ORDER)[number], number>>()

@@ -29,6 +29,15 @@ function writeProjectSettings(projectRoot: string, fileName: string, content: un
 }
 
 describe('readPluginEnablement', () => {
+  it('marks invalid user and project settings as unknown', () => {
+    writeFileSync(userSettingsPath, '{bad')
+    expect(readPluginEnablement(undefined, userSettingsPath).known).toBe(false)
+    writeUserSettings({})
+    const repo = join(tmpDir, 'repo')
+    writeProjectSettings(repo, 'settings.json', {})
+    writeFileSync(join(repo, '.claude', 'settings.local.json'), 'null')
+    expect(readPluginEnablement(repo, userSettingsPath).known).toBe(false)
+  })
   it('returns the keys whose enabledPlugins entry is false', () => {
     writeUserSettings({
       enabledPlugins: { 'ponytail@ponytail': true, 'impeccable@impeccable': false }

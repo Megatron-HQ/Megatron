@@ -101,10 +101,22 @@ export interface ContextBudget {
 export interface SkillsListResult {
   skills: SkillRow[]
   scanComplete: boolean
+  scanSummary?: ScanSummary
   contextBudget: ContextBudget
 }
 
-export type FileStatus = 'ok' | 'too_large' | 'unreadable'
+export interface ScanTaskResult {
+  status: 'complete' | 'partial'
+}
+
+export interface ScanSummary {
+  outcome: 'complete' | 'partial' | 'failed'
+  completedAt: string
+  sources: { name: string; status: 'complete' | 'partial' | 'failed' }[]
+  lastSuccessfulAt?: string | null
+}
+
+export type FileStatus = 'ok' | 'too_large' | 'unreadable' | 'preview_limit'
 
 export interface SkillFile {
   relativePath: string
@@ -484,4 +496,5 @@ export interface UsageOverview {
   skills: SkillStats
   residentTax: ResidentTaxStats | null
   scanComplete: boolean
+  scanSummary?: ScanSummary
 }

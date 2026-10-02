@@ -1,6 +1,6 @@
 import { homedir } from 'os'
 import { join, resolve } from 'path'
-import { allowedExistsSync, allowedReadFileSync, isPathAllowed } from '../permissions'
+import { readAllowedFile } from '../permissions'
 
 export type JsonReadStatus = 'ok' | 'missing' | 'unavailable' | 'invalid'
 
@@ -15,12 +15,12 @@ export interface JsonRead {
 // this scan can't read ('unavailable', e.g. a revoked grant — moved here unchanged from
 // plugin-registry.ts, whose hasMarketplaceSnapshot logic depends on that distinction).
 export function readJson(filePath: string): JsonRead {
-  const contents = allowedReadFileSync(filePath)
-  if (contents === null) {
-    return { status: allowedExistsSync(filePath) ? 'unavailable' : 'missing', value: null }
+  const result = readAllowedFile(filePath)
+  if (result.status !== 'ok' || result.contents === null) {
+    return { status: result.status === 'missing' ? 'missing' : 'unavailable', value: null }
   }
   try {
-    return { status: 'ok', value: JSON.parse(contents.toString('utf8')) }
+    return { status: 'ok', value: JSON.parse(result.contents.toString('utf8')) }
   } catch {
     return { status: 'invalid', value: null }
   }
@@ -35,13 +35,12 @@ const USER_SETTINGS_PATH = resolve(homedir(), '.claude', 'settings.json')
 export interface PluginEnablement {
   // Plugin keys ('name@marketplace') resolving to `false`.
   disabled: Set<string>
-  // false when a project root was asked for but is not readable, so the project's own
-  // enabledPlugins could not be consulted and `disabled` is only the user-scope answer.
+  // false when any required settings snapshot is unavailable or malformed. The partial
+  // disabled set must not replace a previously known installation state.
   known: boolean
 }
 
-function readEnabledPluginsFrom(settingsPath: string): Map<string, boolean> {
-  const settings = readJson(settingsPath)
+function readEnabledPluginsFrom(settings: JsonRead): Map<string, boolean> {
   const enabledPlugins = isRecord(settings.value) ? settings.value.enabledPlugins : null
   if (!isRecord(enabledPlugins)) return new Map()
 
@@ -61,23 +60,31 @@ function readEnabledPluginsFrom(settingsPath: string): Map<string, boolean> {
 // readSkillOverrides below uses. A `project`/`local` install only ever loads inside that
 // project, so its effective state is that project's fully resolved answer.
 //
-// An ungranted project root reads as 'missing', not 'unavailable' — isPathAllowed() gates
-// allowedExistsSync() as well as the read itself — so readJson's status can't tell "no settings
-// file" apart from "not allowed to look". The permission check is the only honest signal, and
-// it's what `known: false` reports.
+// Permission-denied settings are unavailable; only a confirmed absent file is missing.
 export function readPluginEnablement(
   projectRoot?: string,
   userSettingsPath: string = USER_SETTINGS_PATH
 ): PluginEnablement {
-  const merged = readEnabledPluginsFrom(userSettingsPath)
-  const known = projectRoot === undefined || isPathAllowed(projectRoot)
-
-  if (projectRoot !== undefined && known) {
-    for (const scopePath of projectScopeSettingsPaths(projectRoot)) {
-      for (const [key, enabled] of readEnabledPluginsFrom(scopePath)) {
-        merged.set(key, enabled)
-      }
-    }
+  const paths = [
+    userSettingsPath,
+    ...(projectRoot === undefined ? [] : projectScopeSettingsPaths(projectRoot))
+  ]
+  const snapshots = paths.map(readJson)
+  const known = snapshots.every(
+    (snapshot) =>
+      snapshot.status === 'missing' ||
+      (snapshot.status === 'ok' &&
+        isRecord(snapshot.value) &&
+        (snapshot.value.enabledPlugins === undefined ||
+          (isRecord(snapshot.value.enabledPlugins) &&
+            Object.values(snapshot.value.enabledPlugins).every(
+              (entry) => typeof entry === 'boolean'
+            ))) &&
+        (snapshot.value.skillOverrides === undefined || isRecord(snapshot.value.skillOverrides)))
+  )
+  const merged = new Map<string, boolean>()
+  for (const snapshot of snapshots) {
+    for (const [key, enabled] of readEnabledPluginsFrom(snapshot)) merged.set(key, enabled)
   }
 
   const disabled = new Set(

@@ -7,9 +7,11 @@ import {
   readAllowedDirectory,
   visitAllowedUtf8LinesSync
 } from '../permissions'
-import type { TriggerType } from '../../shared/ipc'
+import type { ScanTaskResult, TriggerType } from '../../shared/ipc'
 import {
   extractCostState,
+  InvalidCostStateError,
+  normalizeTranscriptTimestamp,
   extractTurnUsage,
   toModelCostRows,
   type SessionCost,
@@ -51,7 +53,7 @@ const PRECEDING_TEXT_MAX_CHARS = 2000
 // already-indexed sessions. 3→4: cost-state; 4→5: turn usage; 5→6: replay dedup;
 // 6→7: independent lineage plus numeric resident-context samples;
 // 7→8: reject incomplete reads and reconcile replayed turns after owner changes.
-const TRANSCRIPT_PARSER_VERSION = 8
+const TRANSCRIPT_PARSER_VERSION = 9
 
 function truncatePrecedingText(text: string | null): string | null {
   return text === null ? null : text.slice(0, PRECEDING_TEXT_MAX_CHARS)
@@ -112,7 +114,7 @@ function extractSession(records: Record<string, unknown>[]): TranscriptSession |
   if (metaRecord === undefined) return null
   if (typeof metaRecord.sessionId !== 'string') return null
 
-  const startedAt = typeof metaRecord.timestamp === 'string' ? metaRecord.timestamp : null
+  const startedAt = normalizeTranscriptTimestamp(metaRecord.timestamp)
   if (startedAt === null) return null
 
   const gitBranch =
@@ -221,7 +223,9 @@ function extractInvocations(
   let precedingMessage: string | null = null
   let userTurn = 0
   let order = 0
-  const childrenByParentUuid = buildChildrenByParentUuid(records)
+  const childrenByParentUuid = buildChildrenByParentUuid(
+    records.filter((record) => agentId !== null || record.isSidechain !== true)
+  )
 
   const addCandidate = (
     invocation: TranscriptInvocation,
@@ -253,7 +257,7 @@ function extractInvocations(
         const commandMatch = COMMAND_NAME_PATTERN.exec(content)
         const sourceUuid = record.uuid
         const sessionId = record.sessionId
-        const invokedAt = record.timestamp
+        const invokedAt = normalizeTranscriptTimestamp(record.timestamp)
 
         if (
           commandMatch !== null &&
@@ -294,7 +298,7 @@ function extractInvocations(
     ) {
       const sourceUuid = record.uuid
       const sessionId = record.sessionId
-      const invokedAt = record.timestamp
+      const invokedAt = normalizeTranscriptTimestamp(record.timestamp)
       if (
         typeof sourceUuid === 'string' &&
         typeof sessionId === 'string' &&
@@ -333,7 +337,7 @@ function extractInvocations(
 
       const sourceUuid = record.uuid
       const sessionId = record.sessionId
-      const invokedAt = record.timestamp
+      const invokedAt = normalizeTranscriptTimestamp(record.timestamp)
       if (
         typeof sourceUuid !== 'string' ||
         typeof sessionId !== 'string' ||
@@ -382,11 +386,18 @@ export function parseTranscript(filePath: string): TranscriptParse {
   if (records === null) {
     return { session: null, invocations: [], turns: [], cost: null, resident: null }
   }
+  let cost: SessionCost | null
+  try {
+    cost = extractCostState(records)
+  } catch (error) {
+    if (!(error instanceof InvalidCostStateError)) throw error
+    return { session: null, invocations: [], turns: [], cost: null, resident: null }
+  }
   return {
     session: extractSession(records),
     invocations: extractInvocations(records),
     turns: extractTurnUsage(records),
-    cost: extractCostState(records),
+    cost,
     resident: extractResidentContextSample(records)
   }
 }
@@ -417,6 +428,36 @@ export function parseSubagentInvocations(filePath: string): TranscriptInvocation
 interface TranscriptSource {
   filePath: string
   subagent: boolean
+}
+
+function reconcileReplayedInvocations(
+  db: Database.Database,
+  previous: TranscriptInvocation[],
+  parsed: TranscriptInvocation[],
+  unchanged: TranscriptSource[],
+  insert: Database.Statement
+): void {
+  const indexed = db.prepare('SELECT 1 FROM skill_invocations WHERE source_uuid = ?')
+  let missing = new Set(
+    previous
+      .filter((row) => indexed.get(row.source_uuid) === undefined)
+      .map((row) => row.source_uuid)
+  )
+  const restore = (rows: TranscriptInvocation[]): void => {
+    for (const row of rows) if (missing.has(row.source_uuid)) insert.run(row)
+    missing = new Set([...missing].filter((uuid) => indexed.get(uuid) === undefined))
+  }
+  restore(parsed)
+  for (const source of unchanged) {
+    if (missing.size === 0) break
+    const replay = source.subagent
+      ? parseSubagent(source.filePath)
+      : parseTranscript(source.filePath)
+    if (replay === null || ('session' in replay && replay.session === null)) {
+      throw new Error(`Unable to reconcile replayed invocations from ${source.filePath}`)
+    }
+    restore(replay.invocations)
+  }
 }
 
 function reconcileReplayedTurns(
@@ -464,7 +505,7 @@ function reconcileReplayedTurns(
 export function scanTranscripts(
   db: Database.Database,
   projectsDir: string = resolve(homedir(), '.claude', 'projects')
-): void {
+): ScanTaskResult {
   const upsertSession = db.prepare(`
     INSERT INTO sessions_meta
       (session_id, cwd, git_branch, started_at, message_count, continued_in_session_id,
@@ -556,16 +597,22 @@ export function scanTranscripts(
     let scanIsAuthoritative = true
     const previousTurns: TurnUsageRow[] = []
     const parsedTurns: TurnUsageRow[] = []
+    const previousInvocations: TranscriptInvocation[] = []
+    const parsedInvocations: TranscriptInvocation[] = []
     const unchangedSources: TranscriptSource[] = []
 
     const projectsDirectory = readAllowedDirectory(projectsDir)
-    if (projectsDirectory.status === 'unavailable') return
+    if (projectsDirectory.status === 'unavailable') return { status: 'partial' as const }
 
     for (const projectDirName of projectsDirectory.entries) {
       const projectDirPath = join(projectsDir, projectDirName)
 
       const projectStat = allowedStatSync(projectDirPath)
-      if (projectStat === null || !projectStat.isDirectory()) continue
+      if (projectStat === null) {
+        scanIsAuthoritative = false
+        continue
+      }
+      if (!projectStat.isDirectory()) continue
 
       const projectDirectory = readAllowedDirectory(projectDirPath)
       if (projectDirectory.status === 'unavailable') {
@@ -579,7 +626,10 @@ export function scanTranscripts(
         if (!isPathAllowed(filePath)) continue
 
         const fileStat = allowedStatSync(filePath)
-        if (fileStat === null) continue
+        if (fileStat === null) {
+          scanIsAuthoritative = false
+          continue
+        }
         const basenameSessionId = fileName.slice(0, -'.jsonl'.length)
 
         // A subagent transcript can be written after its parent's mtime was last cached, so
@@ -588,7 +638,10 @@ export function scanTranscripts(
         const subagentsDir = join(projectDirPath, basenameSessionId, 'subagents')
         const subagentsDirectory = readAllowedDirectory(subagentsDir)
         const subagentsStat = allowedStatSync(subagentsDir)
-        if (subagentsStat?.isDirectory() && subagentsDirectory.status !== 'ok') {
+        if (
+          subagentsDirectory.status === 'unavailable' ||
+          (subagentsStat?.isDirectory() && subagentsDirectory.status !== 'ok')
+        ) {
           scanIsAuthoritative = false
           continue
         }
@@ -599,6 +652,10 @@ export function scanTranscripts(
           .map((path) => allowedStatSync(path))
           .filter((stat): stat is NonNullable<typeof stat> => stat !== null)
         const subagentMtimes = subagentStats.map((stat) => stat.mtimeMs)
+        if (subagentStats.length !== subagentFilePaths.length) {
+          scanIsAuthoritative = false
+          continue
+        }
 
         const mtimeMs = Math.round(Math.max(fileStat.mtimeMs, ...subagentMtimes))
         const sourceSizeBytes =
@@ -638,6 +695,11 @@ export function scanTranscripts(
 
         seenSessionIds.add(parsed.session.session_id)
         previousTurns.push(...(getSessionTurns.all(parsed.session.session_id) as TurnUsageRow[]))
+        previousInvocations.push(
+          ...(db
+            .prepare('SELECT * FROM skill_invocations WHERE session_id = ?')
+            .all(parsed.session.session_id) as TranscriptInvocation[])
+        )
         upsertSession.run({
           ...parsed.session,
           source_mtime_ms: mtimeMs,
@@ -662,6 +724,7 @@ export function scanTranscripts(
         if (parsed.resident !== null) insertResidentContextSample.run(parsed.resident)
         for (const invocation of parsed.invocations) {
           insertInvocation.run(invocation)
+          parsedInvocations.push(invocation)
         }
         for (const turn of parsed.turns) {
           insertTurn.run(turn)
@@ -671,6 +734,7 @@ export function scanTranscripts(
           if (subagent === null) continue
           for (const invocation of subagent.invocations) {
             insertInvocation.run(invocation)
+            parsedInvocations.push(invocation)
           }
           for (const turn of subagent.turns) {
             insertTurn.run(turn)
@@ -681,9 +745,16 @@ export function scanTranscripts(
     }
 
     if (!scanIsAuthoritative) {
+      reconcileReplayedInvocations(
+        db,
+        previousInvocations,
+        parsedInvocations,
+        unchangedSources,
+        insertInvocation
+      )
       reconcileReplayedTurns(db, previousTurns, parsedTurns, unchangedSources, insertTurn)
       rebuildSessionSkillCosts(db)
-      return
+      return { status: 'partial' as const }
     }
 
     // session_cost is deleted before sessions_meta: its FK to sessions_meta has no cascade, so a
@@ -695,6 +766,11 @@ export function scanTranscripts(
       db.prepare('DELETE FROM sessions_meta').run()
     } else {
       const placeholders = [...seenSessionIds].map(() => '?').join(', ')
+      previousInvocations.push(
+        ...(db
+          .prepare(`SELECT * FROM skill_invocations WHERE session_id NOT IN (${placeholders})`)
+          .all(...seenSessionIds) as TranscriptInvocation[])
+      )
       previousTurns.push(
         ...(db
           .prepare(`SELECT * FROM turn_usage WHERE session_id NOT IN (${placeholders})`)
@@ -713,9 +789,17 @@ export function scanTranscripts(
         ...seenSessionIds
       )
     }
+    reconcileReplayedInvocations(
+      db,
+      previousInvocations,
+      parsedInvocations,
+      unchangedSources,
+      insertInvocation
+    )
     reconcileReplayedTurns(db, previousTurns, parsedTurns, unchangedSources, insertTurn)
     rebuildSessionSkillCosts(db)
+    return { status: 'complete' as const }
   })
 
-  runScan()
+  return runScan()
 }

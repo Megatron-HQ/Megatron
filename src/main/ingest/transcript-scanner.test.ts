@@ -1087,6 +1087,74 @@ describe('scanTranscripts', () => {
     expect(residentRow('sess-1')).toBeUndefined()
   })
 
+  it.each(['project', 'main', 'subagent'])(
+    'preserves the index after a failed %s stat',
+    (source) => {
+      const project = join(projectsDir, 'project-a')
+      const main = writeTranscriptFile(project, 'sess-1', [
+        metaLine(),
+        skillInvocationLine(),
+        assistantUsageLine(),
+        costStateLine()
+      ])
+      const subagent = writeSubagentTranscriptFile(project, 'sess-1', 'child', [
+        assistantUsageLine({
+          uuid: 'child',
+          isSidechain: true,
+          message: { id: 'child-message', model: 'claude-sonnet-5', usage: { output_tokens: 10 } }
+        })
+      ])
+      scanTranscripts(db, projectsDir)
+      const before = allSessions()
+      const failing = source === 'project' ? project : source === 'main' ? main : subagent
+      const stat = permissions.allowedStatSync
+      vi.spyOn(permissions, 'allowedStatSync').mockImplementation((path) =>
+        path === failing ? null : stat(path)
+      )
+      expect(scanTranscripts(db, projectsDir)).toMatchObject({ status: 'partial' })
+      expect(allSessions()).toEqual(before)
+      expect(db.prepare('SELECT COUNT(*) AS count FROM skill_invocations').get()).toEqual({
+        count: 1
+      })
+      expect(turnRows('sess-1')).toHaveLength(2)
+    }
+  )
+
+  it('preserves a valid snapshot when a changed transcript has corrupt cost metadata', () => {
+    const file = writeTranscriptFile(join(projectsDir, 'project-a'), 'sess-1', [
+      metaLine(),
+      costStateLine()
+    ])
+    scanTranscripts(db, projectsDir)
+    writeFileSync(file, linesToJsonl([metaLine(), costStateLine({ totalCostUSD: -1 })]))
+    expect(() => scanTranscripts(db, projectsDir)).not.toThrow()
+    expect(db.prepare('SELECT total_cost_usd FROM session_cost').get()).toEqual({
+      total_cost_usd: 2.5
+    })
+  })
+
+  it.each(['rewritten', 'deleted'])(
+    'recovers invocations from an unchanged replay after its owner is %s',
+    (change) => {
+      const project = join(projectsDir, 'project-a')
+      const owner = writeTranscriptFile(project, 'a-owner', [
+        metaLine({ sessionId: 'a-owner' }),
+        skillInvocationLine({ sessionId: 'a-owner' })
+      ])
+      writeTranscriptFile(project, 'b-replay', [
+        metaLine({ sessionId: 'b-replay' }),
+        skillInvocationLine({ sessionId: 'b-replay' })
+      ])
+      scanTranscripts(db, projectsDir)
+      if (change === 'deleted') rmSync(owner)
+      else writeFileSync(owner, linesToJsonl([metaLine({ sessionId: 'a-owner' })]))
+      scanTranscripts(db, projectsDir)
+      expect(
+        db.prepare('SELECT session_id, skill_name, args_text FROM skill_invocations').all()
+      ).toEqual([{ session_id: 'b-replay', skill_name: 'my-skill', args_text: 'do it' }])
+    }
+  )
+
   it.each(['main', 'subagent'])('preserves the session index after a partial %s read', (source) => {
     const projectDir = join(projectsDir, 'project-a')
     const mainFile = writeTranscriptFile(projectDir, 'sess-1', [

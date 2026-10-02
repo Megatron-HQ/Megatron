@@ -2,7 +2,8 @@ import Database from 'better-sqlite3'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as permissions from '../permissions'
 import { applySchema } from '../db/schema'
 import { grantPath, resetGrantedPaths } from '../permissions'
 import {
@@ -19,6 +20,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   resetGrantedPaths()
   rmSync(tmpDir, { recursive: true, force: true })
 })
@@ -120,6 +122,20 @@ describe('parsePromptHistory', () => {
 })
 
 describe('scanPromptHistory', () => {
+  it('preserves history and reports a partial scan after an interrupted streamed read', () => {
+    const file = join(tmpDir, 'history.jsonl')
+    writeFileSync(file, jsonl([line({ sessionId: 'existing' })]))
+    scanPromptHistory(db, file)
+    vi.spyOn(permissions, 'visitAllowedUtf8LinesSync').mockImplementation((_path, visit) => {
+      visit(JSON.stringify(line({ sessionId: 'new' })))
+      return 'unavailable'
+    })
+    expect(scanPromptHistory(db, file)).toMatchObject({ status: 'partial' })
+    expect(rowCount()).toBe(1)
+    expect(db.prepare('SELECT session_id FROM prompt_history').get()).toEqual({
+      session_id: 'existing'
+    })
+  })
   let db: Database.Database
 
   interface CountRow {

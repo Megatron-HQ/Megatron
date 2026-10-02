@@ -79,6 +79,39 @@ describe('normalizeModelKey', () => {
 })
 
 describe('extractCostState', () => {
+  it('isolates prototype-shaped model and field names', () => {
+    const modelUsage = JSON.parse(
+      '{"__proto__":{"costUSD":7},"constructor":{"outputTokens":9},"claude-sonnet-5":{"costUSD":2,"__proto__":1}}'
+    )
+    try {
+      const cost = extractCostState([costStateLine({ modelUsage })])!
+      expect(
+        toModelCostRows(cost).find((row) => row.model === 'claude-sonnet-5')?.output_tokens
+      ).toBe(0)
+      expect(Object.prototype).not.toHaveProperty('costUSD')
+      expect(cost.modelUsage['__proto__'].costUSD).toBe(7)
+    } finally {
+      Reflect.deleteProperty(Object.prototype, 'costUSD')
+      Reflect.deleteProperty(Object, 'outputTokens')
+    }
+  })
+
+  it.each([-1, Infinity, NaN, 1e308, 'bad'])('rejects corrupt recorded cost %s', (totalCostUSD) => {
+    expect(() => extractCostState([costStateLine({ totalCostUSD })])).toThrow()
+  })
+
+  it('rejects overflow when collapsing model costs', () => {
+    expect(() =>
+      extractCostState([
+        costStateLine({
+          modelUsage: {
+            'demo-20250101': { costUSD: 1e308 },
+            'demo-20250102': { costUSD: 1e308 }
+          }
+        })
+      ])
+    ).toThrow()
+  })
   it.each([1e20, -1e20, NaN, Infinity])('ignores invalid optional startTime %s', (startTime) => {
     const result = extractCostState([costStateLine({ startTime })])
     expect(result?.costStateStartTime).toBeNull()
@@ -164,6 +197,35 @@ describe('extractCostState', () => {
       costStateLine()
     ])
     expect(result).not.toHaveProperty('continuedInSessionId')
+  })
+})
+
+describe('turn safety', () => {
+  it('ignores sidechain users before changing skill attribution', () => {
+    const rows = extractTurnUsage([
+      assistantLine({ attributionSkill: 'demo' }),
+      { type: 'user', isSidechain: true, message: { content: 'child question' } },
+      assistantLine({ uuid: 'u-2', requestId: 'req-2', message: { id: 'msg-2' } })
+    ])
+    expect(rows.map((row) => row.active_skill)).toEqual(['demo', 'demo'])
+  })
+
+  it('keeps final cumulative usage rather than the first incomplete record', () => {
+    const rows = extractTurnUsage([
+      assistantLine({ message: { usage: { output_tokens: 0, input_tokens: 10 } } }),
+      assistantLine({ uuid: 'u-2', message: { usage: { output_tokens: 100 } } }),
+      assistantLine({ uuid: 'u-3', message: { usage: { output_tokens: 100 } } })
+    ])
+    expect(rows).toHaveLength(1)
+    expect(rows[0].output_tokens).toBe(100)
+    expect(rows[0].input_tokens).toBe(10)
+  })
+
+  it('drops turns with invalid timestamps and invalid counters', () => {
+    expect(extractTurnUsage([assistantLine({ timestamp: '2026-10-01garbage' })])).toEqual([])
+    expect(
+      extractTurnUsage([assistantLine({ message: { usage: { output_tokens: -1 } } })])
+    ).toEqual([])
   })
 })
 

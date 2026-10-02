@@ -24,6 +24,29 @@ describe('yamlFrontmatterRule', () => {
     globalMcpServers: new Set()
   }
 
+  it('reports recursive metadata as malformed frontmatter', () => {
+    const dir = path.join(tmpDir, 'recursive')
+    fs.mkdirSync(dir)
+    fs.writeFileSync(
+      path.join(dir, 'SKILL.md'),
+      '---\nname: recursive\nmetadata: &cycle\n  self: *cycle\n---\nBody'
+    )
+    const findings = yamlFrontmatterRule.run(
+      {
+        id: 1,
+        name: 'recursive',
+        source_type: 'global',
+        source_path: dir,
+        plugin_name: null,
+        description: 'demo'
+      },
+      dummyContext
+    )
+    expect(findings).toEqual([
+      expect.objectContaining({ rule_id: 'yaml-frontmatter', severity: 'error' })
+    ])
+  })
+
   it('skips plugin skills', () => {
     const skill: SkillLintTarget = {
       id: 1,

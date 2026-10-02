@@ -1,5 +1,15 @@
 # Megatron: Usage analytics
 
+## Scan integrity amendment (2026-10-02)
+
+Parser version 9 validates timestamps and numeric usage, safely aggregates model keys, filters
+sidechain state changes, and reconciles replayed invocations as well as turns. Repeated assistant
+usage is cumulative: retain per-counter maxima rather than summing duplicate measurements.
+Unavailable reads and corrupt cost snapshots preserve prior rows and report a partial scan.
+Activity daily buckets cover every local calendar date intersecting the exact rolling window;
+future activity and model turns are excluded. See [security-hardening.md](security-hardening.md)
+for the boundary policies and resource limits.
+
 Owns the design for surfacing a user's Claude Code **activity, token, and cost history** —
 "what have I been doing, what did it cost, where is it going." `CLAUDE.md` stays authoritative
 for repo-wide decisions; the decisions below are locked here.

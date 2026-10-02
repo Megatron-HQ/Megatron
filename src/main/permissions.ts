@@ -2,7 +2,6 @@ import {
   closeSync,
   existsSync,
   openSync,
-  readFileSync,
   readSync,
   readdirSync,
   realpathSync,
@@ -106,11 +105,45 @@ export function allowedRealpathSync(path: string): string | null {
 }
 
 export function allowedReadFileSync(path: string): Buffer | null {
-  if (!isPathAllowed(path)) return null
+  return readAllowedFile(path).contents
+}
+
+const MAX_FILE_READ_BYTES = 16 * 1024 * 1024
+const MAX_TRANSCRIPT_LINE_BYTES = 64 * 1024 * 1024
+
+export function readAllowedFile(
+  path: string,
+  maxBytes = MAX_FILE_READ_BYTES
+): {
+  status: AllowedFileReadStatus | 'too_large'
+  contents: Buffer | null
+} {
+  if (!isPathAllowed(path)) return { status: 'unavailable', contents: null }
+  let descriptor: number
   try {
-    return readFileSync(path)
+    descriptor = openSync(path, 'r')
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    return {
+      status: code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : 'unavailable',
+      contents: null
+    }
+  }
+  try {
+    const chunks: Buffer[] = []
+    let total = 0
+    while (true) {
+      const chunk = Buffer.allocUnsafe(Math.min(STREAM_READ_CHUNK_BYTES, maxBytes - total + 1))
+      const count = readSync(descriptor, chunk, 0, chunk.length, null)
+      if (count === 0) return { status: 'ok', contents: Buffer.concat(chunks, total) }
+      total += count
+      if (total > maxBytes) return { status: 'too_large', contents: null }
+      chunks.push(chunk.subarray(0, count))
+    }
   } catch {
-    return null
+    return { status: 'unavailable', contents: null }
+  } finally {
+    closeSync(descriptor)
   }
 }
 
@@ -120,7 +153,8 @@ const STREAM_READ_CHUNK_BYTES = 64 * 1024
 
 export function visitAllowedUtf8LinesSync(
   path: string,
-  visitLine: (line: string) => void
+  visitLine: (line: string) => void,
+  maxLineBytes = MAX_TRANSCRIPT_LINE_BYTES
 ): AllowedFileReadStatus {
   if (!isPathAllowed(path)) return 'unavailable'
 
@@ -135,18 +169,34 @@ export function visitAllowedUtf8LinesSync(
 
   const buffer = Buffer.allocUnsafe(STREAM_READ_CHUNK_BYTES)
   const decoder = new StringDecoder('utf8')
-  let pending = ''
+  let fragments: string[] = []
+  let pendingBytes = 0
+  const consume = (text: string): boolean => {
+    let start = 0
+    while (start < text.length) {
+      const newline = text.indexOf('\n', start)
+      const fragment = text.slice(start, newline === -1 ? text.length : newline)
+      pendingBytes += Buffer.byteLength(fragment)
+      if (pendingBytes > maxLineBytes) return false
+      fragments.push(fragment)
+      if (newline === -1) break
+      const line = fragments.join('')
+      visitLine(line.endsWith('\r') ? line.slice(0, -1) : line)
+      fragments = []
+      pendingBytes = 0
+      start = newline + 1
+    }
+    return true
+  }
 
   try {
     while (true) {
       const bytesRead = readSync(fileDescriptor, buffer, 0, buffer.length, null)
       if (bytesRead === 0) break
-      pending += decoder.write(buffer.subarray(0, bytesRead))
-      const lines = pending.split('\n')
-      pending = lines.pop() ?? ''
-      for (const line of lines) visitLine(line.endsWith('\r') ? line.slice(0, -1) : line)
+      if (!consume(decoder.write(buffer.subarray(0, bytesRead)))) return 'unavailable'
     }
-    pending += decoder.end()
+    if (!consume(decoder.end())) return 'unavailable'
+    const pending = fragments.join('')
     if (pending !== '') visitLine(pending.endsWith('\r') ? pending.slice(0, -1) : pending)
     return 'ok'
   } catch (error) {

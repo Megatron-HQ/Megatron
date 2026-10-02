@@ -25,6 +25,17 @@ function writeSkill(dirName: string, content: string): string {
 }
 
 describe('parseSkillDirectory', () => {
+  it('isolates recursive YAML metadata without losing readable skill fields', () => {
+    const dir = writeSkill(
+      'demo',
+      '---\nname: demo\ndescription: useful\nmetadata: &cycle\n  self: *cycle\n---\nBody'
+    )
+    expect(parseSkillDirectory(dir)).toMatchObject({
+      name: 'demo',
+      description: 'useful',
+      metadata_json: null
+    })
+  })
   it('parses a valid name and description', () => {
     const dirPath = writeSkill(
       'my-skill',

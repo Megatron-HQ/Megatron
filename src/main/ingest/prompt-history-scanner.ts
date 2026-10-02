@@ -1,7 +1,8 @@
 import type Database from 'better-sqlite3'
 import { homedir } from 'os'
 import { resolve } from 'path'
-import { allowedReadFileSync } from '../permissions'
+import { visitAllowedUtf8LinesSync } from '../permissions'
+import type { ScanTaskResult } from '../../shared/ipc'
 
 export interface PromptHistoryRow {
   session_id: string
@@ -65,11 +66,20 @@ export function parsePromptHistory(raw: string): PromptHistoryRow[] {
 export function scanPromptHistory(
   db: Database.Database,
   historyFile: string = resolve(homedir(), '.claude/history.jsonl')
-): void {
-  const contents = allowedReadFileSync(historyFile)
-  if (contents === null) return
-
-  const rows = parsePromptHistory(contents.toString('utf8'))
+): ScanTaskResult {
+  const rows: PromptHistoryRow[] = []
+  const status = visitAllowedUtf8LinesSync(historyFile, (line) =>
+    rows.push(...parsePromptHistory(line))
+  )
+  if (status !== 'ok')
+    return {
+      status:
+        status === 'missing' &&
+        (db.prepare('SELECT COUNT(*) AS count FROM prompt_history').get() as { count: number })
+          .count === 0
+          ? 'complete'
+          : 'partial'
+    }
   const insert = db.prepare(
     `INSERT INTO prompt_history (session_id, project, typed_at, is_slash_command)
      VALUES (@session_id, @project, @typed_at, @is_slash_command)`
@@ -78,4 +88,5 @@ export function scanPromptHistory(
     db.prepare('DELETE FROM prompt_history').run()
     for (const row of rows) insert.run(row)
   })()
+  return { status: 'complete' }
 }

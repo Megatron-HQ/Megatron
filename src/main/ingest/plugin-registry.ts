@@ -1,10 +1,11 @@
 import type Database from 'better-sqlite3'
+import type { ScanTaskResult } from '../../shared/ipc'
 import { homedir } from 'os'
 import { dirname, join, resolve } from 'path'
 import { writeSkillScan, writeSkillScanAuthoritative, type SkillScanRow } from '../db/queries'
 import {
-  allowedExistsSync,
   allowedReadFileSync,
+  readAllowedFile,
   isPathAllowed,
   readAllowedDirectory
 } from '../permissions'
@@ -192,9 +193,10 @@ function buildPluginSkillRow(
   name: string,
   marketplace: string,
   hookEvents: string | null,
-  skillDisabledReason: string | null
+  skillDisabledReason: string | null,
+  contents: Buffer
 ): SkillScanRow {
-  const parsed = parseSkillDirectory(dirPath, fallbackNameOverride)
+  const parsed = parseSkillDirectory(dirPath, fallbackNameOverride, contents)
   return {
     // Claude Code invokes and records a plugin skill under this namespaced form
     // (e.g. `impeccable:impeccable`), never the bare SKILL.md name — skill_invocations
@@ -222,13 +224,14 @@ export function scanPluginRegistry(
   db: Database.Database,
   pluginsDir: string = resolve(homedir(), '.claude', 'plugins'),
   userSettingsPath?: string
-): void {
+): ScanTaskResult {
   const pluginsDirectory = readAllowedDirectory(pluginsDir)
-  if (pluginsDirectory.status === 'unavailable') return
+  if (pluginsDirectory.status === 'unavailable') return { status: 'partial' }
 
   // One resolution per distinct project root (plus '' for user scope) rather than per install —
   // a project with several plugins would otherwise re-read the same two settings files each time.
   const enablementCache = new Map<string, Set<string>>()
+  const unknownProjects = new Set<string>()
   function disabledPluginsFor(projectPath: string): Set<string> {
     const cached = enablementCache.get(projectPath)
     if (cached) return cached
@@ -240,13 +243,30 @@ export function scanPluginRegistry(
     // An unreadable project root means we genuinely don't know; falling back to the user-scope
     // answer would stamp a state this project never asked for. Report nothing disabled and let
     // listPlugins mark the install's enablement unknown (see queries.ts).
-    const resolved = enablement.known ? enablement.disabled : new Set<string>()
+    if (!enablement.known) unknownProjects.add(projectPath)
+    const resolved = enablement.known
+      ? enablement.disabled
+      : new Set(
+          (
+            db
+              .prepare(
+                'SELECT name, marketplace FROM plugin_registry WHERE project_path = ? AND disabled_reason IS NOT NULL'
+              )
+              .all(projectPath) as { name: string; marketplace: string }[]
+          ).map((row) => `${row.name}@${row.marketplace}`)
+        )
     enablementCache.set(projectPath, resolved)
     return resolved
   }
 
   const installed = readJson(join(pluginsDir, 'installed_plugins.json'))
-  if (installed.status === 'unavailable' || installed.status === 'invalid') return
+  if (installed.status === 'unavailable' || installed.status === 'invalid')
+    return { status: 'partial' }
+  if (
+    installed.status === 'ok' &&
+    (!isRecord(installed.value) || !isRecord(installed.value.plugins))
+  )
+    return { status: 'partial' }
 
   const marketplaces = readJson(join(pluginsDir, 'known_marketplaces.json'))
 
@@ -257,7 +277,9 @@ export function scanPluginRegistry(
   const marketplaceEntries = isRecord(marketplaces.value)
     ? (marketplaces.value as Record<string, MarketplaceEntry>)
     : {}
-  const hasMarketplaceSnapshot = marketplaces.status === 'ok' || marketplaces.status === 'missing'
+  const hasMarketplaceSnapshot =
+    (marketplaces.status === 'ok' && isRecord(marketplaces.value)) ||
+    marketplaces.status === 'missing'
 
   const upsertRegistry = db.prepare(`
     INSERT INTO plugin_registry
@@ -277,8 +299,8 @@ export function scanPluginRegistry(
       installed_at = excluded.installed_at,
       last_updated = excluded.last_updated,
       git_commit_sha = excluded.git_commit_sha,
-      disabled_reason = excluded.disabled_reason,
-      available_version = excluded.available_version
+      disabled_reason = CASE WHEN @has_enablement_snapshot = 1 THEN excluded.disabled_reason ELSE plugin_registry.disabled_reason END,
+      available_version = CASE WHEN @has_marketplace_snapshot = 1 THEN excluded.available_version ELSE plugin_registry.available_version END
   `)
 
   const availableVersionsCache = new Map<string, string | null>()
@@ -303,9 +325,24 @@ export function scanPluginRegistry(
     const skillRows: SkillScanRow[] = []
     const readableSkillRoots: string[] = []
     let pluginSkillScanIsAuthoritative = true
+    const invalidIdentities = new Set<string>()
     const now = new Date().toISOString()
 
     for (const [key, entriesRaw] of Object.entries(pluginsMap)) {
+      if (
+        !Array.isArray(entriesRaw) ||
+        entriesRaw.some(
+          (entry) =>
+            !isRecord(entry) ||
+            !['user', 'project', 'local'].includes(entry.scope as string) ||
+            typeof entry.installPath !== 'string' ||
+            entry.installPath === ''
+        )
+      ) {
+        invalidIdentities.add(key)
+        pluginSkillScanIsAuthoritative = false
+        continue
+      }
       const { name, marketplace } = splitPluginKey(key)
       const marketplaceRepo = marketplaceEntries[marketplace]?.source?.repo
       const repo = typeof marketplaceRepo === 'string' ? marketplaceRepo : null
@@ -363,6 +400,11 @@ export function scanPluginRegistry(
           install_path: installPath,
           last_scanned_at: now,
           has_marketplace_snapshot: hasMarketplaceSnapshot ? 1 : 0,
+          has_enablement_snapshot:
+            !unknownProjects.has(install.projectPath) &&
+            (install.scope === 'user' || install.projectPath !== '')
+              ? 1
+              : 0,
           installed_at: install.installedAt,
           last_updated: install.lastUpdated,
           git_commit_sha: install.gitCommitSha,
@@ -373,6 +415,7 @@ export function scanPluginRegistry(
         seenRegistryKeys.add(
           registryKey(name, marketplace, install.scope, installPath, install.projectPath)
         )
+        if (unknownProjects.has(install.projectPath)) pluginSkillScanIsAuthoritative = false
 
         const hookEvents = readPluginHookEvents(installPath)
 
@@ -385,7 +428,10 @@ export function scanPluginRegistry(
         // could in principle have both.
         const skillsDir = join(installPath, 'skills')
         const skillsDirectory = readAllowedDirectory(skillsDir)
-        const hasRootSkill = allowedExistsSync(join(installPath, 'SKILL.md'))
+        const rootRead = readAllowedFile(join(installPath, 'SKILL.md'))
+        const hasRootSkill = rootRead.status === 'ok' && rootRead.contents !== null
+        if (rootRead.status !== 'ok' && rootRead.status !== 'missing')
+          pluginSkillScanIsAuthoritative = false
 
         if (skillsDirectory.status === 'unavailable') {
           pluginSkillScanIsAuthoritative = false
@@ -394,10 +440,17 @@ export function scanPluginRegistry(
 
         if (skillsDirectory.status !== 'unavailable') {
           readableSkillRoots.push(skillsDir)
+          let containerUnavailable = false
 
           for (const entryName of skillsDirectory.entries) {
             const dirPath = join(skillsDir, entryName)
-            if (!allowedExistsSync(join(dirPath, 'SKILL.md'))) continue
+            const read = readAllowedFile(join(dirPath, 'SKILL.md'))
+            if (read.status === 'missing') continue
+            if (read.status !== 'ok' || read.contents === null) {
+              pluginSkillScanIsAuthoritative = false
+              containerUnavailable = true
+              continue
+            }
 
             skillRows.push(
               buildPluginSkillRow(
@@ -406,10 +459,13 @@ export function scanPluginRegistry(
                 name,
                 marketplace,
                 hookEvents,
-                skillDisabledReason
+                skillDisabledReason,
+                read.contents
               )
             )
           }
+          if (containerUnavailable)
+            readableSkillRoots.splice(readableSkillRoots.indexOf(skillsDir), 1)
         }
 
         if (hasRootSkill) {
@@ -425,7 +481,8 @@ export function scanPluginRegistry(
               name,
               marketplace,
               hookEvents,
-              skillDisabledReason
+              skillDisabledReason,
+              rootRead.contents!
             )
           )
         }
@@ -446,6 +503,7 @@ export function scanPluginRegistry(
        WHERE name = ? AND marketplace = ? AND scope = ? AND install_path = ? AND project_path = ?`
     )
     for (const row of existingRegistry) {
+      if (invalidIdentities.has(`${row.name}@${row.marketplace}`)) continue
       const key = registryKey(
         row.name,
         row.marketplace,
@@ -469,7 +527,13 @@ export function scanPluginRegistry(
     } else if (readableSkillRoots.length > 0) {
       writeSkillScan(db, 'plugin', skillRows, readableSkillRoots)
     }
+    return {
+      status:
+        pluginSkillScanIsAuthoritative && hasMarketplaceSnapshot
+          ? ('complete' as const)
+          : ('partial' as const)
+    }
   })
 
-  runScan()
+  return runScan()
 }

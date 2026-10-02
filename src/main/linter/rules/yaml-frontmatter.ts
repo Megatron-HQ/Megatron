@@ -57,6 +57,9 @@ export const yamlFrontmatterRule: LintRule = {
 
     try {
       const parsed = parse(block)
+      // JSON-backed metadata cannot represent YAML alias cycles.
+      if (typeof parsed === 'object' && parsed !== null && 'metadata' in parsed)
+        JSON.stringify(parsed.metadata)
       if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
         return [
           {

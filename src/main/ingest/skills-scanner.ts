@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import type { ScanTaskResult } from '../../shared/ipc'
 import { homedir } from 'os'
 import { dirname, join, relative, resolve, sep } from 'path'
 import { writeSkillScan, type SkillScanRow } from '../db/queries'
@@ -7,9 +8,10 @@ import {
   allowedRealpathSync,
   allowedStatSync,
   getGrantedPaths,
+  readAllowedFile,
   readAllowedDirectory
 } from '../permissions'
-import { readSkillOverrides } from './claude-settings'
+import { readPluginEnablement, readSkillOverrides } from './claude-settings'
 import { parseSkillDirectory } from './skill-parser'
 
 // Directory names never worth descending into while hunting for nested `.claude/skills/`
@@ -37,22 +39,37 @@ const NESTED_SEARCH_SKIP_DIRS = new Set([
 // Unbounded depth (a monorepo's real package nesting isn't predictable), guarded against a
 // symlink cycle by tracking visited realpaths — preserves the locked "symlinks are followed"
 // decision (docs/skill-scanner.md) while making a cycle a no-op instead of a hang.
-export function findNestedSkillsDirs(repoRoot: string): string[] {
+export function findNestedSkillsDirs(
+  repoRoot: string,
+  onUnavailable: () => void = () => undefined
+): string[] {
   const found: string[] = []
   const visitedRealPaths = new Set<string>()
 
   function walk(dir: string): void {
     const real = allowedRealpathSync(dir)
-    if (real === null || visitedRealPaths.has(real)) return
+    if (real === null) {
+      if (readAllowedDirectory(dir).status === 'unavailable') onUnavailable()
+      return
+    }
+    if (visitedRealPaths.has(real)) return
     visitedRealPaths.add(real)
 
     const directory = readAllowedDirectory(dir)
-    if (directory.status !== 'ok') return
+    if (directory.status !== 'ok') {
+      if (directory.status === 'unavailable') onUnavailable()
+      return
+    }
 
     for (const entryName of directory.entries) {
       if (NESTED_SEARCH_SKIP_DIRS.has(entryName)) continue
       const entryPath = join(dir, entryName)
-      if (!allowedStatSync(entryPath)?.isDirectory()) continue
+      const stats = allowedStatSync(entryPath)
+      if (stats === null) {
+        onUnavailable()
+        continue
+      }
+      if (!stats.isDirectory()) continue
 
       const skillsDir = join(entryPath, '.claude', 'skills')
       if (allowedExistsSync(skillsDir)) found.push(skillsDir)
@@ -69,6 +86,7 @@ export interface SkillRoot {
   dir: string
   sourceType: 'global' | 'project'
   projectRoot?: string
+  discoveryIncomplete?: boolean
 }
 
 export function defaultSkillRoots(): SkillRoot[] {
@@ -82,11 +100,15 @@ export function defaultSkillRoots(): SkillRoot[] {
       sourceType: 'project',
       projectRoot: path
     }
-    const nested: SkillRoot[] = findNestedSkillsDirs(path).map((dir) => ({
+    let incomplete = false
+    const nested: SkillRoot[] = findNestedSkillsDirs(path, () => {
+      incomplete = true
+    }).map((dir) => ({
       dir,
       sourceType: 'project',
       projectRoot: path
     }))
+    if (incomplete) topLevel.discoveryIncomplete = true
     return [topLevel, ...nested]
   })
   return [globalRoot, ...projectRoots]
@@ -107,13 +129,18 @@ function scanSkillEntry(
   entryName: string,
   projectRoot: string | undefined,
   isSynced: boolean,
-  overrides: Map<string, string>
+  overrides: Map<string, string>,
+  onUnavailable: () => void
 ): SkillScanRow | null {
   const dirPath = join(parentDir, entryName)
   const skillMdPath = join(dirPath, 'SKILL.md')
-  if (!allowedExistsSync(skillMdPath)) return null
-
-  const parsed = parseSkillDirectory(dirPath)
+  const read = readAllowedFile(skillMdPath)
+  if (read.status === 'missing') return null
+  if (read.status !== 'ok' || read.contents === null) {
+    onUnavailable()
+    return null
+  }
+  const parsed = parseSkillDirectory(dirPath, undefined, read.contents)
   const stats = allowedStatSync(skillMdPath)
   return {
     name: parsed.name,
@@ -152,7 +179,10 @@ function scanSkillEntry(
 // since skill_invocations joins on that text with no FK (docs/data-model.md) — this isn't
 // cosmetic, it's what keeps a nested skill's usage count from merging into an unrelated
 // same-named skill elsewhere in the repo.
-function qualifyCollidingNestedSkillNames(rows: SkillScanRow[]): void {
+function qualifyCollidingNestedSkillNames(
+  rows: SkillScanRow[],
+  preservedPaths: Set<string> = new Set()
+): void {
   const rowsByProjectRoot = new Map<string, SkillScanRow[]>()
   for (const row of rows) {
     if (!row.project_root) continue
@@ -168,6 +198,7 @@ function qualifyCollidingNestedSkillNames(rows: SkillScanRow[]): void {
     }
 
     for (const row of group) {
+      if (preservedPaths.has(row.source_path)) continue
       if ((countsByName.get(row.name) ?? 0) < 2) continue
 
       // A skill's own `.claude/skills` dir is dirname(source_path); its package dir is one
@@ -192,13 +223,45 @@ export function scanSkills(
   db: Database.Database,
   roots: SkillRoot[] = defaultSkillRoots(),
   userSettingsPath?: string
-): void {
+): ScanTaskResult {
+  let partial = roots.some((root) => root.discoveryIncomplete === true)
   const rowsBySourceType = new Map<SkillRoot['sourceType'], SkillScanRow[]>()
   const rootDirsBySourceType = new Map<SkillRoot['sourceType'], string[]>()
+  const expandedRoots = [...roots]
+  const previous = db
+    .prepare(
+      "SELECT source_path, source_type, project_root FROM skills WHERE source_type IN ('global', 'project')"
+    )
+    .all() as {
+    source_path: string
+    source_type: SkillRoot['sourceType']
+    project_root: string | null
+  }[]
+  for (const skill of previous) {
+    const priorRoot = dirname(skill.source_path)
+    const covering = roots.find(
+      (root) =>
+        root.sourceType === skill.source_type &&
+        (root.sourceType === 'global'
+          ? priorRoot.startsWith(root.dir + sep)
+          : root.projectRoot === skill.project_root &&
+            root.dir === join(root.projectRoot!, '.claude', 'skills'))
+    )
+    if (covering && !expandedRoots.some((root) => root.dir === priorRoot)) {
+      expandedRoots.push({ ...covering, dir: priorRoot })
+    }
+  }
 
-  for (const root of roots) {
+  for (const root of expandedRoots) {
     const directory = readAllowedDirectory(root.dir)
-    if (directory.status === 'unavailable') continue
+    if (directory.status === 'unavailable') {
+      partial = true
+      continue
+    }
+    if (!readPluginEnablement(root.projectRoot, userSettingsPath).known) {
+      partial = true
+      continue
+    }
 
     // Read once per root, not once per skill. Global roots (no projectRoot) resolve user scope
     // only; a project root gets the full local > project > user merge — see claude-settings.ts.
@@ -209,6 +272,7 @@ export function scanSkills(
     const rootDirs = rootDirsBySourceType.get(root.sourceType) ?? []
     rootDirs.push(root.dir)
     rootDirsBySourceType.set(root.sourceType, rootDirs)
+    let rootUnavailable = false
 
     for (const entryName of directory.entries) {
       // `synced/` is a reserved folder name (any capitalization) that Claude Code itself
@@ -217,25 +281,65 @@ export function scanSkills(
       if (entryName.toLowerCase() === SYNCED_DIR_NAME) {
         const syncedDir = join(root.dir, entryName)
         const syncedEntries = readAllowedDirectory(syncedDir)
-        if (syncedEntries.status === 'unavailable') continue
+        if (syncedEntries.status === 'unavailable') {
+          partial = true
+          continue
+        }
         // The stale-row reconciliation below matches on a row's immediate parent dir, so
         // synced/ has to be a root in its own right or a deleted synced skill never gets swept.
         rootDirs.push(syncedDir)
+        let syncedUnavailable = false
         for (const syncedEntryName of syncedEntries.entries) {
-          const row = scanSkillEntry(syncedDir, syncedEntryName, root.projectRoot, true, overrides)
+          const row = scanSkillEntry(
+            syncedDir,
+            syncedEntryName,
+            root.projectRoot,
+            true,
+            overrides,
+            () => {
+              syncedUnavailable = true
+            }
+          )
           if (row) rows.push(row)
+        }
+        if (syncedUnavailable) {
+          partial = true
+          rootDirs.splice(rootDirs.indexOf(syncedDir), 1)
         }
         continue
       }
 
-      const row = scanSkillEntry(root.dir, entryName, root.projectRoot, false, overrides)
+      const row = scanSkillEntry(root.dir, entryName, root.projectRoot, false, overrides, () => {
+        rootUnavailable = true
+      })
       if (row) rows.push(row)
+    }
+    if (rootUnavailable) {
+      partial = true
+      rootDirs.splice(rootDirs.indexOf(root.dir), 1)
     }
   }
 
   for (const [sourceType, rootDirs] of rootDirsBySourceType) {
     const rows = rowsBySourceType.get(sourceType) ?? []
-    if (sourceType === 'project') qualifyCollidingNestedSkillNames(rows)
+    if (sourceType === 'project') {
+      const cached = db
+        .prepare("SELECT * FROM skills WHERE source_type = 'project'")
+        .all() as SkillScanRow[]
+      const unseen = cached.filter(
+        (row) =>
+          expandedRoots.some((root) => root.projectRoot === row.project_root) &&
+          !rows.some((fresh) => fresh.source_path === row.source_path) &&
+          !rootDirs.includes(dirname(row.source_path))
+      )
+      const preserved = new Set(unseen.map((row) => row.source_path))
+      const qualificationRows = unseen.map((row) => ({
+        ...row,
+        name: row.name.includes(':') ? row.name.slice(row.name.lastIndexOf(':') + 1) : row.name
+      }))
+      qualifyCollidingNestedSkillNames([...rows, ...qualificationRows], preserved)
+    }
     writeSkillScan(db, sourceType, rows, rootDirs)
   }
+  return { status: partial ? 'partial' : 'complete' }
 }

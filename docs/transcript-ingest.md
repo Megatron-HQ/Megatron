@@ -1,5 +1,14 @@
 # Megatron: Transcript ingest
 
+## Integrity amendment (2026-10-02)
+
+Unavailable transcript reads or metadata checks make the scan partial and preserve cached rows.
+Corrupt recorded costs reject that session snapshot instead of replacing valid prior costs.
+Parser version 9 normalizes valid timestamps, rejects invalid counters, and prevents sidechain
+users from changing main-chain attribution. Global invocation and turn identities are recovered
+from parsed or unchanged replay sessions after their canonical owner changes. Recovery remains
+transactional; unavailable recovery evidence rolls back the scan.
+
 Owns how `~/.claude/projects/**` transcripts become `skill_invocations` rows — which records
 count, which are skipped, and how an invocation's origin is classified. `CLAUDE.md` stays
 authoritative for repo-wide decisions; the decisions below are locked here.

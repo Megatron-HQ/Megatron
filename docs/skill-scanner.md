@@ -1,5 +1,15 @@
 # Skill scanner — sources, symlinks, and real `~/.claude` data notes
 
+## Scan integrity amendment (2026-10-02)
+
+Unavailable skill reads and malformed or unavailable settings preserve cached rows and report
+a partial scan. Readable siblings can refresh, while name qualification still considers preserved
+siblings. Confirmed deletion of an entire nested or synced root reconciles its cached rows.
+Malformed plugin registry entries preserve the affected identity; unavailable marketplace and
+enablement snapshots retain previously known values. Root plugin skills still refresh when the
+container cannot be inspected, without making that container scan authoritative. Symlink following
+and permission checks on the link path remain unchanged. See [security-hardening.md](security-hardening.md).
+
 Owns which directories count as skill sources and how they are walked. `CLAUDE.md` stays
 authoritative for repo-wide decisions; the decisions below are locked here.
 

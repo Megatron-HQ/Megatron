@@ -15,6 +15,8 @@ export function normalizeModelKey(raw: string): string | null {
 // Per-model numbers are kept under their verbatim `cost-state` field names (`costUSD`,
 // `inputTokens`, `cacheReadInputTokens`, …) — no renaming, so a schema drift stays visible.
 export type ModelUsage = Record<string, Record<string, number>>
+export class InvalidCostStateError extends Error {}
+const MAX_SAFE_COST_USD = Number.MAX_SAFE_INTEGER / 100
 
 export interface SessionCost {
   totalCostUsd: number
@@ -30,6 +32,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+export function normalizeTranscriptTimestamp(value: unknown): string | null {
+  if (
+    typeof value !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+  )
+    return null
+  const date = new Date(value)
+  const calendarDate = new Date(value.slice(0, 10) + 'T00:00:00.000Z')
+  return Number.isFinite(date.getTime()) &&
+    Number.isFinite(calendarDate.getTime()) &&
+    calendarDate.toISOString().slice(0, 10) === value.slice(0, 10)
+    ? date.toISOString()
+    : null
+}
+
+function validQuantity(value: number, count: boolean): boolean {
+  return (
+    Number.isFinite(value) &&
+    value >= 0 &&
+    (count ? Number.isSafeInteger(value) : value <= MAX_SAFE_COST_USD)
+  )
+}
+
 // Reads the last `type:"cost-state"` line (cumulative — 9 of 53 real sessions have several,
 // from resume checkpoints). Continuation lineage belongs to sessions_meta. Returns null when the
 // transcript has no `cost-state` line at all (pre-v2.1.241 history — ~77% of sessions).
@@ -43,18 +68,33 @@ export function extractCostState(records: Record<string, unknown>[]): SessionCos
   }
 
   if (costStateRecord === null) return null
+  if (
+    costStateRecord.totalCostUSD !== undefined &&
+    typeof costStateRecord.totalCostUSD !== 'number'
+  )
+    throw new InvalidCostStateError('Invalid recorded session cost')
 
   const totalCostUsd =
     typeof costStateRecord.totalCostUSD === 'number' ? costStateRecord.totalCostUSD : 0
+  if (!validQuantity(totalCostUsd, false))
+    throw new InvalidCostStateError('Invalid recorded session cost')
 
   const rawModelUsage = isRecord(costStateRecord.modelUsage) ? costStateRecord.modelUsage : {}
-  const modelUsage: ModelUsage = {}
+  const modelUsage: ModelUsage = Object.create(null)
   for (const [rawKey, rawValue] of Object.entries(rawModelUsage)) {
     const key = normalizeModelKey(rawKey)
     if (key === null || !isRecord(rawValue)) continue
-    const bucket = (modelUsage[key] ??= {})
+    const bucket = (modelUsage[key] ??= Object.create(null))
     for (const [field, value] of Object.entries(rawValue)) {
-      if (typeof value === 'number') bucket[field] = (bucket[field] ?? 0) + value
+      if (typeof value !== 'number') continue
+      const amount = (bucket[field] ?? 0) + value
+      if (
+        !validQuantity(value, field !== 'costUSD') ||
+        !validQuantity(amount, field !== 'costUSD')
+      ) {
+        throw new InvalidCostStateError('Invalid recorded model usage')
+      }
+      bucket[field] = amount
     }
   }
 
@@ -139,7 +179,7 @@ const SKILL_BASE_DIRECTORY_MARKER = 'Base directory for this skill:'
 const SKILL_COMMAND_PATTERN = /<command-name>\/([^<\s]+)<\/command-name>/
 
 function numberField(record: Record<string, unknown>, key: string): number {
-  return typeof record[key] === 'number' ? record[key] : 0
+  return typeof record[key] === 'number' && validQuantity(record[key], true) ? record[key] : 0
 }
 
 function userRecordStartsNewTurn(record: Record<string, unknown>): boolean {
@@ -202,13 +242,16 @@ export function extractTurnUsage(
   let activeSkill: string | null = null
   const parentsWithBaseMarker = new Set(
     records.flatMap((record) =>
-      typeof record.parentUuid === 'string' && recordHasSkillBaseMarker(record)
+      (agentId !== null || record.isSidechain !== true) &&
+      typeof record.parentUuid === 'string' &&
+      recordHasSkillBaseMarker(record)
         ? [record.parentUuid]
         : []
     )
   )
 
   for (const record of records) {
+    if (agentId === null && record.isSidechain === true) continue
     if (userRecordStartsNewTurn(record)) {
       activeSkill = verifiedSlashSkill(record, parentsWithBaseMarker)
       continue
@@ -226,12 +269,8 @@ export function extractTurnUsage(
 
     const sourceUuid = record.uuid
     const sessionId = record.sessionId
-    const invokedAt = record.timestamp
-    if (
-      typeof sourceUuid !== 'string' ||
-      typeof sessionId !== 'string' ||
-      typeof invokedAt !== 'string'
-    ) {
+    const invokedAt = normalizeTranscriptTimestamp(record.timestamp)
+    if (typeof sourceUuid !== 'string' || typeof sessionId !== 'string' || invokedAt === null) {
       continue
     }
 
@@ -248,19 +287,18 @@ export function extractTurnUsage(
         : requestId !== null
           ? `request:${requestId}`
           : `source:${sourceUuid}`
-    const existing = rowsByLogicalKey.get(logicalTurnKey)
-    if (existing !== undefined) {
-      if (resolvedSkill !== null) {
-        existing.active_skill = resolvedSkill
-        activeSkill = resolvedSkill
-      }
-      continue
-    }
-
     const usage = message !== null && isRecord(message.usage) ? message.usage : {}
     const cacheCreation = isRecord(usage.cache_creation) ? usage.cache_creation : {}
     const outputDetails = isRecord(usage.output_tokens_details) ? usage.output_tokens_details : {}
     const serverToolUse = isRecord(usage.server_tool_use) ? usage.server_tool_use : {}
+    if (
+      [usage, cacheCreation, outputDetails, serverToolUse].some((fields) =>
+        Object.values(fields).some(
+          (value) => typeof value === 'number' && !validQuantity(value, true)
+        )
+      )
+    )
+      continue
     const effort =
       typeof record.effort === 'string' && VALID_EFFORTS.has(record.effort) ? record.effort : null
 
@@ -270,7 +308,7 @@ export function extractTurnUsage(
       session_id: sessionId,
       request_id: requestId,
       message_id: messageId,
-      turn_index: turnIndex++,
+      turn_index: turnIndex,
       model,
       effort,
       input_tokens: numberField(usage, 'input_tokens'),
@@ -286,6 +324,27 @@ export function extractTurnUsage(
       active_skill: activeSkill,
       invoked_at: invokedAt
     }
+    const existing = rowsByLogicalKey.get(logicalTurnKey)
+    if (existing !== undefined) {
+      // Repeated records carry cumulative usage. Maxima retain known fields in partial updates
+      // without adding the same measurement twice or letting an older replay erase it.
+      const counters = [
+        'input_tokens',
+        'cache_read_tokens',
+        'cache_creation_tokens',
+        'cache_creation_5m_tokens',
+        'cache_creation_1h_tokens',
+        'output_tokens',
+        'thinking_tokens',
+        'web_search_requests'
+      ] as const
+      if (existing.model !== row.model) continue
+      for (const counter of counters) existing[counter] = Math.max(existing[counter], row[counter])
+      if (resolvedSkill !== null) existing.active_skill = resolvedSkill
+      if (row.effort !== null) existing.effort = row.effort
+      continue
+    }
+    turnIndex++
     rows.push(row)
     rowsByLogicalKey.set(logicalTurnKey, row)
   }

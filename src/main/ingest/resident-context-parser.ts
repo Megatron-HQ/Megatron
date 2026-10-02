@@ -1,4 +1,4 @@
-import { normalizeModelKey } from './cost-parser'
+import { normalizeModelKey, normalizeTranscriptTimestamp } from './cost-parser'
 
 export interface ResidentContextSample {
   session_id: string
@@ -69,9 +69,10 @@ function firstAssistantTurn(records: Record<string, unknown>[]): {
     const usage = message !== null && isRecord(message.usage) ? message.usage : null
     const cacheReadTokens = finiteNonNegativeNumber(usage?.cache_read_input_tokens)
     const measuredTokens = finiteNonNegativeNumber(usage?.cache_creation_input_tokens)
+    const timestamp = normalizeTranscriptTimestamp(record.timestamp)
     if (
       typeof record.sessionId !== 'string' ||
-      typeof record.timestamp !== 'string' ||
+      timestamp === null ||
       cacheReadTokens === null ||
       measuredTokens === null
     ) {
@@ -80,7 +81,7 @@ function firstAssistantTurn(records: Record<string, unknown>[]): {
 
     return {
       sessionId: record.sessionId,
-      timestamp: record.timestamp,
+      timestamp,
       model,
       cacheReadTokens,
       measuredTokens

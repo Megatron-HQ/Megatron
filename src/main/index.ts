@@ -1,5 +1,12 @@
 import { app, shell, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'path'
+import { pathToFileURL } from 'url'
+import {
+  canManagePluginInstall,
+  isTrustedIpcSender,
+  isTrustedRendererUrl,
+  validateIpcArguments
+} from './ipc-security'
 // Bundled at build time so it always matches package.json — app.getVersion() returns the
 // Electron executable's version under `electron-vite dev` (the app has no package.json on
 // disk there), not this app's.
@@ -55,7 +62,8 @@ import {
   type SkillInvocationEntry,
   type SkillInvocationRecord,
   type SkillInvocationSliceInput,
-  type ThemePreference
+  type ThemePreference,
+  type ScanSummary
 } from '../shared/ipc'
 
 // Megatron's renderer is bundled locally, so an HTTP cache adds corruption risk without a
@@ -64,6 +72,58 @@ disableChromiumHttpCache(app.commandLine)
 
 const themeStore: ThemeStore = new Store({ name: 'preferences' })
 let scanComplete = false
+let scanSummary: ScanSummary | undefined
+const trustedWindows = new Map<Electron.WebContents, string>()
+
+function assertRequest(
+  event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent,
+  channel: string,
+  args: unknown[]
+): void {
+  const trusted = trustedWindows.get(event.sender)
+  if (!trusted || !isTrustedIpcSender(event, event.sender, trusted))
+    throw new Error('Untrusted application request')
+  validateIpcArguments(channel, args)
+  if (
+    [
+      IPC_CHANNELS.enablePlugin,
+      IPC_CHANNELS.disablePlugin,
+      IPC_CHANNELS.updatePlugin,
+      IPC_CHANNELS.uninstallPlugin
+    ].includes(channel as never)
+  ) {
+    const input = args[0] as PluginActionInput
+    if (
+      !canManagePluginInstall(
+        input,
+        getPluginDetail(getDb(), input.name, input.marketplace)?.plugin ?? null
+      )
+    ) {
+      throw new Error(
+        'Plugin installation is unavailable or its settings are unknown. Refresh the plugin list.'
+      )
+    }
+  }
+}
+
+const secureIpc = {
+  handle(channel: string, listener: Parameters<typeof ipcMain.handle>[1]): void {
+    ipcMain.handle(channel, (event, ...args) => {
+      assertRequest(event, channel, args)
+      return listener(event, ...args)
+    })
+  },
+  on(channel: string, listener: Parameters<typeof ipcMain.on>[1]): void {
+    ipcMain.on(channel, (event, ...args) => {
+      try {
+        assertRequest(event, channel, args)
+        listener(event, ...args)
+      } catch {
+        event.returnValue = null
+      }
+    })
+  }
+}
 
 function notifyScanComplete(): void {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -71,16 +131,20 @@ function notifyScanComplete(): void {
   }
 }
 
-function scanAndNotify(): void {
-  runAllScans(
+function scanAndNotify(): ScanSummary {
+  const previousSuccess = scanSummary?.lastSuccessfulAt ?? null
+  scanSummary = runAllScans(
     getDb(),
     [scanSkills, scanPluginRegistry, scanTranscripts, scanPromptHistory, runLinter],
     (error) => {
       console.error('[ingest] scan failed', error)
     }
   )
+  scanSummary.lastSuccessfulAt =
+    scanSummary.outcome === 'complete' ? scanSummary.completedAt : previousSuccess
   scanComplete = true
   notifyScanComplete()
+  return scanSummary
 }
 
 function createWindow(): void {
@@ -96,8 +160,26 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.mjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
       sandbox: false
     }
+  })
+
+  const rendererUrl =
+    is.dev && process.env['ELECTRON_RENDERER_URL']
+      ? process.env['ELECTRON_RENDERER_URL']
+      : pathToFileURL(join(import.meta.dirname, '../renderer/index.html')).href
+  trustedWindows.set(mainWindow.webContents, rendererUrl)
+  mainWindow.webContents.on('destroyed', () => trustedWindows.delete(mainWindow.webContents))
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!isTrustedRendererUrl(url, rendererUrl)) event.preventDefault()
+  })
+  mainWindow.webContents.on('will-frame-navigate', (event) => {
+    if (!event.isMainFrame || !isTrustedRendererUrl(event.url, rendererUrl)) event.preventDefault()
+  })
+  mainWindow.webContents.on('will-redirect', (event, url) => {
+    if (!isTrustedRendererUrl(url, rendererUrl)) event.preventDefault()
   })
 
   mainWindow.on('ready-to-show', () => {
@@ -142,13 +224,14 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  ipcMain.handle(IPC_CHANNELS.listSkills, () => ({
+  secureIpc.handle(IPC_CHANNELS.listSkills, () => ({
     skills: listSkills(getDb()),
     scanComplete,
+    scanSummary,
     contextBudget: getContextBudget(getDb())
   }))
 
-  ipcMain.handle(IPC_CHANNELS.openSkill, (_event, id: number): OpenSkillResult | null => {
+  secureIpc.handle(IPC_CHANNELS.openSkill, (_event, id: number): OpenSkillResult | null => {
     const skill = getSkillById(getDb(), id)
     if (!skill) return null
     const findings = getLintFindingsForSkill(getDb(), id)
@@ -160,7 +243,7 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.openSkillMeta, (_event, id: number): OpenSkillMetaResult | null => {
+  secureIpc.handle(IPC_CHANNELS.openSkillMeta, (_event, id: number): OpenSkillMetaResult | null => {
     const skill = getSkillById(getDb(), id)
     if (!skill) return null
     const skillMd = readSkillMd(skill.source_path)
@@ -173,24 +256,24 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.openSkillHistory, (_event, id: number): SkillInvocationEntry[] => {
+  secureIpc.handle(IPC_CHANNELS.openSkillHistory, (_event, id: number): SkillInvocationEntry[] => {
     const skill = getSkillById(getDb(), id)
     return skill ? getSkillInvocationLog(getDb(), skill) : []
   })
 
-  ipcMain.on(IPC_CHANNELS.getInitialTheme, (event) => {
+  secureIpc.on(IPC_CHANNELS.getInitialTheme, (event) => {
     event.returnValue = resolveInitialTheme(themeStore)
   })
 
-  ipcMain.handle(IPC_CHANNELS.setTheme, (_event, theme: ThemePreference) => {
+  secureIpc.handle(IPC_CHANNELS.setTheme, (_event, theme: ThemePreference) => {
     setStoredTheme(themeStore, theme)
   })
 
-  ipcMain.handle(IPC_CHANNELS.listAllowedPaths, () => {
+  secureIpc.handle(IPC_CHANNELS.listAllowedPaths, () => {
     return listAllowedPaths(getDb())
   })
 
-  ipcMain.handle(IPC_CHANNELS.pickAndAddFolders, async (event) => {
+  secureIpc.handle(IPC_CHANNELS.pickAndAddFolders, async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender)
     const options: Electron.OpenDialogOptions = {
       title: 'Grant Repository Folder',
@@ -207,74 +290,57 @@ app.whenReady().then(() => {
       grantPath(filePath)
       addAllowedPath(db, filePath)
     }
-    try {
-      scanSkills(db)
-      // The grant is what makes a project's .claude/settings*.json readable, so its plugin
-      // installs can only resolve their enabled/disabled state on a rescan after it lands.
-      scanPluginRegistry(db)
-      runLinter(db)
-    } catch (err) {
-      console.error('[ingest] scanSkills/scanPluginRegistry/runLinter failed after grant', err)
-    }
-    notifyScanComplete()
+    scanAndNotify()
     return listAllowedPaths(db)
   })
 
-  ipcMain.handle(IPC_CHANNELS.revokeAllowedPath, (_event, path: string) => {
+  secureIpc.handle(IPC_CHANNELS.revokeAllowedPath, (_event, path: string) => {
     const db = getDb()
     revokePath(path)
     removeAllowedPath(db, path)
     deleteSkillsForProjectRoot(db, path)
-    try {
-      // Mirrors the grant path: the revoke takes that project's settings back out of reach, so
-      // its plugin installs have to drop back to an unknown enablement state.
-      scanPluginRegistry(db)
-      runLinter(db)
-    } catch (err) {
-      console.error('[ingest] scanPluginRegistry/runLinter failed after revoke', err)
-    }
-    notifyScanComplete()
+    scanAndNotify()
     return listAllowedPaths(db)
   })
 
-  ipcMain.handle(IPC_CHANNELS.openExternal, (_event, url: string) => {
+  secureIpc.handle(IPC_CHANNELS.openExternal, (_event, url: string) => {
     openSafeExternal(url, (safeUrl) => {
       void shell.openExternal(safeUrl)
     })
   })
 
-  ipcMain.handle(IPC_CHANNELS.listPlugins, () => listPlugins(getDb()))
+  secureIpc.handle(IPC_CHANNELS.listPlugins, () => listPlugins(getDb()))
 
-  ipcMain.handle(IPC_CHANNELS.getPluginDetail, (_event, name: string, marketplace: string) =>
+  secureIpc.handle(IPC_CHANNELS.getPluginDetail, (_event, name: string, marketplace: string) =>
     getPluginDetail(getDb(), name, marketplace)
   )
 
-  ipcMain.handle(IPC_CHANNELS.enablePlugin, async (_event, input: PluginActionInput) => {
+  secureIpc.handle(IPC_CHANNELS.enablePlugin, async (_event, input: PluginActionInput) => {
     const result = await enablePlugin(input)
     if (result.ok) scanAndNotify()
     return result
   })
 
-  ipcMain.handle(IPC_CHANNELS.disablePlugin, async (_event, input: PluginActionInput) => {
+  secureIpc.handle(IPC_CHANNELS.disablePlugin, async (_event, input: PluginActionInput) => {
     const result = await disablePlugin(input)
     if (result.ok) scanAndNotify()
     return result
   })
 
-  ipcMain.handle(IPC_CHANNELS.updatePlugin, async (_event, input: PluginActionInput) => {
+  secureIpc.handle(IPC_CHANNELS.updatePlugin, async (_event, input: PluginActionInput) => {
     const result = await updatePlugin(input)
     if (result.ok) scanAndNotify()
     return result
   })
 
-  ipcMain.handle(IPC_CHANNELS.uninstallPlugin, async (_event, input: PluginActionInput) => {
+  secureIpc.handle(IPC_CHANNELS.uninstallPlugin, async (_event, input: PluginActionInput) => {
     const result = await uninstallPlugin(input)
     if (result.ok) scanAndNotify()
     return result
   })
 
   // Composes like skills:list — the renderer polls until scanComplete.
-  ipcMain.handle(IPC_CHANNELS.usageOverview, () => {
+  secureIpc.handle(IPC_CHANNELS.usageOverview, () => {
     const now = new Date()
     const db = getDb()
     return {
@@ -283,35 +349,36 @@ app.whenReady().then(() => {
       models: getModelStats(db, now),
       skills: getSkillStats(db, now),
       residentTax: getResidentTaxStats(db),
-      scanComplete
+      scanComplete,
+      scanSummary
     }
   })
 
-  ipcMain.handle(
+  secureIpc.handle(
     IPC_CHANNELS.usageSkillInvocations,
     (_event, input: SkillInvocationSliceInput): SkillInvocationRecord[] =>
       getSkillInvocationSlice(getDb(), input)
   )
 
-  ipcMain.on(IPC_CHANNELS.getInitialSection, (event) => {
+  secureIpc.on(IPC_CHANNELS.getInitialSection, (event) => {
     event.returnValue = resolveInitialSection(themeStore)
   })
 
-  ipcMain.handle(IPC_CHANNELS.setLastSection, (_event, section: AppSection) => {
+  secureIpc.handle(IPC_CHANNELS.setLastSection, (_event, section: AppSection) => {
     setStoredSection(themeStore, section)
   })
 
   // runAllScans is fully synchronous, so scanAndNotify blocks until every scan and the
   // linter finish — the renderer's await on this invoke is the completion signal, and the
   // scan:complete broadcast it fires drives the query invalidation in App.tsx.
-  ipcMain.handle(IPC_CHANNELS.rescan, () => scanAndNotify())
+  secureIpc.handle(IPC_CHANNELS.rescan, () => scanAndNotify())
 
   // openPath on the data folder rather than showItemInFolder on the db file: the folder
   // always exists (the index may have been deleted), and the documented recovery path also
   // removes the -wal/-shm siblings, which the folder view shows.
-  ipcMain.handle(IPC_CHANNELS.revealDataFolder, () => shell.openPath(app.getPath('userData')))
+  secureIpc.handle(IPC_CHANNELS.revealDataFolder, () => shell.openPath(app.getPath('userData')))
 
-  ipcMain.on(IPC_CHANNELS.getVersion, (event) => {
+  secureIpc.on(IPC_CHANNELS.getVersion, (event) => {
     event.returnValue = appVersion
   })
 

@@ -2,7 +2,8 @@ import Database from 'better-sqlite3'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'fs'
 import { homedir, tmpdir } from 'os'
 import { join, resolve } from 'path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as permissions from '../permissions'
 import { applySchema } from '../db/schema'
 import { grantPath, resetGrantedPaths, revokePath } from '../permissions'
 import {
@@ -56,11 +57,77 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   resetGrantedPaths()
   rmSync(tmpDir, { recursive: true, force: true })
 })
 
 describe('scanSkills', () => {
+  it('reports incomplete nested discovery even before a hidden root has been indexed', () => {
+    const hidden = join(tmpDir, 'hidden')
+    mkdirSync(hidden)
+    const directory = permissions.readAllowedDirectory
+    vi.spyOn(permissions, 'readAllowedDirectory').mockImplementation((path) =>
+      path === hidden ? { status: 'unavailable', entries: [] } : directory(path)
+    )
+    expect(scanSkills(db, defaultSkillRoots(), userSettingsPath)).toMatchObject({
+      status: 'partial'
+    })
+  })
+  it('keeps collision-qualified names stable while one root is unavailable', () => {
+    const top = join(tmpDir, '.claude', 'skills')
+    const nested = join(tmpDir, 'package', '.claude', 'skills')
+    writeSkillDir(top, 'demo', '---\nname: demo\n---\nBody')
+    writeSkillDir(nested, 'demo', '---\nname: demo\n---\nBody')
+    const roots: SkillRoot[] = [
+      { dir: top, sourceType: 'project', projectRoot: tmpDir },
+      { dir: nested, sourceType: 'project', projectRoot: tmpDir }
+    ]
+    scanSkills(db, roots, userSettingsPath)
+    const directory = permissions.readAllowedDirectory
+    vi.spyOn(permissions, 'readAllowedDirectory').mockImplementation((path) =>
+      path === top ? { status: 'unavailable', entries: [] } : directory(path)
+    )
+    scanSkills(db, roots, userSettingsPath)
+    expect(
+      allSkills()
+        .map((row) => row.name)
+        .sort()
+    ).toEqual(['demo', 'package:demo'])
+  })
+  it('preserves unreadable skill metadata while updating readable siblings', () => {
+    const root = join(tmpDir, 'skills')
+    const dir = writeSkillDir(root, 'a', '---\nname: a\ndescription: Before\n---\nBody')
+    writeSkillDir(root, 'b', '---\nname: b\ndescription: Before\n---\nBody')
+    const roots: SkillRoot[] = [{ dir: root, sourceType: 'global' }]
+    scanSkills(db, roots, userSettingsPath)
+    const before = allSkills().find((row) => row.name === 'a')
+    writeSkillDir(root, 'b', '---\nname: b\ndescription: After\n---\nBody')
+    const read = permissions.readAllowedFile
+    vi.spyOn(permissions, 'readAllowedFile').mockImplementation((path, limit) =>
+      path === join(dir, 'SKILL.md') ? { status: 'unavailable', contents: null } : read(path, limit)
+    )
+    expect(scanSkills(db, roots, userSettingsPath)).toMatchObject({ status: 'partial' })
+    expect(allSkills().find((row) => row.name === 'a')).toEqual(before)
+    expect(allSkills().find((row) => row.name === 'b')?.description).toBe('After')
+  })
+
+  it('removes deleted nested and synced roots after a complete scan', () => {
+    const top = join(tmpDir, '.claude', 'skills')
+    const nested = join(tmpDir, 'package', '.claude', 'skills')
+    writeSkillDir(nested, 'nested', '---\nname: nested\n---\nBody')
+    writeSkillDir(join(top, 'synced'), 'synced-demo', '---\nname: synced-demo\n---\nBody')
+    const roots: SkillRoot[] = [
+      { dir: top, sourceType: 'project', projectRoot: tmpDir },
+      { dir: nested, sourceType: 'project', projectRoot: tmpDir }
+    ]
+    scanSkills(db, roots, userSettingsPath)
+    expect(allSkills()).toHaveLength(2)
+    rmSync(join(tmpDir, 'package'), { recursive: true })
+    rmSync(join(top, 'synced'), { recursive: true })
+    scanSkills(db, roots.slice(0, 1), userSettingsPath)
+    expect(allSkills()).toEqual([])
+  })
   it('inserts two skills with real SKILL.md files, correctly tagged', () => {
     const root = join(tmpDir, 'skills')
     writeSkillDir(root, 'skill-a', '---\nname: skill-a\ndescription: First\n---\nBody')

@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import * as permissions from '../permissions'
 import Database from 'better-sqlite3'
 import fs from 'fs'
 import os from 'os'
@@ -20,8 +21,28 @@ describe('runLinter', () => {
   })
 
   afterEach(() => {
+    vi.restoreAllMocks()
     resetGrantedPaths()
     fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('retains cached findings when a skill becomes unreadable', () => {
+    const dir = path.join(tmpDir, 'demo')
+    fs.mkdirSync(dir)
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), 'bad frontmatter')
+    db.prepare(
+      `INSERT INTO skills (name, source_type, source_path, last_scanned_at) VALUES ('demo', 'global', ?, '2026-10-01T00:00:00.000Z')`
+    ).run(dir)
+    runLinter(db)
+    const before = db.prepare('SELECT * FROM lint_findings ORDER BY id').all()
+    const read = permissions.readAllowedFile
+    vi.spyOn(permissions, 'readAllowedFile').mockImplementation((file, limit) =>
+      file === path.join(dir, 'SKILL.md')
+        ? { status: 'unavailable', contents: null }
+        : read(file, limit)
+    )
+    expect(runLinter(db)).toMatchObject({ status: 'partial' })
+    expect(db.prepare('SELECT * FROM lint_findings ORDER BY id').all()).toEqual(before)
   })
 
   it('runs all rules and populates lint_findings in database', () => {
