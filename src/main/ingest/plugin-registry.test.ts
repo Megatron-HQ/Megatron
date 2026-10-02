@@ -2,7 +2,8 @@ import Database from 'better-sqlite3'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as permissions from '../permissions'
 import { applySchema } from '../db/schema'
 import { grantPath, resetGrantedPaths, revokePath } from '../permissions'
 import { scanPluginRegistry } from './plugin-registry'
@@ -108,11 +109,42 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   resetGrantedPaths()
   rmSync(tmpDir, { recursive: true, force: true })
 })
 
 describe('scanPluginRegistry', () => {
+  it('preserves unreadable container skills while refreshing a readable root skill', () => {
+    const installPath = join(tmpDir, 'install-a')
+    writePluginSkill(installPath, 'container-skill', '---\nname: container-skill\n---\nBody')
+    writeRootPluginSkill(installPath, '---\nname: root-skill\ndescription: Before\n---\nBody')
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }]
+      }
+    })
+    scanPluginRegistry(db, pluginsDir)
+    const container = pluginSkills().find((skill) => skill.name === 'plugin-a:container-skill')
+    writeRootPluginSkill(installPath, '---\nname: root-skill\ndescription: After\n---\nBody')
+    const readDirectory = permissions.readAllowedDirectory
+    vi.spyOn(permissions, 'readAllowedDirectory').mockImplementation((path) =>
+      path === join(installPath, 'skills')
+        ? { status: 'unavailable', entries: [] }
+        : readDirectory(path)
+    )
+
+    scanPluginRegistry(db, pluginsDir)
+
+    expect(pluginSkills().find((skill) => skill.name === 'plugin-a:container-skill')).toEqual(
+      container
+    )
+    expect(pluginSkills().find((skill) => skill.name === 'plugin-a:root-skill')?.description).toBe(
+      'After'
+    )
+  })
+
   it('inserts two plugins across two marketplaces with repos resolved', () => {
     const installPathA = join(tmpDir, 'install-a')
     const installPathB = join(tmpDir, 'install-b')

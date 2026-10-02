@@ -79,6 +79,13 @@ describe('normalizeModelKey', () => {
 })
 
 describe('extractCostState', () => {
+  it.each([1e20, -1e20, NaN, Infinity])('ignores invalid optional startTime %s', (startTime) => {
+    const result = extractCostState([costStateLine({ startTime })])
+    expect(result?.costStateStartTime).toBeNull()
+    expect(result?.totalCostUsd).toBe(2.5)
+    expect(result?.modelUsage['claude-sonnet-5'].costUSD).toBe(2.5)
+  })
+
   it('returns null when no cost-state line is present', () => {
     expect(
       extractCostState([assistantLine(), { type: 'user', message: { content: 'hi' } }])

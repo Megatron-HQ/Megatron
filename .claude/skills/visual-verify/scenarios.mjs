@@ -478,10 +478,20 @@ export const scenarios = [
     // Metadata section are both correctly omitted, not rendered empty/broken.
     name: 'skill-detail-without-metadata',
     screen: 'skill-detail',
+    async shouldSkip(window) {
+      const rows = window
+        .locator('tbody tr')
+        .filter({ has: window.getByText('ponytail', { exact: true }) })
+      return (await rows.count()) === 0 ? 'no Ponytail skill installed locally' : null
+    },
     async run(window) {
-      // Namespaced as "ponytail:ponytail" (plugin-name:skill-name — see
-      // docs/data-model.md), not the bare "ponytail" this used to match pre-namespacing.
-      await openSkillViaCommandPalette(window, 'ponytail', /^ponytail:/)
+      // Canonical names remain namespaced, but the table displays the shorter skill name.
+      await window
+        .locator('tbody tr')
+        .filter({ has: window.getByText('ponytail', { exact: true }) })
+        .first()
+        .click()
+      await window.getByRole('button', { name: 'Back to skills' }).waitFor()
     }
   },
   {
@@ -547,11 +557,20 @@ export const scenarios = [
     // reveal the tooltip's real event-name list (skills.hook_events, not a placeholder).
     name: 'table-hook-driven-icon-tooltip',
     screen: 'skill-inventory',
+    async shouldSkip(window) {
+      const rows = window
+        .locator('tbody tr')
+        .filter({ has: window.getByText('ponytail', { exact: true }) })
+      return (await rows.locator('svg.lucide-webhook').count()) === 0
+        ? 'no Ponytail hook-driven skill installed locally'
+        : null
+    },
     async run(window) {
       await window.getByRole('button', { name: 'Plugin', exact: true }).click()
       await window.getByRole('button', { name: /^ponytail/ }).click()
       await window
-        .locator('tbody tr', { hasText: 'ponytail:ponytail' })
+        .locator('tbody tr')
+        .filter({ has: window.getByText('ponytail', { exact: true }) })
         .first()
         .locator('svg.lucide-webhook')
         .hover()

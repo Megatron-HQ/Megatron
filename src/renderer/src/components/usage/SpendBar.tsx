@@ -9,6 +9,9 @@ interface SpendBarProps {
   byModel: CostModelSpend[] // desc by cost
 }
 
+const SEGMENT_GAP_PX = 2
+const SEGMENT_MIN_WIDTH_PX = 3
+
 // The merged headline + by-model object (docs/usage-view-ui-spec.md §C2): a hero `$` numeral, one
 // segmented part-to-whole bar directly under it (the GitHub repo-language-bar pattern), and an
 // inline legend. Not a separate "by model" block, not a donut.
@@ -20,6 +23,8 @@ export function SpendBar({ total, byModel }: SpendBarProps): React.JSX.Element {
   // real trailing slack (explained by the §C6.2 caveat line), never overflow.
   const modelSum = byModel.reduce((sum, entry) => sum + entry.costUsd, 0)
   const denom = Math.max(total, modelSum) || 1
+  const segments = byModel.filter((entry) => entry.costUsd > 0)
+  const gapWidth = Math.max(segments.length - 1, 0) * SEGMENT_GAP_PX
 
   return (
     <div className="flex flex-col gap-3">
@@ -33,17 +38,19 @@ export function SpendBar({ total, byModel }: SpendBarProps): React.JSX.Element {
       </div>
 
       <div className="flex h-2 w-full overflow-hidden rounded-[1px]">
-        {byModel.map((entry, index) => (
+        {segments.map((entry, index) => (
           <motion.div
             key={entry.model}
             className={cn(
-              'h-full shrink-0 transition-opacity duration-150',
+              'h-full shrink transition-opacity duration-150',
               hovered !== null && hovered !== entry.model && 'opacity-40'
             )}
             style={{
-              width: `${(entry.costUsd / denom) * 100}%`,
-              minWidth: entry.costUsd > 0 ? 3 : 0,
-              marginLeft: index === 0 ? 0 : 2,
+              // Reserve paper gaps before dividing the bar; flex shrinking absorbs the
+              // extra space needed by tiny segments' visibility floor.
+              width: `calc((100% - ${gapWidth}px) * ${entry.costUsd / denom})`,
+              minWidth: SEGMENT_MIN_WIDTH_PX,
+              marginLeft: index === 0 ? 0 : SEGMENT_GAP_PX,
               backgroundColor: modelSeriesVar(entry.model),
               transformOrigin: 'left'
             }}

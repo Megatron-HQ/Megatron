@@ -111,6 +111,19 @@ the later file still ingest. Do not scope these keys to `session_id`: that avoid
 error by storing the replay twice, which corrupts model/effort counts and proportional skill-cost
 allocation.
 
+Parser version 8 rejects a non-`ok` streamed read, including a failure after some lines were
+visited. A changed session's main transcript and all subagent files must parse successfully
+before any of its cached metadata, invocations, costs, or turns are replaced. An incomplete
+session leaves its previous rows and freshness markers intact and makes the scan partial.
+
+When a rescan or retention cleanup removes a canonical turn, replay reconciliation checks both
+global identities. It first reuses turns already parsed during that scan, then reads unchanged
+transcripts only if a removed identity is still absent from the index. Only matching replayed
+turns are restored, so unique turns removed from their sole source remain deleted. A failure
+while reading replay evidence rolls back the scan transaction. Normal append-only rescans keep
+unchanged files cached. The version bump also forces one reindex of existing history to repair
+previously lost turns and apply optional cost-timestamp validation; no schema change is needed.
+
 ## Schema
 
 `skill_invocations.trigger_type` CHECK: `('user_invoked', 'autonomous', 'subagent')`. Nullable

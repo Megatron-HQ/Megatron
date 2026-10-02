@@ -49,8 +49,9 @@ const PRECEDING_TEXT_MAX_CHARS = 2000
 // Bumps on any parser-semantic change across the whole walk, cost-state included (no separate
 // cost_parser_version — see docs/usage-analytics.md §8). A bump forces one safe reindex of all
 // already-indexed sessions. 3→4: cost-state; 4→5: turn usage; 5→6: replay dedup;
-// 6→7: independent lineage plus numeric resident-context samples.
-const TRANSCRIPT_PARSER_VERSION = 7
+// 6→7: independent lineage plus numeric resident-context samples;
+// 7→8: reject incomplete reads and reconcile replayed turns after owner changes.
+const TRANSCRIPT_PARSER_VERSION = 8
 
 function truncatePrecedingText(text: string | null): string | null {
   return text === null ? null : text.slice(0, PRECEDING_TEXT_MAX_CHARS)
@@ -92,9 +93,9 @@ function compactRecord(record: Record<string, unknown>): Record<string, unknown>
   return { ...record, message: { ...message, content } }
 }
 
-function parseLines(filePath: string): Record<string, unknown>[] {
+function parseLines(filePath: string): Record<string, unknown>[] | null {
   const records: Record<string, unknown>[] = []
-  visitAllowedUtf8LinesSync(filePath, (line) => {
+  const status = visitAllowedUtf8LinesSync(filePath, (line) => {
     if (line.trim() === '') return
     try {
       const parsed: unknown = JSON.parse(line)
@@ -103,7 +104,7 @@ function parseLines(filePath: string): Record<string, unknown>[] {
       return
     }
   })
-  return records
+  return status === 'ok' ? records : null
 }
 
 function extractSession(records: Record<string, unknown>[]): TranscriptSession | null {
@@ -378,6 +379,9 @@ export function parseTranscript(filePath: string): TranscriptParse {
   }
 
   const records = parseLines(filePath)
+  if (records === null) {
+    return { session: null, invocations: [], turns: [], cost: null, resident: null }
+  }
   return {
     session: extractSession(records),
     invocations: extractInvocations(records),
@@ -392,10 +396,11 @@ interface SubagentParse {
   turns: TurnUsageRow[]
 }
 
-function parseSubagent(filePath: string): SubagentParse {
-  if (!isPathAllowed(filePath)) return { invocations: [], turns: [] }
+function parseSubagent(filePath: string): SubagentParse | null {
+  if (!isPathAllowed(filePath)) return null
   const agentId = basename(filePath, '.jsonl')
   const records = parseLines(filePath)
+  if (records === null) return null
   return {
     invocations: extractInvocations(records, agentId),
     turns: extractTurnUsage(records, agentId)
@@ -406,7 +411,54 @@ function parseSubagent(filePath: string): SubagentParse {
 // session's own sessionId and cwd, so upserting a "session" from this file would overwrite the
 // parent's real sessions_meta row with the subagent's own started_at/message_count.
 export function parseSubagentInvocations(filePath: string): TranscriptInvocation[] {
-  return parseSubagent(filePath).invocations
+  return parseSubagent(filePath)?.invocations ?? []
+}
+
+interface TranscriptSource {
+  filePath: string
+  subagent: boolean
+}
+
+function reconcileReplayedTurns(
+  db: Database.Database,
+  previousTurns: TurnUsageRow[],
+  parsedTurns: TurnUsageRow[],
+  unchangedSources: TranscriptSource[],
+  insertTurn: Database.Statement
+): void {
+  if (previousTurns.length === 0) return
+  const indexedTurn = db.prepare(
+    'SELECT 1 FROM turn_usage WHERE logical_turn_key = ? OR source_uuid = ?'
+  )
+  const isMissing = (turn: TurnUsageRow): boolean =>
+    indexedTurn.get(turn.logical_turn_key, turn.source_uuid) === undefined
+  let missingTurns = previousTurns.filter(isMissing)
+  if (missingTurns.length === 0) return
+
+  function restoreMatchingTurns(turns: TurnUsageRow[]): void {
+    const missingKeys = new Set(missingTurns.map((turn) => turn.logical_turn_key))
+    const missingUuids = new Set(missingTurns.map((turn) => turn.source_uuid))
+    for (const turn of turns) {
+      if (missingKeys.has(turn.logical_turn_key) || missingUuids.has(turn.source_uuid)) {
+        insertTurn.run(turn)
+      }
+    }
+    missingTurns = missingTurns.filter(isMissing)
+  }
+
+  // A replay parsed earlier in this scan may have collided with an owner deleted later.
+  restoreMatchingTurns(parsedTurns)
+  for (const source of unchangedSources) {
+    if (missingTurns.length === 0) break
+    const parsed = source.subagent
+      ? parseSubagent(source.filePath)
+      : parseTranscript(source.filePath)
+    if (parsed === null || ('session' in parsed && parsed.session === null)) {
+      // Roll back the enclosing scan rather than commit an index with missing replay evidence.
+      throw new Error(`Unable to reconcile replayed turns from ${source.filePath}`)
+    }
+    restoreMatchingTurns(parsed.turns)
+  }
 }
 
 export function scanTranscripts(
@@ -439,6 +491,7 @@ export function scanTranscripts(
 
   const deleteSessionInvocations = db.prepare('DELETE FROM skill_invocations WHERE session_id = ?')
   const deleteSessionTurns = db.prepare('DELETE FROM turn_usage WHERE session_id = ?')
+  const getSessionTurns = db.prepare('SELECT * FROM turn_usage WHERE session_id = ?')
 
   // Resumed sessions replay prior assistant records, sometimes under a different session id.
   // Both global uniques are deliberate dedup seams. This UPSERT form ignores only uniqueness
@@ -501,6 +554,9 @@ export function scanTranscripts(
   const runScan = db.transaction(() => {
     const seenSessionIds = new Set<string>()
     let scanIsAuthoritative = true
+    const previousTurns: TurnUsageRow[] = []
+    const parsedTurns: TurnUsageRow[] = []
+    const unchangedSources: TranscriptSource[] = []
 
     const projectsDirectory = readAllowedDirectory(projectsDir)
     if (projectsDirectory.status === 'unavailable') return
@@ -562,6 +618,10 @@ export function scanTranscripts(
           stored.transcript_parser_version === TRANSCRIPT_PARSER_VERSION
         ) {
           seenSessionIds.add(basenameSessionId)
+          unchangedSources.push(
+            { filePath, subagent: false },
+            ...subagentFilePaths.map((path) => ({ filePath: path, subagent: true }))
+          )
           continue
         }
 
@@ -570,8 +630,14 @@ export function scanTranscripts(
           scanIsAuthoritative = false
           continue
         }
+        const subagents = subagentFilePaths.map(parseSubagent)
+        if (subagents.some((subagent) => subagent === null)) {
+          scanIsAuthoritative = false
+          continue
+        }
 
         seenSessionIds.add(parsed.session.session_id)
+        previousTurns.push(...(getSessionTurns.all(parsed.session.session_id) as TurnUsageRow[]))
         upsertSession.run({
           ...parsed.session,
           source_mtime_ms: mtimeMs,
@@ -599,18 +665,23 @@ export function scanTranscripts(
         }
         for (const turn of parsed.turns) {
           insertTurn.run(turn)
+          parsedTurns.push(turn)
         }
-        for (const subagentFilePath of subagentFilePaths) {
-          const subagent = parseSubagent(subagentFilePath)
+        for (const subagent of subagents) {
+          if (subagent === null) continue
           for (const invocation of subagent.invocations) {
             insertInvocation.run(invocation)
           }
-          for (const turn of subagent.turns) insertTurn.run(turn)
+          for (const turn of subagent.turns) {
+            insertTurn.run(turn)
+            parsedTurns.push(turn)
+          }
         }
       }
     }
 
     if (!scanIsAuthoritative) {
+      reconcileReplayedTurns(db, previousTurns, parsedTurns, unchangedSources, insertTurn)
       rebuildSessionSkillCosts(db)
       return
     }
@@ -624,6 +695,11 @@ export function scanTranscripts(
       db.prepare('DELETE FROM sessions_meta').run()
     } else {
       const placeholders = [...seenSessionIds].map(() => '?').join(', ')
+      previousTurns.push(
+        ...(db
+          .prepare(`SELECT * FROM turn_usage WHERE session_id NOT IN (${placeholders})`)
+          .all(...seenSessionIds) as TurnUsageRow[])
+      )
       db.prepare(`DELETE FROM skill_invocations WHERE session_id NOT IN (${placeholders})`).run(
         ...seenSessionIds
       )
@@ -637,6 +713,7 @@ export function scanTranscripts(
         ...seenSessionIds
       )
     }
+    reconcileReplayedTurns(db, previousTurns, parsedTurns, unchangedSources, insertTurn)
     rebuildSessionSkillCosts(db)
   })
 

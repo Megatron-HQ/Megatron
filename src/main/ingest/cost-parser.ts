@@ -58,15 +58,16 @@ export function extractCostState(records: Record<string, unknown>[]): SessionCos
     }
   }
 
+  const startTime =
+    typeof costStateRecord.startTime === 'number' ? new Date(costStateRecord.startTime) : null
+
   return {
     totalCostUsd,
     modelUsage,
     hasUnknownModelCost: costStateRecord.hasUnknownModelCost === true,
     isZeroed: totalCostUsd === 0 && Object.keys(modelUsage).length === 0,
     costStateStartTime:
-      typeof costStateRecord.startTime === 'number'
-        ? new Date(costStateRecord.startTime).toISOString()
-        : null
+      startTime !== null && Number.isFinite(startTime.getTime()) ? startTime.toISOString() : null
   }
 }
 

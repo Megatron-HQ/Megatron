@@ -387,9 +387,9 @@ export function scanPluginRegistry(
         const skillsDirectory = readAllowedDirectory(skillsDir)
         const hasRootSkill = allowedExistsSync(join(installPath, 'SKILL.md'))
 
-        if (skillsDirectory.status === 'unavailable' && !hasRootSkill) {
+        if (skillsDirectory.status === 'unavailable') {
           pluginSkillScanIsAuthoritative = false
-          continue
+          if (!hasRootSkill) continue
         }
 
         if (skillsDirectory.status !== 'unavailable') {

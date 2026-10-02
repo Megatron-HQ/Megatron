@@ -10,7 +10,8 @@ import {
 } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as permissions from '../permissions'
 import { applySchema } from '../db/schema'
 import { grantPath, resetGrantedPaths, revokePath } from '../permissions'
 import { parseSubagentInvocations, parseTranscript, scanTranscripts } from './transcript-scanner'
@@ -23,6 +24,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   resetGrantedPaths()
   rmSync(tmpDir, { recursive: true, force: true })
 })
@@ -1083,6 +1085,193 @@ describe('scanTranscripts', () => {
     scanTranscripts(db, projectsDir)
 
     expect(residentRow('sess-1')).toBeUndefined()
+  })
+
+  it.each(['main', 'subagent'])('preserves the session index after a partial %s read', (source) => {
+    const projectDir = join(projectsDir, 'project-a')
+    const mainFile = writeTranscriptFile(projectDir, 'sess-1', [
+      metaLine(),
+      skillInvocationLine(),
+      assistantUsageLine(),
+      costStateLine()
+    ])
+    const subagentFile = writeSubagentTranscriptFile(projectDir, 'sess-1', 'agent-partial', [
+      skillInvocationLine({ uuid: 'subagent-invocation', isSidechain: true })
+    ])
+    scanTranscripts(db, projectsDir)
+    const before = {
+      sessions: allSessions(),
+      turns: db.prepare('SELECT * FROM turn_usage ORDER BY id').all(),
+      invocations: db.prepare('SELECT * FROM skill_invocations ORDER BY id').all(),
+      costs: db.prepare('SELECT * FROM session_cost').all()
+    }
+    const future = new Date(Date.now() + 2000)
+    utimesSync(mainFile, future, future)
+    const failingFile = source === 'main' ? mainFile : subagentFile
+    const visitLines = permissions.visitAllowedUtf8LinesSync
+    vi.spyOn(permissions, 'visitAllowedUtf8LinesSync').mockImplementation((path, visit) => {
+      if (path !== failingFile) return visitLines(path, visit)
+      let visited = false
+      visitLines(path, (line) => {
+        if (!visited) {
+          visit(line)
+          visited = true
+        }
+      })
+      return 'unavailable'
+    })
+
+    scanTranscripts(db, projectsDir)
+
+    expect(allSessions()).toEqual(before.sessions)
+    expect(db.prepare('SELECT * FROM turn_usage ORDER BY id').all()).toEqual(before.turns)
+    expect(db.prepare('SELECT * FROM skill_invocations ORDER BY id').all()).toEqual(
+      before.invocations
+    )
+    expect(db.prepare('SELECT * FROM session_cost').all()).toEqual(before.costs)
+  })
+
+  it.each([
+    ['rewritten', 'uuid-turn-1'],
+    ['rewritten', 'replay-physical-uuid'],
+    ['deleted', 'uuid-turn-1'],
+    ['deleted', 'replay-physical-uuid']
+  ])('recovers an unchanged replay after a %s owner change (UUID %s)', (change, replayUuid) => {
+    const projectDir = join(projectsDir, 'project-a')
+    const originalFile = writeTranscriptFile(projectDir, 'a-original', [
+      metaLine({ sessionId: 'a-original' }),
+      assistantUsageLine({ sessionId: 'a-original' })
+    ])
+    writeTranscriptFile(projectDir, 'b-replay', [
+      metaLine({ sessionId: 'b-replay', uuid: 'replay-meta' }),
+      assistantUsageLine({ sessionId: 'b-replay', uuid: replayUuid })
+    ])
+    scanTranscripts(db, projectsDir)
+    expect(turnRows('a-original')).toHaveLength(1)
+    if (change === 'deleted') {
+      rmSync(originalFile)
+    } else {
+      writeFileSync(originalFile, linesToJsonl([metaLine({ sessionId: 'a-original' })]))
+      const future = new Date(Date.now() + 2000)
+      utimesSync(originalFile, future, future)
+    }
+
+    scanTranscripts(db, projectsDir)
+
+    expect(db.prepare('SELECT session_id, output_tokens FROM turn_usage').all()).toEqual([
+      { session_id: 'b-replay', output_tokens: 20 }
+    ])
+    scanTranscripts(db, projectsDir)
+    expect(turnRows('b-replay')).toHaveLength(1)
+  })
+
+  it('rolls back replay recovery when an unchanged transcript becomes unreadable', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    const originalFile = writeTranscriptFile(projectDir, 'a-original', [
+      metaLine({ sessionId: 'a-original' }),
+      assistantUsageLine({ sessionId: 'a-original' })
+    ])
+    const replayFile = writeTranscriptFile(projectDir, 'b-replay', [
+      metaLine({ sessionId: 'b-replay' }),
+      assistantUsageLine({ sessionId: 'b-replay' })
+    ])
+    scanTranscripts(db, projectsDir)
+    const sessions = allSessions()
+    const turns = db.prepare('SELECT * FROM turn_usage').all()
+    rmSync(originalFile)
+    const visitLines = permissions.visitAllowedUtf8LinesSync
+    vi.spyOn(permissions, 'visitAllowedUtf8LinesSync').mockImplementation((path, visit) =>
+      path === replayFile ? 'unavailable' : visitLines(path, visit)
+    )
+
+    expect(() => scanTranscripts(db, projectsDir)).toThrow(/Unable to reconcile/)
+    expect(allSessions()).toEqual(sessions)
+    expect(db.prepare('SELECT * FROM turn_usage').all()).toEqual(turns)
+  })
+
+  it('recovers a replay parsed before its canonical owner is replaced', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    const originalFile = writeTranscriptFile(projectDir, 'z-original', [
+      metaLine({ sessionId: 'z-original' }),
+      assistantUsageLine({ sessionId: 'z-original' })
+    ])
+    const replayFile = writeTranscriptFile(projectDir, 'a-replay', [
+      metaLine({ sessionId: 'a-replay' }),
+      assistantUsageLine({ sessionId: 'a-replay', uuid: 'replay-uuid' })
+    ])
+    const readDirectory = permissions.readAllowedDirectory
+    const directoryOrder = vi
+      .spyOn(permissions, 'readAllowedDirectory')
+      .mockImplementation((path) =>
+        path === projectDir
+          ? { status: 'ok', entries: ['z-original.jsonl', 'a-replay.jsonl'] }
+          : readDirectory(path)
+      )
+    scanTranscripts(db, projectsDir)
+    expect(turnRows('z-original')).toHaveLength(1)
+    directoryOrder.mockRestore()
+    writeFileSync(originalFile, linesToJsonl([metaLine({ sessionId: 'z-original' })]))
+    appendFileSync(
+      replayFile,
+      `\n${JSON.stringify(
+        assistantUsageLine({
+          sessionId: 'a-replay',
+          uuid: 'new-turn',
+          message: {
+            id: 'new-message',
+            model: 'claude-sonnet-5',
+            usage: { output_tokens: 30 },
+            content: []
+          }
+        })
+      )}`
+    )
+
+    scanTranscripts(db, projectsDir)
+
+    expect(
+      db.prepare('SELECT session_id, output_tokens FROM turn_usage ORDER BY output_tokens').all()
+    ).toEqual([
+      { session_id: 'a-replay', output_tokens: 20 },
+      { session_id: 'a-replay', output_tokens: 30 }
+    ])
+  })
+
+  it('keeps unchanged replay files cached when the canonical transcript only gains a new turn', () => {
+    const projectDir = join(projectsDir, 'project-a')
+    const originalFile = writeTranscriptFile(projectDir, 'a-original', [
+      metaLine({ sessionId: 'a-original' }),
+      assistantUsageLine({ sessionId: 'a-original' })
+    ])
+    const replayFile = writeTranscriptFile(projectDir, 'b-replay', [
+      metaLine({ sessionId: 'b-replay' }),
+      assistantUsageLine({ sessionId: 'b-replay' })
+    ])
+    scanTranscripts(db, projectsDir)
+    appendFileSync(
+      originalFile,
+      `\n${JSON.stringify(
+        assistantUsageLine({
+          sessionId: 'a-original',
+          uuid: 'new-turn',
+          message: {
+            id: 'new-message',
+            model: 'claude-sonnet-5',
+            usage: { output_tokens: 30 },
+            content: []
+          }
+        })
+      )}`
+    )
+    const visitLines = permissions.visitAllowedUtf8LinesSync
+    vi.spyOn(permissions, 'visitAllowedUtf8LinesSync').mockImplementation((path, visit) => {
+      if (path === replayFile) throw new Error('Unchanged replay should stay cached')
+      return visitLines(path, visit)
+    })
+
+    scanTranscripts(db, projectsDir)
+
+    expect(turnRows('a-original')).toHaveLength(2)
   })
 
   it('replaces logical turn rows on rescan instead of retaining stale usage', () => {
