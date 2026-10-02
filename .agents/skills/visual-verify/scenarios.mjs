@@ -26,7 +26,7 @@
 // scenario. Disabled-skill scenarios instead find any local disabled skill and
 // explicitly skip when none exists.
 
-/** @typedef {{ name: string, screen: string | string[], shouldSkip?: (window: import('playwright-core').Page) => Promise<string | null>, run(window: import('playwright-core').Page): Promise<void> }} Scenario */
+/** @typedef {{ name: string, screen: string | string[], shouldSkip?: (window: import('playwright-core').Page) => Promise<string | null>, run(window: import('playwright-core').Page, app: import('playwright-core').ElectronApplication): Promise<void> }} Scenario */
 
 // JS-driven spring/fade motion isn't a CSS transition Playwright can
 // auto-wait on — this is how long a scenario waits for one to settle before
@@ -37,6 +37,33 @@ const MOTION_SETTLE_MS = 300
 async function openFirstSkillDetail(window) {
   await window.locator('tbody tr').first().click()
   await window.getByRole('button', { name: 'Back to skills' }).waitFor()
+}
+
+async function skipWithoutSkillUsage(window) {
+  const result = await window.evaluate(() => window.api.listSkills())
+  return result.skills.some((skill) => skill.total_invocations > 0)
+    ? null
+    : 'no skill invocation history available locally'
+}
+
+async function openSkillActivity(window, app, mode) {
+  const skill = await window.evaluate(async () =>
+    (await window.api.listSkills()).skills.find((entry) => entry.total_invocations > 0)
+  )
+  const modifier = await window.evaluate(() =>
+    window.api.platform === 'darwin' ? 'Meta' : 'Control'
+  )
+  await window.keyboard.press(`${modifier}+k`)
+  await window.getByPlaceholder(/search skills/i).fill(skill.name)
+  await window.getByRole('option').filter({ hasText: skill.name }).first().click()
+  await app.evaluate(
+    (_, value) => globalThis.megatronVisualFixtures.set('skills:openHistory', value),
+    mode
+  )
+  await window
+    .getByRole('button', { name: /^\d+ (Manual|Auto|Subagent) invocations?$/ })
+    .first()
+    .click()
 }
 
 /** Row click → SkillDetail → "View files", landing on the trimmed file tree/content page. */
@@ -210,6 +237,108 @@ async function skipWithoutGroupedImageRun(window) {
 
 /** @type {Scenario[]} */
 export const scenarios = [
+  {
+    name: 'inventory-load-error',
+    screen: 'skill-inventory',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'error'))
+      await window.reload()
+      await window.getByText('Could not load skills.', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'plugins-load-error',
+    screen: 'plugin-inventory',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('plugins:list', 'error'))
+      await window.reload()
+      await window.getByRole('button', { name: 'Plugins', exact: true }).click()
+      await window.getByText('Could not load plugins.', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'skill-activity-load-error',
+    screen: 'skill-detail',
+    shouldSkip: skipWithoutSkillUsage,
+    async run(window, app) {
+      await openSkillActivity(window, app, 'error')
+      await window
+        .getByText('Could not load activity. Close and reopen this dialog to retry.', {
+          exact: true
+        })
+        .waitFor()
+    }
+  },
+  {
+    name: 'skill-activity-loading',
+    screen: 'skill-detail',
+    shouldSkip: skipWithoutSkillUsage,
+    async run(window, app) {
+      await openSkillActivity(window, app, 'pending')
+      await window.getByRole('status').filter({ hasText: 'Loading activity' }).waitFor()
+    }
+  },
+  {
+    name: 'settings-rescan-outcome',
+    screen: 'settings-dialog',
+    async run(window) {
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
+      await window
+        .getByRole('status')
+        .filter({ hasText: /^Scan / })
+        .waitFor()
+    }
+  },
+  {
+    name: 'usage-load-error',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('usage:overview', 'error'))
+      await window.getByRole('button', { name: 'Usage', exact: true }).click()
+      await window.getByText('Could not load usage data.', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'skill-detail-load-error',
+    screen: 'skill-detail',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:openMeta', 'error'))
+      await window.locator('tbody tr').first().click()
+      await window.getByText('Could not load this skill.', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'plugin-detail-load-error',
+    screen: 'plugin-detail',
+    async run(window, app) {
+      await openPluginsSection(window)
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('plugins:detail', 'error'))
+      await window.locator('tbody tr').first().click()
+      await window.getByText('Could not load this plugin.', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'skill-files-load-error',
+    screen: 'skill-file-viewer',
+    async run(window, app) {
+      await openFirstSkillDetail(window)
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:open', 'error'))
+      await window.getByRole('button', { name: 'View files', exact: true }).click()
+      await window.getByText('Could not load these files.', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'skill-files-preview-limit',
+    screen: 'skill-file-viewer',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('skills:open', 'preview-limit')
+      )
+      await openFirstSkillFileView(window)
+      await window.getByText('Preview limit reached.', { exact: false }).waitFor()
+    }
+  },
   {
     name: 'inventory-default-theme',
     screen: 'skill-inventory',

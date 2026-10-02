@@ -77,7 +77,11 @@ function App(): React.JSX.Element {
   const [pluginActionToasts, setPluginActionToasts] = useState<PluginActionToast[]>([])
   const nextToastId = useRef(0)
 
-  const { data } = useQuery({
+  const {
+    data,
+    isError: skillsError,
+    refetch: retrySkills
+  } = useQuery({
     queryKey: ['skills'],
     queryFn: () => window.api.listSkills(),
     refetchInterval: (query) => (query.state.data?.scanComplete ? false : 750)
@@ -88,7 +92,12 @@ function App(): React.JSX.Element {
     queryFn: () => window.api.listAllowedPaths()
   })
 
-  const { data: pluginsData, isPending: pluginsPending } = useQuery({
+  const {
+    data: pluginsData,
+    isPending: pluginsPending,
+    isError: pluginsError,
+    refetch: retryPlugins
+  } = useQuery({
     queryKey: ['plugins'],
     queryFn: () => window.api.listPlugins()
   })
@@ -103,6 +112,8 @@ function App(): React.JSX.Element {
         void queryClient.invalidateQueries({ queryKey: ['plugins'] })
         void queryClient.invalidateQueries({ queryKey: ['plugin-detail'] })
         void queryClient.invalidateQueries({ queryKey: ['usage'] })
+        void queryClient.invalidateQueries({ queryKey: ['skill-history'] })
+        void queryClient.invalidateQueries({ queryKey: ['usage-skill-invocations'] })
       }),
     [queryClient]
   )
@@ -277,10 +288,20 @@ function App(): React.JSX.Element {
   return (
     <TooltipProvider>
       <div className="flex h-screen flex-col">
-        {window.electron?.process?.platform === 'darwin' && (
+        {window.api?.platform === 'darwin' && (
           <div className="relative h-8 shrink-0 drag-region">
             <div className="drag-region absolute inset-x-1.5 top-1.5 bottom-0 rounded-xl bg-muted shadow" />
           </div>
+        )}
+        {data?.scanSummary && data.scanSummary.outcome !== 'complete' && (
+          <p
+            role="status"
+            className="shrink-0 border-b border-border bg-muted px-4 py-2 text-xs text-muted-foreground"
+          >
+            {data.scanSummary.outcome === 'failed'
+              ? 'Scan failed. Try rescanning from Settings.'
+              : 'Some sources could not be refreshed. Showing the last available data. Try rescanning from Settings.'}
+          </p>
         )}
         <div className="flex min-h-0 flex-1">
           <AppRail
@@ -314,6 +335,20 @@ function App(): React.JSX.Element {
                   onTreeWidthChange={setTreeWidth}
                   onBack={() => setView({ kind: 'detail', skillId: view.skillId })}
                 />
+              ) : skillsError ? (
+                <div
+                  role="alert"
+                  className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-muted-foreground"
+                >
+                  <p>Could not load skills.</p>
+                  <button
+                    type="button"
+                    className="underline underline-offset-2 hover:text-foreground"
+                    onClick={() => void retrySkills()}
+                  >
+                    Retry
+                  </button>
+                </div>
               ) : (
                 <SkillInventory
                   skills={filteredSkills}
@@ -343,6 +378,20 @@ function App(): React.JSX.Element {
                   onActionSuccess={showPluginActionToast}
                   onManageFolders={() => setFoldersDialogOpen(true)}
                 />
+              ) : pluginsError ? (
+                <div
+                  role="alert"
+                  className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-muted-foreground"
+                >
+                  <p>Could not load plugins.</p>
+                  <button
+                    type="button"
+                    className="underline underline-offset-2 hover:text-foreground"
+                    onClick={() => void retryPlugins()}
+                  >
+                    Retry
+                  </button>
+                </div>
               ) : (
                 <PluginInventory
                   plugins={filteredPlugins}

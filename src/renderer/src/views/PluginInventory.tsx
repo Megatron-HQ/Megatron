@@ -533,7 +533,7 @@ export function PluginInventory({
           <Search className="size-3.5" />
           Search
           <kbd className="rounded border border-border bg-background px-1 font-mono text-[11px]">
-            {window.electron?.process?.platform === 'darwin' ? '⌘K' : 'Ctrl+K'}
+            {window.api?.platform === 'darwin' ? '⌘K' : 'Ctrl+K'}
           </kbd>
         </button>
       </div>

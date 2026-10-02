@@ -64,7 +64,7 @@ export function UsageView({
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const reduceMotion = useReducedMotion() === true
 
-  const { data, isPending, isFetching } = useQuery({
+  const { data, isPending, isFetching, isError, refetch } = useQuery({
     queryKey: ['usage'],
     queryFn: () => window.api.getUsageOverview(),
     refetchInterval: (query) => (query.state.data?.scanComplete ? false : 750)
@@ -127,7 +127,18 @@ export function UsageView({
               exit={{ opacity: 0 }}
               transition={{ duration: reduceMotion ? 0 : 0.15, ease: 'easeOut' }}
             >
-              {loading ? (
+              {isError ? (
+                <div role="alert" className="py-6 text-sm text-muted-foreground">
+                  <p>Could not load usage data.</p>
+                  <button
+                    type="button"
+                    className="mt-2 underline underline-offset-2 hover:text-foreground"
+                    onClick={() => void refetch()}
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : loading ? (
                 <UsageSkeleton panel={panel} />
               ) : panel === 'activity' ? (
                 <ActivityPanel activity={data?.activity ?? null} windowKey={activityWindow} />

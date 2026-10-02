@@ -76,6 +76,36 @@ describe('source-filter helpers', () => {
   })
 
   describe('matchesFilter', () => {
+    it('preserves case-sensitive POSIX project identities', () => {
+      expect(
+        matchesFilter(
+          makeSkill({
+            source_type: 'project',
+            project_root: '/repo/Alpha',
+            source_path: '/repo/Alpha/.claude/skills/a'
+          }),
+          { kind: 'project', projectRoot: '/repo/alpha' }
+        )
+      ).toBe(false)
+    })
+    it('keeps sibling path prefixes and marketplaces separate', () => {
+      expect(
+        matchesFilter(
+          makeSkill({
+            source_type: 'project',
+            project_root: null,
+            source_path: '/repo-other/.claude/skills/a'
+          }),
+          { kind: 'project', projectRoot: '/repo' }
+        )
+      ).toBe(false)
+      expect(
+        matchesFilter(makeSkill({ source_type: 'plugin', plugin_name: 'demo@market-b' }), {
+          kind: 'plugin',
+          pluginName: 'demo@market-a'
+        })
+      ).toBe(false)
+    })
     const globalSkill = makeSkill({ id: 1, source_type: 'global' })
     const projectSkillA = makeSkill({
       id: 2,

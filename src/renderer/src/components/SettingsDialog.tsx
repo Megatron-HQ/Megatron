@@ -30,13 +30,24 @@ export function SettingsDialog({
   onManageFolders
 }: SettingsDialogProps): React.JSX.Element {
   const [isRescanning, setIsRescanning] = useState(false)
+  const [rescanMessage, setRescanMessage] = useState<string | null>(null)
 
   async function handleRescan(): Promise<void> {
     setIsRescanning(true)
+    setRescanMessage(null)
     try {
       // scanAndNotify in main is synchronous — this promise resolving means the rescan and
       // linter are done; the scan:complete broadcast refreshes every query via App.tsx.
-      await window.api.rescan()
+      const result = await window.api.rescan()
+      setRescanMessage(
+        result.outcome === 'complete'
+          ? 'Scan complete.'
+          : result.outcome === 'partial'
+            ? 'Scan incomplete. Some sources could not be refreshed; their cached data was preserved.'
+            : 'Scan failed. Try again.'
+      )
+    } catch {
+      setRescanMessage('Could not start the scan. Try again.')
     } finally {
       setIsRescanning(false)
     }
@@ -81,6 +92,11 @@ export function SettingsDialog({
             </div>
           </section>
 
+          {rescanMessage && (
+            <p role="status" className="py-2 text-xs text-muted-foreground">
+              {rescanMessage}
+            </p>
+          )}
           <section className="flex items-center justify-between gap-4 border-t border-border py-3">
             <div>
               <p className="text-sm font-medium">Index</p>

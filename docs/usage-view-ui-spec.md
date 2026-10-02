@@ -1,5 +1,13 @@
 # Usage view — resolved UI spec (Phase 2a)
 
+## Scan and query feedback amendment (2026-10-02)
+
+A completed scan attempt can be complete, partial, or failed. Partial and failed attempts show a
+status message while preserving available data; Settings reports the explicit rescan outcome.
+Query errors show recovery controls rather than an indefinite loading state. Activity dialogs
+distinguish loading, unavailable data, and empty history. Rescans refresh open history and usage
+invocation dialogs. Existing navigation, chart interactions, focus behavior, and motion remain.
+
 **Scope:** the page frame + AppRail entry, **Activity** (PR1, §5), **Cost** (PR2, §C), **Skills**
 (PR3/PR4, §S), **Models** (PR4, §M), and **Resident tax** (PR5, §R).
 

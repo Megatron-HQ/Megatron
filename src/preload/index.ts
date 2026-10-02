@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
 import {
   IPC_CHANNELS,
   type AllowedPathRow,
@@ -15,11 +14,13 @@ import {
   type SkillInvocationSliceInput,
   type SkillsListResult,
   type ThemePreference,
-  type UsageOverview
+  type UsageOverview,
+  type ScanSummary
 } from '../shared/ipc'
 
 // Custom APIs for renderer
 const api = {
+  platform: process.platform,
   listSkills: (): Promise<SkillsListResult> => ipcRenderer.invoke(IPC_CHANNELS.listSkills),
   openSkill: (id: number): Promise<OpenSkillResult | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.openSkill, id),
@@ -54,7 +55,7 @@ const api = {
   getInitialSection: (): AppSection => ipcRenderer.sendSync(IPC_CHANNELS.getInitialSection),
   setLastSection: (section: AppSection): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.setLastSection, section),
-  rescan: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.rescan),
+  rescan: (): Promise<ScanSummary> => ipcRenderer.invoke(IPC_CHANNELS.rescan),
   revealDataFolder: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.revealDataFolder),
   getVersion: (): string => ipcRenderer.sendSync(IPC_CHANNELS.getVersion),
   onScanComplete: (callback: () => void): (() => void) => {
@@ -69,14 +70,11 @@ const api = {
 // just add to the DOM global.
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
   } catch (error) {
     console.error(error)
   }
 } else {
-  // @ts-ignore (define in dts)
-  window.electron = electronAPI
   // @ts-ignore (define in dts)
   window.api = api
 }

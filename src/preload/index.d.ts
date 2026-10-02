@@ -1,4 +1,3 @@
-import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
   AllowedPathRow,
   AppSection,
@@ -13,10 +12,12 @@ import type {
   SkillInvocationSliceInput,
   SkillsListResult,
   ThemePreference,
-  UsageOverview
+  UsageOverview,
+  ScanSummary
 } from '../shared/ipc'
 
 interface Api {
+  platform: NodeJS.Platform
   listSkills: () => Promise<SkillsListResult>
   openSkill: (id: number) => Promise<OpenSkillResult | null>
   openSkillMeta: (id: number) => Promise<OpenSkillMetaResult | null>
@@ -37,7 +38,7 @@ interface Api {
   getUsageSkillInvocations: (input: SkillInvocationSliceInput) => Promise<SkillInvocationRecord[]>
   getInitialSection: () => AppSection
   setLastSection: (section: AppSection) => Promise<void>
-  rescan: () => Promise<void>
+  rescan: () => Promise<ScanSummary>
   revealDataFolder: () => Promise<void>
   getVersion: () => string
   onScanComplete: (callback: () => void) => () => void
@@ -45,7 +46,6 @@ interface Api {
 
 declare global {
   interface Window {
-    electron: ElectronAPI
     api: Api
   }
 }

@@ -65,7 +65,11 @@ export function SkillActivityDialog({
     }
   }
 
-  const { data: entries = [] } = useQuery({
+  const {
+    data: entries = [],
+    isPending,
+    isError
+  } = useQuery({
     queryKey: ['skill-history', skillId],
     queryFn: () => window.api.openSkillHistory(skillId),
     enabled: open
@@ -84,9 +88,13 @@ export function SkillActivityDialog({
     [entries, triggerFilter, needle]
   )
 
-  const countLabel = isFiltering
-    ? `${filtered.length.toLocaleString()} of ${entries.length.toLocaleString()}`
-    : `${entries.length.toLocaleString()} ${entries.length === 1 ? 'invocation' : 'invocations'}`
+  const countLabel = isPending
+    ? 'Loading activity…'
+    : isError
+      ? 'Activity unavailable'
+      : isFiltering
+        ? `${filtered.length.toLocaleString()} of ${entries.length.toLocaleString()}`
+        : `${entries.length.toLocaleString()} ${entries.length === 1 ? 'invocation' : 'invocations'}`
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -131,7 +139,13 @@ export function SkillActivityDialog({
           </div>
         </div>
 
-        {filtered.length > 0 ? (
+        {isPending || isError ? (
+          <p role="status" className="border-t border-border pt-3 text-sm text-muted-foreground">
+            {isPending
+              ? 'Loading activity…'
+              : 'Could not load activity. Close and reopen this dialog to retry.'}
+          </p>
+        ) : filtered.length > 0 ? (
           <div className="min-w-0 divide-y divide-border border-t border-border">
             {/* Grouping pauses while filtering — search/trigger-filter results should be the raw
                 rows that actually matched, not a run summary hiding which ones did. */}

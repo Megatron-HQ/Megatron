@@ -7,7 +7,7 @@ import { budgetStatus } from '@/lib/context-budget'
 import { useElementGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
 import { getFolderBasename, getPluginBareName, getProjectNameFromPath } from '@/lib/source-name'
-import type { SourceFilter } from '@/lib/source-filter'
+import { normalizeSourcePath, type SourceFilter } from '@/lib/source-filter'
 import type { AllowedPathRow, ContextBudget, SkillRow } from '../../../shared/ipc'
 
 interface SidebarProps {
@@ -48,7 +48,7 @@ export function Sidebar({
     const map = new Map<string, ProjectSidebarItem>()
 
     for (const folder of folders) {
-      const norm = folder.path.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '')
+      const norm = normalizeSourcePath(folder.path)
       map.set(norm, {
         path: folder.path,
         name: getFolderBasename(folder.path),
@@ -72,10 +72,10 @@ export function Sidebar({
         }
         item.count++
       } else {
-        const normPath = skill.source_path.replace(/\\/g, '/').toLowerCase()
+        const normPath = normalizeSourcePath(skill.source_path)
         let matched = false
         for (const [normRoot, item] of map.entries()) {
-          if (normPath.startsWith(normRoot)) {
+          if (normPath === normRoot || normPath.startsWith(normRoot + '/')) {
             item.count++
             matched = true
             break
@@ -84,7 +84,7 @@ export function Sidebar({
         if (!matched) {
           const name = getProjectNameFromPath(skill.source_path)
           const placeholderPath = skill.source_path
-          const norm = placeholderPath.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '')
+          const norm = normalizeSourcePath(placeholderPath)
           let item = map.get(norm)
           if (!item) {
             item = { path: placeholderPath, name, count: 0 }
@@ -105,7 +105,7 @@ export function Sidebar({
       if (skill.source_type !== 'plugin') continue
       const rawName = skill.plugin_name || 'plugin'
       const bareName = getPluginBareName(rawName)
-      const key = bareName.toLowerCase()
+      const key = rawName
       let item = map.get(key)
       if (!item) {
         item = {
@@ -118,7 +118,19 @@ export function Sidebar({
       item.count++
     }
 
-    return Array.from(map.values()).sort((a, b) => a.displayName.localeCompare(b.displayName))
+    const items = Array.from(map.values())
+    for (const item of items) {
+      if (
+        items.some(
+          (other) =>
+            other !== item &&
+            getPluginBareName(other.pluginName) === getPluginBareName(item.pluginName)
+        )
+      ) {
+        item.displayName = item.pluginName
+      }
+    }
+    return items.sort((a, b) => a.displayName.localeCompare(b.displayName))
   }, [skills])
 
   function handleProjectClick(): void {

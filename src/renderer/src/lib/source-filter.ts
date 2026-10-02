@@ -9,6 +9,11 @@ export type SourceFilter =
   | { kind: 'disabled' }
   | { kind: 'user-invocable-only' }
 
+export function normalizeSourcePath(path: string): string {
+  const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '')
+  return /^(?:[a-z]:\/|\/\/)/i.test(normalized) ? normalized.toLowerCase() : normalized
+}
+
 export function isFilterEqual(a: SourceFilter, b: SourceFilter): boolean {
   if (a.kind !== b.kind) return false
   if (a.kind === 'project' && b.kind === 'project') {
@@ -45,18 +50,19 @@ export function matchesFilter(skill: SkillRow, filter: SourceFilter): boolean {
   }
   if (skill.source_type !== filter.kind) return false
   if (filter.kind === 'project' && filter.projectRoot) {
-    const targetRoot = filter.projectRoot.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '')
-    const skillRoot = skill.project_root
-      ? skill.project_root.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '')
-      : null
-    const skillPath = skill.source_path.replace(/\\/g, '/').toLowerCase()
-    return skillRoot === targetRoot || skillPath.startsWith(targetRoot)
+    const targetRoot = normalizeSourcePath(filter.projectRoot)
+    const skillRoot = skill.project_root ? normalizeSourcePath(skill.project_root) : null
+    const skillPath = normalizeSourcePath(skill.source_path)
+    return (
+      skillRoot === targetRoot || skillPath === targetRoot || skillPath.startsWith(targetRoot + '/')
+    )
   }
   if (filter.kind === 'plugin' && filter.pluginName) {
     return (
       skill.plugin_name === filter.pluginName ||
-      getPluginBareName(skill.plugin_name).toLowerCase() ===
-        getPluginBareName(filter.pluginName).toLowerCase()
+      (!filter.pluginName.includes('@') &&
+        getPluginBareName(skill.plugin_name).toLowerCase() ===
+          getPluginBareName(filter.pluginName).toLowerCase())
     )
   }
   return true

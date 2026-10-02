@@ -172,6 +172,7 @@ async function captureAll(app, window, outDir, activeScenarios, scoped) {
       // Section and theme are persisted (electron-store) and survive the reload,
       // so a scenario that ends on the Plugins section or flips the theme would
       // otherwise poison every scenario after it — reset both before reloading.
+      await app.evaluate(() => globalThis.megatronVisualFixtures.reset())
       await window.evaluate(async () => {
         await window.api.setLastSection('skills')
         await window.api.setTheme('system')
@@ -196,7 +197,7 @@ async function captureAll(app, window, outDir, activeScenarios, scoped) {
       // deterministic baseline; a scenario that wants a hover calls it after.
       await window.mouse.move(0, 0)
 
-      await scenario.run(window)
+      await scenario.run(window, app)
       await finishTransitions(window)
 
       console.log(`[visual-verify]   capturing ${name}...`)
@@ -338,7 +339,10 @@ async function main() {
     console.log('[visual-verify] launching...')
     app = await electron.launch({
       cwd: REPO_ROOT,
-      args: visualVerifierLaunchArgs(join(REPO_ROOT, 'out/main/index.js'), userDataDir)
+      args: visualVerifierLaunchArgs(
+        join(REPO_ROOT, '.claude/skills/visual-verify/fixture-entry.mjs'),
+        userDataDir
+      )
     })
 
     const window = await app.firstWindow()

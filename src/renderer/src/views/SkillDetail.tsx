@@ -58,7 +58,7 @@ export function SkillDetail({
   onViewFiles,
   onNavigate
 }: SkillDetailProps): React.JSX.Element {
-  const { data, isPending } = useQuery({
+  const { data, isPending, isError, refetch } = useQuery({
     queryKey: ['skill-meta', skillId],
     queryFn: () => window.api.openSkillMeta(skillId)
   })
@@ -86,6 +86,18 @@ export function SkillDetail({
     )
   }
 
+  if (isError) {
+    return (
+      <div
+        role="alert"
+        className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-muted-foreground"
+      >
+        <p>Could not load this skill.</p>
+        <TextLink onClick={() => void refetch()}>Retry</TextLink>
+        <TextLink onClick={onBack}>Back</TextLink>
+      </div>
+    )
+  }
   if (!data) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">

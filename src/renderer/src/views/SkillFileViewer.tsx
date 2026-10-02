@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { TextLink } from '@/components/TextLink'
 import { ArrowLeft, Search } from 'lucide-react'
 import { FileTree } from '@/components/FileTree'
 import { LintFindingsPanel } from '@/components/LintFindingsPanel'
@@ -24,7 +25,7 @@ export function SkillFileViewer({
   onTreeWidthChange,
   onBack
 }: SkillFileViewerProps): React.JSX.Element {
-  const { data, isPending } = useQuery({
+  const { data, isPending, isError, refetch } = useQuery({
     queryKey: ['skill-files', skillId],
     queryFn: () => window.api.openSkill(skillId)
   })
@@ -105,6 +106,18 @@ export function SkillFileViewer({
     )
   }
 
+  if (isError) {
+    return (
+      <div
+        role="alert"
+        className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-muted-foreground"
+      >
+        <p>Could not load these files.</p>
+        <TextLink onClick={() => void refetch()}>Retry</TextLink>
+        <TextLink onClick={onBack}>Back</TextLink>
+      </div>
+    )
+  }
   if (!data) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
@@ -204,7 +217,9 @@ export function SkillFileViewer({
             <p className="text-sm text-muted-foreground">
               {selectedFile.status === 'too_large'
                 ? 'File too large to preview.'
-                : 'Binary or unreadable file — no preview available.'}
+                : selectedFile.status === 'preview_limit'
+                  ? 'Preview limit reached. This file or part of the file tree is not included in this preview.'
+                  : 'Binary or unreadable file — no preview available.'}
             </p>
           )}
         </div>

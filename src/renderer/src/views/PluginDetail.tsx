@@ -63,7 +63,7 @@ export function PluginDetail({
 }: PluginDetailProps): React.JSX.Element {
   const queryClient = useQueryClient()
   const queryKey = ['plugin-detail', name, marketplace]
-  const { data, isPending } = useQuery({
+  const { data, isPending, isError, refetch } = useQuery({
     queryKey,
     queryFn: () => window.api.getPluginDetail(name, marketplace)
   })
@@ -131,6 +131,18 @@ export function PluginDetail({
     )
   }
 
+  if (isError) {
+    return (
+      <div
+        role="alert"
+        className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-muted-foreground"
+      >
+        <p>Could not load this plugin.</p>
+        <TextLink onClick={() => void refetch()}>Retry</TextLink>
+        <TextLink onClick={onBack}>Back</TextLink>
+      </div>
+    )
+  }
   if (!data) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
