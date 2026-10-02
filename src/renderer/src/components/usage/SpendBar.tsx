@@ -19,7 +19,7 @@ export function SpendBar({ total, byModel }: SpendBarProps): React.JSX.Element {
   // Segment widths are relative to the hero total so a `hasUnknownModelCost` undercount shows as
   // real trailing slack (explained by the §C6.2 caveat line), never overflow.
   const modelSum = byModel.reduce((sum, entry) => sum + entry.costUsd, 0)
-  const denom = Math.max(total, modelSum, 1)
+  const denom = Math.max(total, modelSum) || 1
 
   return (
     <div className="flex flex-col gap-3">

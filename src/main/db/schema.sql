@@ -234,6 +234,7 @@ CREATE TABLE IF NOT EXISTS timed_skill_cost (
   id INTEGER PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES session_cost(session_id) ON DELETE CASCADE,
   skill_name TEXT,
+  model TEXT,
   allocated_at TEXT NOT NULL,
   est_cost_usd REAL NOT NULL
 );

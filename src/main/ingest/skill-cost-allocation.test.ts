@@ -73,6 +73,60 @@ beforeEach(() => {
 })
 
 describe('rebuildSessionSkillCosts', () => {
+  it('absorbs floating-point model rounding into priced shares instead of inventing residual work', () => {
+    addSession('terminal')
+    addCost('terminal', 0.3)
+    addModelCost('terminal', 'claude-opus-5', 0.1)
+    addModelCost('terminal', 'claude-sonnet-5', 0.19999999999999996)
+    addTurn('terminal', 'turn-a', 'claude-opus-5', 1, 'review')
+    addTurn('terminal', 'turn-b', 'claude-sonnet-5', 1, null)
+
+    rebuildSessionSkillCosts(db)
+
+    const rows = db.prepare('SELECT model, est_cost_usd FROM timed_skill_cost').all() as Array<{
+      model: string | null
+      est_cost_usd: number
+    }>
+    expect(rows).toHaveLength(2)
+    expect(rows.every((row) => row.model !== null)).toBe(true)
+    expect(rows.reduce((sum, row) => sum + row.est_cost_usd, 0)).toBeCloseTo(0.3, 12)
+  })
+
+  it('retains the priced model on timed shares and distinguishes residual cost', () => {
+    addSession('terminal')
+    addCost('terminal', 10)
+    addModelCost('terminal', 'claude-opus-5', 8)
+    addTurn('terminal', 'turn-a', 'claude-opus-5', 3, 'review')
+    addTurn('terminal', 'turn-b', 'claude-opus-5', 1, null)
+
+    rebuildSessionSkillCosts(db)
+
+    const rows = db.prepare('SELECT * FROM timed_skill_cost ORDER BY id').all() as Array<{
+      model?: string | null
+      est_cost_usd: number
+    }>
+    expect(rows.map((row) => [row.model, row.est_cost_usd])).toEqual([
+      ['claude-opus-5', 6],
+      ['claude-opus-5', 2],
+      [null, 1.5],
+      [null, 0.5]
+    ])
+  })
+
+  it('retains model identity when a model has no matching output-token evidence', () => {
+    addSession('terminal')
+    addCost('terminal', 3)
+    addModelCost('terminal', 'claude-haiku-5', 3)
+    addTurn('terminal', 'turn-a', 'claude-opus-5', 1, null)
+
+    rebuildSessionSkillCosts(db)
+
+    expect(db.prepare('SELECT * FROM timed_skill_cost').get()).toMatchObject({
+      model: 'claude-haiku-5',
+      est_cost_usd: 3
+    })
+  })
+
   it('keeps each skill cost share at the time of its turn', () => {
     addSession('terminal')
     addCost('terminal', 8)

@@ -4,6 +4,15 @@ Owns the design for surfacing a user's Claude Code **activity, token, and cost h
 "what have I been doing, what did it cost, where is it going." `CLAUDE.md` stays authoritative
 for repo-wide decisions; the decisions below are locked here.
 
+**Cost window amendment (2026-10-01):** Cost now has independent exact rolling 24h/7d/30d
+windows. Its totals, model/project breakdowns, chronological hour/day charts, weekday/hour
+punchcard, and daily detail dialog all aggregate the existing proportional timestamped shares
+of recorded terminal `cost-state`. `timed_skill_cost.model` retains model identity; a NULL model
+is residual recorded cost shown as Unattributed. There is no bottom-up token pricing or
+session-start fallback. Untimed cost is disclosed separately and excluded from rolling windows.
+This supersedes the earlier all-tracked-history Cost display rule. See the UI spec's Cost window
+amendment for chart visibility and partial-date behavior.
+
 **Status:** Phase 2a landed — PR1 (Activity), PR2 (Cost), PR3 (Skills), PR4
 (Model & effort + proportional attribution), and PR5 (Resident tax) are implemented.
 This is the Phase-2 feature that `docs/mvp-build-spec.md`'s "Deferred, on purpose" row _"Cost
@@ -339,8 +348,8 @@ never a ratio.
   it never prints the overlap ratio. PR4's rider replaces this with proportional attribution.
 - **Association numbers are windowed by invocation date** (24h / 7d / 30d), but
   `pricedSessionsWithoutSkill` — the "N sessions fired no skill" caption count — spans **all**
-  cost-tracked history, like `getCostStats`, which also ignores the toggle. Both are stated in
-  the caption.
+  cost-tracked history. This Skills caption remains dataset-wide; Cost's displayed figures
+  now use rolling windows. The caption identifies its coverage explicitly.
 - **Lineage-forward resolution, not a drop.** An invocation that lands only in a non-terminal
   session is resolved forward through `continued_in_session_id` to its priced terminal and
   credited there (`resolvePricedTerminal`). This is the deliberate replacement for PR2-era

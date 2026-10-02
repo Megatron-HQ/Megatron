@@ -25,6 +25,7 @@ import { UsageView, type ActivityWindowKey } from './views/UsageView'
 import type {
   AppSection,
   ContextBudget,
+  CostWindowKey,
   SkillStatsWindowKey,
   ThemePreference
 } from '../../shared/ipc'
@@ -62,6 +63,7 @@ function App(): React.JSX.Element {
   const [pluginFilter, setPluginFilter] = useState<PluginFilter>({ kind: 'all' })
   const [usagePanel, setUsagePanel] = useState<UsagePanel>('activity')
   const [usageActivityWindow, setUsageActivityWindow] = useState<ActivityWindowKey>('30d')
+  const [usageCostWindow, setUsageCostWindow] = useState<CostWindowKey>('30d')
   const [usageModelWindow, setUsageModelWindow] = useState<SkillStatsWindowKey>('30d')
   const [usageSkillWindow, setUsageSkillWindow] = useState<SkillStatsWindowKey>('30d')
   const [skillInvocationSelection, setSkillInvocationSelection] =
@@ -358,6 +360,8 @@ function App(): React.JSX.Element {
                 panel={usagePanel}
                 activityWindow={usageActivityWindow}
                 onActivityWindowChange={setUsageActivityWindow}
+                costWindow={usageCostWindow}
+                onCostWindowChange={setUsageCostWindow}
                 modelWindow={usageModelWindow}
                 onModelWindowChange={setUsageModelWindow}
                 skillWindow={usageSkillWindow}

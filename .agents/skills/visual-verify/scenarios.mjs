@@ -148,6 +148,17 @@ async function costDataPresent(window) {
   return (await window.getByText('No cost data yet.').count()) === 0
 }
 
+async function skipWithoutCostDay(window) {
+  await openUsagePanel(window, 'Cost')
+  await window
+    .getByRole('radiogroup', { name: 'Cost window' })
+    .getByRole('radio', { name: '30 days' })
+    .click()
+  return (await window.locator('button[aria-haspopup="dialog"]').count()) > 0
+    ? null
+    : 'no timestamped cost days in the last 30 days'
+}
+
 async function residentTaxDataPresent(window) {
   await openUsagePanel(window, 'Resident tax')
   return (await window.getByText('No cold-session sample yet').count()) === 0
@@ -814,6 +825,69 @@ export const scenarios = [
         : null,
     async run(window) {
       await openUsagePanel(window, 'Cost')
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'cost-7-day',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Cost')
+      await window
+        .getByRole('radiogroup', { name: 'Cost window' })
+        .getByRole('radio', { name: '7 days' })
+        .click()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'cost-24-hour',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Cost')
+      await window
+        .getByRole('radiogroup', { name: 'Cost window' })
+        .getByRole('radio', { name: '24 hours' })
+        .click()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'cost-day-dialog',
+    screen: 'usage',
+    shouldSkip: skipWithoutCostDay,
+    async run(window) {
+      await openUsagePanel(window, 'Cost')
+      await window.locator('button[aria-haspopup="dialog"]').first().click()
+      await window.getByRole('dialog', { name: /Cost details/ }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'cost-day-keyboard-return',
+    screen: 'usage',
+    shouldSkip: skipWithoutCostDay,
+    async run(window) {
+      await openUsagePanel(window, 'Cost')
+      const day = window.locator('button[aria-haspopup="dialog"]').first()
+      await day.focus()
+      await window.keyboard.press('Enter')
+      await window.getByRole('dialog', { name: /Cost details/ }).waitFor()
+      await window.keyboard.press('Escape')
+      await window.getByRole('dialog').waitFor({ state: 'hidden' })
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'cost-window-persists-across-rail-switch',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Cost')
+      const control = window.getByRole('radiogroup', { name: 'Cost window' })
+      await control.getByRole('radio', { name: '7 days' }).click()
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'Usage', exact: true }).click()
+      await control.getByRole('radio', { name: '7 days', checked: true }).waitFor()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },

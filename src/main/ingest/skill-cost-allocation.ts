@@ -1,5 +1,7 @@
 import type Database from 'better-sqlite3'
 
+const COST_ROUNDING_EPSILON = 0.000000001
+
 interface SessionCostRow {
   session_id: string
   total_cost_usd: number
@@ -28,6 +30,7 @@ interface TurnWeightRow {
 
 interface TimedAllocation {
   skillName: string | null
+  model: string | null
   allocatedAt: string
   amount: number
 }
@@ -35,14 +38,20 @@ interface TimedAllocation {
 function spreadGeneralCost(
   allocations: TimedAllocation[],
   turns: TurnWeightRow[],
-  amount: number
+  amount: number,
+  model: string | null = null
 ): void {
   if (turns.length === 0 || amount <= 0) return
   const tokenTotal = turns.reduce((sum, turn) => sum + Math.max(0, turn.output_tokens), 0)
   for (const turn of turns) {
     const weight = tokenTotal > 0 ? Math.max(0, turn.output_tokens) / tokenTotal : 1 / turns.length
     if (weight > 0) {
-      allocations.push({ skillName: null, allocatedAt: turn.invoked_at, amount: amount * weight })
+      allocations.push({
+        skillName: null,
+        model,
+        allocatedAt: turn.invoked_at,
+        amount: amount * weight
+      })
     }
   }
 }
@@ -119,8 +128,8 @@ export function rebuildSessionSkillCosts(db: Database.Database): void {
     `INSERT INTO session_skill_cost (session_id, skill_name, est_cost_usd) VALUES (?, ?, ?)`
   )
   const insertTimed = db.prepare(
-    `INSERT INTO timed_skill_cost (session_id, skill_name, allocated_at, est_cost_usd)
-     VALUES (?, ?, ?, ?)`
+    `INSERT INTO timed_skill_cost (session_id, skill_name, model, allocated_at, est_cost_usd)
+     VALUES (?, ?, ?, ?, ?)`
   )
   const rebuild = db.transaction(() => {
     db.prepare('DELETE FROM session_skill_cost').run()
@@ -143,7 +152,7 @@ export function rebuildSessionSkillCosts(db: Database.Database): void {
         )
         if (outputTokenTotal === 0) {
           addAmount(allocations, null, modelCost.cost_usd)
-          spreadGeneralCost(timedAllocations, allTurns, modelCost.cost_usd)
+          spreadGeneralCost(timedAllocations, allTurns, modelCost.cost_usd, modelCost.model)
           continue
         }
         for (const turn of modelTurns) {
@@ -153,6 +162,7 @@ export function rebuildSessionSkillCosts(db: Database.Database): void {
           if (amount > 0) {
             timedAllocations.push({
               skillName: turn.active_skill,
+              model: modelCost.model,
               allocatedAt: turn.invoked_at,
               amount
             })
@@ -160,11 +170,14 @@ export function rebuildSessionSkillCosts(db: Database.Database): void {
         }
       }
 
-      if (pricedModelTotal < terminal.total_cost_usd) {
+      if (
+        pricedModelTotal === 0 ||
+        terminal.total_cost_usd - pricedModelTotal > COST_ROUNDING_EPSILON
+      ) {
         const residual = terminal.total_cost_usd - pricedModelTotal
         addAmount(allocations, null, residual)
         spreadGeneralCost(timedAllocations, allTurns, residual)
-      } else if (pricedModelTotal > terminal.total_cost_usd && pricedModelTotal > 0) {
+      } else if (pricedModelTotal !== terminal.total_cost_usd && pricedModelTotal > 0) {
         const scale = terminal.total_cost_usd / pricedModelTotal
         for (const [skillName, amount] of allocations) allocations.set(skillName, amount * scale)
         for (const allocation of timedAllocations) allocation.amount *= scale
@@ -180,6 +193,7 @@ export function rebuildSessionSkillCosts(db: Database.Database): void {
         insertTimed.run(
           terminal.session_id,
           allocation.skillName,
+          allocation.model,
           allocation.allocatedAt,
           allocation.amount
         )

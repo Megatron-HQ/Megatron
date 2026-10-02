@@ -15,12 +15,20 @@ interface PunchcardProps {
   byHourWeekday: number[][]
   byHour: number[]
   byWeekday: number[]
+  formatValue?: (value: number) => string
 }
+
+const formatPrompts = (value: number): string => `${value.toLocaleString()} prompts`
 
 // 7×24 grid, Mon-first. Monochrome quantile-opacity intensity (not linear) so the peaks don't
 // wash the rest out. Marginal bars are the matrix row/col sums — honest bar length, no
 // distortion. byHour / byWeekday come pre-summed on the contract; they equal those sums.
-export function Punchcard({ byHourWeekday, byHour, byWeekday }: PunchcardProps): React.JSX.Element {
+export function Punchcard({
+  byHourWeekday,
+  byHour,
+  byWeekday,
+  formatValue = formatPrompts
+}: PunchcardProps): React.JSX.Element {
   const reduceMotion = useReducedMotion() === true
   const [hover, setHover] = useState<{ wd: number; hr: number } | null>(null)
   const [hoverWeekday, setHoverWeekday] = useState<number | null>(null)
@@ -71,11 +79,13 @@ export function Punchcard({ byHourWeekday, byHour, byWeekday }: PunchcardProps):
                 <motion.button
                   type="button"
                   key={hr}
-                  aria-label={`${WEEKDAY_FULL[wd]} ${hour12(hr)}: ${count} prompts`}
+                  aria-label={`${WEEKDAY_FULL[wd]} ${hour12(hr)}: ${formatValue(count)}`}
                   onMouseEnter={() => setHover({ wd, hr })}
                   onMouseLeave={() => setHover(null)}
+                  onFocus={() => setHover({ wd, hr })}
+                  onBlur={() => setHover(null)}
                   className={cn(
-                    'aspect-square rounded-[2px] outline-none',
+                    'aspect-square rounded-[2px] outline-none focus-visible:ring-1 focus-visible:ring-ring',
                     active && 'ring-1 ring-usage-bar',
                     crosshair && !active && 'ring-1 ring-border'
                   )}
@@ -136,7 +146,7 @@ export function Punchcard({ byHourWeekday, byHour, byWeekday }: PunchcardProps):
         {hover && (
           <span>
             {WEEKDAY_FULL[hover.wd]}s, {hour12(hover.hr)}–{hour12((hover.hr + 1) % 24)} ·{' '}
-            {byHourWeekday[hover.wd][hover.hr].toLocaleString()} prompts
+            {formatValue(byHourWeekday[hover.wd][hover.hr])}
           </span>
         )}
       </div>

@@ -14,12 +14,14 @@ export interface DayStripDatum {
   date: string // YYYY-MM-DD, local
   value: number
   weekday: number // 0 = Sunday, server-computed — never re-parsed from `date`
+  partial?: boolean
 }
 
 interface DayStripProps {
   data: DayStripDatum[]
   days: number
   formatValue: (value: number) => string
+  onSelectDay?: (day: DayStripDatum, trigger: HTMLButtonElement) => void
 }
 
 // Thin full-ink bars, one per day, on a single faint baseline rule. A --surface-muted band sits
@@ -30,7 +32,12 @@ interface DayStripProps {
 // transcript prune. Past ~45 bars (a user who raised retention) it should bucket `data` to ISO
 // weeks — bars become weeks, the weekend band drops, labels become week-of. Deferred until a real
 // >45-day window exists (docs/usage-view-ui-spec.md §C5).
-export function DayStrip({ data, days, formatValue }: DayStripProps): React.JSX.Element {
+export function DayStrip({
+  data,
+  days,
+  formatValue,
+  onSelectDay
+}: DayStripProps): React.JSX.Element {
   const reduceMotion = useReducedMotion() === true
   const [hovered, setHovered] = useState<number | null>(null)
   const max = Math.max(1, ...data.map((d) => d.value))
@@ -57,6 +64,23 @@ export function DayStrip({ data, days, formatValue }: DayStripProps): React.JSX.
               )}
               onMouseEnter={() => setHovered(index)}
             >
+              {onSelectDay && (
+                <button
+                  type="button"
+                  aria-label={`${day.date}: ${formatValue(day.value)}${day.partial ? ' · partial day' : ''}`}
+                  aria-disabled={day.value === 0}
+                  aria-haspopup={day.value > 0 ? 'dialog' : undefined}
+                  className={cn(
+                    'absolute inset-0 z-10 outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                    day.value > 0 ? 'cursor-pointer' : 'cursor-default'
+                  )}
+                  onFocus={() => setHovered(index)}
+                  onBlur={() => setHovered(null)}
+                  onClick={(event) => {
+                    if (day.value > 0) onSelectDay(day, event.currentTarget)
+                  }}
+                />
+              )}
               <motion.div
                 className={cn(
                   'w-full rounded-[1px]',
@@ -94,13 +118,19 @@ export function DayStrip({ data, days, formatValue }: DayStripProps): React.JSX.
             <span className="font-mono">
               {WEEKDAY_LABELS[data[hovered].weekday]} {formatShortDate(data[hovered].date)} ·{' '}
               {formatValue(data[hovered].value)}
+              {data[hovered].partial && ' · partial day'}
             </span>
           )}
         </div>
       )}
 
       {hovered === null && (
-        <div className="mt-1 flex text-[11px] font-mono text-muted-foreground">
+        <div
+          className={cn(
+            'mt-1 flex text-[11px] font-mono text-muted-foreground',
+            wide ? 'gap-1.5' : 'gap-[3px]'
+          )}
+        >
           {wide
             ? data.map((day) => (
                 <span key={day.date} className="w-8 shrink-0 text-center">
@@ -114,7 +144,14 @@ export function DayStrip({ data, days, formatValue }: DayStripProps): React.JSX.
                   index === Math.floor(data.length / 3) ||
                   index === Math.floor((2 * data.length) / 3)
                 return (
-                  <span key={day.date} className="flex-1 text-center">
+                  <span
+                    key={day.date}
+                    className={cn(
+                      'flex-1 whitespace-nowrap text-center',
+                      index === 0 && 'text-left',
+                      index === data.length - 1 && 'text-right'
+                    )}
+                  >
                     {show ? formatShortDate(day.date) : ''}
                   </span>
                 )

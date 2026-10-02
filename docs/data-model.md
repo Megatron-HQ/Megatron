@@ -194,7 +194,10 @@ the sole dollar source. `session_skill_cost` materializes each priced terminal's
 by per-model output-token weight; `skill_name IS NULL` is the unique General work bucket. Both are
 derived cache data rebuilt during `scanTranscripts` and cleared by `db:reset`. The later
 `timed_skill_cost` table stores each allocated share at its logical turn time, with an index on
-`allocated_at`. It powers the Skills panel's rolling dollar windows. Untimed cost stays in
+`allocated_at`. Its nullable `model` retains the priced model for each timestamped share;
+NULL identifies residual cost without a model breakdown. It powers both the Skills and Cost
+panels' rolling dollar windows. Cost groups these same shares into daily/hourly buckets and
+model/project breakdowns, preserving terminal-session project ownership. Untimed cost stays in
 `session_skill_cost` and is disclosed as excluded from those windows. Skill invocations whose
 lineage has no usable priced terminal are counted separately in each window and omitted from dollar
 attribution; they do not become General work.

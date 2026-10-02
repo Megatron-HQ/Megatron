@@ -27,7 +27,7 @@ conflict:
 - **Activity:** 24 hours / 7 days / 30 days, default 30 days. The 24-hour window is an exact rolling
   cutoff and replaces the calendar strip + weekday/hour punchcard with 24 chronological hourly
   prompt buckets; stats and by-project remain.
-- **Cost:** all tracked history, with no window control.
+- **Cost:** independent 24 hours / 7 days / 30 days control, default 30 days. See the Cost window amendment below.
 - **Models:** 24 hours / 7 days / 30 days, default 30 days, independently controlled.
 - **Skills:** 24 hours / 7 days / 30 days, default 30 days.
 - `Updated …` appears in every panel header. Content remains left-aligned and fills the available
@@ -126,8 +126,7 @@ Prompts, sessions, active days     ← optional 11px muted subtitle (Activity: D
 - **Default: 30 days.** (One-line change to open on 7.)
 - **Activity and Skills:** independent **"24 hours" / "7 days" / "30 days"** controls. Each
   selection survives panel and AppRail switches during the current app session.
-- **Cost:** no control; it spans the entire cost-tracked window and `getCostStats` takes no window
-  argument.
+- **Cost:** independent 24 hours / 7 days / 30 days control; each selection survives panel and AppRail switches during the current app session.
 
 ---
 
@@ -376,6 +375,42 @@ status).
 ---
 
 # C. Cost section (PR2)
+
+## Cost window amendment (2026-10-01)
+
+This amendment supersedes the all-history Cost contract, the earlier chart order, and §C5's
+trackedSince-to-today strip wherever they conflict. The spend-bar appearance and model palette
+remain governed by §C2–C3.
+
+- The pinned header has an independent **24 hours / 7 days / 30 days** control, default **30 days**.
+  Selection persists across Usage panel and AppRail switches during the current app session.
+- All displayed dollars use the same proportional, timestamped shares of recorded terminal
+  `cost-state`, including the headline, model split, project ranking, charts, and day details.
+  Shares use the existing Skills attribution algorithm; there is no token-price calculation.
+  The UI labels time attribution approximate. Cost lacking usable activity timestamps is excluded
+  from rolling windows and disclosed with its retained-history amount and session count.
+- Windows are exact rolling periods ending at one captured as-of instant. **24h** has 24
+  chronological hourly buckets. **7d/30d** include every intersecting local date, including partial
+  first and current dates (normally 8/31 date bars), so chart sums equal the headline total.
+- Reading order: estimated cost + model spend bar + coverage notes; **By hour** for 24h or
+  **By day** then **By time of day** for 7d/30d; finally **By project**.
+- Cost's punchcard reuses Activity's Monday-first 7×24 grid, quantile opacity, crosshair, and
+  hourly/weekday margins. Its cells and margins carry summed dollars in the selected period.
+  Model colors stay scoped to the spend bar.
+- Clicking a nonzero daily column, or activating it with Enter/Space, opens a **Cost details**
+  dialog: selected date, clipped interval, estimated cost, contributing session count, model
+  split, and project ranking. Its values come from the same overview response as the bar.
+  Escape/Close dismisses it and restores focus to that column. Zero dates support hover/focus
+  inspection without opening a dialog. Hourly and punchcard values support inspection only.
+- Partial dates are identified in hover/focus labels and the dialog. Preserve weekend shading,
+  today's outline, existing hover behavior, project tooltips/disclosure, and reduced motion.
+- The overview Cost contract now contains `last24h`, `last7d`, and `last30d`, plus retained-history
+  coverage metadata. Selected-period captions count contributing terminal sessions; global
+  exclusions are explicitly labeled as retained history. An empty period displays $0 and a
+  period-specific message while keeping the window control available.
+
+Implementation: `components/usage/CostSection.tsx`, `CostHourStrip.tsx`, and `CostDayDialog.tsx`;
+`DayStrip` accepts an optional selection callback and `Punchcard` accepts a value formatter.
 
 **Scope:** the standalone Cost panel selected from the Usage sidebar — the tracked-window headline, the per-model
 spend breakdown, per-project ranking, and per-day shape. Per-session `$` cards are **deferred**

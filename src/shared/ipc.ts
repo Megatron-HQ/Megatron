@@ -282,8 +282,10 @@ export interface ActivityStats {
 }
 
 // The Cost section (docs/usage-view-ui-spec.md §C). Read verbatim from Claude Code's per-session
-// `cost-state` line — an "estimated API-equivalent cost", never a charge. Spans the entire
-// cost-tracked window (self-bounding via the transcript prune); ignores the 7d/30d toggle.
+// `cost-state` remains the dollar source. Rolling windows use its proportional activity-time
+// shares; coverage metadata describes all retained priced terminal sessions.
+export type CostWindowKey = '24h' | '7d' | '30d'
+export const UNATTRIBUTED_COST_MODEL = 'unattributed'
 export interface CostModelSpend {
   model: string // normalized key (date suffix stripped) — formatModelName / modelSeriesVar assume this
   costUsd: number
@@ -298,18 +300,48 @@ export interface CostDay {
   date: string // YYYY-MM-DD, local time
   costUsd: number
   weekday: number // 0 = Sunday, server-computed
+  startAt: string // clipped, inclusive ISO boundary
+  endAt: string // clipped, exclusive ISO boundary
+  partial: boolean
+  pricedSessionCount: number
+  hasUnknownModelCost: boolean
+  byModel: CostModelSpend[]
+  byProject: CostProjectSpend[]
+}
+
+export interface CostHour {
+  startAt: string
+  endAt: string
+  costUsd: number
+}
+
+export interface CostWindow {
+  days: 1 | 7 | 30
+  startAt: string
+  endAt: string
+  totalCostUsd: number
+  pricedSessionCount: number // distinct priced terminals contributing timestamped shares
+  hasUnknownModelCost: boolean
+  byModel: CostModelSpend[]
+  byProject: CostProjectSpend[]
+  byDay: CostDay[] // all local dates intersecting the rolling window, zero-filled
+  byHourChronological: CostHour[] // exactly 24 entries for 24h, empty for longer windows
+  byHourWeekday: number[][] // local [weekday][hour], Sunday = 0
+  byHour: number[] // matrix column totals
+  byWeekday: number[] // matrix row totals
 }
 
 export interface CostStats {
-  trackedSince: string // ISO — MIN(started_at) over priced, lineage-terminal sessions
-  totalCostUsd: number
-  pricedSessionCount: number // priced, lineage-terminal sessions — "Covers N sessions since {date}"
-  preTrackingSessionCount: number // started_at < trackedSince — pure date cut
-  unusableSessionCount: number // started_at >= trackedSince but no usable cost row (zeroed + crashes)
-  hasUnknownModelCost: boolean // some priced terminal ran a model Claude Code couldn't price
-  byModel: CostModelSpend[] // desc by cost, model-name tie-break
-  byProject: CostProjectSpend[] // desc by cost, cwd tie-break
-  byDay: CostDay[] // zero-filled, trackedSince → today, ascending
+  trackedSince: string
+  totalTrackedCostUsd: number
+  pricedSessionCount: number
+  preTrackingSessionCount: number
+  unusableSessionCount: number
+  undatedCostUsd: number // retained cost without activity timestamps, excluded from windows
+  undatedSessionCount: number
+  last24h: CostWindow
+  last7d: CostWindow
+  last30d: CostWindow
 }
 
 export type SkillStatsWindowKey = '24h' | '7d' | '30d'
@@ -398,8 +430,8 @@ export interface SkillStats {
   last7d: SkillStatsWindow
   last30d: SkillStatsWindow
   // Priced, lineage-terminal sessions that no skill invocation resolves to — for the Skills
-  // caption. Spans all cost-tracked history, NOT the selected window (mirrors getCostStats,
-  // which also ignores the 24h/7d/30d toggle).
+  // caption. Spans all cost-tracked history, NOT the selected window. Cost's displayed
+  // totals are independently windowed; this Skills coverage caption remains dataset-wide.
   pricedSessionsWithoutSkill: number
 }
 

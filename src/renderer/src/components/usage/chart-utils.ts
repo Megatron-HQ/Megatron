@@ -1,3 +1,5 @@
+import { UNATTRIBUTED_COST_MODEL } from '../../../../shared/ipc'
+
 // Row 0 of every histogram is Sunday (matches the ActivityWindow contract). The punchcard shows
 // Mon-first, so it reorders via WEEKDAY_DISPLAY_ORDER.
 export const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -21,6 +23,7 @@ export function formatUsd(n: number, { cents }: { cents: boolean }): string {
 // `claude-sonnet-5` → `Sonnet 5`, `claude-haiku-4-5` → `Haiku 4.5`. Family title-cased, version
 // tail as-is with `-` → `.`. An unrecognized key returns verbatim — never hidden (§C2.4).
 export function formatModelName(key: string): string {
+  if (key === UNATTRIBUTED_COST_MODEL) return 'Unattributed'
   const match = /^claude-([a-z]+)-(.+)$/.exec(key)
   if (match === null) return key
   const [, family, tail] = match

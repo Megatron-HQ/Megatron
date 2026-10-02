@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { Activity, BrainCircuit, CircleDollarSign, Cpu, Layers3, TriangleAlert } from 'lucide-react'
+import { Activity, BrainCircuit, CircleDollarSign, Cpu, Layers3 } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/relative-time'
@@ -12,17 +12,17 @@ import { DayStrip } from '@/components/usage/DayStrip'
 import { InvocationTrend } from '@/components/usage/InvocationTrend'
 import { Punchcard } from '@/components/usage/Punchcard'
 import { RankedList } from '@/components/usage/RankedList'
-import { SpendBar } from '@/components/usage/SpendBar'
+import { CostSection } from '@/components/usage/CostSection'
 import { SkillsSection, SkillWindowToggle } from '@/components/usage/SkillsSection'
 import type { SkillInvocationSelection } from '@/components/usage/SkillInvocationDialog'
 import { ModelsSection } from '@/components/usage/ModelsSection'
 import { ResidentTaxSection } from '@/components/usage/ResidentTaxSection'
-import { formatCount, formatUsd } from '@/components/usage/chart-utils'
+import { formatCount } from '@/components/usage/chart-utils'
 import type { UsagePanel } from '@/components/UsageSidebar'
 import type {
   ActivityStats,
   ActivityWindow,
-  CostStats,
+  CostWindowKey,
   SkillStatsWindowKey
 } from '../../../shared/ipc'
 
@@ -40,6 +40,8 @@ export function UsageView({
   panel,
   activityWindow,
   onActivityWindowChange,
+  costWindow,
+  onCostWindowChange,
   modelWindow,
   onModelWindowChange,
   skillWindow,
@@ -50,6 +52,8 @@ export function UsageView({
   panel: UsagePanel
   activityWindow: ActivityWindowKey
   onActivityWindowChange: (window: ActivityWindowKey) => void
+  costWindow: CostWindowKey
+  onCostWindowChange: (window: CostWindowKey) => void
   modelWindow: SkillStatsWindowKey
   onModelWindowChange: (window: SkillStatsWindowKey) => void
   skillWindow: SkillStatsWindowKey
@@ -84,6 +88,13 @@ export function UsageView({
           <div className="flex items-center gap-3">
             {panel === 'activity' && (
               <ActivityWindowToggle value={activityWindow} onChange={onActivityWindowChange} />
+            )}
+            {panel === 'cost' && (
+              <ActivityWindowToggle
+                value={costWindow}
+                onChange={onCostWindowChange}
+                ariaLabel="Cost window"
+              />
             )}
             {panel === 'skills' && (
               <SkillWindowToggle value={skillWindow} onChange={onSkillWindowChange} />
@@ -121,7 +132,7 @@ export function UsageView({
               ) : panel === 'activity' ? (
                 <ActivityPanel activity={data?.activity ?? null} windowKey={activityWindow} />
               ) : panel === 'cost' ? (
-                <CostSection cost={data?.cost ?? null} />
+                <CostSection key={costWindow} cost={data?.cost ?? null} windowKey={costWindow} />
               ) : panel === 'models' ? (
                 data?.models && data.models.last30d.turnCount > 0 ? (
                   <ModelsSection stats={data.models} windowKey={modelWindow} />
@@ -150,10 +161,12 @@ export function UsageView({
 
 function ActivityWindowToggle({
   value,
-  onChange
+  onChange,
+  ariaLabel = 'Activity window'
 }: {
   value: ActivityWindowKey
   onChange: (value: ActivityWindowKey) => void
+  ariaLabel?: string
 }): React.JSX.Element {
   const windows: { key: ActivityWindowKey; label: string }[] = [
     { key: '24h', label: '24 hours' },
@@ -164,7 +177,7 @@ function ActivityWindowToggle({
   return (
     <div
       role="radiogroup"
-      aria-label="Activity window"
+      aria-label={ariaLabel}
       className="flex gap-1 rounded-md border border-border p-0.5"
     >
       {windows.map(({ key, label }) => (
@@ -281,109 +294,6 @@ function ActivitySection({
         />
       </ChartBlock>
     </section>
-  )
-}
-
-// Feature epoch — cost-state first shipped ~2026-08-21. The "(added August 2026)" clause only
-// makes sense while trackedSince still sits near it; once retention has pruned the old
-// transcripts, preTrackingSessionCount is normally 0 and the whole clause drops itself.
-const FEATURE_EPOCH_MS = new Date('2026-08-21T00:00:00.000Z').getTime()
-const EPOCH_WINDOW_MS = 10 * 86_400_000
-
-function costFootnote(cost: CostStats): string {
-  const since = new Date(cost.trackedSince).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  })
-  const priced = cost.pricedSessionCount
-  let text = `Covers ${priced.toLocaleString()} session${priced === 1 ? '' : 's'} since ${since}.`
-
-  const clause2 = cost.preTrackingSessionCount > 0
-  const clause3 = cost.unusableSessionCount > 0
-  const epochBound =
-    Math.abs(new Date(cost.trackedSince).getTime() - FEATURE_EPOCH_MS) <= EPOCH_WINDOW_MS
-
-  if (clause2) {
-    const count = cost.preTrackingSessionCount
-    text += ` ${count.toLocaleString()} earlier session${count === 1 ? '' : 's'} predate cost tracking`
-    if (epochBound) text += ' (added August 2026)'
-  }
-  if (clause3) {
-    const count = cost.unusableSessionCount
-    text += clause2 ? ', and ' : ' '
-    text += `${count.toLocaleString()}${clause2 ? ' more' : ''} ${count === 1 ? 'has' : 'have'} no usable cost data`
-  }
-  if (clause2 || clause3) text += ' — not included above.'
-  return text
-}
-
-function CostSection({ cost }: { cost: CostStats | null }): React.JSX.Element {
-  return (
-    <section className="flex flex-col gap-6 py-8">
-      {cost === null ? <CostEmpty /> : <CostBody cost={cost} />}
-    </section>
-  )
-}
-
-function CostEmpty(): React.JSX.Element {
-  return (
-    <div className="flex items-start gap-2 py-4 text-[13px] text-muted-foreground">
-      <CircleDollarSign className="mt-0.5 size-4 shrink-0" />
-      <p className="max-w-[520px]">
-        No cost data yet. Claude Code started recording per-session cost in August 2026 — it&apos;ll
-        show here after your next session and a rescan.
-      </p>
-    </div>
-  )
-}
-
-function CostBody({ cost }: { cost: CostStats }): React.JSX.Element {
-  const projectItems = cost.byProject.map((project) => ({
-    label: getFolderBasename(project.project),
-    value: project.costUsd,
-    fullLabel: project.project
-  }))
-  const dayData = cost.byDay.map((day) => ({
-    date: day.date,
-    value: day.costUsd,
-    weekday: day.weekday
-  }))
-  const formatDollars = (value: number): string => formatUsd(value, { cents: true })
-
-  return (
-    <>
-      <div className="flex flex-col gap-2">
-        <SpendBar total={cost.totalCostUsd} byModel={cost.byModel} />
-
-        {cost.hasUnknownModelCost && (
-          <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
-            <TriangleAlert className="mt-px size-3 shrink-0 text-warning" />
-            Some usage ran on a model Claude Code couldn&apos;t price — the total above is a low
-            estimate.
-          </p>
-        )}
-
-        <p className="max-w-[520px] text-[11px] text-muted-foreground">
-          What this would cost at pay-as-you-go API rates — not a charge. Most Claude Code usage
-          runs on a subscription billed separately, and these estimates may not match your actual
-          bill.
-        </p>
-        <p className="max-w-[520px] text-[11px] text-muted-foreground">{costFootnote(cost)}</p>
-      </div>
-
-      <ChartBlock
-        label="By project"
-        empty={projectItems.length === 0}
-        emptyMessage="No project costs yet"
-      >
-        <RankedList items={projectItems} formatValue={formatDollars} noun="projects" />
-      </ChartBlock>
-
-      <ChartBlock label="By day">
-        <DayStrip data={dayData} days={cost.byDay.length} formatValue={formatDollars} />
-      </ChartBlock>
-    </>
   )
 }
 

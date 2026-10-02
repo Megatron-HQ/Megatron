@@ -274,14 +274,18 @@ app.whenReady().then(() => {
   })
 
   // Composes like skills:list — the renderer polls until scanComplete.
-  ipcMain.handle(IPC_CHANNELS.usageOverview, () => ({
-    activity: getActivityStats(getDb()),
-    cost: getCostStats(getDb()),
-    models: getModelStats(getDb()),
-    skills: getSkillStats(getDb()),
-    residentTax: getResidentTaxStats(getDb()),
-    scanComplete
-  }))
+  ipcMain.handle(IPC_CHANNELS.usageOverview, () => {
+    const now = new Date()
+    const db = getDb()
+    return {
+      activity: getActivityStats(db, now),
+      cost: getCostStats(db, now),
+      models: getModelStats(db, now),
+      skills: getSkillStats(db, now),
+      residentTax: getResidentTaxStats(db),
+      scanComplete
+    }
+  })
 
   ipcMain.handle(
     IPC_CHANNELS.usageSkillInvocations,

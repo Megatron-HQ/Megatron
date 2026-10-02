@@ -2067,6 +2067,17 @@ describe('getCostStats', () => {
             cache_read_tokens, cache_creation_tokens, web_search_requests)
          VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0)`
       ).run(overrides.session_id, m.model, m.cost_usd)
+      db.prepare(
+        'INSERT INTO timed_skill_cost (session_id, model, allocated_at, est_cost_usd) VALUES (?, ?, ?, ?)'
+      ).run(overrides.session_id, m.model, overrides.started_at, m.cost_usd)
+    }
+    const residual =
+      (overrides.total_cost_usd ?? 0) -
+      (overrides.models ?? []).reduce((sum, model) => sum + model.cost_usd, 0)
+    if (residual > 0) {
+      db.prepare(
+        'INSERT INTO timed_skill_cost (session_id, allocated_at, est_cost_usd) VALUES (?, ?, ?)'
+      ).run(overrides.session_id, overrides.started_at, residual)
     }
   }
 
@@ -2125,7 +2136,7 @@ describe('getCostStats', () => {
   it('sums only priced terminals into totalCostUsd and pricedSessionCount', () => {
     seedFixture()
     const stats = getCostStats(db, NOW)!
-    expect(stats.totalCostUsd).toBe(180)
+    expect(stats.totalTrackedCostUsd).toBe(180)
     expect(stats.pricedSessionCount).toBe(3)
   })
 
@@ -2159,7 +2170,7 @@ describe('getCostStats', () => {
 
   it('propagates hasUnknownModelCost from any priced terminal', () => {
     seedFixture()
-    expect(getCostStats(db, NOW)!.hasUnknownModelCost).toBe(true)
+    expect(getCostStats(db, NOW)!.last30d.hasUnknownModelCost).toBe(true)
   })
 
   it('does not propagate hasUnknownModelCost from a non-terminal row', () => {
@@ -2176,12 +2187,12 @@ describe('getCostStats', () => {
       has_unknown_model_cost: 1,
       continued_in_session_id: 'p1'
     })
-    expect(getCostStats(db, NOW)!.hasUnknownModelCost).toBe(false)
+    expect(getCostStats(db, NOW)!.last30d.hasUnknownModelCost).toBe(false)
   })
 
   it('aggregates byModel across priced terminals, descending with a model tie-break', () => {
     seedFixture()
-    expect(getCostStats(db, NOW)!.byModel).toEqual([
+    expect(getCostStats(db, NOW)!.last30d.byModel).toEqual([
       { model: 'claude-sonnet-5', costUsd: 130 },
       { model: 'claude-haiku-4-5', costUsd: 30 },
       { model: 'claude-opus-5', costUsd: 20 }
@@ -2190,7 +2201,7 @@ describe('getCostStats', () => {
 
   it('aggregates byProject by cwd across priced terminals, descending with a cwd tie-break', () => {
     seedFixture()
-    expect(getCostStats(db, NOW)!.byProject).toEqual([
+    expect(getCostStats(db, NOW)!.last30d.byProject).toEqual([
       { project: '/repo-a', costUsd: 130 },
       { project: '/repo-b', costUsd: 50 }
     ])
@@ -2212,20 +2223,20 @@ describe('getCostStats', () => {
       models: [{ model: 'claude-opus-5', cost_usd: 10 }]
     })
     const stats = getCostStats(db, NOW)!
-    expect(stats.byModel.map((m) => m.model)).toEqual(['claude-opus-5', 'claude-sonnet-5'])
-    expect(stats.byProject.map((p) => p.project)).toEqual(['/aaa', '/zzz'])
+    expect(stats.last30d.byModel.map((m) => m.model)).toEqual(['claude-opus-5', 'claude-sonnet-5'])
+    expect(stats.last30d.byProject.map((p) => p.project)).toEqual(['/aaa', '/zzz'])
   })
 
-  it('zero-fills byDay from trackedSince to now with a server-computed weekday', () => {
+  it('zero-fills all dates intersecting the rolling period with a server-computed weekday', () => {
     seedFixture()
-    const { byDay } = getCostStats(db, NOW)!
-    expect(byDay).toHaveLength(18) // Aug 21 .. Sep 7 inclusive
-    expect(byDay[0]).toEqual({
+    const { byDay } = getCostStats(db, NOW)!.last30d
+    expect(byDay).toHaveLength(31)
+    expect(byDay.find((day) => day.date === '2026-08-21')).toMatchObject({
       date: '2026-08-21',
       costUsd: 100,
       weekday: new Date(2026, 7, 21).getDay()
     })
-    expect(byDay.at(-1)).toEqual({
+    expect(byDay.at(-1)).toMatchObject({
       date: '2026-09-07',
       costUsd: 0,
       weekday: new Date(2026, 8, 7).getDay()
