@@ -22,13 +22,13 @@ Session → skill → project → time is a direct join, not an inference: every
 
 ## Operating Context
 
-Runs locally on macOS as a notarized DMG, reading only `~/.claude/{skills,plugins,projects}` (Tier 1, auto-trusted at launch) and explicitly user-granted project repo folders (Tier 2, via the sidebar's "Manage Folders" dialog). No writes to any skill file in v1 — read-only by design. Plugin management is the one write path, and it never touches `~/.claude` directly: every action shells out to `claude plugin <verb>`, the same CLI a user would run themselves. Used alongside, not inside, a user's normal Claude Code sessions.
+Runs locally on macOS (a notarized DMG) and Windows, reading only `~/.claude/{skills,plugins,projects}` (Tier 1, auto-trusted at launch) and explicitly user-granted project repo folders (Tier 2, via the sidebar's "Manage Folders" dialog). No writes to any skill file in v1 — read-only by design. Plugin management is the one write path, and it never touches `~/.claude` directly: every action shells out to `claude plugin <verb>`, the same CLI a user would run themselves. Used alongside, not inside, a user's normal Claude Code sessions.
 
 ## Capabilities and Constraints
 
 - Claude Code only, permanently — not a placeholder for future multi-tool support.
 - Skill inventory is read-only in v1 — in-app skill editing is deferred on purpose; a bug in a write path would corrupt a file Claude Code executes. Plugin management (enable/disable/update/uninstall) is the one live write capability, and it's mediated entirely through the `claude` CLI's own commands rather than a direct file write.
-- macOS only, direct notarized DMG — no Mac App Store (App Sandbox conflicts with reading `~/.claude` outside any user-granted bookmark); no Windows/Linux build yet.
+- macOS ships as a direct notarized DMG — no Mac App Store (App Sandbox conflicts with reading `~/.claude` outside any user-granted bookmark). Windows ships too, though its packaging (installer, signing) isn't chosen yet. No Linux build.
 - Deterministic linter only — no semantic/LLM-based linting (would require an API key and per-scan cost).
 - Pricing/monetization model: undecided.
 - Beta/early-access distribution mechanism: undecided.

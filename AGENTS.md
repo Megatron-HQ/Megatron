@@ -16,6 +16,7 @@ Full script list is in `package.json`; these are the ones with a gotcha.
 | `npm run db:reset`      | deletes the local index — run after editing `schema.sql`, see Locked decisions |
 | `npm run build:unpack`  | `--dir`, no DMG                                                   |
 | `npm run build:mac`     | the actual DMG                                                    |
+| `npm run build:icons`   | runs under `electron`, not `node`; the macOS `.icon` is still hand-built (`DESIGN.md`, App Icon) |
 
 `postinstall` (`electron-builder install-app-deps`) and `prepare` (`git config core.hooksPath .githooks`) both run automatically on `npm install` — don't invoke them by hand.
 
@@ -26,7 +27,7 @@ Electron + React + TypeScript on `electron-vite`, Tailwind v4 + shadcn/ui (`new-
 - npm, **no workspaces** — single-product repo, not a monorepo.
 - `package-lock.json` **is** committed; both founders and CI install off it with `npm ci`.
 - Node pinned to `22.x` via `.nvmrc` and `engines` — advisory, not `engine-strict`. A warning, not a hard block.
-- **Ships macOS-only** (notarized DMG). CI runs `macos-latest` + `windows-latest`, but Windows is a test target only — there is no Windows/Linux build.
+- **Ships macOS (notarized DMG) and Windows.** Windows packaging — installer type, code signing — isn't chosen yet, so `electron-builder.yml` has no `win:` block. CI runs `macos-latest` + `windows-latest`. No Linux build.
 
 ## Layout
 
@@ -43,7 +44,7 @@ Repo-wide. Subsystem decisions are locked in the owning doc — see the Docs tab
 | ----------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Tool scope        | Claude Code only, permanently — not "not built yet"                                                            | Megatron's identity. Multi-tool support (the shape is `references/skills-manager`'s `tool_adapters.rs`) needs an explicit, separate decision — not quiet scope creep                                              |
 | Module system     | ESM only (`"type": "module"`) — no `require`/`module.exports`/`__dirname`/`__filename`                         | ESLint-enforced. Preload builds to `out/preload/index.mjs` and must stay unsandboxed to load. Use `import.meta.dirname` — electron-vite's `__dirname` shim injects `createRequire`, which is CJS                  |
-| Distribution      | Direct notarized DMG, indefinitely — no Mac App Store                                                          | App Store mandates App Sandbox, which the permission model deliberately skips                                                                                                                                     |
+| Distribution      | macOS: direct notarized DMG, indefinitely — no Mac App Store                                                          | App Store mandates App Sandbox, which the permission model deliberately skips                                                                                                                                     |
 | Generated mirrors | `AGENTS.md` (from `CLAUDE.md`) and `.agents/skills/` (from `.claude/skills/`) — never hand-edited, no symlinks | Git symlinks need Developer Mode **and** `core.symlinks=true` on Windows. Instead `.githooks/pre-commit` regenerates and re-stages both every commit; CI runs `node .githooks/pre-commit --check` as the backstop |
 | Schema changes    | Delete the local index and let it rebuild — never write a migration. Run `npm run db:reset` after editing `schema.sql`, then relaunch | The index is a pure derived cache of `~/.claude/` (see `docs/data-model.md`); a full rescan is sub-second even at hundreds of MB of transcripts. In-place migration code is pure risk for a saving that doesn't exist yet |
 | Renderer state    | TanStack Query for IPC-backed data, plain `useState`/Context for local UI state — no Redux/Zustand | Every piece of real state so far is either Query-backed or genuinely local; no cross-cutting, deeply interdependent client-state graph exists yet that either library would solve |
@@ -81,6 +82,6 @@ Each doc below is authoritative for the locked decisions it owns.
 | `docs/data-model.md`        | `better-sqlite3`; index schema; no-FK join; plugin identity; `prompt_history` | Touching `src/main/db/` or plugin parsing                            |
 | `docs/usage-analytics.md`   | The 5-PR "Usage" feature; `history.jsonl` retention; `cost-state` hazards; what's PR1 vs PR2–5 | `src/main/ingest/` usage extraction, `src/main/db/` usage tables, or the Usage view |
 | `docs/usage-view-ui-spec.md` | Usage-view renderer authority — layout, `components/usage/` chart vocabulary, `--usage-*` tokens, motion, the DESIGN.md departures | Any `src/renderer/src/views/UsageView.tsx` or `components/usage/` work |
-| `DESIGN.md`                 | Visual design system — colors, type, layout, elevation, shapes, components | Any `src/renderer/` UI work                                          |
+| `DESIGN.md`                 | Visual design system — colors, type, layout, elevation, shapes, components, app icon | Any `src/renderer/` UI work or app-icon change                       |
 | `docs/mvp-build-spec.md`    | Milestones, linter rules, frontmatter parsing, what's still open       | Assuming a decision hasn't been made yet                             |
 | `docs/environment-setup.md` | M0 install quirks (npm allowlist, silent `extract-zip` no-op)          | `npm run dev` failing with `Error: Electron uninstall`               |

@@ -13,6 +13,9 @@ asarUnpack:
   - resources/**
   - node_modules/better-sqlite3/**
 mac:
+  # Icon Composer file: electron-builder compiles it with Xcode 26+'s actool into Assets.car
+  # (macOS 26+) plus a generated .icns fallback for older macOS and the DMG.
+  icon: build/icon.icon
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSDocumentsFolderUsageDescription: Megatron needs access to project folders you grant, to discover project-level skills.

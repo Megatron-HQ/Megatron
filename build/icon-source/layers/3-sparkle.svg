@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <g transform="scale(1.2848180677540777) translate(-9.5 -9.5)">
+  <g id="sparkle" stroke="#e4f222" stroke-width="13.3" stroke-linecap="round">
+    <line x1="557.7" y1="153.5" x2="557.7" y2="289.5"/>
+    <line x1="523.7" y1="162.6" x2="591.7" y2="280.4"/>
+    <line x1="498.8" y1="187.5" x2="616.6" y2="255.5"/>
+    <line x1="489.7" y1="221.5" x2="625.7" y2="221.5"/>
+    <line x1="498.8" y1="255.5" x2="616.6" y2="187.5"/>
+    <line x1="523.7" y1="280.4" x2="591.7" y2="162.6"/>
+  </g>
+  </g>
+</svg>

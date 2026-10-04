@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="816" height="816" viewBox="0 0 816 816">
+  <rect id="background" x="9.5" y="9.5" width="797" height="797" rx="180" fill="#111111"/>
+  <!-- Below 30 px the cap gap and the sparkle blur into noise. Each cap's inner edge runs ~16 units
+       into the arm and the magnet is drawn on top, so the gap closes without the caps growing. -->
+  <g id="caps" fill="#e4f222">
+    <path d="M327.2 171.6L427.9 257.5L365.3 333L264 246.9Z"/>
+    <path d="M544.6 355.6L645.9 440.8L583 516.2L482.3 430.4Z"/>
+  </g>
+  <g id="magnet" fill="#f5f5f5">
+    <path d="m265.8 246.1 101.1 85.4-46.7 55.8a75.4 75.4 0 0 0 115.6 97.1l47.9-55.1 100.8 84.7-47.3 56.5a208.4 208.4 0 0 1-318.1-269.4z"/>
+  </g>
+</svg>

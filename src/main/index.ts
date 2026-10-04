@@ -14,6 +14,8 @@ import { version as appVersion } from '../../package.json'
 import Store from 'electron-store'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+// The .ico, not the PNG, so Windows can pick the hand-tuned no-sparkle art at 16/24 px.
+import windowsIcon from '../../resources/icon.ico?asset'
 import { getDb } from './db'
 import { disableChromiumHttpCache } from './chromium-cache'
 import {
@@ -158,6 +160,7 @@ function createWindow(): void {
     autoHideMenuBar: true,
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : {}),
     ...(process.platform === 'linux' ? { icon } : {}),
+    ...(process.platform === 'win32' ? { icon: windowsIcon } : {}),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.mjs'),
       contextIsolation: true,

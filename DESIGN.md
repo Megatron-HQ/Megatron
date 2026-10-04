@@ -272,6 +272,36 @@ The skill file viewer's file tree makes fuller use of motion than most surfaces 
 
 **The Motion-Earns-Its-Keep Rule.** `motion` is available anywhere a state change needs feedback CSS can't express — it isn't fixed to today's three call sites (table row glide, file-tree glide, sidebar nav glide/expand), and can grow into new surfaces as they earn it. CSS transitions stay the default everywhere else, and every `motion` use guards `useReducedMotion()` explicitly, since JS-driven animation doesn't get `prefers-reduced-motion` for free.
 
+## App Icon
+
+The icon is a white (`#f5f5f5`) magnet with acid-lime pole caps, pulling in a lime 12-ray sparkle, on a `#111111` tile. The magnet is Megatron, the collector. The sparkle is the skill being pulled in.
+
+- **Masters:** `build/icon-source/icon.svg` holds the full art and `icon-small.svg` the simplified art. `npm run build:icons` generates every committed output from them:
+  - `build/icon.ico` and `resources/icon.ico` (the same bytes)
+  - `resources/icon.png` at 512 px
+  - the Icon Composer layers in `build/icon-source/layers/`
+
+  To change the icon, edit a master, rerun the script, and then rebuild `build/icon.icon` from the new layers. The committed `.icon` also carries per-layer nudges made by hand in Icon Composer (`translation-in-points` in its `icon.json`), which set the macOS magnet about 2.5% left and lower than the masters and the `.ico`. That shipped version is the approved one: a rebuild from fresh layers drops the nudges unless they're reapplied.
+
+- **Sparkle:** 12 even rays at 30° with round caps, ray length 68, stroke 13.3 on the 816 canvas. It's centered at (557.7, 221.5), on the perpendicular bisector of the two nearest cap corners.
+- **Color:** the caps and the sparkle use `acid-lime` (`#e4f222`) itself, the app's own token. A brighter icon-only lime would hurt the app's light mode.
+- **macOS:** an Icon Composer `.icon` (`build/icon.icon`) with Liquid Glass off or at minimum on every layer. The Ledger-Lies-Flat Rule applies to the icon too. electron-builder generates the `.icns` fallback for macOS before 26 from the `.icon`.
+- **Windows:** the dark tile is nearly full-bleed, because Windows adds no mask or padding. The `.ico` carries 16, 20, 24, 30, 32, 36, 40, 48, 60, 64, 72, 80, 96 and 256 px. Windows uses the hand-tuned small sizes only at 100% scaling. From 125% up the taskbar shows the full art, scaled down.
+
+### Building the `.icon` (Xcode 26+)
+
+1. In Icon Composer, start a new document and set Fill to solid `#111111`. The tile is the fill, not a layer.
+2. Drag in `layers/1-magnet.svg`, `2-caps.svg` and `3-sparkle.svg`. They're numbered in z-order, with the sparkle on top. Icon Composer puts all three in one group. Keep the single group: the layers don't overlap, and separate groups would bring back per-group depth shadows.
+3. Turn Liquid Glass off on all three layers. On the group, set Shadow to None and turn off Specular and Translucency.
+4. Check the Default, Dark, Clear and Tinted previews. The gap between the caps and the magnet must stay visible in all four.
+5. Save as `build/icon.icon`.
+
+### Named Rules
+
+**The Equal-Gap Rule.** The sparkle sits exactly as far from one pole cap as from the other: 60 units each. If it moves or grows, both gaps move together. Rays keep their 13.3 stroke, because thicker rays fuse into a gear or a splat.
+
+**The 30-Pixel Rule.** The sparkle appears from 30 px up. Below that, the `.ico` uses the small master: no sparkle, and caps joined to the magnet, because at taskbar size the cap gap and the sparkle blur into noise. In Clear and Tinted modes on macOS, the white and the lime collapse toward one color, so the cap gap is what keeps the poles readable. Keep it visible at every size that has one.
+
 ## Do's and Don'ts
 
 ### Do:

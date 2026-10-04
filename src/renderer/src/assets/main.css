@@ -33,7 +33,7 @@
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
   --radius: 0.625rem;
-  /* Acid lime brand accent — same literal value in both themes, per docs/design-system.md */
+  /* Acid lime brand accent — same literal value in both themes, per DESIGN.md */
   --accent-lime: #e4f222;
   --accent-lime-foreground: oklch(0.145 0 0);
   /* Usage view chart ink — monochrome, no hue, no second accent (docs/usage-view-ui-spec.md

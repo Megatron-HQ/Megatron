@@ -14,8 +14,8 @@ committed, everyone resolves the exact same Electron version, so this approval s
 for a fresh clone — nobody else should need to re-run `npm approve-scripts` unless the Electron
 version in `package.json` actually changes (e.g. a deliberate upgrade), in which case re-approve
 for the new pinned version. Don't blindly approve every flagged package — only ones you actually
-need (we skipped `electron-winstaller`, which is Windows-only and irrelevant to a macOS-only build
-target).
+need (we skipped `electron-winstaller`, which only a Squirrel.Windows installer uses, and no Windows
+installer is configured yet).
 
 ## Still seeing it after the approval above
 
@@ -35,6 +35,6 @@ local quirk, CI should catch it on a clean install before anyone hits it manuall
 ## CI coverage
 
 CI runs the full `typecheck`/`lint`/`test` suite on both `macos-latest` and `windows-latest`
-(packaging/DMG build stays macOS-only, unrelated to catching dev-environment breakage). This
+(packaging is only configured for macOS so far, unrelated to catching dev-environment breakage). This
 exists specifically because the team develops across both platforms — it's the safety net for
 anything platform-specific slipping through.
