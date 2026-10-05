@@ -978,6 +978,21 @@ export const scenarios = [
     }
   },
   {
+    // Version tints are color-mix()ed toward --background, so the dark surface gets its own look.
+    name: 'cost-section-dark',
+    screen: 'usage',
+    shouldSkip: async (window) =>
+      (await costDataPresent(window)) ? null : 'no priced cost-state history on this machine',
+    async run(window) {
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('radio', { name: 'Dark', exact: true }).click()
+      await window.keyboard.press('Escape')
+      await window.getByRole('dialog').waitFor({ state: 'hidden' })
+      await openUsagePanel(window, 'Cost')
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
     // The Cost section's inline empty state — only reachable on a machine with no priced
     // cost-state line anywhere in ~/.claude.
     name: 'cost-section-no-data',
@@ -1105,6 +1120,18 @@ export const scenarios = [
     async run(window) {
       await openUsagePanel(window, 'Models')
       await window.getByText('Model × effort', { exact: true }).scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'usage-models-dark',
+    screen: 'usage',
+    async run(window) {
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('radio', { name: 'Dark', exact: true }).click()
+      await window.keyboard.press('Escape')
+      await window.getByRole('dialog').waitFor({ state: 'hidden' })
+      await openUsagePanel(window, 'Models')
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },

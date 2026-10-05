@@ -6,6 +6,7 @@ import type {
 } from '../../../../shared/ipc'
 import { ChartBlock } from './ChartBlock'
 import { RankedList } from './RankedList'
+import { groupByFamily, seriesColor, type ModelIdentity } from '@/lib/model-identity'
 import { formatCount, formatModelName } from './chart-utils'
 
 const EFFORT_LABELS: Record<EffortBucket, string> = {
@@ -24,12 +25,21 @@ function selectedWindow(stats: ModelStats, key: SkillStatsWindowKey): ModelStats
 
 export function ModelsSection({
   stats,
-  windowKey
+  windowKey,
+  identifyModel
 }: {
   stats: ModelStats
   windowKey: SkillStatsWindowKey
+  identifyModel: (key: string) => ModelIdentity
 }): React.JSX.Element {
   const window = selectedWindow(stats, windowKey)
+  // Same family-grouped, newest-first order as the Cost spend bar, so both panels read alike.
+  const byModel = groupByFamily(window.byModel, (row) => row.turnCount, identifyModel).flatMap(
+    (group) => group.rows
+  )
+  const matrix = groupByFamily(window.matrix, (row) => row.total, identifyModel).flatMap(
+    (group) => group.rows
+  )
   const emptyMessage = `No model activity in the last ${windowKey === '24h' ? '24 hours' : windowKey === '7d' ? '7 days' : '30 days'}`
   const showNotRecorded = window.byEffort.some((row) => row.effort === 'not_recorded')
   const effortColumns: EffortBucket[] = showNotRecorded
@@ -48,10 +58,11 @@ export function ModelsSection({
 
       <ChartBlock label="By model" empty={window.turnCount === 0} emptyMessage={emptyMessage}>
         <RankedList
-          items={window.byModel.map((row) => ({
+          items={byModel.map((row) => ({
             label: formatModelName(row.model),
             fullLabel: row.model,
-            value: row.turnCount
+            value: row.turnCount,
+            swatch: seriesColor(identifyModel(row.model))
           }))}
           formatValue={formatCount}
           noun="models"
@@ -85,10 +96,17 @@ export function ModelsSection({
               </tr>
             </thead>
             <tbody>
-              {window.matrix.map((row) => (
+              {matrix.map((row) => (
                 <tr key={row.model} className="h-8 border-b border-border last:border-b-0">
                   <td className="pr-4 text-[13px]" title={row.model}>
-                    {formatModelName(row.model)}
+                    <span className="flex items-center gap-1.5 whitespace-nowrap">
+                      <span
+                        aria-hidden
+                        className="size-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: seriesColor(identifyModel(row.model)) }}
+                      />
+                      {formatModelName(row.model)}
+                    </span>
                   </td>
                   {effortColumns.map((effort) => (
                     <td

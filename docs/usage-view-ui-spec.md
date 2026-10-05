@@ -1,5 +1,44 @@
 # Usage view — resolved UI spec (Phase 2a)
 
+## Model versions amendment (2026-10-04)
+
+Supersedes §C2.2's payload-order segments, §C2.3's flat legend, §C3's three-slot family palette,
+§C4's "model color never bleeds here", the §C7 legend-hover row, and §M1's ranked model order
+wherever they conflict. Logic lives in `lib/model-identity.ts` (unit-tested).
+
+- **Family hue, version tint.** Four fixed family slots: sonnet 1, opus 2, haiku 3, **fable 4**
+  (`#4a3aa7` light / `#7b3fe4` dark). An unmapped family still folds to `--usage-bar-quiet`. Within
+  a family the newest version wears the full hue; older ones are **solid**
+  `color-mix(in oklab, …)` tints toward `--background` at 60% then 35% (the floor — labels
+  disambiguate past it). Solid, not opacity, because hover already dims to 40% opacity. oklab, not
+  oklch: the paper is achromatic (hue 0), so an oklch mix rotates Sonnet blue into Fable violet.
+- **"Newest"** = the max of the bundled `MODEL_FAMILIES[family].latest` and every version seen in
+  the 30d cost + turn payloads. Ranking against the 30d superset keeps tints stable across window
+  switches; the bundled floor lets an unused newer release still mark the old one. **When Anthropic
+  ships:** a new version → bump `latest`; a new family → next slot, re-run `dataviz`'s
+  `validate_palette.js --pairs all` against `#fcfcfc` / `#0a0a0a` first. A key whose tail isn't
+  numeric is never ranked (full hue, never "older").
+- **Palette validation (all-pairs — any family can sit beside any other):** light worst CVD ΔE 9.2,
+  normal-vision 16.3 (`#4a3aa7`↔`#2a78d6`), `#1baf7a` contrast WARN cleared by the relief rule;
+  dark worst CVD ΔE 8.2 / normal-vision 16.9 (`#7b3fe4`↔`#3987e5`), all contrast PASS. `dataviz`'s
+  own slot 4 (yellow) fails beside opus orange, and its dark violet `#9085e9` collapses into slot 1
+  (protan ΔE 1.9) — hence the custom dark step.
+- **Order** (spend bar, legend, Models list and matrix): known families by family total desc, then
+  unmapped families, then unparseable keys, `unattributed` last; newest → oldest within a family.
+- **Legend:** a two-column grid — family dot (full hue) + name + subtotal · % in column 1; version
+  chips (square tint swatch + bare version + `$` · %) wrapping inside column 2, so narrow widths
+  keep chips indented under their family. A single-version family is one entry (`● Haiku 4.5`).
+  Hover: family entry → that family's segments stay full, the rest drop to 40%; chip or segment →
+  that one segment.
+- **Older-version line:** directly under the legend, 11px muted, model names in foreground ink,
+  `max-w-[520px]`, wrapping as prose. Shown only when older versions total **≥ 5%** of the window;
+  lists those **≥ 1%** each, cost desc. States fact, no advice, no flag color — an older version
+  can be a deliberate pin. E.g. "74% of spend went to older versions: Sonnet 5 (Sonnet 5.5 is
+  newer) and Opus 5 (Opus 5.5 is newer)." Main header only, not the day/hour details dialog.
+- **Models panel:** "By model" rows and Model × effort rows take a series dot before the name.
+  `RankedList`'s row fill stays monochrome; the swatch is opt-in (`RankedItem.swatch`), so project
+  and skill lists are unchanged.
+
 ## Scan and query feedback amendment (2026-10-02)
 
 A completed scan attempt can be complete, partial, or failed. Partial and failed attempts show a

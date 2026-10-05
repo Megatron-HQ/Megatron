@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react'
+import { Fragment, useRef, useState } from 'react'
 import { CircleDollarSign, TriangleAlert } from 'lucide-react'
 import { getFolderBasename } from '@/lib/source-name'
-import type { CostHour, CostStats, CostWindowKey } from '../../../../shared/ipc'
+import { olderVersionSummary, type ModelIdentity } from '@/lib/model-identity'
+import type { CostHour, CostModelSpend, CostStats, CostWindowKey } from '../../../../shared/ipc'
 import { ChartBlock } from './ChartBlock'
 import { CostDetailsDialog, COST_ATTRIBUTION_NOTE } from './CostDetailsDialog'
 import { CostHourStrip } from './CostHourStrip'
@@ -9,16 +10,18 @@ import { DayStrip } from './DayStrip'
 import { Punchcard } from './Punchcard'
 import { RankedList } from './RankedList'
 import { SpendBar } from './SpendBar'
-import { formatUsd } from './chart-utils'
+import { formatModelName, formatUsd } from './chart-utils'
 
 const formatDollars = (value: number): string => formatUsd(value, { cents: true })
 
 export function CostSection({
   cost,
-  windowKey
+  windowKey,
+  identifyModel
 }: {
   cost: CostStats | null
   windowKey: CostWindowKey
+  identifyModel: (key: string) => ModelIdentity
 }): React.JSX.Element {
   const [selectedBucket, setSelectedBucket] = useState<
     { kind: 'day'; key: string } | { kind: 'hour'; hour: CostHour } | null
@@ -49,7 +52,16 @@ export function CostSection({
   return (
     <section className="flex flex-col gap-6 py-8">
       <div className="flex flex-col gap-2">
-        <SpendBar total={window.totalCostUsd} byModel={window.byModel} />
+        <SpendBar
+          total={window.totalCostUsd}
+          byModel={window.byModel}
+          identifyModel={identifyModel}
+        />
+        <OlderVersionNote
+          total={window.totalCostUsd}
+          byModel={window.byModel}
+          identifyModel={identifyModel}
+        />
         {window.hasUnknownModelCost && (
           <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
             <TriangleAlert className="mt-px size-3 shrink-0 text-warning" />
@@ -139,7 +151,38 @@ export function CostSection({
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onRestoreFocus={() => triggerRef.current?.focus()}
+        identifyModel={identifyModel}
       />
     </section>
+  )
+}
+
+// States what ran and what's newer — no advice: an older version can be a deliberate pin
+// (a subagent, a cost choice) that Megatron can't see. Thresholds live in `olderVersionSummary`.
+function OlderVersionNote({
+  total,
+  byModel,
+  identifyModel
+}: {
+  total: number
+  byModel: CostModelSpend[]
+  identifyModel: (key: string) => ModelIdentity
+}): React.JSX.Element | null {
+  const summary = olderVersionSummary(byModel, total, identifyModel)
+  if (summary === null) return null
+  const { items } = summary
+  return (
+    <p className="max-w-[520px] text-[11px] text-muted-foreground">
+      {Math.round(summary.share * 100)}% of spend went to older versions
+      {items.length === 0 ? '.' : ': '}
+      {items.map((item, index) => (
+        <Fragment key={item.model}>
+          {index === 0 ? '' : index === items.length - 1 ? ' and ' : ', '}
+          <span className="text-foreground">{formatModelName(item.model)}</span> (
+          <span className="text-foreground">{formatModelName(item.newerKey)}</span> is newer)
+        </Fragment>
+      ))}
+      {items.length === 0 ? '' : '.'}
+    </p>
   )
 }

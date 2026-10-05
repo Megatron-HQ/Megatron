@@ -6,6 +6,7 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { getFolderBasename } from '@/lib/source-name'
+import type { ModelIdentity } from '@/lib/model-identity'
 import type { CostDay, CostHour } from '../../../../shared/ipc'
 import { ChartBlock } from './ChartBlock'
 import { RankedList } from './RankedList'
@@ -19,12 +20,14 @@ export function CostDetailsDialog({
   bucket,
   open,
   onOpenChange,
-  onRestoreFocus
+  onRestoreFocus,
+  identifyModel
 }: {
   bucket: CostDay | CostHour | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onRestoreFocus: () => void
+  identifyModel: (key: string) => ModelIdentity
 }): React.JSX.Element | null {
   if (!bucket) return null
   const isDay = 'date' in bucket
@@ -69,7 +72,7 @@ export function CostDetailsDialog({
             {isDay && bucket.partial && ' · partial day'}
           </DialogDescription>
         </DialogHeader>
-        <SpendBar total={bucket.costUsd} byModel={bucket.byModel} />
+        <SpendBar total={bucket.costUsd} byModel={bucket.byModel} identifyModel={identifyModel} />
         <p className="text-[11px] text-muted-foreground">
           {bucket.pricedSessionCount.toLocaleString()} contributing session
           {bucket.pricedSessionCount === 1 ? '' : 's'}. {COST_ATTRIBUTION_NOTE} API-equivalent
