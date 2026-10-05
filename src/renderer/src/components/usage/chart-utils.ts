@@ -1,4 +1,5 @@
 import { UNATTRIBUTED_COST_MODEL } from '../../../../shared/ipc'
+import { parseModelKey } from '@/lib/model-identity'
 
 // Row 0 of every histogram is Sunday (matches the ActivityWindow contract). The punchcard shows
 // Mon-first, so it reorders via WEEKDAY_DISPLAY_ORDER.
@@ -24,26 +25,18 @@ export function formatUsd(n: number, { cents }: { cents: boolean }): string {
 // tail as-is with `-` → `.`. An unrecognized key returns verbatim — never hidden (§C2.4).
 export function formatModelName(key: string): string {
   if (key === UNATTRIBUTED_COST_MODEL) return 'Unattributed'
-  const match = /^claude-([a-z]+)-(.+)$/.exec(key)
-  if (match === null) return key
-  const [, family, tail] = match
-  return `${family.charAt(0).toUpperCase()}${family.slice(1)} ${tail.replace(/-/g, '.')}`
+  const parsed = parseModelKey(key)
+  if (parsed === null) return key
+  return `${formatFamilyName(parsed.family)} ${parsed.tail.replace(/-/g, '.')}`
 }
 
-// Fixed assignment by model *family*, never by rank — a filter that changes which models appear
-// must not repaint the survivors. Tokens are named by slot so "Sonnet 6" inherits slot 1.
-export const MODEL_SERIES: Record<string, 1 | 2 | 3> = {
-  sonnet: 1,
-  opus: 2,
-  haiku: 3
+export function formatFamilyName(family: string): string {
+  return `${family.charAt(0).toUpperCase()}${family.slice(1)}`
 }
 
-// The CSS var for a model's data-series hue, or `--usage-bar-quiet` (neutral, the "Other" fold)
-// for an unmapped family. Assumes a normalized key (date suffix already stripped at ingest).
-export function modelSeriesVar(model: string): string {
-  const family = /^claude-([a-z]+)-/.exec(model)?.[1]
-  const slot = family === undefined ? undefined : MODEL_SERIES[family]
-  return slot === undefined ? 'var(--usage-bar-quiet)' : `var(--usage-series-${slot})`
+// The bare version (`5.5`) for a chip sitting inside its family's legend row.
+export function formatModelVersion(key: string): string {
+  return parseModelKey(key)?.tail.replace(/-/g, '.') ?? formatModelName(key)
 }
 
 // Quantile-bucketed opacity for the punchcard: empty + 4 levels of --usage-bar at 15/40/65/90%

@@ -1,5 +1,126 @@
 # Usage view — resolved UI spec (Phase 2a)
 
+## Effort bar and bar tooltips amendment (2026-10-04)
+
+Supersedes the Models share bars amendment's Mix column, effort-column headers and swatches, "no
+separate legend line", Mix `aria-hidden` / no-hover, column widths and `min-w-[720px]` scroll
+note, wherever they conflict.
+
+- **`SegmentBar`** (`components/usage/SegmentBar.tsx`) is the segment row under both `ShareBars`
+  and the effort bars: `calc((100% - gaps) × fraction)` widths, 2px gaps, 3px floor, `opacity-40`
+  dim (150ms), every segment a shadcn `Tooltip` trigger. **`hit="bar"`** — the 8px bar is the
+  target (share bars; Cost geometry unchanged). **`hit="row"`** — an `h-6` target around a
+  centered 8px bar, `[1px]` rounding on the outer ends only, so thin effort segments stay easy to
+  hit. Enter motion only when a segment has an `order` (share bars); effort bars are static.
+- **Cards** (inverted tooltip ink), one per model whichever bar it's read from: name (medium),
+  raw key (`text-background/70`), detail lines. **Models:** `755 turns · 23%`,
+  `868,731 output tokens · 26%`, `1,151 tokens per turn`. **Cost and the details dialog:**
+  `$35.23 · 14% of spend`, plus `Opus 5.5 is newer` for an older version (same identity as the
+  older-version line). Effort tokens aren't in IPC (the matrix is turn counts), so effort cards
+  are turns only.
+- **Focus:** a focusable segment's `aria-label` = name + detail lines (no raw key); focus dims and
+  highlights exactly like hover. **Models:** only Turns segments take focus (`role="img"`);
+  Output segments are hover-only and `aria-hidden`, since the Turns label already carries output.
+  **Cost / dialog:** every segment takes focus. Focus ring as `ResidentCompositionBar`
+  (`ring-2 ring-ring ring-inset`). The details dialog still opens with focus on its close button
+  (`onOpenAutoFocus`), not the first segment — that would pop its card on open and spend the
+  first Escape closing the card instead of the dialog.
+- **Model × effort table:** Model (hugs its longest name) · **Effort** (flexible) · **Total**
+  (`w-32`) · Output tokens (`w-28`, `border-l`, unchanged). The five per-effort number columns and
+  their header swatches are gone; the numbers live in the effort cards and the Total readout.
+  `min-w-[520px]`: the content column is ~544px at the 860px minimum (rail 48 + sidebar 220 +
+  24px gutters), so no horizontal scroll, Not recorded or not.
+- **Effort bar:** one per row plus the footer (window split), segments Xhigh → Low → Not recorded,
+  same ink ramp and `.usage-fill-unrecorded` hatch, now the `SegmentBar` 8px / 2px / 3px geometry.
+  Segments are `<button aria-pressed>`. Card: "Opus 5.5 · Xhigh" / "731 turns · 97% of this
+  model's turns" (footer: "All models" / "of all turns"). Activating a segment closes its card
+  (Radix's trigger behavior, mouse and keyboard alike); the Total readout carries the number.
+- **Selection:** click selects that effort in every row and the footer (others drop to 40%);
+  click it again or press **Escape** to clear. It survives window switches (a panel switch
+  remounts and clears it); a selected Not recorded that's absent from the new window is inactive
+  until it's back. **Hover stays in its row:** the hovered segment full, the rest of that row
+  40%; in the hovered row, hover wins over the selection. No cross-row hover dimming — the table
+  flickers while you scan.
+- **Total readout:** while selected, header `XHIGH / TOTAL` (nowrap), cells `731 / 755` with the
+  `/ 755` muted, footer `3,160 / 3,241`.
+- **Key line** under the table: `size-2` swatch + label for Xhigh … Low, plus hatched Not
+  recorded when present; 12px muted. Not a control — it only mirrors the selection by dropping
+  the other items to 40%.
+
+## Models share bars amendment (2026-10-04)
+
+Supersedes §M1's "By model" and "By effort" `RankedList`s, §C2's "bar + legend live in
+`SpendBar`", and adds to §C7, wherever they conflict.
+
+- **`ShareBars`** (`components/usage/ShareBars.tsx`, math in `share-bars.ts`, unit-tested) is
+  the segmented bar + family legend lifted out of `SpendBar`, generalized to N series. The first
+  series fixes the order for every bar; widths divide by `max(total, Σvalue)` (Cost's undercount
+  slack); one hover state spans all bars and the legend. `SpendBar` = the `$` hero + a one-series,
+  gutterless `ShareBars` — Cost and the details dialog render as before, except a `$0` row's share
+  now reads `0%`, not `<1%`.
+- **Models "By model"** = paired bars, **Turns** over **Output** (output tokens), each behind a
+  fixed `w-14` gutter label so both start at the same x. Order and colors from turns, as Cost's.
+  Legend is shares only: family / single-version entries name the units once ("72% turns · 60%
+  output"), version chips stay bare ("1% · 1%"). Hover: family entry → that family full in both
+  bars; chip or segment → that one model in both.
+- **"By effort" list removed** — it duplicated the matrix footer. The matrix gains a **Mix**
+  column after Model (`w-28`): a `h-1.5` 100% stacked effort bar per row, segments in the effort
+  columns' order (Xhigh → Low → Not recorded) with 1px gaps and a 2px floor, and the footer's mix
+  bar is the window's overall effort split. `aria-hidden`, no hover, no enter motion — the exact
+  counts are the numbers in the same row.
+- **Effort fill:** ordinal, so a neutral ink ramp, never a hue (it shares rows with model dots):
+  Xhigh `--usage-bar`, High / Medium / Low `color-mix(in oklab, var(--usage-bar) 65% / 40% / 22%,
+  var(--background))`. **Not recorded** is off the scale: `.usage-fill-unrecorded`, quiet-ink
+  stripes on the paper (not `.trigger-fill-hatch`, which is full ink and would read as Xhigh).
+  Each effort header carries its `size-2` swatch; there is no separate legend line.
+- **Output tokens** column after Total, behind a `border-l` divider (`w-28`); footer = the header
+  Output tokens figure. Read from `byModel` by key — `matrix` is built from `byModel`, so no IPC
+  change. Widths: effort columns `w-20`, Not recorded `w-28` (headers `whitespace-nowrap`), table `min-w-[720px]`; with Not
+  recorded present the table scrolls at the 860px minimum (§M1 already allows it).
+- **Turns hint:** the Turns stat label is a focusable tooltip trigger (dotted underline) — "Model
+  responses, including subagents. One prompt usually takes several."
+- **Motion (§C7 additions):** paired bars grow like the spend bar (320ms, 80ms stagger) with the
+  stagger continuing into the Output bar, so it fills after Turns; mix bars appear at final width.
+
+## Model versions amendment (2026-10-04)
+
+Supersedes §C2.2's payload-order segments, §C2.3's flat legend, §C3's three-slot family palette,
+§C4's "model color never bleeds here", the §C7 legend-hover row, and §M1's ranked model order
+wherever they conflict. Logic lives in `lib/model-identity.ts` (unit-tested).
+
+- **Family hue, version tint.** Four fixed family slots: sonnet 1, opus 2, haiku 3, **fable 4**
+  (`#4a3aa7` light / `#7b3fe4` dark). An unmapped family still folds to `--usage-bar-quiet`. Within
+  a family the newest version wears the full hue; older ones are **solid**
+  `color-mix(in oklab, …)` tints toward `--background` at 60% then 35% (the floor — labels
+  disambiguate past it). Solid, not opacity, because hover already dims to 40% opacity. oklab, not
+  oklch: the paper is achromatic (hue 0), so an oklch mix rotates Sonnet blue into Fable violet.
+- **"Newest"** = the max of the bundled `MODEL_FAMILIES[family].latest` and every version seen in
+  the 30d cost + turn payloads. Ranking against the 30d superset keeps tints stable across window
+  switches; the bundled floor lets an unused newer release still mark the old one. **When Anthropic
+  ships:** a new version → bump `latest`; a new family → next slot, re-run `dataviz`'s
+  `validate_palette.js --pairs all` against `#fcfcfc` / `#0a0a0a` first. A key whose tail isn't
+  numeric is never ranked (full hue, never "older").
+- **Palette validation (all-pairs — any family can sit beside any other):** light worst CVD ΔE 9.2,
+  normal-vision 16.3 (`#4a3aa7`↔`#2a78d6`), `#1baf7a` contrast WARN cleared by the relief rule;
+  dark worst CVD ΔE 8.2 / normal-vision 16.9 (`#7b3fe4`↔`#3987e5`), all contrast PASS. `dataviz`'s
+  own slot 4 (yellow) fails beside opus orange, and its dark violet `#9085e9` collapses into slot 1
+  (protan ΔE 1.9) — hence the custom dark step.
+- **Order** (spend bar, legend, Models list and matrix): known families by family total desc, then
+  unmapped families, then unparseable keys, `unattributed` last; newest → oldest within a family.
+- **Legend:** a two-column grid — family dot (full hue) + name + subtotal · % in column 1; version
+  chips (square tint swatch + bare version + `$` · %) wrapping inside column 2, so narrow widths
+  keep chips indented under their family. A single-version family is one entry (`● Haiku 4.5`).
+  Hover: family entry → that family's segments stay full, the rest drop to 40%; chip or segment →
+  that one segment.
+- **Older-version line:** directly under the legend, 11px muted, model names in foreground ink,
+  `max-w-[520px]`, wrapping as prose. Shown only when older versions total **≥ 5%** of the window;
+  lists those **≥ 1%** each, cost desc. States fact, no advice, no flag color — an older version
+  can be a deliberate pin. E.g. "74% of spend went to older versions: Sonnet 5 (Sonnet 5.5 is
+  newer) and Opus 5 (Opus 5.5 is newer)." Main header only, not the day/hour details dialog.
+- **Models panel:** "By model" rows and Model × effort rows take a series dot before the name.
+  `RankedList`'s row fill stays monochrome; the swatch is opt-in (`RankedItem.swatch`), so project
+  and skill lists are unchanged.
+
 ## Scan and query feedback amendment (2026-10-02)
 
 A completed scan attempt can be complete, partial, or failed. Partial and failed attempts show a

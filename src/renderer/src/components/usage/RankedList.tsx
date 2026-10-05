@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TextLink } from '@/components/TextLink'
+import { percentLabel } from './share-bars'
 
 const TOP_N = 8
 
@@ -11,25 +12,20 @@ export interface RankedItem {
   fullLabel: string // full string shown on hover
   onSelect?: () => void
   actionLabel?: string
+  swatch?: string // CSS color — model lists only (§C4); the row fill stays monochrome
 }
 
 interface RankedListProps {
-  items: RankedItem[] // pre-sorted, descending by value
+  items: RankedItem[] // pre-sorted: descending by value, or family-grouped for model lists
   formatValue: (value: number) => string
   noun: string // plural, for the disclosure row ("projects")
-}
-
-function percentLabel(value: number, total: number): string {
-  if (total <= 0 || value <= 0) return '0%'
-  const pct = (value / total) * 100
-  return pct < 1 ? '<1%' : `${Math.round(pct)}%`
 }
 
 // A ranked table with an ambient left-anchored ink row-fill and NO track — replaces
 // <ProjectBars>. The old --surface-muted track read as a progress bar and left empty rails on a
 // skewed distribution. The fill is a *tinted row*, not a bar: it renders at final width (no
-// grow), deepens one notch on hover. Two columns only. Monochrome — model color never bleeds
-// here (docs/usage-view-ui-spec.md §C4).
+// grow), deepens one notch on hover. Two columns only. Monochrome — model color reaches here only
+// as an optional label swatch, never the fill (docs/usage-view-ui-spec.md §C4).
 export function RankedList({ items, formatValue, noun }: RankedListProps): React.JSX.Element {
   const reduceMotion = useReducedMotion() === true
   const [expanded, setExpanded] = useState(false)
@@ -56,6 +52,13 @@ export function RankedList({ items, formatValue, noun }: RankedListProps): React
           className="absolute inset-y-0 left-0 bg-usage-bar/[0.07] transition-colors duration-150 group-hover:bg-usage-bar/[0.11] dark:bg-usage-bar/[0.12] dark:group-hover:bg-usage-bar/[0.17]"
           style={{ width: `${pct}%`, minWidth: item.value > 0 ? 2 : undefined }}
         />
+        {item.swatch && (
+          <span
+            aria-hidden
+            className="relative mr-1.5 size-2 shrink-0 rounded-full"
+            style={{ backgroundColor: item.swatch }}
+          />
+        )}
         <Tooltip>
           <TooltipTrigger asChild>
             {item.onSelect ? (

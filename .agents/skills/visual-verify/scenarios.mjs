@@ -978,6 +978,21 @@ export const scenarios = [
     }
   },
   {
+    // Version tints are color-mix()ed toward --background, so the dark surface gets its own look.
+    name: 'cost-section-dark',
+    screen: 'usage',
+    shouldSkip: async (window) =>
+      (await costDataPresent(window)) ? null : 'no priced cost-state history on this machine',
+    async run(window) {
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('radio', { name: 'Dark', exact: true }).click()
+      await window.keyboard.press('Escape')
+      await window.getByRole('dialog').waitFor({ state: 'hidden' })
+      await openUsagePanel(window, 'Cost')
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
     // The Cost section's inline empty state — only reachable on a machine with no priced
     // cost-state line anywhere in ~/.claude.
     name: 'cost-section-no-data',
@@ -988,6 +1003,23 @@ export const scenarios = [
         : null,
     async run(window) {
       await openUsagePanel(window, 'Cost')
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // Hovering a spend-bar segment: the model's card (`$ · % of spend`, older-version note).
+    name: 'cost-bar-tooltip',
+    screen: 'usage',
+    shouldSkip: async (window) =>
+      (await costDataPresent(window)) ? null : 'no priced cost-state history on this machine',
+    async run(window) {
+      await openUsagePanel(window, 'Cost')
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+      await window
+        .getByRole('img', { name: /of spend/ })
+        .first()
+        .hover()
+      await window.getByRole('tooltip').waitFor()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
@@ -1098,13 +1130,127 @@ export const scenarios = [
     }
   },
   {
-    // PR4's default 30-day Models section: independent window control, summaries, and the
-    // horizontally scrollable model-by-effort matrix with column and row totals.
+    // PR4's default 30-day Models section, scrolled to the model-by-effort matrix: per-row effort
+    // bars, row/footer totals, the Output tokens column, and the effort key line.
     name: 'usage-models-default',
     screen: 'usage',
     async run(window) {
       await openUsagePanel(window, 'Models')
       await window.getByText('Model × effort', { exact: true }).scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'usage-models-dark',
+    screen: 'usage',
+    async run(window) {
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('radio', { name: 'Dark', exact: true }).click()
+      await window.keyboard.press('Escape')
+      await window.getByRole('dialog').waitFor({ state: 'hidden' })
+      await openUsagePanel(window, 'Models')
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // Hovering a family legend entry keeps that family full in BOTH the Turns and Output bars.
+    name: 'usage-models-by-model-hover',
+    screen: 'usage',
+    shouldSkip: async (window) => {
+      await openUsagePanel(window, 'Models')
+      return (await window.getByText('Opus', { exact: true }).count()) === 0
+        ? 'no multi-version Opus family in the last 30 days on this machine'
+        : null
+    },
+    async run(window) {
+      await openUsagePanel(window, 'Models')
+      await window.getByText('Opus', { exact: true }).hover()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // The Turns stat label explains what a turn is, reachable from the keyboard.
+    name: 'usage-models-turns-hint',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Models')
+      // First match is the stat label; the second is the Turns bar's gutter label.
+      await window.getByText('Turns', { exact: true }).first().focus()
+      await window.getByRole('tooltip').waitFor()
+    }
+  },
+  {
+    // A clicked effort dims in every row and the footer; Total reads `count / total` under
+    // `XHIGH / TOTAL`. Pointer parked off the table so row hover doesn't mask the selection.
+    name: 'usage-models-effort-selected',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Models')
+      await window.getByRole('button', { name: /Xhigh/ }).first().click()
+      await window.mouse.move(0, 0)
+      await window.getByText('Model × effort', { exact: true }).scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // Hovering an effort segment: its card, and the rest of that one row dimmed.
+    name: 'usage-models-effort-tooltip',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Models')
+      await window.locator('table').getByRole('button').first().hover()
+      await window.getByRole('tooltip').waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // Keyboard focus on a Turns segment: the model's card, and that model full in both bars.
+    name: 'usage-models-bar-tooltip',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Models')
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+      await window.getByRole('img', { name: /turns/ }).first().focus()
+      await window.getByRole('tooltip').waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // Keyboard path: Tab walks every Turns segment, then skips the unfocusable Output bar straight
+    // to the first effort button; Enter selects, Escape clears. Captured in the cleared state.
+    name: 'usage-models-keyboard',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Models')
+      const turns = window.getByRole('img', { name: /turns/ })
+      const count = await turns.count()
+      await turns.first().focus()
+      for (let i = 1; i < count; i++) await window.keyboard.press('Tab')
+      await turns.last().and(window.locator(':focus')).waitFor()
+      await window.keyboard.press('Tab')
+      await window
+        .locator('table')
+        .getByRole('button')
+        .first()
+        .and(window.locator(':focus'))
+        .waitFor()
+      await window.keyboard.press('Enter')
+      const readout = window.locator('th', { hasText: '/ Total' })
+      await readout.waitFor()
+      await window.keyboard.press('Escape')
+      await readout.waitFor({ state: 'detached' })
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'usage-models-24-hour',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Models')
+      await window
+        .getByRole('radiogroup', { name: 'Model activity window' })
+        .getByRole('radio', { name: '24 hours' })
+        .click()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },

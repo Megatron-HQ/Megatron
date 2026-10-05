@@ -20,6 +20,7 @@ colors:
   usage-series-1: '#2a78d6' # data-series slot 1 — model identity (Sonnet family)
   usage-series-2: '#eb6834' # data-series slot 2 — Opus family
   usage-series-3: '#1baf7a' # data-series slot 3 — Haiku family
+  usage-series-4: '#4a3aa7' # data-series slot 4 — Fable family (dark #7b3fe4)
 typography:
   title:
     fontFamily: 'Geist Sans, ui-sans-serif, system-ui, sans-serif'
@@ -124,7 +125,7 @@ Exactly one stamp of color breaks that quiet: acid lime, reserved for the single
 
 Confirmed rejections: no drop shadows on anything at rest (shadows are reserved for genuinely floating layers), no gradients, no per-source-tier color coding, no hero-scale type anywhere in the product.
 
-The **Usage** section (a retrospective, not an inventory) is a different surface class: its visual decisions — and its explicit, user-authorised departures from this document (a scoped 30px `--usage-stat` numeral step, two monochrome `--usage-*` chart tokens + a punchcard quantile-opacity scale, a scoped data-series color palette for by-model charts, and charts that animate on enter/scrub/window-switch) — are owned by **`docs/usage-view-ui-spec.md`**.
+The **Usage** section (a retrospective, not an inventory) is a different surface class: its visual decisions — and its explicit, user-authorised departures from this document (a scoped 30px `--usage-stat` numeral step, two monochrome `--usage-*` chart tokens + a punchcard quantile-opacity scale + an ordinal effort ink ramp, a scoped data-series color palette for by-model charts, and charts that animate on enter/scrub/window-switch) — are owned by **`docs/usage-view-ui-spec.md`**.
 
 **Key Characteristics:**
 
@@ -161,7 +162,7 @@ Near-monochrome ledger ink on paper, with exactly three functional color layers 
 
 ### Data-series (functional, not decorative)
 
-Three categorical hues — `--usage-series-1/2/3` (`dataviz` reference slots 1–3, CVD-validated in both themes) — carrying **series identity** in the Usage view only, and only where a chart splits by a bounded identity dimension (today: cost & activity **by model**; ≤4 series, ever). Assigned by entity in a fixed order, never by rank. Always direct-labeled — the hue rides a legend dot or a mark that sits beside its own text label, never color-alone. A fifth+ model folds to `--usage-bar-quiet` ("Other"), never a generated hue. Scoped hard: not by project, not by day, not the Skills or Plugins surfaces. Owned by `docs/usage-view-ui-spec.md` §C3.
+Four categorical hues — `--usage-series-1/2/3/4` (Sonnet, Opus, Haiku, Fable; CVD-validated all-pairs in both themes) — carrying **series identity** in the Usage view only, and only where a chart splits by a bounded identity dimension (today: cost & activity **by model**; ≤4 **family** hues, ever). Assigned by model family in a fixed order, never by rank. Versions within a family are solid tints of that family's hue — newest full, older stepped toward the paper — never a new hue. Always direct-labeled — the hue rides a legend dot or a mark that sits beside its own text label, never color-alone. A fifth+ family folds to `--usage-bar-quiet` ("Other"), never a generated hue. Scoped hard: not by project, not by day, not the Skills or Plugins surfaces. Owned by `docs/usage-view-ui-spec.md` §C3.
 
 ### Named Rules
 

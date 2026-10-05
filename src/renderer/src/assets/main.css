@@ -42,12 +42,15 @@
   --usage-bar: oklch(0.145 0 0);
   --usage-bar-quiet: oklch(0.7 0 0);
   /* Data-series color — the third functional color layer (DESIGN.md §C11, docs/usage-view-ui-spec.md
-     §C3). Chart *series identity* only, scoped to by-model charts (Cost spend bar; PR4). Assigned
-     by model family, never by rank. `dataviz` reference slots 1-3, CVD-validated both themes. An
-     unmapped family folds to --usage-bar-quiet, never a generated hue. */
+     §C3). Chart *series identity* only, scoped to by-model charts (Cost spend bar, Models panel).
+     Assigned by model family, never by rank; older versions are color-mix tints of their family's
+     slot (lib/model-identity.ts). Slots 1-3 are `dataviz` reference slots; slot 4 is its violet
+     with a custom dark step — all four CVD-validated all-pairs in both themes. An unmapped family
+     folds to --usage-bar-quiet, never a generated hue. */
   --usage-series-1: #2a78d6; /* sonnet */
   --usage-series-2: #eb6834; /* opus */
   --usage-series-3: #1baf7a; /* haiku */
+  --usage-series-4: #4a3aa7; /* fable */
 }
 
 .dark {
@@ -58,6 +61,7 @@
   --usage-series-1: #3987e5; /* sonnet */
   --usage-series-2: #d95926; /* opus */
   --usage-series-3: #199e70; /* haiku */
+  --usage-series-4: #7b3fe4; /* fable — not dataviz's #9085e9, which collides with slot 1 (protan ΔE 1.9) */
   --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
@@ -105,6 +109,7 @@
   --color-usage-series-1: var(--usage-series-1);
   --color-usage-series-2: var(--usage-series-2);
   --color-usage-series-3: var(--usage-series-3);
+  --color-usage-series-4: var(--usage-series-4);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -156,6 +161,17 @@
     transparent 1.5px
   );
   background-size: 5px 5px;
+}
+
+/* Models effort mix: "Not recorded" sits off the ordinal ink ramp, so it's quiet stripes on the
+   paper rather than a solid shade that would read as a step between Medium and High. Not
+   `.trigger-fill-hatch` — that one is full-ink and would read as Xhigh. */
+.usage-fill-unrecorded {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--usage-bar-quiet) 0 1.5px,
+    transparent 1.5px 4px
+  );
 }
 
 /* Usage view — the 3-4 primary stat numerals only. 30px is a deliberate, scoped departure from

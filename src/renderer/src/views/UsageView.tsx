@@ -1,10 +1,11 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Activity, BrainCircuit, CircleDollarSign, Cpu, Layers3 } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/relative-time'
+import { buildModelIdentity } from '@/lib/model-identity'
 import { getFolderBasename } from '@/lib/source-name'
 import { ChartBlock } from '@/components/usage/ChartBlock'
 import { StatCells } from '@/components/usage/StatCells'
@@ -73,6 +74,16 @@ export function UsageView({
   useEffect(() => {
     scrollContainerRef.current?.scrollTo({ top: 0 })
   }, [panel])
+
+  // One identity for both panels, so a model's tint never differs between Cost and Models.
+  const identifyModel = useMemo(
+    () =>
+      buildModelIdentity([
+        ...(data?.cost?.last30d.byModel ?? []).map((entry) => entry.model),
+        ...(data?.models?.last30d.byModel ?? []).map((row) => row.model)
+      ]),
+    [data?.cost, data?.models]
+  )
 
   const loading = isPending || !data?.scanComplete
   const { label, Icon } = PANEL_META[panel]
@@ -143,10 +154,19 @@ export function UsageView({
               ) : panel === 'activity' ? (
                 <ActivityPanel activity={data?.activity ?? null} windowKey={activityWindow} />
               ) : panel === 'cost' ? (
-                <CostSection key={costWindow} cost={data?.cost ?? null} windowKey={costWindow} />
+                <CostSection
+                  key={costWindow}
+                  cost={data?.cost ?? null}
+                  windowKey={costWindow}
+                  identifyModel={identifyModel}
+                />
               ) : panel === 'models' ? (
                 data?.models && data.models.last30d.turnCount > 0 ? (
-                  <ModelsSection stats={data.models} windowKey={modelWindow} />
+                  <ModelsSection
+                    stats={data.models}
+                    windowKey={modelWindow}
+                    identifyModel={identifyModel}
+                  />
                 ) : (
                   <ModelsEmpty />
                 )

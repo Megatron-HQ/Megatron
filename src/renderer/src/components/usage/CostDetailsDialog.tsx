@@ -6,6 +6,7 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { getFolderBasename } from '@/lib/source-name'
+import type { ModelIdentity } from '@/lib/model-identity'
 import type { CostDay, CostHour } from '../../../../shared/ipc'
 import { ChartBlock } from './ChartBlock'
 import { RankedList } from './RankedList'
@@ -19,12 +20,14 @@ export function CostDetailsDialog({
   bucket,
   open,
   onOpenChange,
-  onRestoreFocus
+  onRestoreFocus,
+  identifyModel
 }: {
   bucket: CostDay | CostHour | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onRestoreFocus: () => void
+  identifyModel: (key: string) => ModelIdentity
 }): React.JSX.Element | null {
   if (!bucket) return null
   const isDay = 'date' in bucket
@@ -57,6 +60,14 @@ export function CostDetailsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="max-h-[85vh] overflow-y-auto sm:max-w-2xl"
+        // Radix would focus the first spend segment, popping its tooltip on open and making the
+        // first Escape close the tooltip instead of the dialog. Land on the close button instead.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          // Radix dispatches this on the content element, typed as a bare Event.
+          const content = event.currentTarget as HTMLElement
+          content.querySelector<HTMLElement>('[data-slot="dialog-close"]')?.focus()
+        }}
         onCloseAutoFocus={(event) => {
           event.preventDefault()
           onRestoreFocus()
@@ -69,7 +80,7 @@ export function CostDetailsDialog({
             {isDay && bucket.partial && ' · partial day'}
           </DialogDescription>
         </DialogHeader>
-        <SpendBar total={bucket.costUsd} byModel={bucket.byModel} />
+        <SpendBar total={bucket.costUsd} byModel={bucket.byModel} identifyModel={identifyModel} />
         <p className="text-[11px] text-muted-foreground">
           {bucket.pricedSessionCount.toLocaleString()} contributing session
           {bucket.pricedSessionCount === 1 ? '' : 's'}. {COST_ATTRIBUTION_NOTE} API-equivalent
