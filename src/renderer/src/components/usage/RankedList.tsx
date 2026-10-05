@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TextLink } from '@/components/TextLink'
+import { percentLabel } from './share-bars'
 
 const TOP_N = 8
 
@@ -18,12 +19,6 @@ interface RankedListProps {
   items: RankedItem[] // pre-sorted: descending by value, or family-grouped for model lists
   formatValue: (value: number) => string
   noun: string // plural, for the disclosure row ("projects")
-}
-
-function percentLabel(value: number, total: number): string {
-  if (total <= 0 || value <= 0) return '0%'
-  const pct = (value / total) * 100
-  return pct < 1 ? '<1%' : `${Math.round(pct)}%`
 }
 
 // A ranked table with an ambient left-anchored ink row-fill and NO track — replaces

@@ -1,5 +1,40 @@
 # Usage view — resolved UI spec (Phase 2a)
 
+## Models share bars amendment (2026-10-04)
+
+Supersedes §M1's "By model" and "By effort" `RankedList`s, §C2's "bar + legend live in
+`SpendBar`", and adds to §C7, wherever they conflict.
+
+- **`ShareBars`** (`components/usage/ShareBars.tsx`, math in `share-bars.ts`, unit-tested) is
+  the segmented bar + family legend lifted out of `SpendBar`, generalized to N series. The first
+  series fixes the order for every bar; widths divide by `max(total, Σvalue)` (Cost's undercount
+  slack); one hover state spans all bars and the legend. `SpendBar` = the `$` hero + a one-series,
+  gutterless `ShareBars` — Cost and the details dialog render as before, except a `$0` row's share
+  now reads `0%`, not `<1%`.
+- **Models "By model"** = paired bars, **Turns** over **Output** (output tokens), each behind a
+  fixed `w-14` gutter label so both start at the same x. Order and colors from turns, as Cost's.
+  Legend is shares only: family / single-version entries name the units once ("72% turns · 60%
+  output"), version chips stay bare ("1% · 1%"). Hover: family entry → that family full in both
+  bars; chip or segment → that one model in both.
+- **"By effort" list removed** — it duplicated the matrix footer. The matrix gains a **Mix**
+  column after Model (`w-28`): a `h-1.5` 100% stacked effort bar per row, segments in the effort
+  columns' order (Xhigh → Low → Not recorded) with 1px gaps and a 2px floor, and the footer's mix
+  bar is the window's overall effort split. `aria-hidden`, no hover, no enter motion — the exact
+  counts are the numbers in the same row.
+- **Effort fill:** ordinal, so a neutral ink ramp, never a hue (it shares rows with model dots):
+  Xhigh `--usage-bar`, High / Medium / Low `color-mix(in oklab, var(--usage-bar) 65% / 40% / 22%,
+  var(--background))`. **Not recorded** is off the scale: `.usage-fill-unrecorded`, quiet-ink
+  stripes on the paper (not `.trigger-fill-hatch`, which is full ink and would read as Xhigh).
+  Each effort header carries its `size-2` swatch; there is no separate legend line.
+- **Output tokens** column after Total, behind a `border-l` divider (`w-28`); footer = the header
+  Output tokens figure. Read from `byModel` by key — `matrix` is built from `byModel`, so no IPC
+  change. Widths: effort columns `w-20`, Not recorded `w-28` (headers `whitespace-nowrap`), table `min-w-[720px]`; with Not
+  recorded present the table scrolls at the 860px minimum (§M1 already allows it).
+- **Turns hint:** the Turns stat label is a focusable tooltip trigger (dotted underline) — "Model
+  responses, including subagents. One prompt usually takes several."
+- **Motion (§C7 additions):** paired bars grow like the spend bar (320ms, 80ms stagger) with the
+  stagger continuing into the Output bar, so it fills after Turns; mix bars appear at final width.
+
 ## Model versions amendment (2026-10-04)
 
 Supersedes §C2.2's payload-order segments, §C2.3's flat legend, §C3's three-slot family palette,

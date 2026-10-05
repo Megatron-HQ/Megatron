@@ -125,7 +125,7 @@ Exactly one stamp of color breaks that quiet: acid lime, reserved for the single
 
 Confirmed rejections: no drop shadows on anything at rest (shadows are reserved for genuinely floating layers), no gradients, no per-source-tier color coding, no hero-scale type anywhere in the product.
 
-The **Usage** section (a retrospective, not an inventory) is a different surface class: its visual decisions — and its explicit, user-authorised departures from this document (a scoped 30px `--usage-stat` numeral step, two monochrome `--usage-*` chart tokens + a punchcard quantile-opacity scale, a scoped data-series color palette for by-model charts, and charts that animate on enter/scrub/window-switch) — are owned by **`docs/usage-view-ui-spec.md`**.
+The **Usage** section (a retrospective, not an inventory) is a different surface class: its visual decisions — and its explicit, user-authorised departures from this document (a scoped 30px `--usage-stat` numeral step, two monochrome `--usage-*` chart tokens + a punchcard quantile-opacity scale + an ordinal effort ink ramp, a scoped data-series color palette for by-model charts, and charts that animate on enter/scrub/window-switch) — are owned by **`docs/usage-view-ui-spec.md`**.
 
 **Key Characteristics:**
 

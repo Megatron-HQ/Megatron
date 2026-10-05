@@ -163,6 +163,17 @@
   background-size: 5px 5px;
 }
 
+/* Models effort mix: "Not recorded" sits off the ordinal ink ramp, so it's quiet stripes on the
+   paper rather than a solid shade that would read as a step between Medium and High. Not
+   `.trigger-fill-hatch` — that one is full-ink and would read as Xhigh. */
+.usage-fill-unrecorded {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--usage-bar-quiet) 0 1.5px,
+    transparent 1.5px 4px
+  );
+}
+
 /* Usage view — the 3-4 primary stat numerals only. 30px is a deliberate, scoped departure from
    the 16px/600 No-Hero-Type ceiling (docs/usage-view-ui-spec.md §8); Geist Mono keeps it inside
    the "Mono for data" principle so only size departs. */

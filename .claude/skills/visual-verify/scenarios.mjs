@@ -1113,8 +1113,8 @@ export const scenarios = [
     }
   },
   {
-    // PR4's default 30-day Models section: independent window control, summaries, and the
-    // horizontally scrollable model-by-effort matrix with column and row totals.
+    // PR4's default 30-day Models section, scrolled to the model-by-effort matrix: per-row effort
+    // mix bars under swatched headers, column/row totals, and the Output tokens column.
     name: 'usage-models-default',
     screen: 'usage',
     async run(window) {
@@ -1132,6 +1132,45 @@ export const scenarios = [
       await window.keyboard.press('Escape')
       await window.getByRole('dialog').waitFor({ state: 'hidden' })
       await openUsagePanel(window, 'Models')
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // Hovering a family legend entry keeps that family full in BOTH the Turns and Output bars.
+    name: 'usage-models-by-model-hover',
+    screen: 'usage',
+    shouldSkip: async (window) => {
+      await openUsagePanel(window, 'Models')
+      return (await window.getByText('Opus', { exact: true }).count()) === 0
+        ? 'no multi-version Opus family in the last 30 days on this machine'
+        : null
+    },
+    async run(window) {
+      await openUsagePanel(window, 'Models')
+      await window.getByText('Opus', { exact: true }).hover()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // The Turns stat label explains what a turn is, reachable from the keyboard.
+    name: 'usage-models-turns-hint',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Models')
+      // First match is the stat label; the second is the Turns bar's gutter label.
+      await window.getByText('Turns', { exact: true }).first().focus()
+      await window.getByRole('tooltip').waitFor()
+    }
+  },
+  {
+    name: 'usage-models-24-hour',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Models')
+      await window
+        .getByRole('radiogroup', { name: 'Model activity window' })
+        .getByRole('radio', { name: '24 hours' })
+        .click()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
