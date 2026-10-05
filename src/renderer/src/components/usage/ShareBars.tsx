@@ -1,8 +1,7 @@
 import { useState } from 'react'
-import { motion, useReducedMotion } from 'motion/react'
-import { cn } from '@/lib/utils'
 import { seriesColor, type ModelIdentity } from '@/lib/model-identity'
 import { formatFamilyName, formatModelName, formatModelVersion } from './chart-utils'
+import { SegmentBar } from './SegmentBar'
 import { buildShareBars, type ShareSegment, type ShareSeries } from './share-bars'
 
 interface ShareBarsProps<T extends { model: string }> {
@@ -11,12 +10,10 @@ interface ShareBarsProps<T extends { model: string }> {
   identifyModel: (key: string) => ModelIdentity
   // Legend text after the name, from per-series values and shares (summed for a family entry).
   formatLegend: (values: number[], shares: string[], kind: 'family' | 'chip') => string
+  detail: (row: T) => string[] // a segment's tooltip lines, under the model's name and raw key
 }
 
 type Hover = { kind: 'family'; key: string } | { kind: 'model'; model: string } | null
-
-const SEGMENT_GAP_PX = 2
-const SEGMENT_MIN_WIDTH_PX = 3
 
 // Segmented part-to-whole bars over one family-grouped legend (docs/usage-view-ui-spec.md §C2 and
 // the Models share bars amendment). Cost's spend bar is the one-series, gutterless case; the Models
@@ -25,9 +22,9 @@ export function ShareBars<T extends { model: string }>({
   rows,
   series,
   identifyModel,
-  formatLegend
+  formatLegend,
+  detail
 }: ShareBarsProps<T>): React.JSX.Element {
-  const reduceMotion = useReducedMotion() === true
   const [hovered, setHovered] = useState<Hover>(null)
   const { groups, bars, measure } = buildShareBars(rows, series, identifyModel)
   const hasGutter = bars.some((bar) => bar.label !== undefined)
@@ -41,40 +38,27 @@ export function ShareBars<T extends { model: string }>({
     return formatLegend(values, shares, kind)
   }
 
-  const renderBar = (segments: ShareSegment<T>[]): React.JSX.Element => {
-    const gapWidth = Math.max(segments.length - 1, 0) * SEGMENT_GAP_PX
-    return (
-      <div className="flex h-2 w-full min-w-0 overflow-hidden rounded-[1px]">
-        {segments.map((segment, index) => (
-          <motion.div
-            key={segment.row.model}
-            className={cn(
-              'h-full shrink transition-opacity duration-150',
-              isDimmed(segment.row.model, segment.family) && 'opacity-40'
-            )}
-            style={{
-              // Reserve paper gaps before dividing the bar; flex shrinking absorbs the
-              // extra space needed by tiny segments' visibility floor.
-              width: `calc((100% - ${gapWidth}px) * ${segment.fraction})`,
-              minWidth: SEGMENT_MIN_WIDTH_PX,
-              marginLeft: index === 0 ? 0 : SEGMENT_GAP_PX,
-              backgroundColor: seriesColor(identifyModel(segment.row.model)),
-              transformOrigin: 'left'
-            }}
-            onMouseEnter={() => setHovered({ kind: 'model', model: segment.row.model })}
-            onMouseLeave={() => setHovered(null)}
-            initial={reduceMotion ? false : { scaleX: 0 }}
-            animate={{ scaleX: 1 }}
-            transition={
-              reduceMotion
-                ? { duration: 0 }
-                : { duration: 0.32, ease: 'easeOut', delay: segment.order * 0.08 }
-            }
-          />
-        ))}
-      </div>
-    )
-  }
+  const renderBar = (segments: ShareSegment<T>[], focusable: boolean): React.JSX.Element => (
+    <SegmentBar
+      hit="bar"
+      segments={segments.map((segment) => ({
+        key: segment.row.model,
+        fraction: segment.fraction,
+        fill: seriesColor(identifyModel(segment.row.model)),
+        dimmed: isDimmed(segment.row.model, segment.family),
+        // One card per model, whichever bar it's read from.
+        card: {
+          title: formatModelName(segment.row.model),
+          subtitle: segment.row.model,
+          lines: detail(segment.row)
+        },
+        focusable,
+        order: segment.order
+      }))}
+      onActivate={(model) => setHovered({ kind: 'model', model })}
+      onDeactivate={() => setHovered(null)}
+    />
+  )
 
   return (
     <div className="flex flex-col gap-3">
@@ -86,10 +70,10 @@ export function ShareBars<T extends { model: string }>({
               <span className="w-14 shrink-0 text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground">
                 {bar.label}
               </span>
-              {renderBar(bar.segments)}
+              {renderBar(bar.segments, series[index].focusable !== false)}
             </div>
           ) : (
-            <div key={index}>{renderBar(bar.segments)}</div>
+            <div key={index}>{renderBar(bar.segments, series[index].focusable !== false)}</div>
           )
         )}
       </div>

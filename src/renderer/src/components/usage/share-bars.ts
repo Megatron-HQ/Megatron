@@ -5,6 +5,7 @@ export interface ShareSeries<T> {
   label?: string // gutter label; omit on every series for a gutterless bar (Cost)
   value: (row: T) => number
   total: number // the share denominator, e.g. CostStats.totalCostUsd
+  focusable?: boolean // default true; off for a bar another bar's segments already announce
 }
 
 export interface ShareSegment<T> {

@@ -1,7 +1,8 @@
 import type { ModelIdentity } from '@/lib/model-identity'
 import type { CostModelSpend } from '../../../../shared/ipc'
 import { ShareBars } from './ShareBars'
-import { formatUsd } from './chart-utils'
+import { percentLabel } from './share-bars'
+import { formatModelName, formatUsd } from './chart-utils'
 
 interface SpendBarProps {
   total: number // CostStats.totalCostUsd — the hero figure
@@ -28,6 +29,12 @@ export function SpendBar({ total, byModel, identifyModel }: SpendBarProps): Reac
         series={[{ value: (entry) => entry.costUsd, total }]}
         identifyModel={identifyModel}
         formatLegend={(values, shares) => `${formatUsd(values[0], { cents: true })} · ${shares[0]}`}
+        detail={(entry) => {
+          const spend = `${formatUsd(entry.costUsd, { cents: true })} · ${percentLabel(entry.costUsd, total)} of spend`
+          // Same identity source as CostSection's older-version line.
+          const newerKey = identifyModel(entry.model).newerKey
+          return newerKey === null ? [spend] : [spend, `${formatModelName(newerKey)} is newer`]
+        }}
       />
     </div>
   )

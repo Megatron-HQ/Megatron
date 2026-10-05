@@ -60,6 +60,14 @@ export function CostDetailsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="max-h-[85vh] overflow-y-auto sm:max-w-2xl"
+        // Radix would focus the first spend segment, popping its tooltip on open and making the
+        // first Escape close the tooltip instead of the dialog. Land on the close button instead.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          // Radix dispatches this on the content element, typed as a bare Event.
+          const content = event.currentTarget as HTMLElement
+          content.querySelector<HTMLElement>('[data-slot="dialog-close"]')?.focus()
+        }}
         onCloseAutoFocus={(event) => {
           event.preventDefault()
           onRestoreFocus()

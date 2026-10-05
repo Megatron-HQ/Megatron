@@ -1,5 +1,52 @@
 # Usage view — resolved UI spec (Phase 2a)
 
+## Effort bar and bar tooltips amendment (2026-10-04)
+
+Supersedes the Models share bars amendment's Mix column, effort-column headers and swatches, "no
+separate legend line", Mix `aria-hidden` / no-hover, column widths and `min-w-[720px]` scroll
+note, wherever they conflict.
+
+- **`SegmentBar`** (`components/usage/SegmentBar.tsx`) is the segment row under both `ShareBars`
+  and the effort bars: `calc((100% - gaps) × fraction)` widths, 2px gaps, 3px floor, `opacity-40`
+  dim (150ms), every segment a shadcn `Tooltip` trigger. **`hit="bar"`** — the 8px bar is the
+  target (share bars; Cost geometry unchanged). **`hit="row"`** — an `h-6` target around a
+  centered 8px bar, `[1px]` rounding on the outer ends only, so thin effort segments stay easy to
+  hit. Enter motion only when a segment has an `order` (share bars); effort bars are static.
+- **Cards** (inverted tooltip ink), one per model whichever bar it's read from: name (medium),
+  raw key (`text-background/70`), detail lines. **Models:** `755 turns · 23%`,
+  `868,731 output tokens · 26%`, `1,151 tokens per turn`. **Cost and the details dialog:**
+  `$35.23 · 14% of spend`, plus `Opus 5.5 is newer` for an older version (same identity as the
+  older-version line). Effort tokens aren't in IPC (the matrix is turn counts), so effort cards
+  are turns only.
+- **Focus:** a focusable segment's `aria-label` = name + detail lines (no raw key); focus dims and
+  highlights exactly like hover. **Models:** only Turns segments take focus (`role="img"`);
+  Output segments are hover-only and `aria-hidden`, since the Turns label already carries output.
+  **Cost / dialog:** every segment takes focus. Focus ring as `ResidentCompositionBar`
+  (`ring-2 ring-ring ring-inset`). The details dialog still opens with focus on its close button
+  (`onOpenAutoFocus`), not the first segment — that would pop its card on open and spend the
+  first Escape closing the card instead of the dialog.
+- **Model × effort table:** Model (hugs its longest name) · **Effort** (flexible) · **Total**
+  (`w-32`) · Output tokens (`w-28`, `border-l`, unchanged). The five per-effort number columns and
+  their header swatches are gone; the numbers live in the effort cards and the Total readout.
+  `min-w-[520px]`: the content column is ~544px at the 860px minimum (rail 48 + sidebar 220 +
+  24px gutters), so no horizontal scroll, Not recorded or not.
+- **Effort bar:** one per row plus the footer (window split), segments Xhigh → Low → Not recorded,
+  same ink ramp and `.usage-fill-unrecorded` hatch, now the `SegmentBar` 8px / 2px / 3px geometry.
+  Segments are `<button aria-pressed>`. Card: "Opus 5.5 · Xhigh" / "731 turns · 97% of this
+  model's turns" (footer: "All models" / "of all turns"). Activating a segment closes its card
+  (Radix's trigger behavior, mouse and keyboard alike); the Total readout carries the number.
+- **Selection:** click selects that effort in every row and the footer (others drop to 40%);
+  click it again or press **Escape** to clear. It survives window switches (a panel switch
+  remounts and clears it); a selected Not recorded that's absent from the new window is inactive
+  until it's back. **Hover stays in its row:** the hovered segment full, the rest of that row
+  40%; in the hovered row, hover wins over the selection. No cross-row hover dimming — the table
+  flickers while you scan.
+- **Total readout:** while selected, header `XHIGH / TOTAL` (nowrap), cells `731 / 755` with the
+  `/ 755` muted, footer `3,160 / 3,241`.
+- **Key line** under the table: `size-2` swatch + label for Xhigh … Low, plus hatched Not
+  recorded when present; 12px muted. Not a control — it only mirrors the selection by dropping
+  the other items to 40%.
+
 ## Models share bars amendment (2026-10-04)
 
 Supersedes §M1's "By model" and "By effort" `RankedList`s, §C2's "bar + legend live in

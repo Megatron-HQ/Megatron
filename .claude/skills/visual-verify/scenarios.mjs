@@ -1007,6 +1007,23 @@ export const scenarios = [
     }
   },
   {
+    // Hovering a spend-bar segment: the model's card (`$ · % of spend`, older-version note).
+    name: 'cost-bar-tooltip',
+    screen: 'usage',
+    shouldSkip: async (window) =>
+      (await costDataPresent(window)) ? null : 'no priced cost-state history on this machine',
+    async run(window) {
+      await openUsagePanel(window, 'Cost')
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+      await window
+        .getByRole('img', { name: /of spend/ })
+        .first()
+        .hover()
+      await window.getByRole('tooltip').waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
     name: 'cost-7-day',
     screen: 'usage',
     async run(window) {
@@ -1114,7 +1131,7 @@ export const scenarios = [
   },
   {
     // PR4's default 30-day Models section, scrolled to the model-by-effort matrix: per-row effort
-    // mix bars under swatched headers, column/row totals, and the Output tokens column.
+    // bars, row/footer totals, the Output tokens column, and the effort key line.
     name: 'usage-models-default',
     screen: 'usage',
     async run(window) {
@@ -1160,6 +1177,69 @@ export const scenarios = [
       // First match is the stat label; the second is the Turns bar's gutter label.
       await window.getByText('Turns', { exact: true }).first().focus()
       await window.getByRole('tooltip').waitFor()
+    }
+  },
+  {
+    // A clicked effort dims in every row and the footer; Total reads `count / total` under
+    // `XHIGH / TOTAL`. Pointer parked off the table so row hover doesn't mask the selection.
+    name: 'usage-models-effort-selected',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Models')
+      await window.getByRole('button', { name: /Xhigh/ }).first().click()
+      await window.mouse.move(0, 0)
+      await window.getByText('Model × effort', { exact: true }).scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // Hovering an effort segment: its card, and the rest of that one row dimmed.
+    name: 'usage-models-effort-tooltip',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Models')
+      await window.locator('table').getByRole('button').first().hover()
+      await window.getByRole('tooltip').waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // Keyboard focus on a Turns segment: the model's card, and that model full in both bars.
+    name: 'usage-models-bar-tooltip',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Models')
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+      await window.getByRole('img', { name: /turns/ }).first().focus()
+      await window.getByRole('tooltip').waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // Keyboard path: Tab walks every Turns segment, then skips the unfocusable Output bar straight
+    // to the first effort button; Enter selects, Escape clears. Captured in the cleared state.
+    name: 'usage-models-keyboard',
+    screen: 'usage',
+    async run(window) {
+      await openUsagePanel(window, 'Models')
+      const turns = window.getByRole('img', { name: /turns/ })
+      const count = await turns.count()
+      await turns.first().focus()
+      for (let i = 1; i < count; i++) await window.keyboard.press('Tab')
+      await turns.last().and(window.locator(':focus')).waitFor()
+      await window.keyboard.press('Tab')
+      await window
+        .locator('table')
+        .getByRole('button')
+        .first()
+        .and(window.locator(':focus'))
+        .waitFor()
+      await window.keyboard.press('Enter')
+      const readout = window.locator('th', { hasText: '/ Total' })
+      await readout.waitFor()
+      await window.keyboard.press('Escape')
+      await readout.waitFor({ state: 'detached' })
+      await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
   {
