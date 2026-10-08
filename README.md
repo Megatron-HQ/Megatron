@@ -1,332 +1,308 @@
 # Megatron
 
-<div align="center">
+**A local-first desktop control center for Claude Code skills, plugins, and usage.**
 
-**The local-first desktop control center for Claude Code skills, plugins, and usage analytics.**<br />
-Inventory, inspect, lint, and track usage across all your global, project, and plugin skills. Manage user-scoped plugins without leaving the app.
+Megatron inventories your global, project, and plugin skills, checks their definitions, and shows
+how they are used across local Claude Code sessions. It also manages existing plugin installs
+through the Claude CLI.
 
-[![Node.js Version](https://img.shields.io/badge/node-22.x-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
-[![Electron](https://img.shields.io/badge/Electron-43-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
-[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
-[![SQLite](https://img.shields.io/badge/SQLite-better--sqlite3-003B57?logo=sqlite&logoColor=white)](https://github.com/WiseLibs/better-sqlite3)
+[![Node.js Version](https://img.shields.io/badge/node-22.x-339933?logo=node.js&logoColor=white)](package.json)
+[![Electron](https://img.shields.io/badge/Electron-43-47848F?logo=electron&logoColor=white)](package.json)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](package.json)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](package.json)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-06B6D4?logo=tailwindcss&logoColor=white)](package.json)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-</div>
+## Current scope
 
----
+- **Claude Code only.** Skills belonging to Codex or other tools, including `.agents/skills/`,
+  are outside the product's inventory scope.
+- **Read-only skill inspection and analytics.** Megatron does not edit skills or execute their
+  scripts or hooks. Plugin enable, disable, update, and uninstall actions use Claude's own CLI.
+- **macOS and Windows.** Both platforms run the development checks in CI. macOS packaging is
+  configured; the intended release is a direct notarized DMG. The checked-in configuration
+  currently disables notarization. Windows installer type and code signing are still undecided,
+  and no `win:` block or dedicated Windows packaging script is configured. Linux is not a
+  distribution target.
 
-## Overview
+## Features
 
-When using **Claude Code**, capabilities and sessions expand rapidly across multiple environments:
+### Skill inventory and inspection
 
-- **Global Skills** in `~/.claude/skills/`
-- **Project Skills** scoped inside your git repositories (`<repo>/.claude/skills/`)
-- **Plugin Skills** installed through Claude marketplaces (`~/.claude/plugins/`)
-- **Session Transcripts & History** recorded locally in `~/.claude/projects/*/*.jsonl` and `history.jsonl`
+- Discover global skills in `~/.claude/skills/`, project skills in explicitly granted repository
+  folders, and installed plugin skills from `~/.claude/plugins/`.
+- Recognize Claude.ai-synced skills under `~/.claude/skills/synced/` and nested project skills in
+  monorepos. Colliding nested names are directory-qualified, such as `apps/web:deploy`.
+- Filter by source, project, plugin, disabled state, or user-invocable-only state. Sort the
+  inventory by name, lint status, source, description, estimated listing tokens, and uses.
+- Surface shadowed project skills, synced copies, declared plugin hook events, disabled skills,
+  and skills that Claude cannot invoke automatically.
+- Inspect Markdown, frontmatter metadata, paths, listing/body token estimates, recent invocations,
+  trigger types, project usage, and the full retained invocation history.
+- Explore bundled files in a resizable, searchable, virtualized file tree with Markdown rendering
+  and plain-text code previews. Binary or unreadable files and preview limits have explicit states.
 
-**Megatron** gives developers complete visibility and confidence over their agent capabilities. It scans your skill ecosystem in milliseconds, indexes metadata in a local SQLite database, lints skill definitions against 5 deterministic rules, allows instant code exploration, classifies how skills are triggered, and provides a full-featured analytics suite covering prompt activity, API-equivalent costs, model effort matrices, skill cost attribution, and cold-start context overhead.
+### Deterministic skill linting
 
-Megatron is read-only for skill inventory and usage telemetry. Its only scoped write capability is managing user-scoped Claude Code plugins through the Claude CLI's own enable, disable, update, and uninstall commands.
+Five local rules check `SKILL.md` without network requests or LLM calls:
 
-### Scope and platform
+| Rule                  | Checks                                                                   |
+| --------------------- | ------------------------------------------------------------------------ |
+| `yaml-frontmatter`    | Missing or malformed YAML frontmatter, including unserializable metadata |
+| `missing-description` | Missing or empty descriptions                                            |
+| `broken-file-paths`   | Broken local Markdown links and bundled script/reference paths           |
+| `missing-mcp-server`  | Referenced MCP servers absent from global or project configuration       |
+| `name-collision`      | Project skills shadowed by a global skill of the same name               |
 
-- **Claude Code only**: Megatron inventories and analyzes Claude Code skills and transcripts; it does not track skills from Codex or other agent tools.
-- **macOS distribution**: v1 ships as a direct, notarized macOS DMG. Windows is supported for development and CI verification, not as a distributable target.
-- **Plugin management**: Enable, disable, update, and uninstall are available for user-scoped Claude Code plugins. Project-scoped plugin actions are not yet supported end to end.
+Findings appear in skill detail and file views with severity, explanation, and line numbers where
+available. Scans rerun linting; unreadable documents or failed rule evaluations retain prior findings.
 
----
+### Plugin inventory and management
 
-## Key Features
+- Group plugins by their full `name@marketplace` identity and inspect each **user**, **project**,
+  or **local** install separately.
+- Show installed and locally cached marketplace versions, mixed install versions, available
+  updates, scope, project paths, enablement, skill counts, usage, and lint totals.
+- Enable, disable, update, or uninstall an install through `claude plugin`, with an explicit scope.
+  Project/local actions run from the recorded project directory and require a folder grant and
+  known settings. Unreadable settings display an Unknown state; installs without a recorded
+  project cannot be changed from Megatron.
+- Confirm uninstall actions, report CLI errors, prevent overlapping actions on the same install,
+  and refresh the inventory after success. Update feedback distinguishes a changed version from
+  one already current. Updates take effect after Claude Code restarts.
 
-### 🔍 Unified Skill Inventory
+Marketplace version indicators come from local marketplace data; they do not perform an online
+update check. Installing new plugins and managing marketplaces are outside the current UI.
 
-- Real-time catalog of all skills across **Global**, **Project**, and **Plugin** sources.
-- Native support for **Claude.ai Synced Skills** (`~/.claude/skills/synced/`) with dedicated indicators and lowest-priority source precedence.
-- Recursive detection for **Monorepo / Nested Skills** with automatic directory qualification upon name collisions (e.g. `apps/web:deploy`).
-- Displays dynamic source badges with repository names, plugin packages, read-only locks, and declared hook indicators.
-- Status badges (`Valid`, `Warnings`, `Errors`) highlighting skill health at a glance.
-- Visual warning badges for shadowed project skills overridden by same-named global skills.
-- Fluid active-state animations and keyboard navigation (Arrow keys, Enter, Esc).
-- Instant multi-column sorting (by name, status, source, description, tokens, and uses).
+### Usage analytics
 
-### 🛠️ Deterministic Skill Linter
+The Usage section has five panels. Activity, Cost, Models, and Skills each have independent rolling
+**24-hour**, **7-day**, and **30-day** windows.
 
-- Runs synchronously on startup, folder grant, and folder revocation with zero external network requests.
-- Validates skill health against 5 deterministic rules:
-  1. **YAML Frontmatter (`yaml-frontmatter`)**: Detects missing or malformed YAML frontmatter blocks in `SKILL.md`.
-  2. **Missing Description (`missing-description`)**: Flags empty or absent descriptions required for Claude Code auto-trigger matching.
-  3. **Broken File Paths (`broken-file-paths`)**: Validates markdown link targets and bundled script/reference asset paths on disk.
-  4. **Missing MCP Servers (`missing-mcp-server`)**: Cross-references referenced MCP tools (`mcp__<server>__*`) against `~/.claude.json` and project `.mcp.json` configurations.
-  5. **Name Collision & Shadowing (`name-collision`)**: Warns when project skills shadow global skills or share conflicting names.
-- Interactive `LintFindingsPanel` in both Skill Detail and File Viewer views with precise line numbers and explanations.
+| Panel            | Current insights                                                                                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Activity**     | Prompts, sessions, active days, slash commands, chronological hourly/daily charts, weekday-by-hour punchcard, and project rankings                                        |
+| **Cost**         | Estimated API-equivalent spend, model-family/version breakdown, hourly/daily trends, time-of-day punchcard, project rankings, and clickable hour/day cost details         |
+| **Models**       | Logical turns, distinct models, output tokens, model and reasoning-effort rankings, and a model-by-effort matrix                                                          |
+| **Skills**       | Invocations, unique skills, active sessions, trend drilldowns, top skills, trigger distribution, and proportional estimated cost attribution with a General work bucket   |
+| **Resident tax** | A recent cold session's measured first-turn cache write, with estimated Skills, Agents, SessionStart hooks, MCP instructions, project instructions, and remainder context |
 
-### 📈 Usage Analytics Dashboard
+Invocation dialogs show timestamps, project context, trigger types, and preceding prompts. The
+Usage invocation dialog supports text search and trigger filtering. Skills with an unambiguous
+identity open directly; ambiguous names open a filtered invocation list.
 
-Megatron includes a comprehensive local analytics engine with a secondary 220px navigation sidebar featuring 5 dedicated insight panels:
+Costs use Claude Code's recorded cumulative `cost-state`, with continuation lineages and subagent
+accounting handled to avoid double-counting. Recorded cost is distributed over activity timestamps
+and skills proportionally using output tokens. These breakdowns are approximate API-equivalent
+estimates, not subscription charges or actual invoices. Sessions without usable cost or timestamps
+are reported as coverage gaps rather than silently treated as zero spend.
 
-- **Activity**:
-  - Independent rolling window controls (**24 hours**, **7 days**, **30 days**).
-  - Prompt volume, active days, session counts, and slash command usage stats.
-  - Interactive 24-hour chronological hourly prompt bar chart.
-  - Daily prompt volume strip with weekend bands and interactive cursor scrubbing.
-  - 7×24 weekday-by-hour punchcard highlighting work rhythms and session clustering.
-  - Ranked project breakdown showing where your prompts land.
-- **Cost**:
-  - Estimated API-equivalent cost computed across all cost-tracked session history.
-  - Multi-color spend bar direct-labeled by model family (Sonnet, Opus, Haiku) using a CVD-validated categorical palette.
-  - Daily cost trend strip with weekend shading and today-so-far outline indicators.
-  - Ranked project cost distribution with ambient row fills and full-path tooltips.
-- **Models**:
-  - Logical turn counts, distinct models, and output token volume across 24h, 7d, and 30d windows.
-  - Ranked breakdown of turns by model and by reasoning effort tier (`xhigh`, `high`, `medium`, `low`, and `not_recorded`).
-  - Semantic **Model × Effort** matrix with column totals and horizontal scrolling.
-- **Skills**:
-  - Invocation volume, unique skills exercised, and active session metrics per window.
-  - Interactive **Invocations over time** trend chart with click-through drilldown into a chronological timeline modal (`SkillInvocationDialog`), showing exact timestamps, project basenames, trigger badges, and preceding prompt texts.
-  - **Top skills** ranking with automated disambiguation: opens skill details for unambiguous skills and opens a filtered invocation dialog for skills sharing identical names across multiple repositories.
-  - Invocation trigger distribution (User-invoked, Autonomous, and Subagent).
-  - Proportional **Estimated cost attribution** table using output-token weighting, largest-remainder cent allocation, and explicit general work accounting.
-- **Resident Tax**:
-  - Measures true cold-start context consumption from first-turn `cache_creation_input_tokens`.
-  - Additive monochrome composition bar itemized into 6 ledger categories: Skills, Agents, SessionStart Hooks, MCP Instructions, Project Instructions, and Remainder context.
-  - Sample provenance detailing sample time, project basename, normalized model, and Claude Code version.
+Skill invocation detection covers `Skill` tool calls, harness-native skill slash commands, and
+`attributionSkill` records. Triggers are classified as user-invoked, autonomous, or subagent;
+user-versus-autonomous attribution is a preceding-message heuristic.
 
-### 📋 Skill Detail & Context Budget Estimator
+### Context budget and navigation
 
-- Master-detail view with rich Markdown previewing, copyable commands, and formatted metadata.
-- **Token Budget Metrics**: Calculates estimated listing tokens (frontmatter description loaded into Claude system prompt) and estimated body tokens (`chars / 3.0` rounding, empirically calibrated against Claude Code's own `/context` output).
-- **Context Budget Triage Dialog**: Real-time sidebar readout and interactive `ContextBudgetDialog` measuring total resident listing tokens against the Claude Code 2,666-token limit, surfacing over/under-budget status and "Never used, heaviest first" triage.
-- **Invocation Analytics**: Real-time breakdown of total uses, manual vs. auto vs. subagent invocations, and per-project usage distribution.
-- **Plugin Hooks Manifest Detection**: Displays declared hook event subscriptions (e.g. `SessionStart`) parsed from `.claude-plugin/plugin.json`.
+- Estimate skill listing and full-document tokens using the calibrated `characters / 3` heuristic.
+- Show the enabled, model-invocable **global and plugin** listing budget in the Skills sidebar.
+  Its reference limit is 2,666 estimated tokens, derived from an 8,000-character budget; project
+  skills are excluded. The budget dialog accounts for disabled/user-invocable-only exclusions
+  and surfaces heavy, unused skills.
+- Search skills and plugins by name, description, project, or marketplace with **Cmd+K / Ctrl+K**.
+- Open Settings with **Cmd+, / Ctrl+,** to select Light, Dark, or System appearance, manage
+  repository grants, rescan, reveal the data folder, and see the app version.
+- Persist appearance and the last active section. Inventory and file-tree navigation support
+  keyboard controls, and the file-tree divider supports both pointer and keyboard resizing.
 
-### 🧩 Plugin Inventory & Management
+The listing budget is an estimate for a reference context window. Resident tax separately measures
+first-turn cache creation; its category breakdowns are estimates from injected text. A suitable
+cold-session sample is required before that panel can show data.
 
-- Dedicated plugin inventory with marketplace, installed version, scope, skill count, and enabled or disabled status.
-- Plugin detail view rolls up the skills it provides, their usage, and lint health.
-- Enable, disable, update, or uninstall user-scoped plugins through the local Claude CLI; Megatron refreshes the inventory after each successful action.
-- Version-aware update feedback clearly distinguishes a plugin already at the latest version from one updated to a newer version.
-- Success confirmations appear in a compact bottom-right stack for three seconds, can be dismissed manually, and keep up to three recent actions visible.
-
-### 🛡️ Tier-2 Repo Folder Management
-
-- Explicit permission boundary: auto-trusts Tier 1 (`~/.claude/*`) while requiring explicit user consent (Tier 2) to scan project repositories.
-- Built-in folder manager modal to add repository folders or revoke permissions with automatic index cleanup.
-
-### 📂 Interactive Skill Explorer & Code Previewer
-
-- Fast split-pane view with a resizable divider.
-- Virtualized directory tree powered by `@tanstack/react-virtual` with real-time file filtering.
-- Syntax-highlighted code viewer with binary file detection and size guards.
-
-### ⚡ Spotlight Command Palette (`⌘K` / `Ctrl+K`)
-
-- Instant fuzzy search across skill names, descriptions, project names, plugin names, and plugin marketplaces.
-- Jump directly into any skill detail or file from anywhere in the app.
-
-### 📊 Transcript Ingestion & Trigger Classification
-
-- Scans Claude Code session transcripts (`~/.claude/projects/*/*.jsonl`) and dedicated subagent sessions (`subagents/*.jsonl`).
-- Differentiates 3 distinct trigger classifications: **Manual** (`user_invoked`), **Auto** (`autonomous`), and **Subagent** (`subagent`).
-- Subagent double-count protection (`isSidechain === false` on parent sessions) and timestamp mtime-skipping for zero-overhead background scanning.
-
-### 🌓 Clean Modern UI & Theme Support
-
-- Dark mode and Light mode with persistent state storage.
-- Custom typography using Geist Sans & Geist Mono.
-- Fully accessible with Radix UI primitives and TanStack table models.
-
----
-
-## System Architecture
-
-Megatron follows a secure multi-process Electron architecture:
-
-```text
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                                       RENDERER                                         │
-│   React 19  •  TanStack Query / Table / Virtual  •  Tailwind CSS v4  •  Motion          │
-│   Navigation: AppRail (Skills • Plugins • Usage)  •  UsageSidebar                      │
-│   Views: SkillInventory  •  SkillDetail  •  PluginInventory  •  PluginDetail           │
-│          SkillFileViewer  •  UsageView (Activity, Cost, Models, Skills, Resident Tax)  │
-│   Modals: ContextBudgetDialog  •  SkillActivityDialog  •  SkillInvocationDialog         │
-│           ManageFoldersDialog  •  SettingsDialog       •  CommandPalette               │
-└───────────────────────────────────────────┬────────────────────────────────────────────┘
-                                            │ (Typed IPC via contextBridge)
-┌───────────────────────────────────────────▼────────────────────────────────────────────┐
-│                                       PRELOAD                                          │
-│   Narrow secure bridge exposing window.api (src/preload/index.ts)                      │
-└───────────────────────────────────────────┬────────────────────────────────────────────┘
-                                            │
-┌───────────────────────────────────────────▼────────────────────────────────────────────┐
-│                                     MAIN PROCESS                                       │
-│  ┌────────────────────────┐  ┌──────────────────────────────────────────────────────┐  │
-│  │ Permission Chokepoint  │  │ SQLite Database (better-sqlite3)                     │  │
-│  │ isPathAllowed()        │  │ • skills, sessions_meta, skill_invocations           │  │
-│  │ grantPath()            │  │ • plugin_registry, allowed_paths, lint_findings      │  │
-│  │ revokePath()           │  │ • session_cost, session_model_cost, turn_usage       │  │
-│  │                        │  │ • session_skill_cost, resident_context_sample       │  │
-│  │                        │  │ • prompt_history                                     │  │
-│  └───────────┬────────────┘  └──────────────────────────┬───────────────────────────┘  │
-│              │                                          │                              │
-│  ┌───────────▼──────────────────────────────────────────▼───────────────────────────┐  │
-│  │ Ingestion & Analysis Engines (Local-first, zero cloud telemetry)                  │  │
-│  │ • Skills Scanner        • Plugin Registry        • Plugin Actions (Claude CLI)   │  │
-│  │ • Transcript Ingest     • Cost-State Parser      • Turn-Usage Extractor          │  │
-│  │ • Prompt History Parser • Skill Cost Allocator   • Resident Context Analyzer     │  │
-│  │ • Deterministic Linter (5 static rules + MCP config resolver)                    │  │
-│  └──────────────────────────────────────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Security & Privacy
-
-- **Single Permission Chokepoint**: Every filesystem access routes strictly through `isPathAllowed()`.
-- **Local Analysis**: Linting, parsing, and trigger analysis are deterministic and local, with no external LLM calls or Megatron telemetry. Plugin actions are delegated to the user's local Claude CLI.
-- **Transient Local Index**: The SQLite database (`megatron.db`) is purely a regenerable cache; deleting it causes zero data loss.
-
----
-
-## Tech Stack
-
-| Layer                       | Technologies                                                                                                                                                                          |
-| :-------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Desktop Shell**           | [Electron 43](https://www.electronjs.org/), [electron-vite 5](https://electron-vite.org/)                                                                                             |
-| **UI Framework**            | [React 19](https://react.dev/), [TypeScript 5.9](https://www.typescriptlang.org/)                                                                                                     |
-| **Styling & Components**    | [Tailwind CSS v4](https://tailwindcss.com/), [shadcn/ui](https://ui.shadcn.com/), [Lucide Icons](https://lucide.dev/), [Motion](https://motion.dev/)                                  |
-| **Data Layer**              | [better-sqlite3](https://github.com/WiseLibs/better-sqlite3), [TanStack React Query v5](https://tanstack.com/query), [electron-store](https://github.com/sindresorhus/electron-store) |
-| **Tables & Virtualization** | [TanStack React Table v9](https://tanstack.com/table), [TanStack React Virtual v3](https://tanstack.com/virtual)                                                                      |
-| **Parsing & Rendering**     | [react-markdown](https://github.com/remarkjs/react-markdown), [remark-gfm](https://github.com/remarkjs/remark-gfm), [yaml](https://eemeli.org/yaml/)                                  |
-| **Testing & Tooling**       | [Vitest](https://vitest.dev/), [ESLint 9](https://eslint.org/), [Prettier](https://prettier.io/), [Playwright-Electron](https://playwright.dev/)                                      |
-
----
-
-## Directory Structure
-
-```text
-src/
-├── main/                          # Electron main process
-│   ├── db/                        # SQLite schemas, initialization, and queries
-│   │   ├── index.ts               # Database connection and initialization
-│   │   ├── schema.sql             # Table schemas, indexes, and views
-│   │   └── queries.ts             # Typed database read/write queries
-│   ├── ingest/                    # Ingestion and parsing engines
-│   │   ├── skills-scanner.ts      # Global, project, synced, and nested skill scanner
-│   │   ├── plugin-registry.ts     # Marketplace plugin registry and cache reader
-│   │   ├── transcript-scanner.ts  # Session transcript and subagent parser
-│   │   ├── prompt-history-scanner.ts # History.jsonl reader and slash-command classifier
-│   │   ├── cost-parser.ts         # Cost-state and turn-usage extractor
-│   │   ├── skill-cost-allocation.ts # Proportional session and timed skill cost engine
-│   │   ├── resident-context-parser.ts # Cold-session context attachment analyzer
-│   │   ├── claude-settings.ts     # Settings and enablement resolver
-│   │   ├── token-estimate.ts      # Calibrated token calculation
-│   │   └── scan-all.ts            # Sequential scan orchestrator
-│   ├── linter/                    # Deterministic skill linter engine
-│   │   ├── rules/                 # Static rules (yaml, description, paths, mcp, collisions)
-│   │   ├── frontmatter.ts         # Robust YAML frontmatter parser
-│   │   ├── mcp-config.ts          # Global & project MCP config reader
-│   │   └── index.ts               # Linter runner and finding reporter
-│   ├── chromium-cache.ts          # Disables Chromium HTTP cache for local bundle reliability
-│   ├── index.ts                   # Application lifecycle and IPC handlers
-│   ├── plugin-actions.ts          # Cross-platform Claude CLI plugin execution
-│   ├── permissions.ts             # Path validation and permission chokepoint
-│   ├── shell.ts                   # Protocol validation and external link opener
-│   ├── skill-files.ts             # Directory tree walk and file preview reader
-│   └── theme.ts                   # Theme and active section persistence
-├── preload/                       # Context-isolated IPC bridge
-│   ├── index.ts                   # window.api exposure
-│   └── index.d.ts                 # Global TypeScript declarations
-├── renderer/src/                  # React application
-│   ├── components/                # Reusable UI components
-│   │   ├── usage/                 # Usage analytics charts, punchcards, and sections
-│   │   ├── ui/                    # shadcn/ui primitives
-│   │   ├── AppRail.tsx            # Primary navigation rail (Skills, Plugins, Usage)
-│   │   ├── Sidebar.tsx            # Skills filter and budget sidebar
-│   │   ├── PluginSidebar.tsx      # Plugins filter sidebar
-│   │   ├── UsageSidebar.tsx       # Usage panels sidebar
-│   │   ├── CommandPalette.tsx     # Spotlight search dialog
-│   │   ├── ContextBudgetDialog.tsx # Listing token budget triage modal
-│   │   ├── ManageFoldersDialog.tsx # Repository grant management modal
-│   │   ├── SettingsDialog.tsx     # App settings modal
-│   │   ├── SkillActivityDialog.tsx # Lifetime invocation history modal (single skill)
-│   │   └── LintFindingsPanel.tsx  # Linter findings list
-│   ├── views/                     # Main view routers
-│   │   ├── SkillInventory.tsx     # Skills data table
-│   │   ├── SkillDetail.tsx        # Skill metadata and overview
-│   │   ├── SkillFileViewer.tsx    # Virtualized file explorer and code preview
-│   │   ├── PluginInventory.tsx    # Plugins data table
-│   │   ├── PluginDetail.tsx       # Plugin overview and provided skills
-│   │   └── UsageView.tsx          # Usage analytics dashboard
-│   ├── lib/                       # Pure utility helpers
-│   └── App.tsx                    # Root application component
-└── shared/                        # Shared contracts between Main, Preload, and Renderer
-    ├── ipc.ts                     # Type definitions and IPC channel constants
-    └── version.ts                 # Semantic version helpers
-```
-
----
-
-## Getting Started
+## Getting started
 
 ### Prerequisites
 
-- **Node.js**: `^22.0.0` (managed via `.nvmrc`)
-- **npm**: `^10.0.0` or `^11.0.0`
+- **Node.js 22.x**, as specified in `.nvmrc` and `package.json`.
+- **npm** and Git. Use the committed `package-lock.json` with `npm ci`.
+- Local Claude Code data to populate the inventory and analytics. Plugin actions additionally
+  require the `claude` executable on the PATH available to the desktop app.
 
-### Installation
+### Run locally
 
-1. **Clone the repository**:
+```powershell
+git clone https://github.com/Megatron-HQ/Megatron.git
+cd Megatron
+npm ci
+npm run dev
+```
 
-   ```bash
-   git clone https://github.com/Megatron-HQ/Megatron.git
-   cd Megatron
-   ```
+Installation automatically rebuilds Electron's native dependencies and configures the Git hook.
+Do not invoke `postinstall` or `prepare` separately. Dependency install-script approvals are
+recorded in `package.json`.
 
-2. **Install the locked dependencies**:
+On first launch, Megatron scans its allowed Claude Code locations. Open **Settings > Project
+folders > Manage** to grant repositories containing project skills or project/local plugin settings.
+The app also rescans when its window regains focus, when grants change, and after successful plugin
+actions. **Settings > Rescan now** provides a manual refresh; there is no continuous filesystem watcher.
 
-   ```bash
-   npm ci
-   ```
+If Electron's binary is missing or startup reports `Error: Electron uninstall`, follow
+[Environment setup](docs/environment-setup.md) to check install-script approval and extraction.
 
-   _(Git hooks and Electron app dependencies configure automatically.)_
+## Commands
 
-3. **Run in development mode**:
-   ```bash
-   npm run dev
-   ```
+| Command                  | Purpose                                                                                  |
+| ------------------------ | ---------------------------------------------------------------------------------------- |
+| `npm run dev`            | Launch Electron with renderer hot reload                                                 |
+| `npm run start`          | Preview a production build; run `npm run build` first                                    |
+| `npm run build`          | Run both type checks, then build with electron-vite                                      |
+| `npm run typecheck`      | Check the main/preload and renderer TypeScript projects                                  |
+| `npm run typecheck:node` | Check the main/preload TypeScript project                                                |
+| `npm run typecheck:web`  | Check the renderer TypeScript project                                                    |
+| `npm run lint`           | Run ESLint                                                                               |
+| `npm run format`         | Format the repository with Prettier                                                      |
+| `npm run test`           | Run Vitest tests                                                                         |
+| `npm run verify:visual`  | Build and capture Electron rendering evidence using Playwright                           |
+| `npm run build:unpack`   | Build and create an unpacked app with electron-builder `--dir`                           |
+| `npm run build:mac`      | Build and package for macOS using `electron-builder.yml`                                 |
+| `npm run build:icons`    | Regenerate icon outputs under Electron; the macOS `.icon` remains hand-assembled         |
+| `npm run db`             | Open the local index in DB Browser for SQLite on macOS, or the associated app on Windows |
+| `npm run db:reset`       | Delete the local index and SQLite sidecar files; also removes repository grants          |
+| `npm run explore:usage`  | Inspect real local Claude usage data and overwrite `scripts/explore-usage.report.md`     |
 
----
+### Verification
 
-## Available Commands
+```powershell
+npm run typecheck
+npm run lint
+npm run test
+npm run build
+```
 
-| Command                 | Description                                                  |
-| :---------------------- | :----------------------------------------------------------- |
-| `npm run dev`           | Launch Electron app with Hot Module Replacement (HMR)        |
-| `npm run start`         | Preview the production build with electron-vite              |
-| `npm run build`         | Run typechecks and build production bundle                   |
-| `npm run typecheck`     | Run TypeScript validation across both Node and Web projects  |
-| `npm run lint`          | Run ESLint across all files                                  |
-| `npm run format`        | Format the entire codebase with Prettier                     |
-| `npm run test`          | Run unit and integration test suite with Vitest              |
-| `npm run verify:visual` | Run visual smoke tests via Playwright-Electron               |
-| `npm run build:unpack`  | Create unpacked application build                            |
-| `npm run build:mac`     | Package distributable macOS DMG                              |
-| `npm run db`            | Open the local SQLite index in DB Browser for SQLite (macOS) |
-| `npm run db:reset`      | Reset and delete the local SQLite index cache                |
-| `npm run explore:usage` | Run local usage and cost data exploration harness            |
+CI runs the generated-mirror check, type checks, lint, and tests on `macos-latest` and
+`windows-latest`. Packaging and visual verification are separate from those CI checks.
 
----
+Vitest covers backend logic, shared utilities, and pure renderer helpers in `src/**/*.test.ts`.
+React component tests and behavioral UI E2E assertions are not part of the test suite. For renderer
+changes, run the app or use `npm run verify:visual`: the verifier launches an isolated profile,
+checks the supported window sizes, and writes screenshots and comparison evidence to
+`.visual-verify/`. Its screenshots still use local Claude data and require visual review.
+
+## Architecture
+
+Megatron is a single-package, ESM-only Electron application:
+
+```text
+React renderer -> typed window.api preload bridge -> Electron main process
+                                                    |
+                                      Permission-aware scanners and linter
+                                                    |
+                                          Local SQLite index
+
+Plugin management -> validated install action -> Claude CLI -> rescan
+```
+
+| Area                 | Implementation                                                                             |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| Desktop and build    | Electron 43, electron-vite 5, electron-builder                                             |
+| UI                   | React 19, TypeScript 5.9, Tailwind CSS v4, shadcn/ui with Radix primitives, Lucide, Motion |
+| Renderer state       | TanStack Query for IPC data; React state for local UI                                      |
+| Tables and file tree | TanStack Table v9; TanStack Virtual v3 for the file tree                                   |
+| Storage              | better-sqlite3 and electron-store preferences                                              |
+| Parsing and display  | YAML, react-markdown, remark-gfm, Geist Sans and Geist Mono                                |
+| Verification         | Vitest, ESLint, Prettier, Playwright's Electron support                                    |
+
+```text
+src/main/                 App lifecycle, validated IPC, permissions, CLI actions
+  db/                     SQLite schema, inventory/usage queries, cost windows
+  ingest/                 Skills, plugins, transcripts, history, cost/context extraction
+  linter/                 Five deterministic rules and MCP configuration resolution
+src/preload/              Context-isolated, typed window.api bridge
+src/renderer/src/         React views, components, charts, styles, and helpers
+  components/usage/       Usage charts and drilldown dialogs
+  components/ui/          Vendored shadcn/ui primitives
+src/shared/               IPC contracts and version helpers
+scripts/                  Database tools, icon generation, usage exploration
+docs/                     Architecture, feature contracts, and setup notes
+.claude/skills/           Project development workflows and visual verification
+.agents/skills/           Generated mirror of project development workflows
+.github/workflows/        macOS and Windows CI
+build/ and resources/     Packaging resources and app icons
+references/               Reference code outside the shipped application
+```
+
+### Local data, permissions, and scan integrity
+
+Claude data reads pass through `isPathAllowed()` and permission-aware filesystem helpers:
+
+- Tier 1 allows `~/.claude/{skills,plugins,projects}` plus the specific files
+  `~/.claude.json`, `~/.claude/settings.json`, and `~/.claude/history.jsonl`.
+- Tier 2 allows repository folders explicitly granted through the native folder picker.
+  Revoking a grant removes its project skill rows and refreshes the inventory.
+- Scanners follow symlinks rooted at allowed paths, with cycle protection. The permission check
+  applies to the discovered link path.
+
+The renderer has context isolation enabled and Node integration disabled. Its ESM preload is
+unsandboxed and exposes the application API without raw IPC or environment variables. IPC checks
+the trusted window's main frame, exact renderer URL, argument shapes, and matching plugin install.
+Navigation outside the app is blocked; HTTP(S) links open through the external browser.
+
+Analysis runs locally without Megatron telemetry or external LLM calls. Plugin actions delegate to
+the Claude CLI, which may use the network. The local index contains invocation arguments and
+preceding prompt excerpts; prompt-history rows and resident-context samples retain metadata or
+numeric measurements rather than full prompt/attachment text.
+
+Scans distinguish **complete**, **partial**, and **failed** outcomes. Unavailable reads, invalid
+settings or registries, and corrupt cost snapshots preserve usable cached data while readable sources
+can refresh. The app reports incomplete scans and offers rescan feedback in Settings. Transcript
+caching uses file modification times, sizes,
+and parser version; changed main/subagent data is reconciled transactionally, including resume
+replay deduplication. The index reflects retained Claude files, not a permanent history archive.
+
+File previews are bounded to 256 KiB per file and 4 MiB total content, with traversal limits of
+1,024 files, 4,096 entries, and 32 directory levels. Omitted preview content is marked explicitly.
+
+### Index location and recovery
+
+The database is `megatron.db` under Electron's user data directory. Default development locations:
+
+| Platform | Directory                                 |
+| -------- | ----------------------------------------- |
+| macOS    | `~/Library/Application Support/megatron/` |
+| Windows  | `%APPDATA%\megatron\`                     |
+
+Use **Settings > Reveal data folder** to locate the active profile. Preferences are stored
+separately in that folder.
+
+After a schema change or when rebuilding the index, close Megatron, run `npm run db:reset`, and
+relaunch. The command removes the database and its WAL, SHM, and journal sidecars. Source skills,
+plugins, and transcripts remain intact, but **repository folder grants are deleted** and must be
+added again. Scanned data rebuilds from the Claude files still present. Schema changes use this
+reset workflow rather than migrations.
+
+## Development documentation
+
+| Document                                                  | Covers                                                                         |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| [CLAUDE.md](CLAUDE.md)                                    | Repository rules and locked decisions; source for generated `AGENTS.md`        |
+| [Design system](DESIGN.md)                                | Visual language, components, layouts, and app icons                            |
+| [Skill scanner](docs/skill-scanner.md)                    | Sources, synced/nested skills, symlinks, and precedence                        |
+| [Transcript ingestion](docs/transcript-ingest.md)         | Invocation detection, trigger classification, and deduplication                |
+| [Data model](docs/data-model.md)                          | Index schema, plugin identity, and attribution joins                           |
+| [Usage analytics](docs/usage-analytics.md)                | Data sources, cost accounting, estimates, and deferred analytics               |
+| [Usage UI specification](docs/usage-view-ui-spec.md)      | Usage panel layout, chart vocabulary, tokens, and interactions                 |
+| [Security and scan integrity](docs/security-hardening.md) | IPC boundaries, cache preservation, resource bounds, and verification evidence |
+| [MVP build specification](docs/mvp-build-spec.md)         | Milestones, feature decisions, and testing scope                               |
+| [Environment setup](docs/environment-setup.md)            | Electron installation troubleshooting                                          |
+
+Edit `CLAUDE.md` and `.claude/skills/` as the instruction sources. The pre-commit hook regenerates
+and stages `AGENTS.md` and `.agents/skills/`; CI checks that those mirrors match. Do not hand-edit
+the generated copies or vendored `components/ui/` files.
 
 ## Founders
-
-Megatron is built by:
 
 - **Vijay Sai Chigullapally** — Co-founder
 - **Sairithik Komuravelly** — Co-founder
 
----
-
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+[MIT](LICENSE).
