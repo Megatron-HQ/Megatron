@@ -280,39 +280,37 @@ describe('scanSkills', () => {
     expect(allSkills()).toHaveLength(0)
   })
 
-  it.skipIf(process.platform === 'win32')(
-    'discovers a skill reached through a symlink whose real target lives outside the scanned root',
-    () => {
-      const root = join(tmpDir, 'skills')
-      mkdirSync(root, { recursive: true })
+  it('discovers an external linked skill only after its target is explicitly granted', () => {
+    const root = join(tmpDir, 'skills')
+    mkdirSync(root, { recursive: true })
 
-      // Real files live in a location that was never granted — only the symlink's
-      // own path (inside `root`) is checked against the allowlist. This matches how
-      // symlink-sync skill managers (e.g. the Vercel `skills` CLI, or `references/
-      // skills-manager`, whose default sync mode is symlink) lay skills out on disk.
-      const externalDir = mkdtempSync(join(tmpdir(), 'megatron-external-'))
-      try {
-        const realSkillDir = writeSkillDir(
-          externalDir,
-          'linked-skill',
-          '---\nname: linked-skill\ndescription: Reached via symlink\n---\nBody'
-        )
-        const linkPath = join(root, 'linked-skill')
-        symlinkSync(realSkillDir, linkPath, 'dir')
+    const externalDir = mkdtempSync(join(tmpdir(), 'megatron-external-'))
+    try {
+      const realSkillDir = writeSkillDir(
+        externalDir,
+        'linked-skill',
+        '---\nname: linked-skill\ndescription: Reached via symlink\n---\nBody'
+      )
+      const linkPath = join(root, 'linked-skill')
+      symlinkSync(realSkillDir, linkPath, process.platform === 'win32' ? 'junction' : 'dir')
 
-        scanSkills(db, [{ dir: root, sourceType: 'global' }])
+      scanSkills(db, [{ dir: root, sourceType: 'global' }])
+      expect(allSkills()).toHaveLength(0)
 
-        const rows = allSkills()
-        expect(rows).toHaveLength(1)
-        expect(rows[0].name).toBe('linked-skill')
-        expect(rows[0].description).toBe('Reached via symlink')
-        // Stored path is where the symlink sits, not the resolved external target.
-        expect(rows[0].source_path).toBe(linkPath)
-      } finally {
-        rmSync(externalDir, { recursive: true, force: true })
-      }
+      grantPath(externalDir)
+
+      scanSkills(db, [{ dir: root, sourceType: 'global' }])
+
+      const rows = allSkills()
+      expect(rows).toHaveLength(1)
+      expect(rows[0].name).toBe('linked-skill')
+      expect(rows[0].description).toBe('Reached via symlink')
+      // Stored path is where the symlink sits, not the resolved external target.
+      expect(rows[0].source_path).toBe(linkPath)
+    } finally {
+      rmSync(externalDir, { recursive: true, force: true })
     }
-  )
+  })
 
   it.skipIf(process.platform === 'win32')(
     'skips a dangling symlink in the scanned root without throwing',

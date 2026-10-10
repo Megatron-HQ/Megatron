@@ -239,12 +239,14 @@ export function readAllowedDirectory(
     if (!isPathAllowed(canonical)) return { entries: [], status: 'unavailable' }
     const directory = opendirSync(canonical)
     const entries: string[] = []
+    // Replay ownership must not depend on the filesystem's enumeration order.
     try {
       for (let entry = directory.readSync(); entry !== null; entry = directory.readSync()) {
-        if (entries.length >= maximumEntries) return { entries, status: 'unavailable' }
+        if (entries.length >= maximumEntries)
+          return { entries: entries.sort(), status: 'unavailable' }
         entries.push(entry.name)
       }
-      return { entries, status: 'ok' }
+      return { entries: entries.sort(), status: 'ok' }
     } finally {
       directory.closeSync()
     }

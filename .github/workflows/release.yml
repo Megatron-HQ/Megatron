@@ -11,11 +11,17 @@ jobs:
     environment: release
     strategy:
       matrix:
-        os: [macos-latest, windows-latest]
+        include:
+          - os: macos-latest
+            signing_certificate: MAC_CSC_LINK
+            signing_password: MAC_CSC_KEY_PASSWORD
+          - os: windows-latest
+            signing_certificate: WINDOWS_CSC_LINK
+            signing_password: WINDOWS_CSC_KEY_PASSWORD
     runs-on: ${{ matrix.os }}
     env:
-      CSC_LINK: ${{ runner.os == 'macOS' && secrets.MAC_CSC_LINK || secrets.WINDOWS_CSC_LINK }}
-      CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.MAC_CSC_KEY_PASSWORD || secrets.WINDOWS_CSC_KEY_PASSWORD }}
+      CSC_LINK: ${{ secrets[matrix.signing_certificate] }}
+      CSC_KEY_PASSWORD: ${{ secrets[matrix.signing_password] }}
       APPLE_ID: ${{ secrets.APPLE_ID }}
       APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
