@@ -238,6 +238,30 @@ async function skipWithoutGroupedImageRun(window) {
 /** @type {Scenario[]} */
 export const scenarios = [
   {
+    name: 'skill-activity-first-page',
+    screen: 'skill-detail',
+    shouldSkip: skipWithoutSkillUsage,
+    async run(window, app) {
+      await openSkillActivity(window, app, 'history-pages')
+      await window.getByRole('dialog').getByRole('radio', { name: 'All', exact: true }).click()
+      await window.getByRole('button', { name: 'Load more activity' }).scrollIntoViewIfNeeded()
+    }
+  },
+  {
+    name: 'skill-activity-next-page',
+    screen: 'skill-detail',
+    shouldSkip: skipWithoutSkillUsage,
+    async run(window, app) {
+      await openSkillActivity(window, app, 'history-pages')
+      await window.getByRole('dialog').getByRole('radio', { name: 'All', exact: true }).click()
+      await window.getByRole('button', { name: 'Load more activity' }).click()
+      await window.getByText('203 invocations', { exact: true }).waitFor()
+      await window.getByRole('dialog').evaluate((element) => {
+        element.scrollTop = 0
+      })
+    }
+  },
+  {
     name: 'inventory-load-error',
     screen: 'skill-inventory',
     async run(window, app) {
@@ -1184,6 +1208,14 @@ export const scenarios = [
     // `XHIGH / TOTAL`. Pointer parked off the table so row hover doesn't mask the selection.
     name: 'usage-models-effort-selected',
     screen: 'usage',
+    async shouldSkip(window) {
+      const overview = await window.evaluate(() => window.api.getUsageOverview())
+      return overview.models.last30d.byEffort.some(
+        (row) => row.effort === 'xhigh' && row.turnCount > 0
+      )
+        ? null
+        : 'no Xhigh effort recorded in local 30-day data'
+    },
     async run(window) {
       await openUsagePanel(window, 'Models')
       await window.getByRole('button', { name: /Xhigh/ }).first().click()

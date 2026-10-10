@@ -1,10 +1,11 @@
-import { app, shell, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, dialog, ipcMain, net, protocol, session } from 'electron'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import {
   canManagePluginInstall,
   isTrustedIpcSender,
   isTrustedRendererUrl,
+  resolveBundledAsset,
   validateIpcArguments
 } from './ipc-security'
 // Bundled at build time so it always matches package.json — app.getVersion() returns the
@@ -38,7 +39,13 @@ import {
   listSkills,
   removeAllowedPath
 } from './db/queries'
-import { grantPath, revokePath } from './permissions'
+import {
+  getGrantedPaths,
+  grantPath,
+  restoreGrantedPath,
+  revokePath,
+  securePrivateDataDirectory
+} from './permissions'
 import {
   resolveInitialSection,
   resolveInitialTheme,
@@ -46,17 +53,13 @@ import {
   setStoredTheme,
   type ThemeStore
 } from './theme'
-import { scanSkills } from './ingest/skills-scanner'
-import { scanPluginRegistry } from './ingest/plugin-registry'
-import { scanTranscripts } from './ingest/transcript-scanner'
-import { scanPromptHistory } from './ingest/prompt-history-scanner'
-import { runAllScans } from './ingest/scan-all'
-import { runLinter } from './linter'
+import { createScanController, startScanWorker } from './ingest/scan-all'
 import { readSkillFiles, readSkillMd } from './skill-files'
 import { openSafeExternal } from './shell'
 import { disablePlugin, enablePlugin, uninstallPlugin, updatePlugin } from './plugin-actions'
 import {
   IPC_CHANNELS,
+  INVOCATION_PAGE_SIZE,
   type AppSection,
   type OpenSkillMetaResult,
   type OpenSkillResult,
@@ -71,7 +74,15 @@ import {
 // Megatron's renderer is bundled locally, so an HTTP cache adds corruption risk without a
 // production benefit. This must run before Electron creates its default session.
 disableChromiumHttpCache(app.commandLine)
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'megatron', privileges: { standard: true, secure: true, supportFetchAPI: true } }
+])
+const APP_URL = 'megatron://app/index.html'
+const MIN_FOCUS_SCAN_INTERVAL_MS = 10_000
+const APP_CONTENT_SECURITY_POLICY =
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; worker-src 'none'"
 
+securePrivateDataDirectory(app.getPath('userData'), join(app.getPath('appData'), app.getName()))
 const themeStore: ThemeStore = new Store({ name: 'preferences' })
 let scanComplete = false
 let scanSummary: ScanSummary | undefined
@@ -133,15 +144,25 @@ function notifyScanComplete(): void {
   }
 }
 
-function scanAndNotify(): ScanSummary {
+const scans = createScanController(() =>
+  startScanWorker(join(import.meta.dirname, 'scan-worker.js'), {
+    databasePath: getDb().name,
+    grantedPaths: getGrantedPaths()
+  })
+)
+
+async function scanAndNotify(): Promise<ScanSummary> {
   const previousSuccess = scanSummary?.lastSuccessfulAt ?? null
-  scanSummary = runAllScans(
-    getDb(),
-    [scanSkills, scanPluginRegistry, scanTranscripts, scanPromptHistory, runLinter],
-    (error) => {
-      console.error('[ingest] scan failed', error)
+  try {
+    scanSummary = await scans.request()
+  } catch (error) {
+    console.error('[ingest] scan failed', error)
+    scanSummary = {
+      outcome: 'failed',
+      completedAt: new Date().toISOString(),
+      sources: [{ name: 'scanWorker', status: 'failed' }]
     }
-  )
+  }
   scanSummary.lastSuccessfulAt =
     scanSummary.outcome === 'complete' ? scanSummary.completedAt : previousSuccess
   scanComplete = true
@@ -162,17 +183,18 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     ...(process.platform === 'win32' ? { icon: windowsIcon } : {}),
     webPreferences: {
-      preload: join(import.meta.dirname, '../preload/index.mjs'),
+      preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: false
     }
   })
 
   const rendererUrl =
-    is.dev && process.env['ELECTRON_RENDERER_URL']
-      ? process.env['ELECTRON_RENDERER_URL']
-      : pathToFileURL(join(import.meta.dirname, '../renderer/index.html')).href
+    is.dev && process.env['ELECTRON_RENDERER_URL'] ? process.env['ELECTRON_RENDERER_URL'] : APP_URL
   trustedWindows.set(mainWindow.webContents, rendererUrl)
   mainWindow.webContents.on('destroyed', () => trustedWindows.delete(mainWindow.webContents))
   mainWindow.webContents.on('will-navigate', (event, url) => {
@@ -209,7 +231,7 @@ function createWindow(): void {
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(import.meta.dirname, '../renderer/index.html'))
+    mainWindow.loadURL(APP_URL)
   }
 }
 
@@ -217,6 +239,22 @@ function createWindow(): void {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+  session.defaultSession.setPermissionCheckHandler(() => false)
+  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) =>
+    callback(false)
+  )
+  session.defaultSession.setDevicePermissionHandler(() => false)
+  protocol.handle('megatron', async (request) => {
+    const asset = resolveBundledAsset(request.url, join(import.meta.dirname, '../renderer'))
+    if (request.method !== 'GET' || asset === null)
+      return new Response('Unavailable', { status: 404 })
+    // This capability serves only packaged assets; it never accepts a user filesystem path.
+    const response = await net.fetch(pathToFileURL(asset).href)
+    const headers = new Headers(response.headers)
+    headers.set('Content-Security-Policy', APP_CONTENT_SECURITY_POLICY)
+    headers.set('X-Content-Type-Options', 'nosniff')
+    return new Response(response.body, { status: response.status, headers })
+  })
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
 
@@ -259,10 +297,13 @@ app.whenReady().then(() => {
     }
   })
 
-  secureIpc.handle(IPC_CHANNELS.openSkillHistory, (_event, id: number): SkillInvocationEntry[] => {
-    const skill = getSkillById(getDb(), id)
-    return skill ? getSkillInvocationLog(getDb(), skill) : []
-  })
+  secureIpc.handle(
+    IPC_CHANNELS.openSkillHistory,
+    (_event, id: number, offset = 0): SkillInvocationEntry[] => {
+      const skill = getSkillById(getDb(), id)
+      return skill ? getSkillInvocationLog(getDb(), skill, INVOCATION_PAGE_SIZE, offset) : []
+    }
+  )
 
   secureIpc.on(IPC_CHANNELS.getInitialTheme, (event) => {
     event.returnValue = resolveInitialTheme(themeStore)
@@ -289,20 +330,21 @@ app.whenReady().then(() => {
       return listAllowedPaths(getDb())
     }
     const db = getDb()
+    await scans.cancel()
     for (const filePath of result.filePaths) {
-      grantPath(filePath)
-      addAllowedPath(db, filePath)
+      addAllowedPath(db, grantPath(filePath))
     }
-    scanAndNotify()
+    await scanAndNotify()
     return listAllowedPaths(db)
   })
 
-  secureIpc.handle(IPC_CHANNELS.revokeAllowedPath, (_event, path: string) => {
+  secureIpc.handle(IPC_CHANNELS.revokeAllowedPath, async (_event, path: string) => {
     const db = getDb()
+    await scans.cancel()
     revokePath(path)
     removeAllowedPath(db, path)
     deleteSkillsForProjectRoot(db, path)
-    scanAndNotify()
+    await scanAndNotify()
     return listAllowedPaths(db)
   })
 
@@ -320,25 +362,25 @@ app.whenReady().then(() => {
 
   secureIpc.handle(IPC_CHANNELS.enablePlugin, async (_event, input: PluginActionInput) => {
     const result = await enablePlugin(input)
-    if (result.ok) scanAndNotify()
+    if (result.ok) await scanAndNotify()
     return result
   })
 
   secureIpc.handle(IPC_CHANNELS.disablePlugin, async (_event, input: PluginActionInput) => {
     const result = await disablePlugin(input)
-    if (result.ok) scanAndNotify()
+    if (result.ok) await scanAndNotify()
     return result
   })
 
   secureIpc.handle(IPC_CHANNELS.updatePlugin, async (_event, input: PluginActionInput) => {
     const result = await updatePlugin(input)
-    if (result.ok) scanAndNotify()
+    if (result.ok) await scanAndNotify()
     return result
   })
 
   secureIpc.handle(IPC_CHANNELS.uninstallPlugin, async (_event, input: PluginActionInput) => {
     const result = await uninstallPlugin(input)
-    if (result.ok) scanAndNotify()
+    if (result.ok) await scanAndNotify()
     return result
   })
 
@@ -371,9 +413,7 @@ app.whenReady().then(() => {
     setStoredSection(themeStore, section)
   })
 
-  // runAllScans is fully synchronous, so scanAndNotify blocks until every scan and the
-  // linter finish — the renderer's await on this invoke is the completion signal, and the
-  // scan:complete broadcast it fires drives the query invalidation in App.tsx.
+  // Await the isolated scan; the completion broadcast invalidates renderer queries.
   secureIpc.handle(IPC_CHANNELS.rescan, () => scanAndNotify())
 
   // openPath on the data folder rather than showItemInFolder on the db file: the folder
@@ -390,13 +430,17 @@ app.whenReady().then(() => {
   setImmediate(() => {
     const allowed = listAllowedPaths(getDb())
     for (const row of allowed) {
-      grantPath(row.path)
+      restoreGrantedPath(row.path)
     }
-    scanAndNotify()
+    void scanAndNotify()
   })
 
+  let lastFocusScan = 0
   app.on('browser-window-focus', () => {
-    if (scanComplete) scanAndNotify()
+    if (scanComplete && Date.now() - lastFocusScan > MIN_FOCUS_SCAN_INTERVAL_MS) {
+      lastFocusScan = Date.now()
+      void scanAndNotify()
+    }
   })
 
   app.on('activate', function () {
@@ -413,6 +457,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+app.on('before-quit', () => {
+  void scans.cancel()
 })
 
 // In this file you can include the rest of your app's specific main process

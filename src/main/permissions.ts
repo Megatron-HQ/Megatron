@@ -1,16 +1,38 @@
 import {
   closeSync,
-  existsSync,
+  chmodSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  mkdirSync,
   openSync,
   readSync,
-  readdirSync,
+  opendirSync,
   realpathSync,
   statSync,
   type Stats
 } from 'fs'
 import { homedir } from 'os'
-import { resolve, sep } from 'path'
+import { isAbsolute, join, resolve, sep } from 'path'
 import { StringDecoder } from 'string_decoder'
+import { execFileSync } from 'child_process'
+
+const WINDOWS_CACHE_ACL_SCRIPT = `
+$ErrorActionPreference = 'Stop'
+$identitySid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$directoryAcl = [System.Security.AccessControl.DirectorySecurity]::new()
+$directoryAcl.SetSecurityDescriptorSddlForm('D:P(A;OICI;FA;;;' + $identitySid + ')(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)', [System.Security.AccessControl.AccessControlSections]::Access)
+if ($env:MEGATRON_PRIVATE_DATA_RESTRICT_DIRECTORY -eq '1') {
+[System.IO.Directory]::SetAccessControl($env:MEGATRON_PRIVATE_DATA_DIRECTORY, $directoryAcl)
+}
+if (![string]::IsNullOrEmpty($env:MEGATRON_PRIVATE_DATA_FILES)) {
+foreach ($file in $env:MEGATRON_PRIVATE_DATA_FILES.Split([char[]]@('|'), [System.StringSplitOptions]::RemoveEmptyEntries)) {
+  $fileAcl = [System.Security.AccessControl.FileSecurity]::new()
+  $fileAcl.SetSecurityDescriptorSddlForm('D:P(A;;FA;;;' + $identitySid + ')(A;;FA;;;SY)(A;;FA;;;BA)', [System.Security.AccessControl.AccessControlSections]::Access)
+  [System.IO.File]::SetAccessControl($file, $fileAcl)
+}
+}
+`
 
 const TIER_1_ROOTS = ['skills', 'plugins', 'projects'].map((dir) =>
   resolve(homedir(), '.claude', dir)
@@ -24,14 +46,30 @@ const TIER_1_FILES = [
   resolve(homedir(), '.claude/history.jsonl') // Prompt History, for the Usage view
 ]
 
-const grantedPaths = new Set<string>()
+const grantedPaths = new Map<string, string>()
+const MAX_DIRECTORY_ENTRIES = 20_000
 
-export function grantPath(path: string): void {
-  grantedPaths.add(resolve(path))
+export function grantPath(path: string): string {
+  let canonical = resolve(path)
+  try {
+    canonical = realpathSync(path)
+  } catch {
+    /* A not-yet-created grant remains anchored to its absolute path. */
+  }
+  grantedPaths.set(resolve(path), canonical)
+  return canonical
+}
+
+export function restoreGrantedPath(path: string): void {
+  const pinned = resolve(path)
+  grantedPaths.set(pinned, pinned)
 }
 
 export function revokePath(path: string): void {
-  grantedPaths.delete(resolve(path))
+  const normalized = normalizeFsPath(resolve(path))
+  for (const [selected, canonical] of grantedPaths)
+    if (normalizeFsPath(selected) === normalized || normalizeFsPath(canonical) === normalized)
+      grantedPaths.delete(selected)
 }
 
 export function resetGrantedPaths(): void {
@@ -39,7 +77,7 @@ export function resetGrantedPaths(): void {
 }
 
 export function getGrantedPaths(): string[] {
-  return [...grantedPaths]
+  return [...new Set(grantedPaths.values())]
 }
 
 function normalizeFsPath(p: string): string {
@@ -49,11 +87,133 @@ function normalizeFsPath(p: string): string {
 export function isPathAllowed(path: string): boolean {
   const resolved = normalizeFsPath(resolve(path))
   if (TIER_1_FILES.some((file) => normalizeFsPath(file) === resolved)) return true
-  for (const root of [...TIER_1_ROOTS, ...grantedPaths]) {
+  for (const root of [...TIER_1_ROOTS, ...grantedPaths.keys(), ...grantedPaths.values()]) {
     const normalizedRoot = normalizeFsPath(root)
     if (resolved === normalizedRoot || resolved.startsWith(normalizedRoot + sep)) return true
   }
   return false
+}
+
+// CLI discovery is a separate capability: candidate names come from the fixed resolver, not IPC.
+// Never grant these executable locations to the skill/file-viewing permission set.
+export function inspectCliCandidate(
+  candidate: string,
+  excludedDirectories: string[]
+): string | null {
+  if (!isAbsolute(candidate) || candidate.startsWith('\\\\')) return null
+  try {
+    const canonical = realpathSync(candidate)
+    const normalized = normalizeFsPath(canonical)
+    if (
+      excludedDirectories.some((directory) => {
+        const root = normalizeFsPath(resolve(directory))
+        let realRoot = root
+        try {
+          realRoot = normalizeFsPath(realpathSync(directory))
+        } catch {
+          /* Absent roots cannot contain an executable. */
+        }
+        return (
+          normalized === root ||
+          normalized.startsWith(root + sep) ||
+          normalized === realRoot ||
+          normalized.startsWith(realRoot + sep)
+        )
+      })
+    )
+      return null
+    return statSync(canonical).isFile() ? canonical : null
+  } catch {
+    return null
+  }
+}
+
+export function inspectCliDirectory(
+  candidate: string,
+  excludedDirectories: string[]
+): string | null {
+  if (!isAbsolute(candidate) || candidate.startsWith('\\\\')) return null
+  try {
+    const canonical = realpathSync(candidate)
+    const normalized = normalizeFsPath(canonical)
+    if (
+      excludedDirectories.some((directory) => {
+        let root = resolve(directory)
+        try {
+          root = realpathSync(directory)
+        } catch {
+          /* Keep the absolute exclusion for absent directories. */
+        }
+        const normalizedRoot = normalizeFsPath(root)
+        return normalized === normalizedRoot || normalized.startsWith(normalizedRoot + sep)
+      })
+    )
+      return null
+    return statSync(canonical).isDirectory() ? canonical : null
+  } catch {
+    return null
+  }
+}
+
+// An app-owned cache capability. Callers supply Electron's userData path, never an IPC path.
+export function securePrivateDataDirectory(directory: string, ownedRoot?: string): void {
+  let existed = false
+  try {
+    lstatSync(directory)
+    existed = true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  const restrictDirectory =
+    !existed ||
+    (ownedRoot !== undefined &&
+      normalizeFsPath(resolve(directory)) === normalizeFsPath(resolve(ownedRoot)))
+  mkdirSync(directory, { recursive: true, mode: 0o700 })
+  if (lstatSync(directory).isSymbolicLink()) throw new Error('Application data directory is linked')
+  const files: string[] = []
+  for (const name of ['megatron.db', 'megatron.db-wal', 'megatron.db-shm', 'preferences.json']) {
+    const file = join(directory, name)
+    try {
+      const stats = lstatSync(file)
+      if (stats.isSymbolicLink() || !stats.isFile() || stats.nlink > 1)
+        throw new Error('Application cache contains a linked or special file')
+      files.push(file)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+  }
+  if (process.platform !== 'win32') {
+    if (restrictDirectory) chmodSync(directory, 0o700)
+    for (const file of files) chmodSync(file, 0o600)
+  } else {
+    if (!restrictDirectory && files.length === 0) return
+    const powershell = join(
+      process.env.SystemRoot ?? 'C:\\Windows',
+      'System32',
+      'WindowsPowerShell',
+      'v1.0',
+      'powershell.exe'
+    )
+    execFileSync(
+      powershell,
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-EncodedCommand',
+        Buffer.from(WINDOWS_CACHE_ACL_SCRIPT, 'utf16le').toString('base64')
+      ],
+      {
+        windowsHide: true,
+        timeout: 10_000,
+        env: {
+          ...process.env,
+          MEGATRON_PRIVATE_DATA_DIRECTORY: directory,
+          MEGATRON_PRIVATE_DATA_RESTRICT_DIRECTORY: restrictDirectory ? '1' : '0',
+          MEGATRON_PRIVATE_DATA_FILES: files.join('|')
+        }
+      }
+    )
+  }
 }
 
 // Every other fs read must go through one of these rather than calling
@@ -69,10 +229,25 @@ export interface AllowedDirectoryRead {
   status: 'ok' | 'missing' | 'unavailable'
 }
 
-export function readAllowedDirectory(dirPath: string): AllowedDirectoryRead {
+export function readAllowedDirectory(
+  dirPath: string,
+  maximumEntries = MAX_DIRECTORY_ENTRIES
+): AllowedDirectoryRead {
   if (!isPathAllowed(dirPath)) return { entries: [], status: 'unavailable' }
   try {
-    return { entries: readdirSync(dirPath), status: 'ok' }
+    const canonical = realpathSync(dirPath)
+    if (!isPathAllowed(canonical)) return { entries: [], status: 'unavailable' }
+    const directory = opendirSync(canonical)
+    const entries: string[] = []
+    try {
+      for (let entry = directory.readSync(); entry !== null; entry = directory.readSync()) {
+        if (entries.length >= maximumEntries) return { entries, status: 'unavailable' }
+        entries.push(entry.name)
+      }
+      return { entries, status: 'ok' }
+    } finally {
+      directory.closeSync()
+    }
   } catch (error) {
     const code =
       error instanceof Error && 'code' in error ? (error as NodeJS.ErrnoException).code : undefined
@@ -81,24 +256,25 @@ export function readAllowedDirectory(dirPath: string): AllowedDirectoryRead {
 }
 
 export function allowedExistsSync(path: string): boolean {
-  return isPathAllowed(path) && existsSync(path)
+  return allowedRealpathSync(path) !== null
 }
 
 export function allowedStatSync(path: string): Stats | null {
   if (!isPathAllowed(path)) return null
   try {
-    return statSync(path)
+    const canonical = realpathSync(path)
+    return isPathAllowed(canonical) ? statSync(canonical) : null
   } catch {
     return null
   }
 }
 
-// Canonical paths let callers detect cycles while preserving the locked behavior of following a
-// symlink rooted at an allowed path. The permission check deliberately applies to the link path.
+// Linked skills require both their discovered path and their resolved target to be approved.
 export function allowedRealpathSync(path: string): string | null {
   if (!isPathAllowed(path)) return null
   try {
-    return realpathSync(path)
+    const canonical = realpathSync(path)
+    return isPathAllowed(canonical) ? canonical : null
   } catch {
     return null
   }
@@ -111,6 +287,38 @@ export function allowedReadFileSync(path: string): Buffer | null {
 const MAX_FILE_READ_BYTES = 16 * 1024 * 1024
 const MAX_TRANSCRIPT_LINE_BYTES = 64 * 1024 * 1024
 
+function openAllowedRegularFile(path: string): number {
+  const canonical = realpathSync(path)
+  if (!isPathAllowed(canonical))
+    throw Object.assign(new Error('Unapproved file target'), { code: 'EACCES' })
+  const before = statSync(canonical, { bigint: true })
+  if (!before.isFile())
+    throw Object.assign(new Error('Only regular files can be read'), { code: 'EACCES' })
+  const descriptor = openSync(
+    canonical,
+    constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)
+  )
+  try {
+    const opened = fstatSync(descriptor, { bigint: true })
+    const after = realpathSync(path)
+    const afterStats = statSync(after, { bigint: true })
+    if (
+      !opened.isFile() ||
+      opened.dev !== afterStats.dev ||
+      opened.ino !== afterStats.ino ||
+      opened.dev !== before.dev ||
+      opened.ino !== before.ino ||
+      normalizeFsPath(after) !== normalizeFsPath(canonical) ||
+      !isPathAllowed(after)
+    )
+      throw Object.assign(new Error('File target changed during open'), { code: 'EACCES' })
+    return descriptor
+  } catch (error) {
+    closeSync(descriptor)
+    throw error
+  }
+}
+
 export function readAllowedFile(
   path: string,
   maxBytes = MAX_FILE_READ_BYTES
@@ -121,7 +329,7 @@ export function readAllowedFile(
   if (!isPathAllowed(path)) return { status: 'unavailable', contents: null }
   let descriptor: number
   try {
-    descriptor = openSync(path, 'r')
+    descriptor = openAllowedRegularFile(path)
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
     return {
@@ -160,7 +368,7 @@ export function visitAllowedUtf8LinesSync(
 
   let fileDescriptor: number
   try {
-    fileDescriptor = openSync(path, 'r')
+    fileDescriptor = openAllowedRegularFile(path)
   } catch (error) {
     const code =
       error instanceof Error && 'code' in error ? (error as NodeJS.ErrnoException).code : undefined

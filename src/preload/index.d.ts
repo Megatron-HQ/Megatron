@@ -21,7 +21,7 @@ interface Api {
   listSkills: () => Promise<SkillsListResult>
   openSkill: (id: number) => Promise<OpenSkillResult | null>
   openSkillMeta: (id: number) => Promise<OpenSkillMetaResult | null>
-  openSkillHistory: (id: number) => Promise<SkillInvocationEntry[]>
+  openSkillHistory: (id: number, offset?: number) => Promise<SkillInvocationEntry[]>
   getInitialTheme: () => ThemePreference
   setTheme: (theme: ThemePreference) => Promise<void>
   listAllowedPaths: () => Promise<AllowedPathRow[]>

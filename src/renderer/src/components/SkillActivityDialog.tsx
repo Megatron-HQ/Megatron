@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery } from '@tanstack/react-query'
+import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
@@ -16,6 +17,7 @@ import { getFolderBasename } from '@/lib/source-name'
 import { TRIGGER_META } from '@/lib/trigger-meta'
 import { cn } from '@/lib/utils'
 import type { SkillInvocationEntry, TriggerType } from '../../../shared/ipc'
+import { INVOCATION_PAGE_SIZE } from '../../../shared/ipc'
 
 interface SkillActivityDialogProps {
   open: boolean
@@ -66,14 +68,22 @@ export function SkillActivityDialog({
   }
 
   const {
-    data: entries = [],
+    data,
     isPending,
-    isError
-  } = useQuery({
+    isError,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+    isFetchNextPageError
+  } = useInfiniteQuery({
     queryKey: ['skill-history', skillId],
-    queryFn: () => window.api.openSkillHistory(skillId),
+    queryFn: ({ pageParam }) => window.api.openSkillHistory(skillId, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, pages) =>
+      lastPage.length === INVOCATION_PAGE_SIZE ? pages.length * INVOCATION_PAGE_SIZE : undefined,
     enabled: open
   })
+  const entries = useMemo(() => data?.pages.flat() ?? [], [data])
 
   const needle = search.trim().toLowerCase()
   const isFiltering = needle !== '' || triggerFilter !== 'all'
@@ -103,6 +113,11 @@ export function SkillActivityDialog({
           <DialogTitle className="truncate pr-6">{skillName} · Activity</DialogTitle>
           <DialogDescription className="font-mono tabular-nums">{countLabel}</DialogDescription>
         </DialogHeader>
+        {hasNextPage && (
+          <p className="text-xs text-muted-foreground">
+            Showing loaded activity. Search and filters apply to these entries.
+          </p>
+        )}
 
         <div className="flex min-w-0 flex-col gap-2">
           <Input
@@ -139,7 +154,7 @@ export function SkillActivityDialog({
           </div>
         </div>
 
-        {isPending || isError ? (
+        {isPending || (isError && entries.length === 0) ? (
           <p role="status" className="border-t border-border pt-3 text-sm text-muted-foreground">
             {isPending
               ? 'Loading activity…'
@@ -166,6 +181,23 @@ export function SkillActivityDialog({
               ? 'No recorded activity yet.'
               : 'No activity matches your search.'}
           </p>
+        )}
+        {(hasNextPage || isFetchNextPageError) && (
+          <div className="border-t border-border pt-3">
+            {isFetchNextPageError && (
+              <p role="status" className="mb-2 text-xs text-muted-foreground">
+                Could not load more activity. Try again.
+              </p>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isFetchingNextPage}
+              onClick={() => void fetchNextPage()}
+            >
+              {isFetchingNextPage ? 'Loading…' : 'Load more activity'}
+            </Button>
+          </div>
         )}
       </DialogContent>
     </Dialog>

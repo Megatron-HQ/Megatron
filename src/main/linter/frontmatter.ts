@@ -1,4 +1,4 @@
-import { parse } from 'yaml'
+import { parseBoundedFrontmatter } from '../../shared/frontmatter'
 
 export function extractFrontmatterBlock(content: string): string | null {
   const withoutBom = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content
@@ -17,7 +17,7 @@ export function extractFrontmatterBlock(content: string): string | null {
 export function parseFrontmatterObject(block: string): Record<string, unknown> | null {
   let parsed: unknown
   try {
-    parsed = parse(block)
+    parsed = parseBoundedFrontmatter(block)
   } catch {
     return null
   }

@@ -26,6 +26,22 @@ globalThis.megatronVisualFixtures = {
       if (mode === 'error') throw new Error('Visual fixture: unavailable source')
       if (mode === 'pending') return new Promise(() => {})
       const result = await original(event, ...args)
+      if (mode === 'history-pages') {
+        const offset = channel === 'skills:openHistory' ? (args[1] ?? 0) : (args[0]?.offset ?? 0)
+        return Array.from({ length: offset === 0 ? 200 : 3 }, (_, index) => ({
+          preceding_user_text: `Synthetic activity ${offset + index + 1}`,
+          invoked_at: new Date(
+            Date.UTC(2026, 9, 10, 12, 0, 0) - (offset + index) * 1000
+          ).toISOString(),
+          trigger_type: 'user_invoked',
+          cwd: '/synthetic/project',
+          git_branch: 'main',
+          agent_id: null,
+          skillName: 'synthetic',
+          skillId: null,
+          sourceType: 'global'
+        }))
+      }
       if (mode === 'preview-limit' && result) {
         return {
           ...result,

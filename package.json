@@ -7,7 +7,7 @@
   "author": "Megatron-HQ",
   "license": "MIT",
   "engines": {
-    "node": "^22.0.0"
+    "node": "^22.12.0"
   },
   "scripts": {
     "format": "prettier --write .",
@@ -16,6 +16,8 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "test": "vitest run",
+    "test:package-security": "node --test scripts/verify-package.test.mjs scripts/release-check.test.mjs",
+    "verify:package": "node scripts/verify-package.mjs",
     "verify:visual": "node .claude/skills/visual-verify/verify.mjs",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
@@ -23,7 +25,8 @@
     "postinstall": "electron-builder install-app-deps",
     "prepare": "git config core.hooksPath .githooks",
     "build:unpack": "npm run build && electron-builder --dir",
-    "build:mac": "npm run build && electron-builder --mac",
+    "build:mac": "node scripts/release-check.mjs mac && npm run build && electron-builder --mac --publish never -c.forceCodeSigning=true && node scripts/verify-package.mjs dist --require-signed",
+    "build:win": "node scripts/release-check.mjs win && npm run build && electron-builder --win --publish never -c.forceCodeSigning=true && node scripts/verify-package.mjs dist/win-unpacked --require-signed",
     "build:icons": "electron scripts/build-icons.mjs",
     "db": "node scripts/db.mjs open",
     "db:reset": "node scripts/db.mjs reset",
@@ -50,6 +53,8 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@electron/asar": "3.4.1",
+    "@electron/fuses": "1.8.0",
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
     "@electron-toolkit/tsconfig": "^2.0.0",
@@ -58,7 +63,7 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
-    "electron": "^43.7.7",
+    "electron": "43.7.9",
     "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",
     "eslint": "^9.39.1",
@@ -77,9 +82,13 @@
     "vitest": "^5.0.3"
   },
   "allowScripts": {
-    "electron@43.7.7": true,
+    "electron@43.7.9": true,
     "better-sqlite3@13.0.3": true,
     "esbuild@0.25.12": true,
     "esbuild@0.28.2": true
+  },
+  "overrides": {
+    "@electron/get": "5.1.0",
+    "source-map-js": "1.2.2"
   }
 }

@@ -50,16 +50,17 @@ export function ManageFoldersDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Project Folders</DialogTitle>
           <DialogDescription>
             Megatron scans granted repository roots for{' '}
-            <code className="font-mono text-xs">.claude/skills</code>.
+            <code className="font-mono text-xs">.claude/skills</code>. Linked skills outside these
+            folders require granting their target folder too.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex max-h-[320px] flex-col gap-2 overflow-y-auto py-2">
+        <div className="flex min-h-0 max-h-[320px] flex-col gap-2 overflow-y-auto py-2">
           {folders.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-8 text-center">
               <Folder className="size-8 text-muted-foreground/60" />

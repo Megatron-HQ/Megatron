@@ -1,0 +1,77 @@
+name: Signed release build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    environment: release
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CSC_LINK: ${{ runner.os == 'macOS' && secrets.MAC_CSC_LINK || secrets.WINDOWS_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.MAC_CSC_KEY_PASSWORD || secrets.WINDOWS_CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      MEGATRON_WINDOWS_PUBLISHER: ${{ vars.MEGATRON_WINDOWS_PUBLISHER }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Require signing credentials
+        shell: pwsh
+        run: |
+          $required = @('CSC_LINK', 'CSC_KEY_PASSWORD')
+          if ($IsMacOS) { $required += @('APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID') }
+          else { $required += @('MEGATRON_WINDOWS_PUBLISHER') }
+          foreach ($name in $required) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Missing release setting: $name"
+            }
+          }
+      - run: npm ci
+      - run: npm audit --audit-level=moderate
+      - run: node .githooks/pre-commit --check
+      - run: npm run lint
+      - run: npm test
+      - run: npm run test:package-security
+      - run: npm run build
+      - if: runner.os == 'Windows'
+        run: npx electron-builder --win --publish never -c.forceCodeSigning=true
+      - if: runner.os == 'macOS'
+        run: npx electron-builder --mac dmg --publish never -c.forceCodeSigning=true
+      - if: runner.os == 'Windows'
+        run: npm run verify:package -- dist/win-unpacked --require-signed
+      - if: runner.os == 'macOS'
+        run: npm run verify:package -- dist --require-signed
+      - name: Staple and validate the DMG
+        if: runner.os == 'macOS'
+        shell: pwsh
+        run: |
+          $images = Get-ChildItem -LiteralPath dist -Filter '*.dmg'
+          if ($images.Count -eq 0) { throw 'Notarized DMG is missing' }
+          foreach ($image in $images) {
+            & /usr/bin/xcrun notarytool submit $image.FullName --apple-id $env:APPLE_ID --password $env:APPLE_APP_SPECIFIC_PASSWORD --team-id $env:APPLE_TEAM_ID --wait
+            if ($LASTEXITCODE -ne 0) { throw 'DMG notarization failed' }
+            & /usr/bin/codesign --verify --strict $image.FullName
+            if ($LASTEXITCODE -ne 0) { throw 'DMG signature verification failed' }
+            & /usr/bin/xcrun stapler staple $image.FullName
+            if ($LASTEXITCODE -ne 0) { throw 'DMG stapling failed' }
+            & /usr/bin/xcrun stapler validate $image.FullName
+            if ($LASTEXITCODE -ne 0) { throw 'DMG staple validation failed' }
+          }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: signed-${{ runner.os }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+          if-no-files-found: error

@@ -2,6 +2,7 @@ import { execFile } from 'child_process'
 import { isAbsolute } from 'path'
 import { allowedStatSync, isPathAllowed } from './permissions'
 import type { PluginActionInput, PluginActionResult } from '../shared/ipc'
+import { resolveClaudeCommand } from './claude-cli'
 
 const CLAUDE_NOT_FOUND_MESSAGE =
   'Claude Code CLI was not found. Install Claude Code and ensure `claude` is on your PATH.'
@@ -22,7 +23,7 @@ const ACTION_IN_PROGRESS_MESSAGE =
   'Another action is already running for this plugin. Wait for it to finish.'
 
 const claudeOptions = {
-  shell: process.platform === 'win32',
+  shell: false,
   timeout: 300_000,
   windowsHide: true
 }
@@ -43,14 +44,22 @@ function actionError(
 }
 
 function runClaudePlugin(args: string[], cwd?: string): Promise<PluginActionResult> {
-  // cwd is an execFile option, not part of the command line, so it never reaches the cmd.exe
-  // parsing that `shell: true` enables on Windows — the metacharacter check below guards only
-  // the arguments that do.
-  const options = cwd === undefined ? claudeOptions : { ...claudeOptions, cwd }
+  const command = resolveClaudeCommand(cwd)
+  if (command === null) return Promise.resolve({ ok: false, stderr: CLAUDE_NOT_FOUND_MESSAGE })
+  const options = {
+    ...claudeOptions,
+    env: command.environment,
+    ...(cwd === undefined ? {} : { cwd })
+  }
   return new Promise((resolve) => {
-    execFile('claude', args, options, (error, _stdout, stderr) => {
-      resolve(error ? { ok: false, stderr: actionError(error, stderr) } : { ok: true })
-    })
+    execFile(
+      command.executable,
+      [...command.prefixArguments, ...args],
+      options,
+      (error, _stdout, stderr) => {
+        resolve(error ? { ok: false, stderr: actionError(error, stderr) } : { ok: true })
+      }
+    )
   })
 }
 

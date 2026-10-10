@@ -26,7 +26,7 @@ import { evaluateMainProcess, getWindowSizes } from './window-sizes.mjs'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../..')
 const OUT_DIR = join(REPO_ROOT, '.visual-verify')
-const SETTLE_TIMEOUT_MS = 15_000
+const SETTLE_TIMEOUT_MS = 75_000
 
 // A sibling of OUT_DIR, never nested inside it — OUT_DIR gets rm -rf'd at the
 // start of every run (see main()), so a baseline stored inside it would be
@@ -49,12 +49,14 @@ const DIFF_PIXEL_FLOOR = 2000
 /** Waits past the loading skeleton into whichever real state comes next. */
 async function waitForSettle(window) {
   await window.waitForFunction(
-    () => {
+    async () => {
+      if (!(await window.api.listSkills()).scanComplete) return false
       if (document.querySelector('[data-slot="skeleton"]')) return false
       const hasRow = document.querySelector('tbody tr') !== null
       const hasEmptyState = /no .*skills found/i.test(document.body.textContent ?? '')
       return hasRow || hasEmptyState
     },
+    undefined,
     { timeout: SETTLE_TIMEOUT_MS }
   )
 }
@@ -367,7 +369,7 @@ async function main() {
     printSummary(written, skipped, defects, diff, orphanBaselines, scope)
   } finally {
     await app?.close()
-    await rm(userDataDir, { recursive: true, force: true })
+    await rm(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
   }
 }
 

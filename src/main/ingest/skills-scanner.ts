@@ -30,23 +30,28 @@ const NESTED_SEARCH_SKIP_DIRS = new Set([
   '.next',
   '.claude'
 ])
+const DEFAULT_DISCOVERY_LIMITS = { maxDepth: 64, maxDirectories: 50_000 }
 
 // Nested `.claude/skills/` directories below a project's top-level one. The top-level
 // `<repoRoot>/.claude/skills` itself is handled separately in defaultSkillRoots() (it must be a
 // root even before the repo has ever been scanned, so it can't depend on a real walk finding
 // it) — this only looks for further ones nested below repoRoot's own subdirectories.
 //
-// Unbounded depth (a monorepo's real package nesting isn't predictable), guarded against a
-// symlink cycle by tracking visited realpaths — preserves the locked "symlinks are followed"
-// decision (docs/skill-scanner.md) while making a cycle a no-op instead of a hang.
+// Directory/depth budgets report partial discovery; canonical targets must be approved.
+// Tracking realpaths makes linked cycles a no-op.
 export function findNestedSkillsDirs(
   repoRoot: string,
-  onUnavailable: () => void = () => undefined
+  onUnavailable: () => void = () => undefined,
+  limits = DEFAULT_DISCOVERY_LIMITS
 ): string[] {
   const found: string[] = []
   const visitedRealPaths = new Set<string>()
 
-  function walk(dir: string): void {
+  function walk(dir: string, depth: number): void {
+    if (depth > limits.maxDepth || visitedRealPaths.size >= limits.maxDirectories) {
+      onUnavailable()
+      return
+    }
     const real = allowedRealpathSync(dir)
     if (real === null) {
       if (readAllowedDirectory(dir).status === 'unavailable') onUnavailable()
@@ -74,11 +79,11 @@ export function findNestedSkillsDirs(
       const skillsDir = join(entryPath, '.claude', 'skills')
       if (allowedExistsSync(skillsDir)) found.push(skillsDir)
 
-      walk(entryPath)
+      walk(entryPath, depth + 1)
     }
   }
 
-  walk(repoRoot)
+  walk(repoRoot, 0)
   return found
 }
 

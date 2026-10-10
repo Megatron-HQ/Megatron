@@ -1,6 +1,6 @@
 import { join, relative, sep } from 'path'
 import {
-  allowedReaddirSync,
+  readAllowedDirectory,
   readAllowedFile,
   allowedRealpathSync,
   allowedStatSync,
@@ -59,7 +59,8 @@ function walk(
   depth: number
 ): boolean {
   if (depth > MAX_PREVIEW_DEPTH) return false
-  const entries = allowedReaddirSync(dir).sort((a, b) =>
+  const directory = readAllowedDirectory(dir, MAX_PREVIEW_ENTRIES - budget.entries)
+  const entries = directory.entries.sort((a, b) =>
     a === 'SKILL.md' ? -1 : b === 'SKILL.md' ? 1 : a.localeCompare(b)
   )
   for (const entryName of entries) {
@@ -82,7 +83,7 @@ function walk(
       files.push(file)
     }
   }
-  return true
+  return directory.status === 'ok'
 }
 
 function readOneFile(

@@ -1,5 +1,9 @@
 import { basename, join } from 'path'
-import { parse } from 'yaml'
+import {
+  FrontmatterLimitError,
+  parseBoundedFrontmatter,
+  stringifyBoundedMetadata
+} from '../../shared/frontmatter'
 import { allowedReadFileSync } from '../permissions'
 
 export interface ParsedSkill {
@@ -64,7 +68,7 @@ function parseFrontmatter(content: string, fallbackName: string): ParsedFrontmat
 
   let parsed: unknown
   try {
-    parsed = parse(block)
+    parsed = parseBoundedFrontmatter(block)
   } catch {
     return defaults
   }
@@ -87,9 +91,9 @@ function parseFrontmatter(content: string, fallbackName: string): ParsedFrontmat
     !Array.isArray(record.metadata)
   ) {
     try {
-      metadata_json = JSON.stringify(record.metadata)
+      metadata_json = stringifyBoundedMetadata(record.metadata)
     } catch (error) {
-      if (!(error instanceof TypeError)) throw error
+      if (!(error instanceof TypeError) && !(error instanceof FrontmatterLimitError)) throw error
     }
   }
   // Strict `=== true`: YAML parses the bare `true` token as a boolean; a quoted "true", a

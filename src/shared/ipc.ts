@@ -155,7 +155,11 @@ export interface SkillInvocationSliceInput {
   startAt: string
   endAt: string
   skillName?: string
+  offset?: number
 }
+
+export const INVOCATION_PAGE_SIZE = 200
+export const MAX_INVOCATION_OFFSET = 10_000_000
 
 export interface SkillUsageDetail {
   byTriggerType: TriggerTypeCount[]

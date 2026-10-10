@@ -95,18 +95,47 @@ function compactRecord(record: Record<string, unknown>): Record<string, unknown>
   return { ...record, message: { ...message, content } }
 }
 
-function parseLines(filePath: string): Record<string, unknown>[] | null {
+export interface TranscriptLimits {
+  maxRecords: number
+  maxRetainedBytes: number
+}
+
+const DEFAULT_TRANSCRIPT_LIMITS: TranscriptLimits = {
+  maxRecords: 200_000,
+  maxRetainedBytes: 128 * 1024 * 1024
+}
+
+class TranscriptLimitError extends Error {}
+
+function parseLines(
+  filePath: string,
+  limits = DEFAULT_TRANSCRIPT_LIMITS
+): Record<string, unknown>[] | null {
   const records: Record<string, unknown>[] = []
-  const status = visitAllowedUtf8LinesSync(filePath, (line) => {
-    if (line.trim() === '') return
-    try {
-      const parsed: unknown = JSON.parse(line)
-      if (isRecord(parsed)) records.push(compactRecord(parsed))
-    } catch {
-      return
-    }
-  })
-  return status === 'ok' ? records : null
+  let retainedBytes = 0
+  try {
+    const status = visitAllowedUtf8LinesSync(filePath, (line) => {
+      if (line.trim() === '') return
+      try {
+        const parsed: unknown = JSON.parse(line)
+        if (isRecord(parsed)) {
+          const compact = compactRecord(parsed)
+          retainedBytes += Buffer.byteLength(JSON.stringify(compact))
+          if (records.length >= limits.maxRecords || retainedBytes > limits.maxRetainedBytes)
+            throw new TranscriptLimitError('Transcript work limit reached')
+          records.push(compact)
+        }
+      } catch (error) {
+        if (error instanceof TranscriptLimitError) throw error
+        if (!(error instanceof SyntaxError)) throw error
+        return
+      }
+    })
+    return status === 'ok' ? records : null
+  } catch (error) {
+    if (error instanceof TranscriptLimitError) return null
+    throw error
+  }
 }
 
 function extractSession(records: Record<string, unknown>[]): TranscriptSession | null {
@@ -377,12 +406,15 @@ function extractInvocations(
     .map((candidate) => candidate.invocation)
 }
 
-export function parseTranscript(filePath: string): TranscriptParse {
+export function parseTranscript(
+  filePath: string,
+  limits = DEFAULT_TRANSCRIPT_LIMITS
+): TranscriptParse {
   if (!isPathAllowed(filePath)) {
     return { session: null, invocations: [], turns: [], cost: null, resident: null }
   }
 
-  const records = parseLines(filePath)
+  const records = parseLines(filePath, limits)
   if (records === null) {
     return { session: null, invocations: [], turns: [], cost: null, resident: null }
   }

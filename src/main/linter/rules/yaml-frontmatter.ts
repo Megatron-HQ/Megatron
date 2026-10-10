@@ -1,4 +1,8 @@
-import { parse } from 'yaml'
+import {
+  FrontmatterLimitError,
+  parseBoundedFrontmatter,
+  stringifyBoundedMetadata
+} from '../../../shared/frontmatter'
 import type { LintRule, LintFindingInput } from '../types'
 import { extractFrontmatterBlock } from '../frontmatter'
 import { accessSkillMd } from '../skill-md'
@@ -7,11 +11,10 @@ export const yamlFrontmatterRule: LintRule = {
   id: 'yaml-frontmatter',
   name: 'YAML Frontmatter Validation',
   run: (skill): LintFindingInput[] => {
-    if (skill.source_type === 'plugin') {
-      return []
-    }
+    const plugin = skill.source_type === 'plugin'
 
     const accessed = accessSkillMd(skill.source_path)
+    if (plugin && accessed.status !== 'ok') return []
     if (accessed.status === 'denied') return []
     if (accessed.status === 'missing') {
       return [
@@ -42,6 +45,7 @@ export const yamlFrontmatterRule: LintRule = {
 
     const block = extractFrontmatterBlock(accessed.content)
     if (block === null) {
+      if (plugin) return []
       return [
         {
           skill_id: skill.id,
@@ -56,11 +60,12 @@ export const yamlFrontmatterRule: LintRule = {
     }
 
     try {
-      const parsed = parse(block)
+      const parsed = parseBoundedFrontmatter(block)
       // JSON-backed metadata cannot represent YAML alias cycles.
       if (typeof parsed === 'object' && parsed !== null && 'metadata' in parsed)
-        JSON.stringify(parsed.metadata)
+        stringifyBoundedMetadata(parsed.metadata)
       if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        if (plugin) return []
         return [
           {
             skill_id: skill.id,
@@ -74,6 +79,8 @@ export const yamlFrontmatterRule: LintRule = {
         ]
       }
     } catch (err) {
+      if (plugin && !(err instanceof FrontmatterLimitError) && !(err instanceof TypeError))
+        return []
       const message = err instanceof Error ? err.message : 'Invalid YAML syntax'
       return [
         {

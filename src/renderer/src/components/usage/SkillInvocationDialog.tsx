@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery } from '@tanstack/react-query'
+import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
@@ -16,6 +17,7 @@ import { getFolderBasename, getSkillDisplayName } from '@/lib/source-name'
 import { TRIGGER_META } from '@/lib/trigger-meta'
 import { cn } from '@/lib/utils'
 import type { SkillInvocationRecord, TriggerType } from '../../../../shared/ipc'
+import { INVOCATION_PAGE_SIZE } from '../../../../shared/ipc'
 
 export interface SkillInvocationSelection {
   title: string
@@ -58,14 +60,23 @@ export function SkillInvocationDialog({
   const [search, setSearch] = useState('')
   const [triggerFilter, setTriggerFilter] = useState<TriggerFilter>('all')
   const {
-    data: entries = [],
+    data,
     isPending,
-    isError
-  } = useQuery({
+    isError,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+    isFetchNextPageError
+  } = useInfiniteQuery({
     queryKey: ['usage-skill-invocations', selection.startAt, selection.endAt, selection.skillName],
-    queryFn: () => window.api.getUsageSkillInvocations(selection),
+    queryFn: ({ pageParam }) =>
+      window.api.getUsageSkillInvocations({ ...selection, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, pages) =>
+      lastPage.length === INVOCATION_PAGE_SIZE ? pages.length * INVOCATION_PAGE_SIZE : undefined,
     enabled: open
   })
+  const entries = useMemo(() => data?.pages.flat() ?? [], [data])
   const needle = search.trim().toLowerCase()
   const filtered = useMemo(
     () =>
@@ -88,6 +99,11 @@ export function SkillInvocationDialog({
           <DialogTitle className="truncate pr-6">{selection.title} · Skill invocations</DialogTitle>
           <DialogDescription className="font-mono tabular-nums">{countLabel}</DialogDescription>
         </DialogHeader>
+        {hasNextPage && (
+          <p className="text-xs text-muted-foreground">
+            Showing loaded invocations. Search and filters apply to these entries.
+          </p>
+        )}
         {selection.note && <p className="text-[12px] text-muted-foreground">{selection.note}</p>}
         <div className="flex min-w-0 flex-col gap-2">
           <Input
@@ -127,7 +143,7 @@ export function SkillInvocationDialog({
               <Skeleton key={index} className="h-14 w-full" />
             ))}
           </div>
-        ) : isError ? (
+        ) : isError && entries.length === 0 ? (
           <p className="border-t border-border pt-3 text-sm text-muted-foreground">
             Could not load skill invocations.
           </p>
@@ -174,6 +190,23 @@ export function SkillInvocationDialog({
                 </div>
               )
             })}
+          </div>
+        )}
+        {(hasNextPage || isFetchNextPageError) && (
+          <div className="border-t border-border pt-3">
+            {isFetchNextPageError && (
+              <p role="status" className="mb-2 text-xs text-muted-foreground">
+                Could not load more invocations. Try again.
+              </p>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isFetchingNextPage}
+              onClick={() => void fetchNextPage()}
+            >
+              {isFetchingNextPage ? 'Loading…' : 'Load more invocations'}
+            </Button>
           </div>
         )}
       </DialogContent>

@@ -207,6 +207,37 @@ function shouldSkipMissingPath(
   return false
 }
 
+export function extractMarkdownLinkTargets(line: string): string[] {
+  const targets: string[] = []
+  let labelDepth = 0
+  let targetStart = -1
+  let targetDepth = 0
+  for (let index = 0; index < line.length; index++) {
+    const character = line[index]
+    if (character === '\\') {
+      index++
+      continue
+    }
+    if (targetStart !== -1) {
+      if (character === '(') targetDepth++
+      if (character === ')' && --targetDepth === 0) {
+        if (index > targetStart) targets.push(line.slice(targetStart, index))
+        targetStart = -1
+      }
+      continue
+    }
+    if (character === '[') labelDepth++
+    if (character !== ']' || labelDepth === 0) continue
+    labelDepth--
+    if (labelDepth === 0 && line[index + 1] === '(') {
+      targetStart = index + 2
+      targetDepth = 1
+      index++
+    }
+  }
+  return targets
+}
+
 export const brokenFilePathsRule: LintRule = {
   id: 'broken-file-paths',
   name: 'Broken File Path References',
@@ -229,10 +260,7 @@ export const brokenFilePathsRule: LintRule = {
       }
 
       // 1. Check markdown links [text](path)
-      const mdLinkRegex = /\[[^\]]*\]\(([^)]+)\)/g
-      let match: RegExpExecArray | null
-      while ((match = mdLinkRegex.exec(line)) !== null) {
-        const rawTarget = match[1]
+      for (const rawTarget of extractMarkdownLinkTargets(line)) {
         const target = cleanLinkTarget(rawTarget)
         if (
           !target ||
@@ -269,6 +297,7 @@ export const brokenFilePathsRule: LintRule = {
 
       // 2. Check backtick paths `path/to/file`
       const backtickRegex = /`([^`]+)`/g
+      let match: RegExpExecArray | null
       while ((match = backtickRegex.exec(line)) !== null) {
         const candidate = match[1]
         const { isCandidate, cleanPath } = isSkillRelativeCandidate(candidate)

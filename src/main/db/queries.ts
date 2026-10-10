@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import { INVOCATION_PAGE_SIZE, MAX_INVOCATION_OFFSET } from '../../shared/ipc'
 import { dirname, join, resolve, sep } from 'path'
 import { CHARS_PER_TOKEN } from '../ingest/skill-parser'
 import { estimateResidentTokens } from '../ingest/token-estimate'
@@ -433,17 +434,21 @@ export function getSkillUsageDetail(db: Database.Database, skill: SkillRow): Ski
 export function getSkillInvocationLog(
   db: Database.Database,
   skill: SkillRow,
-  limit?: number
+  limit = INVOCATION_PAGE_SIZE,
+  offset = 0
 ): SkillInvocationEntry[] {
   if (skill.shadowed_by_skill_id !== null) return []
 
   const scoped = skill.source_type === 'project' && skill.project_root !== null
   const scopeClause = scoped ? `AND ${PARAMETERIZED_PROJECT_PATH_SCOPE}` : ''
-  const limitClause = limit === undefined ? '' : 'LIMIT @limit'
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > MAX_INVOCATION_OFFSET)
+    throw new RangeError('Invalid history offset')
+  const limitClause = 'LIMIT @limit OFFSET @offset'
 
   const params: Record<string, string | number> = { skillName: skill.name }
   if (scoped) params.root = skill.project_root as string
-  if (limit !== undefined) params.limit = limit
+  params.limit = Math.min(limit, INVOCATION_PAGE_SIZE)
+  params.offset = offset
 
   return db
     .prepare(
@@ -462,7 +467,7 @@ export function getSkillInvocationLog(
        FROM skill_invocations si
        JOIN sessions_meta sm ON sm.session_id = si.session_id
        WHERE si.skill_name = @skillName ${scopeClause}
-       ORDER BY si.invoked_at DESC
+       ORDER BY si.invoked_at DESC, si.id DESC
        ${limitClause}`
     )
     .all(params) as SkillInvocationEntry[]
@@ -543,7 +548,10 @@ export function getSkillInvocationSlice(
     end.toISOString() !== input.endAt ||
     end <= start ||
     end.getTime() - start.getTime() > 31 * DAY_MS + 1 ||
-    (input.skillName !== undefined && input.skillName.trim() === '')
+    (input.skillName !== undefined && input.skillName.trim() === '') ||
+    !Number.isSafeInteger(input.offset ?? 0) ||
+    (input.offset ?? 0) < 0 ||
+    (input.offset ?? 0) > MAX_INVOCATION_OFFSET
   ) {
     throw new RangeError('Invalid skill invocation time range')
   }
@@ -560,11 +568,15 @@ export function getSkillInvocationSlice(
        FROM skill_invocations si
        JOIN sessions_meta sm ON sm.session_id = si.session_id
        WHERE si.invoked_at >= @startAt AND si.invoked_at < @endAt ${skillClause}
-       ORDER BY si.invoked_at DESC, si.id DESC`
+       ORDER BY si.invoked_at DESC, si.id DESC LIMIT @limit OFFSET @offset`
     )
-    .all({ startAt: input.startAt, endAt: input.endAt, skillName: input.skillName }) as Array<
-    SkillInvocationEntry & { skill_name: string }
-  >
+    .all({
+      startAt: input.startAt,
+      endAt: input.endAt,
+      skillName: input.skillName,
+      limit: INVOCATION_PAGE_SIZE,
+      offset: input.offset ?? 0
+    }) as Array<SkillInvocationEntry & { skill_name: string }>
   const targets = loadSkillTargets(db)
   return rows.map((row) => {
     const target = resolveSkillTarget(row.skill_name, row.cwd, targets)

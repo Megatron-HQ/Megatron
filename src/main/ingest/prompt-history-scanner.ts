@@ -16,6 +16,8 @@ export interface PromptHistoryRow {
 // (slightly undercounts real prompts). A built-in allowlist goes stale every Claude Code
 // release; a skill_invocations join is out of PR1 scope. Upgrade path: join skill_invocations.
 const BARE_SLASH_COMMAND = /^\/[a-z][\w-]*$/i
+const MAX_HISTORY_ROWS = 500_000
+const MAX_HISTORY_RETAINED_BYTES = 64 * 1024 * 1024
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -65,12 +67,27 @@ export function parsePromptHistory(raw: string): PromptHistoryRow[] {
 // scanTranscripts(db, projectsDir?).
 export function scanPromptHistory(
   db: Database.Database,
-  historyFile: string = resolve(homedir(), '.claude/history.jsonl')
+  historyFile: string = resolve(homedir(), '.claude/history.jsonl'),
+  maximumRows = MAX_HISTORY_ROWS
 ): ScanTaskResult {
   const rows: PromptHistoryRow[] = []
-  const status = visitAllowedUtf8LinesSync(historyFile, (line) =>
-    rows.push(...parsePromptHistory(line))
-  )
+  let retainedBytes = 0
+  class HistoryLimitError extends Error {}
+  let status: ReturnType<typeof visitAllowedUtf8LinesSync>
+  try {
+    status = visitAllowedUtf8LinesSync(historyFile, (line) => {
+      const parsed = parsePromptHistory(line)
+      for (const row of parsed) {
+        retainedBytes += Buffer.byteLength(JSON.stringify(row))
+        if (rows.length >= maximumRows || retainedBytes > MAX_HISTORY_RETAINED_BYTES)
+          throw new HistoryLimitError('History work limit reached')
+        rows.push(row)
+      }
+    })
+  } catch (error) {
+    if (error instanceof HistoryLimitError) return { status: 'partial' }
+    throw error
+  }
   if (status !== 'ok')
     return {
       status:

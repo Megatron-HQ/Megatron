@@ -1,5 +1,15 @@
 # Usage view — resolved UI spec (Phase 2a)
 
+## History paging amendment (2026-10-10)
+
+Activity and usage invocation dialogs load 200 rows per IPC page. Load more appends older rows;
+search and trigger filters apply to loaded entries and say so while another page is available.
+Loading another page disables its button. A failed next page keeps loaded rows and offers retry.
+Existing grouping, prompt expansion, link hover/focus, dialog close behavior and trigger controls
+remain. Folder grants now explain that linked skills outside a granted root need a target-folder
+grant. The visual runner waits for the asynchronous initial scan before choosing data-dependent
+states; unavailable source data remains an explicit scenario skip.
+
 ## Effort bar and bar tooltips amendment (2026-10-04)
 
 Supersedes the Models share bars amendment's Mix column, effort-column headers and swatches, "no
@@ -70,7 +80,7 @@ Supersedes §M1's "By model" and "By effort" `RankedList`s, §C2's "bar + legend
   counts are the numbers in the same row.
 - **Effort fill:** ordinal, so a neutral ink ramp, never a hue (it shares rows with model dots):
   Xhigh `--usage-bar`, High / Medium / Low `color-mix(in oklab, var(--usage-bar) 65% / 40% / 22%,
-  var(--background))`. **Not recorded** is off the scale: `.usage-fill-unrecorded`, quiet-ink
+var(--background))`. **Not recorded** is off the scale: `.usage-fill-unrecorded`, quiet-ink
   stripes on the paper (not `.trigger-fill-hatch`, which is full ink and would read as Xhigh).
   Each effort header carries its `size-2` swatch; there is no separate legend line.
 - **Output tokens** column after Total, behind a `border-l` divider (`w-28`); footer = the header

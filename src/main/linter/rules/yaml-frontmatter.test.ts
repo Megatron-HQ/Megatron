@@ -60,6 +60,33 @@ describe('yamlFrontmatterRule', () => {
     expect(findings).toEqual([])
   })
 
+  it('reports amplified plugin metadata without applying plugin quality checks', () => {
+    const dir = path.join(tmpDir, 'plugin-limit')
+    fs.mkdirSync(dir)
+    fs.writeFileSync(
+      path.join(dir, 'SKILL.md'),
+      `---\nname: plugin-limit\nmetadata:\n  scalar: &scalar "${'x'.repeat(100_000)}"\n  copies: [*scalar, *scalar, *scalar]\n---\nBody`
+    )
+    const findings = yamlFrontmatterRule.run(
+      {
+        id: 1,
+        name: 'plugin-limit',
+        source_type: 'plugin',
+        source_path: dir,
+        plugin_name: 'test@pkg',
+        description: null
+      },
+      dummyContext
+    )
+    expect(findings).toEqual([
+      expect.objectContaining({
+        rule_id: 'yaml-frontmatter',
+        severity: 'error',
+        detail: expect.stringMatching(/limit/)
+      })
+    ])
+  })
+
   it('returns finding if SKILL.md is missing', () => {
     const skillDir = path.join(tmpDir, 'skill-1')
     fs.mkdirSync(skillDir)

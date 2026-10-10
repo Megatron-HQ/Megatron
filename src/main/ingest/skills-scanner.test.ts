@@ -1,5 +1,13 @@
 import Database from 'better-sqlite3'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync
+} from 'fs'
 import { homedir, tmpdir } from 'os'
 import { join, resolve } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -51,7 +59,7 @@ function writeUserSettings(content: unknown): void {
 beforeEach(() => {
   db = new Database(':memory:')
   applySchema(db)
-  tmpDir = mkdtempSync(join(tmpdir(), 'megatron-test-'))
+  tmpDir = realpathSync(mkdtempSync(join(tmpdir(), 'megatron-test-')))
   userSettingsPath = join(tmpDir, 'user-settings.json')
   grantPath(tmpDir)
 })

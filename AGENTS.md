@@ -6,16 +6,16 @@ Local-first desktop app that inventories, lints, and tracks usage of every Claud
 
 Full script list is in `package.json`; these are the ones with a gotcha.
 
-| Command                 | Note                                                              |
-| ----------------------- | ----------------------------------------------------------------- |
-| `npm run dev`           | electron-vite dev — the normal way to run the app                 |
-| `npm run build`         | typechecks **first**, then builds — a type error fails the build  |
-| `npm run test`          | vitest run                                                        |
-| `npm run verify:visual` | Playwright-Electron screenshots; **not** wired into `npm test`/CI |
-| `npm run db`            | opens the local SQLite index in DB Browser                        |
-| `npm run db:reset`      | deletes the local index — run after editing `schema.sql`, see Locked decisions |
-| `npm run build:unpack`  | `--dir`, no DMG                                                   |
-| `npm run build:mac`     | the actual DMG                                                    |
+| Command                 | Note                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------ |
+| `npm run dev`           | electron-vite dev — the normal way to run the app                                                |
+| `npm run build`         | typechecks **first**, then builds — a type error fails the build                                 |
+| `npm run test`          | vitest run                                                                                       |
+| `npm run verify:visual` | Playwright-Electron screenshots; **not** wired into `npm test`/CI                                |
+| `npm run db`            | opens the local SQLite index in DB Browser                                                       |
+| `npm run db:reset`      | deletes the local index — run after editing `schema.sql`, see Locked decisions                   |
+| `npm run build:unpack`  | `--dir`, no DMG                                                                                  |
+| `npm run build:mac`     | the actual DMG                                                                                   |
 | `npm run build:icons`   | runs under `electron`, not `node`; the macOS `.icon` is still hand-built (`DESIGN.md`, App Icon) |
 
 `postinstall` (`electron-builder install-app-deps`) and `prepare` (`git config core.hooksPath .githooks`) both run automatically on `npm install` — don't invoke them by hand.
@@ -27,7 +27,7 @@ Electron + React + TypeScript on `electron-vite`, Tailwind v4 + shadcn/ui (`new-
 - npm, **no workspaces** — single-product repo, not a monorepo.
 - `package-lock.json` **is** committed; both founders and CI install off it with `npm ci`.
 - Node pinned to `22.x` via `.nvmrc` and `engines` — advisory, not `engine-strict`. A warning, not a hard block.
-- **Ships macOS (notarized DMG) and Windows.** Windows packaging — installer type, code signing — isn't chosen yet, so `electron-builder.yml` has no `win:` block. CI runs `macos-latest` + `windows-latest`. No Linux build.
+- **Ships macOS (notarized DMG) and Windows.** Windows uses a per-user NSIS installer. Signed release builds require a timestamped Authenticode signature; local unpacked builds remain unsigned. CI runs `macos-latest` + `windows-latest`. No Linux build.
 
 ## Layout
 
@@ -40,22 +40,22 @@ Electron + React + TypeScript on `electron-vite`, Tailwind v4 + shadcn/ui (`new-
 
 Repo-wide. Subsystem decisions are locked in the owning doc — see the Docs table below.
 
-| Area              | Decision                                                                                                       | Why                                                                                                                                                                                                               |
-| ----------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tool scope        | Claude Code only, permanently — not "not built yet"                                                            | Megatron's identity. Multi-tool support (the shape is `references/skills-manager`'s `tool_adapters.rs`) needs an explicit, separate decision — not quiet scope creep                                              |
-| Module system     | ESM only (`"type": "module"`) — no `require`/`module.exports`/`__dirname`/`__filename`                         | ESLint-enforced. Preload builds to `out/preload/index.mjs` and must stay unsandboxed to load. Use `import.meta.dirname` — electron-vite's `__dirname` shim injects `createRequire`, which is CJS                  |
-| Distribution      | macOS: direct notarized DMG, indefinitely — no Mac App Store                                                          | App Store mandates App Sandbox, which the permission model deliberately skips                                                                                                                                     |
-| Generated mirrors | `AGENTS.md` (from `CLAUDE.md`) and `.agents/skills/` (from `.claude/skills/`) — never hand-edited, no symlinks | Git symlinks need Developer Mode **and** `core.symlinks=true` on Windows. Instead `.githooks/pre-commit` regenerates and re-stages both every commit; CI runs `node .githooks/pre-commit --check` as the backstop |
-| Schema changes    | Delete the local index and let it rebuild — never write a migration. Run `npm run db:reset` after editing `schema.sql`, then relaunch | The index is a pure derived cache of `~/.claude/` (see `docs/data-model.md`); a full rescan is sub-second even at hundreds of MB of transcripts. In-place migration code is pure risk for a saving that doesn't exist yet |
-| Renderer state    | TanStack Query for IPC-backed data, plain `useState`/Context for local UI state — no Redux/Zustand | Every piece of real state so far is either Query-backed or genuinely local; no cross-cutting, deeply interdependent client-state graph exists yet that either library would solve |
-| Data table        | `@tanstack/react-table` backs the skills table; no virtualization for the table itself (`@tanstack/react-virtual` is only for the file viewer's file tree) | Real `~/.claude` data is tens of skills, not thousands — the file tree's per-directory file count is the actual scaling concern |
-| Table columns      | Name / Source / Description only — Path was cut | A truncated absolute path needing a tooltip to be legible was spending the table's widest column on data nobody read from the table itself; it lives in the file viewer's header instead |
+| Area              | Decision                                                                                                                                                            | Why                                                                                                                                                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tool scope        | Claude Code only, permanently — not "not built yet"                                                                                                                 | Megatron's identity. Multi-tool support (the shape is `references/skills-manager`'s `tool_adapters.rs`) needs an explicit, separate decision — not quiet scope creep                                                      |
+| Module system     | ESM source only — no `require`/`module.exports`/`__dirname`/`__filename`. The generated sandbox preload is the sole CJS output exception (`out/preload/index.cjs`). | Electron sandbox preloads require bundled CJS. Main, worker, renderer, and source modules remain ESM; source lint still enforces this.                                                                                    |
+| Distribution      | macOS: direct notarized DMG, indefinitely — no Mac App Store                                                                                                        | App Store mandates App Sandbox, which the permission model deliberately skips                                                                                                                                             |
+| Generated mirrors | `AGENTS.md` (from `CLAUDE.md`) and `.agents/skills/` (from `.claude/skills/`) — never hand-edited, no symlinks                                                      | Git symlinks need Developer Mode **and** `core.symlinks=true` on Windows. Instead `.githooks/pre-commit` regenerates and re-stages both every commit; CI runs `node .githooks/pre-commit --check` as the backstop         |
+| Schema changes    | Delete the local index and let it rebuild — never write a migration. Run `npm run db:reset` after editing `schema.sql`, then relaunch                               | The index is a pure derived cache of `~/.claude/` (see `docs/data-model.md`); a full rescan is sub-second even at hundreds of MB of transcripts. In-place migration code is pure risk for a saving that doesn't exist yet |
+| Renderer state    | TanStack Query for IPC-backed data, plain `useState`/Context for local UI state — no Redux/Zustand                                                                  | Every piece of real state so far is either Query-backed or genuinely local; no cross-cutting, deeply interdependent client-state graph exists yet that either library would solve                                         |
+| Data table        | `@tanstack/react-table` backs the skills table; no virtualization for the table itself (`@tanstack/react-virtual` is only for the file viewer's file tree)          | Real `~/.claude` data is tens of skills, not thousands — the file tree's per-directory file count is the actual scaling concern                                                                                           |
+| Table columns     | Name / Source / Description only — Path was cut                                                                                                                     | A truncated absolute path needing a tooltip to be legible was spending the table's widest column on data nobody read from the table itself; it lives in the file viewer's header instead                                  |
 
 ## Exploration budget
 
 Bound exploration by default: read the requested file plus a small number of directly related files. No blind repo-wide search unless blocked.
 
-Carve-out: any change touching `src/main/`, `src/preload/`, or `src/shared/` must first read the relevant IPC channel definitions and `isPathAllowed()` (`src/main/permissions.ts`) — **every filesystem read routes through it**; Tier 1 (`~/.claude/{skills,plugins,projects}`) is hardcoded-allowed, Tier 2 repo folders come from `grantPath()`. These are the cross-process contract seams where a locally-correct change can silently break another process.
+Carve-out: any change touching `src/main/`, `src/preload/`, or `src/shared/` must first read the relevant IPC channel definitions and `isPathAllowed()` (`src/main/permissions.ts`) — **user-data reads route through it**; fixed CLI discovery, private app-cache preparation, and packaged-asset serving use separate capabilities described in `docs/security-hardening.md`; Tier 1 (`~/.claude/{skills,plugins,projects}`) is hardcoded-allowed, Tier 2 repo folders come from `grantPath()`. These are the cross-process contract seams where a locally-correct change can silently break another process.
 
 ## Testing
 
@@ -75,13 +75,13 @@ This isn't cosmetic: ESLint enforces the ESM-only decision above, so a stray lin
 
 Each doc below is authoritative for the locked decisions it owns.
 
-| Doc                         | Covers (incl. locked decisions)                                        | Consult before                                                       |
-| --------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `docs/skill-scanner.md`     | The 3 skill sources; `.agents/skills/` out of scope; symlinks followed | Touching `src/main/ingest/skills-scanner.ts` or `plugin-registry.ts` |
-| `docs/transcript-ingest.md` | `isSidechain`/`subagents/` double-count rule; `trigger_type`           | Touching `src/main/ingest/transcript-scanner.ts`                     |
-| `docs/data-model.md`        | `better-sqlite3`; index schema; no-FK join; plugin identity; `prompt_history` | Touching `src/main/db/` or plugin parsing                            |
-| `docs/usage-analytics.md`   | The 5-PR "Usage" feature; `history.jsonl` retention; `cost-state` hazards; what's PR1 vs PR2–5 | `src/main/ingest/` usage extraction, `src/main/db/` usage tables, or the Usage view |
-| `docs/usage-view-ui-spec.md` | Usage-view renderer authority — layout, `components/usage/` chart vocabulary, `--usage-*` tokens, motion, the DESIGN.md departures | Any `src/renderer/src/views/UsageView.tsx` or `components/usage/` work |
-| `DESIGN.md`                 | Visual design system — colors, type, layout, elevation, shapes, components, app icon | Any `src/renderer/` UI work or app-icon change                       |
-| `docs/mvp-build-spec.md`    | Milestones, linter rules, frontmatter parsing, what's still open       | Assuming a decision hasn't been made yet                             |
-| `docs/environment-setup.md` | M0 install quirks (npm allowlist, silent `extract-zip` no-op)          | `npm run dev` failing with `Error: Electron uninstall`               |
+| Doc                          | Covers (incl. locked decisions)                                                                                                    | Consult before                                                                      |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `docs/skill-scanner.md`      | The 3 skill sources; `.agents/skills/` out of scope; symlinks followed                                                             | Touching `src/main/ingest/skills-scanner.ts` or `plugin-registry.ts`                |
+| `docs/transcript-ingest.md`  | `isSidechain`/`subagents/` double-count rule; `trigger_type`                                                                       | Touching `src/main/ingest/transcript-scanner.ts`                                    |
+| `docs/data-model.md`         | `better-sqlite3`; index schema; no-FK join; plugin identity; `prompt_history`                                                      | Touching `src/main/db/` or plugin parsing                                           |
+| `docs/usage-analytics.md`    | The 5-PR "Usage" feature; `history.jsonl` retention; `cost-state` hazards; what's PR1 vs PR2–5                                     | `src/main/ingest/` usage extraction, `src/main/db/` usage tables, or the Usage view |
+| `docs/usage-view-ui-spec.md` | Usage-view renderer authority — layout, `components/usage/` chart vocabulary, `--usage-*` tokens, motion, the DESIGN.md departures | Any `src/renderer/src/views/UsageView.tsx` or `components/usage/` work              |
+| `DESIGN.md`                  | Visual design system — colors, type, layout, elevation, shapes, components, app icon                                               | Any `src/renderer/` UI work or app-icon change                                      |
+| `docs/mvp-build-spec.md`     | Milestones, linter rules, frontmatter parsing, what's still open                                                                   | Assuming a decision hasn't been made yet                                            |
+| `docs/environment-setup.md`  | M0 install quirks (npm allowlist, silent `extract-zip` no-op)                                                                      | `npm run dev` failing with `Error: Electron uninstall`                              |

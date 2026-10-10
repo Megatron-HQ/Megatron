@@ -1,4 +1,4 @@
-import { parse } from 'yaml'
+import { parseBoundedFrontmatter } from '../../../shared/frontmatter'
 
 export function isMarkdownFile(relativePath: string): boolean {
   return /\.(md|markdown)$/i.test(relativePath)
@@ -36,7 +36,7 @@ export function parseExtraFrontmatterFields(content: string): ScalarFrontmatterF
 
   let parsed: unknown
   try {
-    parsed = parse(frontmatter)
+    parsed = parseBoundedFrontmatter(frontmatter)
   } catch {
     return []
   }
@@ -63,7 +63,7 @@ export function hasDisableModelInvocationFrontmatter(content: string): boolean {
 
   let parsed: unknown
   try {
-    parsed = parse(frontmatter)
+    parsed = parseBoundedFrontmatter(frontmatter)
   } catch {
     return false
   }

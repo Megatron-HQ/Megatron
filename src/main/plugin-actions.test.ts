@@ -7,14 +7,22 @@ import { grantPath, resetGrantedPaths } from './permissions'
 import { disablePlugin, enablePlugin, uninstallPlugin, updatePlugin } from './plugin-actions'
 
 vi.mock('child_process', () => ({ execFile: vi.fn() }))
+vi.mock('./claude-cli', () => ({
+  resolveClaudeCommand: () => ({
+    executable: '/trusted/claude',
+    prefixArguments: [],
+    environment: {}
+  })
+}))
 
 type NodeCallback = (error: Error | null, stdout: string, stderr: string) => void
 
 const mockedExecFile = vi.mocked(execFile)
 const claudeOptions = {
-  shell: process.platform === 'win32',
+  shell: false,
   timeout: 300_000,
-  windowsHide: true
+  windowsHide: true,
+  env: {}
 }
 
 function succeed(): void {
@@ -63,7 +71,7 @@ describe('enablePlugin', () => {
     succeed()
     await enablePlugin(input)
     expect(mockedExecFile).toHaveBeenCalledWith(
-      'claude',
+      '/trusted/claude',
       ['plugin', 'enable', 'ponytail@claude-plugins-official', '--scope', 'user'],
       claudeOptions,
       expect.any(Function)
@@ -76,7 +84,7 @@ describe('disablePlugin', () => {
     succeed()
     await disablePlugin(input)
     expect(mockedExecFile).toHaveBeenCalledWith(
-      'claude',
+      '/trusted/claude',
       ['plugin', 'disable', 'ponytail@claude-plugins-official', '--scope', 'user'],
       claudeOptions,
       expect.any(Function)
@@ -89,7 +97,7 @@ describe('updatePlugin', () => {
     succeed()
     await updatePlugin(input)
     expect(mockedExecFile).toHaveBeenCalledWith(
-      'claude',
+      '/trusted/claude',
       ['plugin', 'update', 'ponytail@claude-plugins-official', '--scope', 'user', '-y'],
       claudeOptions,
       expect.any(Function)
@@ -102,7 +110,7 @@ describe('uninstallPlugin', () => {
     succeed()
     await uninstallPlugin(input)
     expect(mockedExecFile).toHaveBeenCalledWith(
-      'claude',
+      '/trusted/claude',
       ['plugin', 'uninstall', 'ponytail@claude-plugins-official', '--scope', 'user', '-y'],
       claudeOptions,
       expect.any(Function)
@@ -211,7 +219,7 @@ describe('project and local scope', () => {
     await enablePlugin({ ...input, scope: 'project', projectPath: projectRoot })
 
     expect(mockedExecFile).toHaveBeenCalledWith(
-      'claude',
+      '/trusted/claude',
       ['plugin', 'enable', 'ponytail@claude-plugins-official', '--scope', 'project'],
       { ...claudeOptions, cwd: projectRoot },
       expect.any(Function)
@@ -223,7 +231,7 @@ describe('project and local scope', () => {
     await uninstallPlugin({ ...input, scope: 'local', projectPath: projectRoot })
 
     expect(mockedExecFile).toHaveBeenCalledWith(
-      'claude',
+      '/trusted/claude',
       ['plugin', 'uninstall', 'ponytail@claude-plugins-official', '--scope', 'local', '-y'],
       { ...claudeOptions, cwd: projectRoot },
       expect.any(Function)
@@ -267,7 +275,7 @@ describe('project and local scope', () => {
     await enablePlugin(input)
 
     expect(mockedExecFile).toHaveBeenCalledWith(
-      'claude',
+      '/trusted/claude',
       expect.anything(),
       claudeOptions,
       expect.any(Function)
