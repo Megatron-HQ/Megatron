@@ -5,6 +5,7 @@ export const IPC_CHANNELS = {
   openSkillHistory: 'skills:openHistory',
   getInitialTheme: 'theme:getInitial',
   setTheme: 'theme:set',
+  scanStarted: 'scan:started',
   scanComplete: 'scan:complete',
   listAllowedPaths: 'folders:list',
   listProjects: 'projects:list',
@@ -105,10 +106,22 @@ export interface ContextBudget {
   userInvocableOnlyCount: number
 }
 
+export interface ScanActivity {
+  id: number
+  startedAt: number
+}
+
+export interface ScanFinished {
+  id: number
+  summary: ScanSummary
+}
+
 export interface SkillsListResult {
   skills: SkillRow[]
   scanComplete: boolean
   scanSummary?: ScanSummary
+  // Set while a scan is in progress so a renderer that missed scan:started can still time the banner.
+  scanActivity: ScanActivity | null
   contextBudget: ContextBudget
 }
 

@@ -14,8 +14,10 @@ import {
   type SkillInvocationSliceInput,
   type SkillsListResult,
   type ThemePreference,
-  type UsageOverview,
-  type ScanSummary
+  type ScanActivity,
+  type ScanFinished,
+  type ScanSummary,
+  type UsageOverview
 } from '../shared/ipc'
 
 // Custom APIs for renderer
@@ -59,8 +61,13 @@ const api = {
   rescan: (): Promise<ScanSummary> => ipcRenderer.invoke(IPC_CHANNELS.rescan),
   revealDataFolder: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.revealDataFolder),
   getVersion: (): string => ipcRenderer.sendSync(IPC_CHANNELS.getVersion),
-  onScanComplete: (callback: () => void): (() => void) => {
-    const listener = (): void => callback()
+  onScanStarted: (callback: (activity: ScanActivity) => void): (() => void) => {
+    const listener = (_event: unknown, activity: ScanActivity): void => callback(activity)
+    ipcRenderer.on(IPC_CHANNELS.scanStarted, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.scanStarted, listener)
+  },
+  onScanComplete: (callback: (finished: ScanFinished) => void): (() => void) => {
+    const listener = (_event: unknown, finished: ScanFinished): void => callback(finished)
     ipcRenderer.on(IPC_CHANNELS.scanComplete, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.scanComplete, listener)
   }

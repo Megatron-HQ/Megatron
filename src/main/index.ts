@@ -18,6 +18,7 @@ import icon from '../../resources/icon.png?asset'
 // The .ico, not the PNG, so Windows can pick the hand-tuned no-sparkle art at 16/24 px.
 import windowsIcon from '../../resources/icon.ico?asset'
 import { getDb } from './db'
+import { createScanSession } from './scan-session'
 import { disableChromiumHttpCache } from './chromium-cache'
 import {
   addAllowedPath,
@@ -69,8 +70,10 @@ import {
   type SkillInvocationEntry,
   type SkillInvocationRecord,
   type SkillInvocationSliceInput,
-  type ThemePreference,
-  type ScanSummary
+  type ScanActivity,
+  type ScanFinished,
+  type ScanSummary,
+  type ThemePreference
 } from '../shared/ipc'
 
 // Megatron's renderer is bundled locally, so an HTTP cache adds corruption risk without a
@@ -88,6 +91,8 @@ securePrivateDataDirectory(app.getPath('userData'), join(app.getPath('appData'),
 const themeStore: ThemeStore = new Store({ name: 'preferences' })
 let scanComplete = false
 let scanSummary: ScanSummary | undefined
+const scanSession = createScanSession()
+let lastScanFinished: ScanFinished | null = null
 const trustedWindows = new Map<Electron.WebContents, string>()
 
 function assertRequest(
@@ -140,9 +145,15 @@ const secureIpc = {
   }
 }
 
-function notifyScanComplete(): void {
+function notifyScanStarted(activity: ScanActivity): void {
   for (const window of BrowserWindow.getAllWindows()) {
-    window.webContents.send(IPC_CHANNELS.scanComplete)
+    window.webContents.send(IPC_CHANNELS.scanStarted, activity)
+  }
+}
+
+function notifyScanFinished(finished: ScanFinished): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send(IPC_CHANNELS.scanComplete, finished)
   }
 }
 
@@ -156,22 +167,31 @@ const scans = createScanController(() =>
 
 async function scanAndNotify(): Promise<ScanSummary> {
   const previousSuccess = scanSummary?.lastSuccessfulAt ?? null
+  const { run, started } = scanSession.begin(Date.now())
+  if (started) notifyScanStarted(run)
   try {
-    scanSummary = await scans.request()
-    if (scanSummary.projects) themeStore.set('projectFolders', scanSummary.projects)
-  } catch (error) {
-    console.error('[ingest] scan failed', error)
-    scanSummary = {
-      outcome: 'failed',
-      completedAt: new Date().toISOString(),
-      sources: [{ name: 'scanWorker', status: 'failed' }]
+    try {
+      scanSummary = await scans.request()
+      if (scanSummary.projects) themeStore.set('projectFolders', scanSummary.projects)
+    } catch (error) {
+      console.error('[ingest] scan failed', error)
+      scanSummary = {
+        outcome: 'failed',
+        completedAt: new Date().toISOString(),
+        sources: [{ name: 'scanWorker', status: 'failed' }]
+      }
+    }
+    scanSummary.lastSuccessfulAt =
+      scanSummary.outcome === 'complete' ? scanSummary.completedAt : previousSuccess
+    scanComplete = true
+    return scanSummary
+  } finally {
+    const finished = scanSession.end()
+    if (finished && scanSummary) {
+      lastScanFinished = { id: finished.id, summary: scanSummary }
+      notifyScanFinished(lastScanFinished)
     }
   }
-  scanSummary.lastSuccessfulAt =
-    scanSummary.outcome === 'complete' ? scanSummary.completedAt : previousSuccess
-  scanComplete = true
-  notifyScanComplete()
-  return scanSummary
 }
 
 function createWindow(): void {
@@ -215,11 +235,14 @@ function createWindow(): void {
     mainWindow.show()
   })
 
-  // If the scan finished before the renderer subscribed to scan:complete, replay it
-  // so lint findings and usage stats aren't stuck on the pre-lint snapshot.
+  // If the scan started or finished before the renderer subscribed, replay the current
+  // fact so the banner and the post-scan refresh aren't stuck on a missed event.
   mainWindow.webContents.on('did-finish-load', () => {
-    if (scanComplete) {
-      mainWindow.webContents.send(IPC_CHANNELS.scanComplete)
+    const active = scanSession.current()
+    if (active) {
+      mainWindow.webContents.send(IPC_CHANNELS.scanStarted, active)
+    } else if (lastScanFinished) {
+      mainWindow.webContents.send(IPC_CHANNELS.scanComplete, lastScanFinished)
     }
   })
 
@@ -273,6 +296,7 @@ app.whenReady().then(() => {
     skills: listSkills(getDb()),
     scanComplete,
     scanSummary,
+    scanActivity: scanSession.current(),
     contextBudget: getContextBudget(getDb())
   }))
 

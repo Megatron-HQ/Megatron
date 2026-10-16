@@ -14,6 +14,8 @@ import type {
   SkillsListResult,
   ThemePreference,
   UsageOverview,
+  ScanActivity,
+  ScanFinished,
   ScanSummary
 } from '../shared/ipc'
 
@@ -43,7 +45,8 @@ interface Api {
   rescan: () => Promise<ScanSummary>
   revealDataFolder: () => Promise<void>
   getVersion: () => string
-  onScanComplete: (callback: () => void) => () => void
+  onScanStarted: (callback: (activity: ScanActivity) => void) => () => void
+  onScanComplete: (callback: (finished: ScanFinished) => void) => () => void
 }
 
 declare global {

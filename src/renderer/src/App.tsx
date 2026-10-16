@@ -6,7 +6,8 @@ import { ManageFoldersDialog } from '@/components/ManageFoldersDialog'
 import { PluginActionToasts, type PluginActionToast } from '@/components/PluginActionToasts'
 import { PluginSidebar } from '@/components/PluginSidebar'
 import { SettingsDialog } from '@/components/SettingsDialog'
-import { ScanStatusBanner } from '@/components/ScanStatus'
+import { ScanStatusBanner, ScanUpdatingBanner } from '@/components/ScanStatus'
+import { useScanBanner } from '@/lib/use-scan-banner'
 import { Sidebar } from '@/components/Sidebar'
 import { UsageSidebar, type UsagePanel } from '@/components/UsageSidebar'
 import {
@@ -84,6 +85,7 @@ function App(): React.JSX.Element {
 
   const {
     data,
+    isPending: skillsPending,
     isError: skillsError,
     refetch: retrySkills
   } = useQuery({
@@ -191,6 +193,14 @@ function App(): React.JSX.Element {
   const plugins = useMemo(() => pluginsData ?? [], [pluginsData])
   const scanComplete = data?.scanComplete ?? false
   const contextBudget = data?.contextBudget ?? DEFAULT_CONTEXT_BUDGET
+  const { banner: scanBanner, summary: scanBannerSummary } = useScanBanner({
+    skillsLoaded: !skillsPending,
+    pluginsLoaded: !pluginsPending,
+    skillCount: skills.length,
+    pluginCount: plugins.length,
+    reportedSummary: data?.scanSummary,
+    reportedActivity: data?.scanActivity
+  })
 
   const filteredSkills = useMemo(
     () => skills.filter((skill) => matchesFilter(skill, filter)),
@@ -349,9 +359,10 @@ function App(): React.JSX.Element {
             <div className="drag-region absolute inset-x-1.5 top-1.5 bottom-0 rounded-xl bg-muted shadow" />
           </div>
         )}
-        {data?.scanSummary && (
+        {scanBanner.kind === 'updating' && <ScanUpdatingBanner message={scanBanner.message} />}
+        {scanBanner.kind === 'warning' && scanBannerSummary && (
           <ScanStatusBanner
-            summary={data.scanSummary}
+            summary={scanBannerSummary}
             onOpenDetails={() => setSettingsOpen(true)}
           />
         )}
@@ -521,7 +532,7 @@ function App(): React.JSX.Element {
         themePreference={themePreference}
         onThemeChange={handleThemeChange}
         version={version}
-        scanSummary={data?.scanSummary}
+        scanSummary={scanBanner.kind === 'warning' ? scanBannerSummary : undefined}
         onManageFolders={() => {
           setSettingsOpen(false)
           setFoldersDialogOpen(true)

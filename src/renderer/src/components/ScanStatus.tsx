@@ -19,8 +19,19 @@ const ISSUE_MESSAGES: Record<ScanIssue['code'], string> = {
   scan_limit: 'The source exceeds the scan limit. Its cached data was preserved.'
 }
 
+const SCAN_BANNER_CLASS =
+  'flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-border bg-muted px-4 py-2 text-xs text-muted-foreground'
+
 interface ScanStatusProps {
   summary: ScanSummary
+}
+
+export function ScanUpdatingBanner({ message }: { message: string }): React.JSX.Element {
+  return (
+    <div role="status" className={SCAN_BANNER_CLASS}>
+      <p>{message}</p>
+    </div>
+  )
 }
 
 export function ScanStatusBanner({
@@ -32,10 +43,7 @@ export function ScanStatusBanner({
     source.issues?.some((issue) => issue.code === 'permission_required')
   )
   return (
-    <div
-      role="status"
-      className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-border bg-muted px-4 py-2 text-xs text-muted-foreground"
-    >
+    <div role="status" className={SCAN_BANNER_CLASS}>
       <p>
         {summary.outcome === 'failed'
           ? 'Scan failed. Showing the last available data.'

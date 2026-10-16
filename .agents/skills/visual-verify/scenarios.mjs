@@ -420,6 +420,19 @@ export const scenarios = [
     }
   },
   {
+    name: 'scan-updating-banner',
+    screen: 'skill-inventory',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'scan-updating'))
+      await window.reload()
+      await window
+        .getByText(
+          /Updating your index\. This is the last saved snapshot\.|Reading your Claude Code files\./
+        )
+        .waitFor()
+    }
+  },
+  {
     name: 'scan-access-banner',
     screen: 'settings-dialog',
     async run(window, app) {
