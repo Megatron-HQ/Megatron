@@ -118,7 +118,39 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
   if (!valid) throw new Error('Invalid application request')
 }
 import { resolve } from 'path'
-import { IPC_CHANNELS, APP_SECTIONS, MAX_INVOCATION_OFFSET, type PluginRow } from '../shared/ipc'
+import {
+  IPC_CHANNELS,
+  APP_SECTIONS,
+  MAX_INVOCATION_OFFSET,
+  type PluginActionInput,
+  type PluginRow
+} from '../shared/ipc'
+import { missingProjectInstallMessage } from '../shared/missing-project'
 import { isPluginActionInput } from './plugin-actions'
+
+const PLUGIN_ACTION_UNAVAILABLE =
+  'Plugin installation is unavailable or its settings are unknown. Refresh the plugin list.'
+
+function projectKey(path: string | null): string | null {
+  if (path === null) return null
+  const resolved = resolve(path)
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+}
+
+export function deniedPluginActionMessage(
+  input: PluginActionInput,
+  plugin: PluginRow | null
+): string {
+  const install = plugin?.installs.find(
+    (row) =>
+      row.scope === input.scope &&
+      projectKey(row.project_path) === projectKey(input.projectPath) &&
+      row.project_missing &&
+      row.project_path !== null
+  )
+  return install?.project_path
+    ? missingProjectInstallMessage(install.project_path)
+    : PLUGIN_ACTION_UNAVAILABLE
+}
 
 const MAX_IPC_STRING_LENGTH = 8192

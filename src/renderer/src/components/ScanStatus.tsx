@@ -1,5 +1,6 @@
 import { TextLink } from '@/components/TextLink'
 import type { ScanIssue, ScanSummary } from '../../../shared/ipc'
+import { MISSING_PROJECT_SCAN_MESSAGE } from '../../../shared/missing-project'
 
 const SOURCE_LABELS: Record<string, string> = {
   scanSkills: 'Skills',
@@ -12,8 +13,7 @@ const SOURCE_LABELS: Record<string, string> = {
 
 const ISSUE_MESSAGES: Record<ScanIssue['code'], string> = {
   permission_required: 'Folder access is required. Grant this folder or a parent folder.',
-  project_missing:
-    'Project folder no longer exists. If it moved, its Claude plugin records need updating.',
+  project_missing: MISSING_PROJECT_SCAN_MESSAGE,
   settings_invalid: 'Settings could not be parsed or contain invalid values.',
   source_unavailable: 'The source could not be read. Check file access and try rescanning.',
   scan_limit: 'The source exceeds the scan limit. Its cached data was preserved.'

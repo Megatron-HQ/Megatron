@@ -1778,6 +1778,7 @@ describe('listPlugins', () => {
       })
 
       expect(listPlugins(db)[0].installs[0].enablement_known).toBe(true)
+      expect(listPlugins(db)[0].installs[0].project_missing).toBe(false)
     } finally {
       rmSync(projectRoot, { recursive: true, force: true })
     }
@@ -1794,6 +1795,7 @@ describe('listPlugins', () => {
     })
 
     expect(listPlugins(db)[0].installs[0].enablement_known).toBe(false)
+    expect(listPlugins(db)[0].installs[0].project_missing).toBe(false)
   })
 
   it('reports enablement unknown for a local install whose root is not granted', () => {
@@ -1813,6 +1815,22 @@ describe('listPlugins', () => {
     insertPluginRegistry({ name: 'plugin-a', marketplace: 'market-1', scope: 'project' })
 
     expect(listPlugins(db)[0].installs[0].enablement_known).toBe(false)
+  })
+
+  it('reports a granted project install whose folder is gone as missing, not as ungranted', () => {
+    const projectRoot = join(tmpdir(), 'megatron-missing-plugin-project')
+    grantPath(projectRoot)
+    addAllowedPath(db, projectRoot)
+    insertPluginRegistry({
+      name: 'plugin-a',
+      marketplace: 'market-1',
+      scope: 'project',
+      project_path: projectRoot
+    })
+
+    const install = listPlugins(db)[0].installs[0]
+    expect(install.project_missing).toBe(true)
+    expect(install.enablement_known).toBe(false)
   })
 })
 

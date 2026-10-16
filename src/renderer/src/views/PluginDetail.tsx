@@ -22,9 +22,15 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
-import { scopePluginDetail, type PluginContext } from '@/lib/plugin-filter'
+import {
+  pluginInstallBlock,
+  scopePluginDetail,
+  showsMissingProjectStatus,
+  type PluginContext
+} from '@/lib/plugin-filter'
 import { ProjectAvailabilityNotice } from '@/components/ProjectAvailabilityNotice'
-import type { PluginInstall } from '../../../shared/ipc'
+import { missingProjectInstallMessage } from '../../../shared/missing-project'
+import type { PluginInstall, ProjectFolder } from '../../../shared/ipc'
 
 // Identifies one install within a plugin. Scope alone isn't enough — two projects can each hold
 // a project-scope install of the same plugin, and they act independently.
@@ -38,7 +44,7 @@ interface PluginDetailProps {
   name: string
   marketplace: string
   context?: PluginContext
-  unavailable?: boolean
+  availability?: ProjectFolder['status']
   onBack: () => void
   onViewSkills: (pluginName: string) => void
   onActionSuccess: (message: string) => void
@@ -61,7 +67,7 @@ export function PluginDetail({
   name,
   marketplace,
   context = { kind: 'all' },
-  unavailable = false,
+  availability,
   onBack,
   onViewSkills,
   onActionSuccess,
@@ -84,7 +90,13 @@ export function PluginDetail({
     queryKey,
     queryFn: () => window.api.getPluginDetail(name, marketplace)
   })
-  const data = rawData ? scopePluginDetail(rawData, context, unavailable) : rawData
+  const data = rawData
+    ? scopePluginDetail(
+        rawData,
+        context,
+        availability !== undefined && availability !== 'available'
+      )
+    : rawData
 
   const [pendingKey, setPendingKey] = useState<string | null>(null)
   const pendingActionRef = useRef(false)
@@ -184,6 +196,12 @@ export function PluginDetail({
   // install's enablement could be resolved at all.
   const enablementKnown =
     plugin.installs.length === 0 || plugin.installs.some((install) => install.enablement_known)
+  const noticeStatus =
+    availability === undefined || availability === 'available'
+      ? undefined
+      : availability === 'missing' || plugin.installs.some((install) => install.project_missing)
+        ? 'missing'
+        : availability
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -225,7 +243,11 @@ export function PluginDetail({
         ) : plugin.available_version ? (
           <PluginUpToDateBadge availableVersion={plugin.available_version} />
         ) : null}
-        <PluginStatusBadge disabledReason={plugin.disabled_reason} known={enablementKnown} />
+        <PluginStatusBadge
+          disabledReason={plugin.disabled_reason}
+          known={enablementKnown}
+          projectMissing={showsMissingProjectStatus(plugin.installs)}
+        />
       </div>
 
       {context.kind === 'project' && (
@@ -236,7 +258,7 @@ export function PluginDetail({
           Repository: {context.path}
         </p>
       )}
-      {unavailable && <ProjectAvailabilityNotice status="unavailable" />}
+      {noticeStatus && <ProjectAvailabilityNotice status={noticeStatus} />}
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col gap-4 px-4 py-4">
           <Card className="shadow-none py-4">
@@ -375,12 +397,10 @@ function InstallRow({
   const anyPending = pendingKey !== null
   // Per-install, not per-plugin: the same plugin can be off at user scope and on for a project.
   const disabled = install.disabled_reason !== null
-  // A project/local install runs its CLI command from the owning project, so it needs both a
-  // recorded project path and a grant on it. Ungranted, its state shows as Unknown — offering
-  // Disable there would be flipping a switch whose current position we've just said we can't read.
-  const missingProject = install.scope !== 'user' && install.project_path === null
-  const needsGrant = install.scope !== 'user' && !missingProject && !install.enablement_known
-  const actionable = install.scope === 'user' || (!missingProject && !needsGrant)
+  // A project/local install runs its CLI command from the owning project. A missing folder, a
+  // missing grant, and a record with no project path each block the action for a different reason.
+  const block = pluginInstallBlock(install)
+  const actionable = block === null
 
   const availableVersion = install.available_version ?? fallbackAvailableVersion
   const hasUpdate = isUpdateAvailable(install.installed_version, availableVersion)
@@ -419,6 +439,7 @@ function InstallRow({
             <PluginStatusBadge
               disabledReason={install.disabled_reason}
               known={install.enablement_known}
+              projectMissing={install.project_missing}
             />
           </div>
           <p
@@ -477,7 +498,7 @@ function InstallRow({
           </Button>
         </div>
       </div>
-      {needsGrant ? (
+      {block === 'needs-grant' ? (
         <p className="text-[11px] text-muted-foreground">
           Grant{' '}
           <button
@@ -489,6 +510,8 @@ function InstallRow({
           </button>{' '}
           to see whether this install is enabled and to change it.
         </p>
+      ) : block === 'missing-folder' && install.project_path !== null ? (
+        <MissingProjectNote path={install.project_path} />
       ) : (
         <p className="text-[11px] text-muted-foreground">
           {actionable
@@ -506,6 +529,18 @@ function InstallRow({
         </p>
       )}
     </div>
+  )
+}
+
+function MissingProjectNote({ path }: { path: string }): React.JSX.Element {
+  const message = missingProjectInstallMessage(path)
+  const pathAt = message.indexOf(path)
+  return (
+    <p className="text-[11px] text-muted-foreground">
+      {message.slice(0, pathAt)}
+      <span className="break-all font-mono">{path}</span>
+      {message.slice(pathAt + path.length)}
+    </p>
   )
 }
 

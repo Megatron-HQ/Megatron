@@ -2,6 +2,7 @@ import { execFile } from 'child_process'
 import { isAbsolute } from 'path'
 import { allowedStatSync, isPathAllowed } from './permissions'
 import type { PluginActionInput, PluginActionResult } from '../shared/ipc'
+import { missingProjectInstallMessage } from '../shared/missing-project'
 import { resolveClaudeCommand } from './claude-cli'
 
 const CLAUDE_NOT_FOUND_MESSAGE =
@@ -95,7 +96,7 @@ function actionCwd(input: PluginActionInput): { cwd?: string } | { error: string
   // a switch whose current position Megatron just admitted it can't see.
   if (!isPathAllowed(input.projectPath)) return { error: UNGRANTED_PROJECT_MESSAGE }
   if (!allowedStatSync(input.projectPath)?.isDirectory())
-    return { error: MISSING_PROJECT_PATH_MESSAGE }
+    return { error: missingProjectInstallMessage(input.projectPath) }
   return { cwd: input.projectPath }
 }
 

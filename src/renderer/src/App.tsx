@@ -449,9 +449,10 @@ function App(): React.JSX.Element {
                   name={pluginView.name}
                   marketplace={pluginView.marketplace}
                   context={pluginView.context}
-                  unavailable={
-                    pluginView.context?.kind === 'project' &&
-                    projectAvailability(pluginView.context.path) !== 'available'
+                  availability={
+                    pluginView.context?.kind === 'project'
+                      ? projectAvailability(pluginView.context.path)
+                      : undefined
                   }
                   onBack={() => setPluginView({ kind: 'list' })}
                   onViewSkills={handleViewSkillsForPlugin}

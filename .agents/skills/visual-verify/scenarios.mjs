@@ -373,6 +373,18 @@ export const scenarios = [
     }
   },
   {
+    name: 'plugin-detail-missing-project',
+    screen: 'plugin-detail',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app, 'project-tree-unavailable')
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: /Megatron HQ.*6/ }).click()
+      await window.getByRole('button', { name: /^Megatron(?:\s|Unavailable)*3$/ }).click()
+      await window.locator('tbody tr').first().click()
+      await window.getByText(/that folder is missing/).first().waitFor()
+    }
+  },
+  {
     name: 'plugins-duplicate-repository-names',
     screen: 'plugin-inventory',
     async run(window, app) {

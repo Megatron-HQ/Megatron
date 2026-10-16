@@ -251,6 +251,23 @@ describe('project and local scope', () => {
     expect(mockedExecFile).not.toHaveBeenCalled()
   })
 
+  it('refuses a project-scope action when the granted project folder is gone', async () => {
+    succeed()
+    const missing = join(tmpdir(), 'megatron-missing-project-action')
+    grantPath(missing)
+
+    await expect(
+      updatePlugin({ ...input, scope: 'project', projectPath: missing })
+    ).resolves.toEqual({
+      ok: false,
+      stderr:
+        `This install is registered to ${missing}, and that folder is missing. Megatron can't update, enable, disable, or uninstall it. ` +
+        'Put the project back at that path to keep this install, or install the plugin again from its new location in Claude Code. ' +
+        'The next scan shows the new install. This record stays until Claude Code removes it.'
+    })
+    expect(mockedExecFile).not.toHaveBeenCalled()
+  })
+
   // Without the grant its .claude/settings*.json is unreadable, so the UI is showing Unknown —
   // offering Disable there would be flipping a switch whose current position we can't see.
   it('refuses a project-scope action when the project folder is not granted', async () => {

@@ -676,11 +676,16 @@ export function listPlugins(db: Database.Database): PluginRow[] {
     name: string
     marketplace: string
   })[]
-  const knownByProject = new Map<string, boolean>()
+  const knownByProject = new Map<string, { known: boolean; missing: boolean }>()
   for (const row of installs) {
     const key = row.scope === 'user' ? '' : row.project_path
-    if (key !== null && !knownByProject.has(key))
-      knownByProject.set(key, readPluginEnablement(key || undefined).known)
+    if (key !== null && !knownByProject.has(key)) {
+      const enablement = readPluginEnablement(key || undefined)
+      knownByProject.set(key, {
+        known: enablement.known,
+        missing: enablement.issues.some((issue) => issue.code === 'project_missing')
+      })
+    }
   }
 
   return identities.map((identity) => ({
@@ -698,7 +703,11 @@ export function listPlugins(db: Database.Database): PluginRow[] {
         available_version: row.available_version,
         disabled_reason: row.disabled_reason,
         enablement_known:
-          knownByProject.get(row.scope === 'user' ? '' : (row.project_path ?? '\0')) === true
+          knownByProject.get(row.scope === 'user' ? '' : (row.project_path ?? '\0'))?.known ===
+          true,
+        project_missing:
+          knownByProject.get(row.scope === 'user' ? '' : (row.project_path ?? '\0'))?.missing ===
+          true
       }))
   }))
 }

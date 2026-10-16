@@ -14,6 +14,7 @@ function makeInstall(overrides: Partial<PluginInstall> = {}): PluginInstall {
     available_version: '1.0.0',
     disabled_reason: null,
     enablement_known: true,
+    project_missing: false,
     ...overrides
   }
 }

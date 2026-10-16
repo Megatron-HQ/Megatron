@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as security from './ipc-security'
-import { IPC_CHANNELS, type PluginRow } from '../shared/ipc'
+import { IPC_CHANNELS, type PluginActionInput, type PluginRow } from '../shared/ipc'
 
 describe('renderer trust boundary', () => {
   it('requires a matching indexed installation with known enablement', () => {
@@ -20,6 +20,35 @@ describe('renderer trust boundary', () => {
       })
     ).toBe(false)
   })
+
+  it('explains a denied action when the registered project folder is gone', () => {
+    const projectPath = 'C:\\repos\\moved'
+    const input: PluginActionInput = {
+      name: 'demo',
+      marketplace: 'market',
+      scope: 'project',
+      projectPath
+    }
+    const plugin = {
+      name: 'demo',
+      marketplace: 'market',
+      installs: [
+        {
+          scope: 'project',
+          project_path: projectPath,
+          enablement_known: false,
+          project_missing: true
+        }
+      ]
+    } as PluginRow
+
+    expect(security.deniedPluginActionMessage(input, plugin)).toBe(
+      `This install is registered to ${projectPath}, and that folder is missing. Megatron can't update, enable, disable, or uninstall it. ` +
+        'Put the project back at that path to keep this install, or install the plugin again from its new location in Claude Code. ' +
+        'The next scan shows the new install. This record stays until Claude Code removes it.'
+    )
+  })
+
   it.each([
     [IPC_CHANNELS.openSkill, [-1]],
     [IPC_CHANNELS.openSkill, ['1']],

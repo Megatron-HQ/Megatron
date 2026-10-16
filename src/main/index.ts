@@ -3,6 +3,7 @@ import { join } from 'path'
 import { pathToFileURL } from 'url'
 import {
   canManagePluginInstall,
+  deniedPluginActionMessage,
   isTrustedIpcSender,
   isTrustedRendererUrl,
   resolveBundledAsset,
@@ -113,15 +114,9 @@ function assertRequest(
     ].includes(channel as never)
   ) {
     const input = args[0] as PluginActionInput
-    if (
-      !canManagePluginInstall(
-        input,
-        getPluginDetail(getDb(), input.name, input.marketplace)?.plugin ?? null
-      )
-    ) {
-      throw new Error(
-        'Plugin installation is unavailable or its settings are unknown. Refresh the plugin list.'
-      )
+    const plugin = getPluginDetail(getDb(), input.name, input.marketplace)?.plugin ?? null
+    if (!canManagePluginInstall(input, plugin)) {
+      throw new Error(deniedPluginActionMessage(input, plugin))
     }
   }
 }

@@ -242,6 +242,9 @@ export interface PluginInstall {
   // install whose owning project root has not been granted, so its .claude/settings*.json is
   // unreadable. Renders as an Unknown status rather than a confidently wrong Enabled.
   enablement_known: boolean
+  // true when the registered project folder is granted and is not a directory. Distinct from
+  // enablement_known: false caused by a missing grant, which still asks for folder access.
+  project_missing: boolean
 }
 
 export interface PluginRow {

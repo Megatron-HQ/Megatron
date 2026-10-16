@@ -27,6 +27,21 @@ export interface FilterProject {
   count: number
 }
 
+export type PluginInstallBlock = 'missing-folder' | 'needs-grant' | 'unrecorded'
+
+export function pluginInstallBlock(install: PluginInstall): PluginInstallBlock | null {
+  if (install.scope === 'user') return null
+  if (install.project_path === null) return 'unrecorded'
+  if (install.project_missing) return 'missing-folder'
+  if (!install.enablement_known) return 'needs-grant'
+  return null
+}
+
+export function showsMissingProjectStatus(installs: PluginInstall[]): boolean {
+  const unknown = installs.filter((install) => !install.enablement_known)
+  return unknown.length > 0 && unknown.every((install) => install.project_missing)
+}
+
 // installed_plugins.json and a granted folder can spell one root differently — separator, drive
 // case, trailing slash — so every path comparison here goes through this first.
 export function isPluginFilterEqual(a: PluginFilter, b: PluginFilter): boolean {

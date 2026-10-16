@@ -22,6 +22,7 @@ import { getFolderBasename } from '@/lib/source-name'
 import {
   getPluginFilterHeaderTitle,
   shouldShowScopeColumn,
+  showsMissingProjectStatus,
   type PluginRepositoryRow as PluginRow,
   type PluginFilter
 } from '@/lib/plugin-filter'
@@ -278,6 +279,7 @@ const statusColumn = columnHelper.accessor('disabled_reason', {
     <PluginStatusBadge
       disabledReason={info.getValue()}
       known={enablementKnown(info.row.original)}
+      projectMissing={showsMissingProjectStatus(info.row.original.installs)}
     />
   )
 })

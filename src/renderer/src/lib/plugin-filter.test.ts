@@ -5,7 +5,9 @@ import {
   isPluginFilterEqual,
   listFilterProjects,
   matchesPluginFilter,
-  shouldShowScopeColumn
+  pluginInstallBlock,
+  shouldShowScopeColumn,
+  showsMissingProjectStatus
 } from './plugin-filter'
 import { createPluginRows, scopePluginDetail } from './plugin-filter'
 
@@ -20,7 +22,8 @@ function install(scope: PluginScope, projectPath: string | null = null): PluginI
     installed_version: '1.0.0',
     available_version: null,
     disabled_reason: null,
-    enablement_known: true
+    enablement_known: true,
+    project_missing: false
   }
 }
 
@@ -174,6 +177,28 @@ describe('repository plugin rows', () => {
       [disabled]
     )
     expect(scopePluginDetail(detail, { kind: 'project', path: '/missing' })).toBeNull()
+  })
+
+  it('keeps a missing project distinct from an ungranted one when the repository cannot be refreshed', () => {
+    const missing = {
+      ...install('project', '/moved'),
+      project_missing: true,
+      enablement_known: false
+    }
+    const row = plugin('a', [missing])
+    const rows = createPluginRows([row], { kind: 'all' }, [
+      { path: '/moved', kind: 'repository', status: 'missing' }
+    ])
+
+    expect(rows[0].installs[0].project_missing).toBe(true)
+    expect(pluginInstallBlock(rows[0].installs[0])).toBe('missing-folder')
+    expect(pluginInstallBlock({ ...install('project', '/repo'), enablement_known: false })).toBe(
+      'needs-grant'
+    )
+    expect(pluginInstallBlock(install('project', null))).toBe('unrecorded')
+    expect(pluginInstallBlock(install('user'))).toBeNull()
+    expect(showsMissingProjectStatus(rows[0].installs)).toBe(true)
+    expect(showsMissingProjectStatus([install('project', '/repo')])).toBe(false)
   })
 })
 

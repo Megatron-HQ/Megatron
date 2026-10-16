@@ -2,7 +2,7 @@ const PARENT = 'C:\\Projects\\Megatron HQ'
 const FIRST = `${PARENT}\\Megatron`
 const SECOND = `${PARENT}\\Megatron-site`
 
-function fixtureInstall(scope, project, version = '1.0.0') {
+function fixtureInstall(scope, project, version = '1.0.0', missing = false) {
   return {
     scope,
     project_path: project,
@@ -10,7 +10,8 @@ function fixtureInstall(scope, project, version = '1.0.0') {
     installed_version: version,
     available_version: '2.0.0',
     disabled_reason: null,
-    enablement_known: project !== null || scope === 'user',
+    enablement_known: !missing && (project !== null || scope === 'user'),
+    project_missing: missing,
     installed_at: null,
     last_updated: null,
     git_commit_sha: null
@@ -75,9 +76,9 @@ export function projectTreeFixture(channel, args, original, mode) {
   ]
   const plugins = ['build-tools', 'review-tools', 'test-tools'].map((name, index) =>
     fixturePlugin(name, [
-      fixtureInstall('project', first),
+      fixtureInstall('project', first, '1.0.0', unavailable),
       fixtureInstall('project', second, '2.0.0'),
-      ...(index === 0 ? [fixtureInstall('local', first, '2.0.0')] : [])
+      ...(index === 0 ? [fixtureInstall('local', first, '2.0.0', unavailable)] : [])
     ])
   )
   plugins.push(fixturePlugin('user-tool', [fixtureInstall('user', null)]))

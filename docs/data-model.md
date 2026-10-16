@@ -438,6 +438,14 @@ two carry a `projectPath`, captured as `project_path`.
   switch whose current position Megatron has just said it can't read. `PluginDetail` disables the
   buttons and links to Manage Folders; `plugin-actions.ts` re-checks `isPathAllowed()` so a
   renderer bug can't route around it.
+- **A granted project folder that is not a directory is `project_missing`, not an ungranted
+  folder.** `readPluginEnablement` already records that at read time. `listPlugins` exposes it on
+  each install. The detail row explains that the install is still registered to that path, disables
+  Update, Enable, Disable, and Uninstall, and tells the user to put the project back or install
+  the plugin again from its new location. Megatron does not guess the new path or rewrite Claude's
+  plugin registry. An action rejected for that reason repeats the same explanation. The Unknown
+  tooltip says the folder is missing. Scan details use "This project folder is missing. Showing
+  the last available data."
 - **The in-flight action guard keys on the install, not the identity.** `name@marketplace` alone
   would make disabling a project install block the user install of the same plugin, and would
   serialize two projects that each installed it. The key is
