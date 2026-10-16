@@ -18,7 +18,8 @@ const SKIP_DIRECTORIES = new Set([
   'vendor',
   'target',
   '.next',
-  '.claude'
+  '.claude',
+  '__MACOSX'
 ])
 export const PROJECT_DISCOVERY_LIMITS = { maxDepth: 64, maxDirectories: 50_000 }
 
@@ -107,7 +108,7 @@ export function discoverProjects(
         (name) => name === 'settings.json' || name === 'settings.local.json'
       )
       const isRepository =
-        directory.entries.includes('.git') || (owner === undefined && (hasSkills || hasSettings))
+        owner === undefined && (directory.entries.includes('.git') || hasSkills || hasSettings)
       const owningProject = isRepository ? canonical : owner
       if (isRepository || isGrant)
         projects.set(key, {
@@ -156,6 +157,7 @@ export function discoverProjects(
       continue
     }
     const directory = readAllowedDirectory(entry.path)
+    if (!incomplete && directory.status === 'ok') continue
     const status =
       directory.status === 'missing'
         ? 'missing'

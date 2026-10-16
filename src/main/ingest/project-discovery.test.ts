@@ -96,4 +96,41 @@ describe('project discovery continuity', () => {
       projectRoot: repo
     })
   })
+
+  it('does not discover nested repositories inside an existing repository as separate projects', () => {
+    const repo = join(root, 'repo')
+    const nested = join(repo, 'references', 'nested-repo')
+    mkdirSync(join(repo, '.git'), { recursive: true })
+    mkdirSync(join(nested, '.git'), { recursive: true })
+    const result = discoverProjects([root])
+    expect(
+      result.projects.filter((entry) => entry.kind === 'repository').map((entry) => entry.path)
+    ).toEqual([repo])
+  })
+
+  it('skips __MACOSX directories during project traversal', () => {
+    const repo = join(root, 'repo')
+    const macDir = join(repo, '__MACOSX', 'nested')
+    mkdirSync(join(repo, '.git'), { recursive: true })
+    mkdirSync(join(macDir, '.git'), { recursive: true })
+    const result = discoverProjects([root])
+    expect(
+      result.projects.filter((entry) => entry.kind === 'repository').map((entry) => entry.path)
+    ).toEqual([repo])
+  })
+
+  it('prunes previously cached nested entries on a complete scan when readable', () => {
+    const repo = join(root, 'repo')
+    const nested = join(repo, 'references', 'nested-repo')
+    mkdirSync(join(repo, '.git'), { recursive: true })
+    mkdirSync(join(nested, '.git'), { recursive: true })
+    const previous: ProjectFolder[] = [
+      { path: repo, kind: 'repository', status: 'available' },
+      { path: nested, kind: 'repository', status: 'available' }
+    ]
+    const result = discoverProjects([root], previous)
+    expect(
+      result.projects.filter((entry) => entry.kind === 'repository').map((entry) => entry.path)
+    ).toEqual([repo])
+  })
 })
