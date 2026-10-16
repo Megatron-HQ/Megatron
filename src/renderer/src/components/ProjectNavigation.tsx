@@ -93,13 +93,14 @@ export function ProjectNavigation(props: ProjectNavigationProps): React.JSX.Elem
               onClick={unknown.onSelect}
               onMouseEnter={(event) => onItemHover(event.currentTarget)}
               className={cn(
-                'relative z-10 flex h-7 items-center gap-1.5 rounded-md px-2 text-left text-xs',
+                'relative z-10 flex h-7 items-center gap-1 rounded-md px-2 text-left text-xs transition-colors',
                 FOCUS,
                 unknown.selected ? SELECTED : IDLE
               )}
             >
               <span className="truncate">Unknown project</span>
               <Count count={unknown.count} selected={unknown.selected} />
+              <DisclosureSpacer />
             </button>
           )}
         </div>
@@ -131,21 +132,49 @@ function ProjectNode({
   const unavailable = node.status !== 'available'
   return (
     <div className="flex min-w-0 flex-col">
-      <div
-        title={`${node.path}${unavailable ? ` — ${node.status === 'needs_access' ? 'Folder access required' : 'Unavailable; showing cached data'}` : ''}`}
-        onMouseEnter={(event) => onItemHover(event.currentTarget)}
-        className={cn(
-          'relative z-10 flex h-7 min-w-0 items-center gap-1 rounded-md px-2 text-xs transition-colors',
-          isSelected ? SELECTED : IDLE
-        )}
-      >
+      {hasChildren ? (
+        <div
+          title={`${node.path}${unavailable ? ` — ${node.status === 'needs_access' ? 'Folder access required' : 'Unavailable; showing cached data'}` : ''}`}
+          onMouseEnter={(event) => onItemHover(event.currentTarget)}
+          className={cn(
+            'relative z-10 flex h-7 min-w-0 items-center gap-1 rounded-md px-2 text-xs transition-colors',
+            isSelected ? SELECTED : IDLE
+          )}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              onSelect(node.path, exact)
+              onOpen(node.key)
+            }}
+            className={cn('flex h-full min-w-0 flex-1 items-center gap-1.5 text-left', FOCUS)}
+          >
+            <span className="truncate">{node.label}</span>
+            {unavailable && (
+              <CircleAlert
+                className="size-3 shrink-0"
+                aria-label={node.status === 'needs_access' ? 'Needs folder access' : 'Unavailable'}
+              />
+            )}
+            <Count count={node.count} selected={isSelected} />
+          </button>
+          <Disclosure
+            label={`${node.label} repositories`}
+            expanded={expanded.has(node.key)}
+            onClick={() => onToggle(node.key)}
+          />
+        </div>
+      ) : (
         <button
           type="button"
-          onClick={() => {
-            onSelect(node.path, exact)
-            if (hasChildren) onOpen(node.key)
-          }}
-          className={cn('flex h-full min-w-0 flex-1 items-center gap-1.5 text-left', FOCUS)}
+          title={`${node.path}${unavailable ? ` — ${node.status === 'needs_access' ? 'Folder access required' : 'Unavailable; showing cached data'}` : ''}`}
+          onClick={() => onSelect(node.path, exact)}
+          onMouseEnter={(event) => onItemHover(event.currentTarget)}
+          className={cn(
+            'relative z-10 flex h-7 min-w-0 items-center gap-1 rounded-md px-2 text-left text-xs transition-colors',
+            FOCUS,
+            isSelected ? SELECTED : IDLE
+          )}
         >
           <span className="truncate">{node.label}</span>
           {unavailable && (
@@ -155,15 +184,9 @@ function ProjectNode({
             />
           )}
           <Count count={node.count} selected={isSelected} />
+          <DisclosureSpacer />
         </button>
-        {hasChildren && (
-          <Disclosure
-            label={`${node.label} repositories`}
-            expanded={expanded.has(node.key)}
-            onClick={() => onToggle(node.key)}
-          />
-        )}
-      </div>
+      )}
       {hasChildren && (
         <Children open={expanded.has(node.key)} reduceMotion={reduceMotion}>
           <div
@@ -179,7 +202,7 @@ function ProjectNode({
                 onClick={() => onSelect(node.path, true)}
                 onMouseEnter={(event) => onItemHover(event.currentTarget)}
                 className={cn(
-                  'relative z-10 flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-left text-xs',
+                  'relative z-10 flex h-7 min-w-0 items-center gap-1 rounded-md px-2 text-left text-xs transition-colors',
                   FOCUS,
                   selected && samePath && selection.exact ? SELECTED : IDLE
                 )}
@@ -189,6 +212,7 @@ function ProjectNode({
                   count={node.directCount}
                   selected={selected && samePath && !!selection.exact}
                 />
+                <DisclosureSpacer />
               </button>
             )}
             {node.children.map((child) => (
@@ -246,6 +270,15 @@ function Disclosure({
         )}
       />
     </button>
+  )
+}
+
+function DisclosureSpacer(): React.JSX.Element {
+  return (
+    <span
+      aria-hidden="true"
+      className="-mr-1 block box-content size-3.5 shrink-0 p-1 pointer-events-none"
+    />
   )
 }
 
