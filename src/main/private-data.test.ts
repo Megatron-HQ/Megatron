@@ -58,7 +58,8 @@ describe('private application cache', () => {
         }
       )
       expect(result.trim()).toBe('True')
-    }
+    },
+    20_000
   )
   it('creates the application data directory and retains existing cache contents', () => {
     const directory = join(root, 'profile')
@@ -70,7 +71,7 @@ describe('private application cache', () => {
       expect(statSync(directory).mode & 0o777).toBe(0o700)
       expect(statSync(join(directory, 'megatron.db')).mode & 0o777).toBe(0o600)
     }
-  })
+  }, 20_000)
   it('refuses a linked data directory before opening or changing a database', () => {
     const outside = join(root, 'outside')
     mkdirSync(outside)

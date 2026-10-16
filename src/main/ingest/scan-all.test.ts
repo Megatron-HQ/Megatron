@@ -5,6 +5,24 @@ import { runAllScans, type ScanTask } from './scan-all'
 const database = {} as Database.Database
 
 describe('runAllScans', () => {
+  it('passes source diagnostics through to the renderer summary', () => {
+    function plugins(): unknown {
+      return {
+        status: 'partial',
+        issues: [{ code: 'permission_required', path: 'C:\\HQ\\repo' }]
+      }
+    }
+    expect(runAllScans(database, [plugins])).toMatchObject({
+      sources: [
+        {
+          name: 'plugins',
+          status: 'partial',
+          issues: [{ code: 'permission_required', path: 'C:\\HQ\\repo' }]
+        }
+      ]
+    })
+  })
+
   it('reports partial success when a source is unavailable', () => {
     expect(runAllScans(database, [() => ({ status: 'partial' }), () => undefined])).toMatchObject({
       outcome: 'partial'

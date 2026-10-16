@@ -6,6 +6,7 @@ import { ManageFoldersDialog } from '@/components/ManageFoldersDialog'
 import { PluginActionToasts, type PluginActionToast } from '@/components/PluginActionToasts'
 import { PluginSidebar } from '@/components/PluginSidebar'
 import { SettingsDialog } from '@/components/SettingsDialog'
+import { ScanStatusBanner } from '@/components/ScanStatus'
 import { Sidebar } from '@/components/Sidebar'
 import { UsageSidebar, type UsagePanel } from '@/components/UsageSidebar'
 import {
@@ -293,15 +294,11 @@ function App(): React.JSX.Element {
             <div className="drag-region absolute inset-x-1.5 top-1.5 bottom-0 rounded-xl bg-muted shadow" />
           </div>
         )}
-        {data?.scanSummary && data.scanSummary.outcome !== 'complete' && (
-          <p
-            role="status"
-            className="shrink-0 border-b border-border bg-muted px-4 py-2 text-xs text-muted-foreground"
-          >
-            {data.scanSummary.outcome === 'failed'
-              ? 'Scan failed. Try rescanning from Settings.'
-              : 'Some sources could not be refreshed. Showing the last available data. Try rescanning from Settings.'}
-          </p>
+        {data?.scanSummary && (
+          <ScanStatusBanner
+            summary={data.scanSummary}
+            onOpenDetails={() => setSettingsOpen(true)}
+          />
         )}
         <div className="flex min-h-0 flex-1">
           <AppRail
@@ -445,6 +442,7 @@ function App(): React.JSX.Element {
         themePreference={themePreference}
         onThemeChange={handleThemeChange}
         version={version}
+        scanSummary={data?.scanSummary}
         onManageFolders={() => {
           setSettingsOpen(false)
           setFoldersDialogOpen(true)

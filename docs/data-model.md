@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS skills (
   est_listing_tokens INTEGER NOT NULL DEFAULT 0,  -- name+description, chars/3.0 (calibrated,
                                                    -- not exact) — see docs/mvp-build-spec.md
   est_body_tokens INTEGER NOT NULL DEFAULT 0,     -- full SKILL.md, chars/3.0
-  project_root TEXT                   -- granted repo root; NULL for global/plugin — see
+  project_root TEXT                   -- owning repo within a granted folder; NULL for global/plugin — see
                                        -- Skill name collisions below
 );
 

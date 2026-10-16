@@ -320,7 +320,7 @@ app.whenReady().then(() => {
   secureIpc.handle(IPC_CHANNELS.pickAndAddFolders, async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender)
     const options: Electron.OpenDialogOptions = {
-      title: 'Grant Repository Folder',
+      title: 'Grant Project or Parent Folder',
       properties: ['openDirectory', 'multiSelections']
     }
     const result = window

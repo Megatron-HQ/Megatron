@@ -1277,9 +1277,17 @@ describe('scanPluginRegistry', () => {
         }
       })
 
-      scanPluginRegistry(db, pluginsDir, userSettingsPath)
+      expect(scanPluginRegistry(db, pluginsDir, userSettingsPath)).toMatchObject({
+        status: 'partial',
+        issues: [{ code: 'permission_required', path: ungrantedRoot }]
+      })
 
       expect(allRegistry()[0].disabled_reason).toBeNull()
+      grantPath(ungrantedRoot)
+      expect(scanPluginRegistry(db, pluginsDir, userSettingsPath)).toMatchObject({
+        status: 'complete'
+      })
+      expect(allRegistry()[0].disabled_reason).toBe('plugin')
     } finally {
       rmSync(ungrantedRoot, { recursive: true, force: true })
     }

@@ -105,14 +105,25 @@ export interface SkillsListResult {
   contextBudget: ContextBudget
 }
 
+export interface ScanIssue {
+  code:
+    | 'permission_required'
+    | 'project_missing'
+    | 'settings_invalid'
+    | 'source_unavailable'
+    | 'scan_limit'
+  path: string
+}
+
 export interface ScanTaskResult {
   status: 'complete' | 'partial'
+  issues?: ScanIssue[]
 }
 
 export interface ScanSummary {
   outcome: 'complete' | 'partial' | 'failed'
   completedAt: string
-  sources: { name: string; status: 'complete' | 'partial' | 'failed' }[]
+  sources: { name: string; status: 'complete' | 'partial' | 'failed'; issues?: ScanIssue[] }[]
   lastSuccessfulAt?: string | null
 }
 

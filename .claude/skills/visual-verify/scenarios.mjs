@@ -315,6 +315,52 @@ export const scenarios = [
     }
   },
   {
+    name: 'scan-access-banner',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-permission')
+      )
+      await window.reload()
+      await window.getByRole('button', { name: 'Scan details', exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'settings-scan-access-details',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-permission')
+      )
+      await window.reload()
+      await window.getByRole('button', { name: 'Scan details', exact: true }).click()
+      await window.getByRole('button', { name: 'Manage folder access', exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'settings-moved-project-details',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'scan-missing'))
+      await window.reload()
+      await window.getByRole('button', { name: 'Scan details', exact: true }).click()
+      await window.getByText('C:\\Old Projects\\Megatron', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'manage-parent-folder-access',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-permission')
+      )
+      await window.reload()
+      await window.getByRole('button', { name: 'Scan details', exact: true }).click()
+      await window.getByRole('button', { name: 'Manage folder access', exact: true }).click()
+      await window.getByRole('button', { name: 'Add Folder...', exact: true }).waitFor()
+    }
+  },
+  {
     name: 'usage-load-error',
     screen: 'usage',
     async run(window, app) {

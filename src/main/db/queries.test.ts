@@ -3,7 +3,9 @@
 process.env.TZ = 'Etc/GMT+5'
 
 import Database from 'better-sqlite3'
-import { resolve } from 'path'
+import { join, resolve } from 'path'
+import { mkdirSync, mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
 import { grantPath, resetGrantedPaths } from '../permissions'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { applySchema } from './schema'
@@ -1531,15 +1533,22 @@ describe('getContextBudget', () => {
 
 describe('listPlugins', () => {
   it('recognizes parent grants covering a nested project', () => {
-    addAllowedPath(db, '/parent')
-    grantPath(resolve('/parent'))
-    insertPluginRegistry({
-      name: 'demo',
-      marketplace: 'market',
-      scope: 'project',
-      project_path: resolve('/parent/child')
-    })
-    expect(listPlugins(db)[0].installs[0].enablement_known).toBe(true)
+    const parent = mkdtempSync(join(tmpdir(), 'megatron-parent-grant-'))
+    try {
+      const projectRoot = join(parent, 'child')
+      mkdirSync(projectRoot)
+      addAllowedPath(db, parent)
+      grantPath(parent)
+      insertPluginRegistry({
+        name: 'demo',
+        marketplace: 'market',
+        scope: 'project',
+        project_path: projectRoot
+      })
+      expect(listPlugins(db)[0].installs[0].enablement_known).toBe(true)
+    } finally {
+      rmSync(parent, { recursive: true, force: true })
+    }
   })
   it('returns an empty array when no plugins are registered', () => {
     expect(listPlugins(db)).toEqual([])
@@ -1737,16 +1746,21 @@ describe('listPlugins', () => {
   })
 
   it('reports enablement_known for a project install whose root is granted', () => {
-    grantPath(resolve('/repo'))
-    addAllowedPath(db, '/repo')
-    insertPluginRegistry({
-      name: 'plugin-a',
-      marketplace: 'market-1',
-      scope: 'project',
-      project_path: resolve('/repo')
-    })
+    const projectRoot = mkdtempSync(join(tmpdir(), 'megatron-project-grant-'))
+    try {
+      grantPath(projectRoot)
+      addAllowedPath(db, projectRoot)
+      insertPluginRegistry({
+        name: 'plugin-a',
+        marketplace: 'market-1',
+        scope: 'project',
+        project_path: projectRoot
+      })
 
-    expect(listPlugins(db)[0].installs[0].enablement_known).toBe(true)
+      expect(listPlugins(db)[0].installs[0].enablement_known).toBe(true)
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true })
+    }
   })
 
   // Without the grant its .claude/settings*.json is unreadable, so a null disabled_reason means

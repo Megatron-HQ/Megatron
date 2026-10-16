@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import type { ScanTaskResult } from '../../shared/ipc'
+import type { ScanIssue, ScanTaskResult } from '../../shared/ipc'
 import { homedir } from 'os'
 import { dirname, join, resolve } from 'path'
 import { writeSkillScan, writeSkillScanAuthoritative, type SkillScanRow } from '../db/queries'
@@ -232,6 +232,7 @@ export function scanPluginRegistry(
   // a project with several plugins would otherwise re-read the same two settings files each time.
   const enablementCache = new Map<string, Set<string>>()
   const unknownProjects = new Set<string>()
+  const issues = new Map<string, ScanIssue>()
   function disabledPluginsFor(projectPath: string): Set<string> {
     const cached = enablementCache.get(projectPath)
     if (cached) return cached
@@ -244,6 +245,7 @@ export function scanPluginRegistry(
     // answer would stamp a state this project never asked for. Report nothing disabled and let
     // listPlugins mark the install's enablement unknown (see queries.ts).
     if (!enablement.known) unknownProjects.add(projectPath)
+    for (const issue of enablement.issues) issues.set(`${issue.code}\0${issue.path}`, issue)
     const resolved = enablement.known
       ? enablement.disabled
       : new Set(
@@ -531,7 +533,8 @@ export function scanPluginRegistry(
       status:
         pluginSkillScanIsAuthoritative && hasMarketplaceSnapshot
           ? ('complete' as const)
-          : ('partial' as const)
+          : ('partial' as const),
+      ...(issues.size > 0 ? { issues: [...issues.values()] } : {})
     }
   })
 

@@ -26,6 +26,31 @@ globalThis.megatronVisualFixtures = {
       if (mode === 'error') throw new Error('Visual fixture: unavailable source')
       if (mode === 'pending') return new Promise(() => {})
       const result = await original(event, ...args)
+      if (channel === 'skills:list' && ['scan-permission', 'scan-missing'].includes(mode)) {
+        return {
+          ...result,
+          scanComplete: true,
+          scanSummary: {
+            outcome: 'partial',
+            completedAt: new Date().toISOString(),
+            sources: [
+              {
+                name: 'scanPluginRegistry',
+                status: 'partial',
+                issues: [
+                  {
+                    code: mode === 'scan-permission' ? 'permission_required' : 'project_missing',
+                    path:
+                      mode === 'scan-permission'
+                        ? 'C:\\Projects\\Megatron HQ\\Megatron'
+                        : 'C:\\Old Projects\\Megatron'
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
       if (mode === 'history-pages') {
         const offset = channel === 'skills:openHistory' ? (args[1] ?? 0) : (args[0]?.offset ?? 0)
         return Array.from({ length: offset === 0 ? 200 : 3 }, (_, index) => ({

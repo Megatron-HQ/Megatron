@@ -106,7 +106,8 @@ export function runAllScans(
       const result = scan(db) as ScanTaskResult | undefined
       sources.push({
         name: scan.name || 'scan',
-        status: result?.status === 'partial' ? 'partial' : 'complete'
+        status: result?.status === 'partial' ? 'partial' : 'complete',
+        ...(result?.issues?.length ? { issues: result.issues } : {})
       })
     } catch (error) {
       reportError(error)

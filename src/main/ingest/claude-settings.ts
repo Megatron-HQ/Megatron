@@ -1,12 +1,19 @@
 import { homedir } from 'os'
 import { join, resolve } from 'path'
-import { readAllowedFile } from '../permissions'
+import {
+  allowedStatSync,
+  isPathAllowed,
+  readAllowedDirectory,
+  readAllowedFile
+} from '../permissions'
+import type { ScanIssue } from '../../shared/ipc'
 
 export type JsonReadStatus = 'ok' | 'missing' | 'unavailable' | 'invalid'
 
 export interface JsonRead {
   status: JsonReadStatus
   value: unknown
+  reason?: 'scan_limit'
 }
 
 // Shared by every scanner that reads a Claude Code JSON config file — degrades to a status
@@ -17,7 +24,11 @@ export interface JsonRead {
 export function readJson(filePath: string): JsonRead {
   const result = readAllowedFile(filePath)
   if (result.status !== 'ok' || result.contents === null) {
-    return { status: result.status === 'missing' ? 'missing' : 'unavailable', value: null }
+    return {
+      status: result.status === 'missing' ? 'missing' : 'unavailable',
+      value: null,
+      ...(result.status === 'too_large' ? { reason: 'scan_limit' as const } : {})
+    }
   }
   try {
     return { status: 'ok', value: JSON.parse(result.contents.toString('utf8')) }
@@ -38,6 +49,21 @@ export interface PluginEnablement {
   // false when any required settings snapshot is unavailable or malformed. The partial
   // disabled set must not replace a previously known installation state.
   known: boolean
+  issues: ScanIssue[]
+}
+
+function isKnownSettings(snapshot: JsonRead): boolean {
+  return (
+    snapshot.status === 'missing' ||
+    (snapshot.status === 'ok' &&
+      isRecord(snapshot.value) &&
+      (snapshot.value.enabledPlugins === undefined ||
+        (isRecord(snapshot.value.enabledPlugins) &&
+          Object.values(snapshot.value.enabledPlugins).every(
+            (entry) => typeof entry === 'boolean'
+          ))) &&
+      (snapshot.value.skillOverrides === undefined || isRecord(snapshot.value.skillOverrides)))
+  )
 }
 
 function readEnabledPluginsFrom(settings: JsonRead): Map<string, boolean> {
@@ -70,18 +96,31 @@ export function readPluginEnablement(
     ...(projectRoot === undefined ? [] : projectScopeSettingsPaths(projectRoot))
   ]
   const snapshots = paths.map(readJson)
-  const known = snapshots.every(
-    (snapshot) =>
-      snapshot.status === 'missing' ||
-      (snapshot.status === 'ok' &&
-        isRecord(snapshot.value) &&
-        (snapshot.value.enabledPlugins === undefined ||
-          (isRecord(snapshot.value.enabledPlugins) &&
-            Object.values(snapshot.value.enabledPlugins).every(
-              (entry) => typeof entry === 'boolean'
-            ))) &&
-        (snapshot.value.skillOverrides === undefined || isRecord(snapshot.value.skillOverrides)))
-  )
+  const issues: ScanIssue[] = []
+  let projectIssue: ScanIssue | undefined
+  if (projectRoot !== undefined) {
+    if (!isPathAllowed(projectRoot)) {
+      projectIssue = { code: 'permission_required', path: projectRoot }
+    } else if (
+      allowedStatSync(projectRoot) === null &&
+      readAllowedDirectory(projectRoot).status === 'missing'
+    ) {
+      projectIssue = { code: 'project_missing', path: projectRoot }
+    }
+    if (projectIssue) issues.push(projectIssue)
+  }
+  for (const [index, snapshot] of snapshots.entries()) {
+    if (index > 0 && projectIssue) continue
+    if (isKnownSettings(snapshot)) continue
+    issues.push({
+      code: !isPathAllowed(paths[index])
+        ? 'permission_required'
+        : (snapshot.reason ??
+          (snapshot.status === 'unavailable' ? 'source_unavailable' : 'settings_invalid')),
+      path: paths[index]
+    })
+  }
+  const known = issues.length === 0
   const merged = new Map<string, boolean>()
   for (const snapshot of snapshots) {
     for (const [key, enabled] of readEnabledPluginsFrom(snapshot)) merged.set(key, enabled)
@@ -90,7 +129,7 @@ export function readPluginEnablement(
   const disabled = new Set(
     [...merged].filter(([, enabled]) => enabled === false).map(([key]) => key)
   )
-  return { disabled, known }
+  return { disabled, known, issues }
 }
 
 function projectScopeSettingsPaths(projectRoot: string): string[] {

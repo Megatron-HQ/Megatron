@@ -54,9 +54,10 @@ export function ManageFoldersDialog({
         <DialogHeader>
           <DialogTitle>Project Folders</DialogTitle>
           <DialogDescription>
-            Megatron scans granted repository roots for{' '}
-            <code className="font-mono text-xs">.claude/skills</code>. Linked skills outside these
-            folders require granting their target folder too.
+            Grant a project or a parent folder containing several projects. Megatron discovers{' '}
+            <code className="font-mono text-xs">.claude/skills</code> in child repositories and
+            reads their plugin settings. Linked skills outside these folders require granting their
+            target folder too.
           </DialogDescription>
         </DialogHeader>
 
@@ -64,9 +65,9 @@ export function ManageFoldersDialog({
           {folders.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-8 text-center">
               <Folder className="size-8 text-muted-foreground/60" />
-              <p className="mt-2 text-sm font-medium">No repository folders granted</p>
+              <p className="mt-2 text-sm font-medium">No project folders granted</p>
               <p className="text-xs text-muted-foreground">
-                Grant access to a local repository to discover project-level skills.
+                Grant a project or parent folder to discover project-level skills.
               </p>
             </div>
           ) : (
@@ -118,7 +119,7 @@ export function ManageFoldersDialog({
             className="flex items-center gap-1.5"
           >
             <FolderPlus className="size-4" />
-            Add Repository...
+            Add Folder...
           </Button>
           <Button type="button" size="sm" onClick={() => onOpenChange(false)}>
             Done

@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { Folder, Monitor, Moon, RefreshCw, Sun } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { TextLink } from '@/components/TextLink'
+import { ScanIssueDetails } from '@/components/ScanStatus'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import type { ThemePreference } from '../../../shared/ipc'
+import type { ScanSummary, ThemePreference } from '../../../shared/ipc'
 
 interface SettingsDialogProps {
   open: boolean
@@ -12,6 +13,7 @@ interface SettingsDialogProps {
   themePreference: ThemePreference
   onThemeChange: (preference: ThemePreference) => void
   version: string
+  scanSummary?: ScanSummary
   onManageFolders: () => void
 }
 
@@ -27,6 +29,7 @@ export function SettingsDialog({
   themePreference,
   onThemeChange,
   version,
+  scanSummary,
   onManageFolders
 }: SettingsDialogProps): React.JSX.Element {
   const [isRescanning, setIsRescanning] = useState(false)
@@ -36,14 +39,13 @@ export function SettingsDialog({
     setIsRescanning(true)
     setRescanMessage(null)
     try {
-      // scanAndNotify in main is synchronous — this promise resolving means the rescan and
-      // linter are done; the scan:complete broadcast refreshes every query via App.tsx.
+      // The worker has finished when this resolves; the broadcast refreshes query data.
       const result = await window.api.rescan()
       setRescanMessage(
         result.outcome === 'complete'
           ? 'Scan complete.'
           : result.outcome === 'partial'
-            ? 'Scan incomplete. Some sources could not be refreshed; their cached data was preserved.'
+            ? 'Scan incomplete. Review the source details below.'
             : 'Scan failed. Try again.'
       )
     } catch {
@@ -55,7 +57,7 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
@@ -97,6 +99,9 @@ export function SettingsDialog({
               {rescanMessage}
             </p>
           )}
+          {scanSummary && (
+            <ScanIssueDetails summary={scanSummary} onManageFolders={onManageFolders} />
+          )}
           <section className="flex items-center justify-between gap-4 border-t border-border py-3">
             <div>
               <p className="text-sm font-medium">Index</p>
@@ -122,7 +127,7 @@ export function SettingsDialog({
             <div>
               <p className="text-sm font-medium">Project folders</p>
               <p className="text-xs text-muted-foreground">
-                Repository roots scanned for project-level skills.
+                Projects or parent folders scanned for project-level skills and plugin settings.
               </p>
             </div>
             <Button

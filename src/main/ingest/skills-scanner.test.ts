@@ -71,6 +71,22 @@ afterEach(() => {
 })
 
 describe('scanSkills', () => {
+  it('includes invalid settings diagnostics while preserving the indexed skills', () => {
+    const root = join(tmpDir, 'skills')
+    writeSkillDir(root, 'demo', '---\nname: demo\n---\nBody')
+    writeUserSettings({})
+    const roots: SkillRoot[] = [{ dir: root, sourceType: 'global' }]
+    scanSkills(db, roots, userSettingsPath)
+    const before = allSkills()
+    writeFileSync(userSettingsPath, '{invalid')
+
+    expect(scanSkills(db, roots, userSettingsPath)).toMatchObject({
+      status: 'partial',
+      issues: [{ code: 'settings_invalid', path: userSettingsPath }]
+    })
+    expect(allSkills()).toEqual(before)
+  })
+
   it('reports incomplete nested discovery even before a hidden root has been indexed', () => {
     const hidden = join(tmpDir, 'hidden')
     mkdirSync(hidden)
@@ -663,6 +679,58 @@ describe('findNestedSkillsDirs', () => {
 })
 
 describe('defaultSkillRoots', () => {
+  it('keeps sibling repositories separate when their parent folder is granted', () => {
+    const firstRepo = join(tmpDir, 'Megatron')
+    const secondRepo = join(tmpDir, 'Megatron-site')
+    for (const repo of [firstRepo, secondRepo]) {
+      mkdirSync(join(repo, '.git'), { recursive: true })
+      writeSkillDir(join(repo, '.claude', 'skills'), 'demo', '---\nname: demo\n---\nBody')
+    }
+    mkdirSync(join(firstRepo, 'packages', 'web', '.claude'), { recursive: true })
+    writeSkillDir(
+      join(firstRepo, 'packages', 'web', '.claude', 'skills'),
+      'nested',
+      '---\nname: nested\n---\nBody'
+    )
+    writeFileSync(
+      join(firstRepo, '.claude', 'settings.json'),
+      JSON.stringify({ skillOverrides: { demo: 'off' } })
+    )
+    writeUserSettings({})
+
+    const roots = defaultSkillRoots().filter((root) => root.sourceType === 'project')
+    scanSkills(db, roots, userSettingsPath)
+
+    expect(allSkills().map((row) => [row.project_root, row.name, row.disabled_reason])).toEqual([
+      [secondRepo, 'demo', null],
+      [firstRepo, 'demo', 'override'],
+      [firstRepo, 'nested', null]
+    ])
+  })
+
+  it('deduplicates repositories covered by both a parent and a direct grant', () => {
+    const repo = join(tmpDir, 'repo')
+    mkdirSync(join(repo, '.git'), { recursive: true })
+    mkdirSync(join(repo, '.claude', 'skills'), { recursive: true })
+    grantPath(repo)
+
+    expect(
+      defaultSkillRoots().filter((root) => root.dir === join(repo, '.claude', 'skills'))
+    ).toHaveLength(1)
+  })
+
+  it('recognizes a child worktree without reading its gitdir target', () => {
+    const repo = join(tmpDir, 'worktree')
+    mkdirSync(join(repo, '.claude', 'skills'), { recursive: true })
+    writeFileSync(join(repo, '.git'), 'gitdir: C:/outside-the-grant')
+
+    expect(defaultSkillRoots()).toContainEqual({
+      dir: join(repo, '.claude', 'skills'),
+      sourceType: 'project',
+      projectRoot: repo
+    })
+  })
+
   it('includes ~/.claude/skills as a global root', () => {
     const roots = defaultSkillRoots()
     expect(roots).toContainEqual({

@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import type { ScanTaskResult } from '../../shared/ipc'
+import type { ScanIssue, ScanTaskResult } from '../../shared/ipc'
 import { homedir } from 'os'
 import { dirname, join, relative, resolve, sep } from 'path'
 import { writeSkillScan, type SkillScanRow } from '../db/queries'
@@ -44,10 +44,18 @@ export function findNestedSkillsDirs(
   onUnavailable: () => void = () => undefined,
   limits = DEFAULT_DISCOVERY_LIMITS
 ): string[] {
-  const found: string[] = []
+  return findNestedSkillRoots(repoRoot, onUnavailable, limits).map((root) => root.dir)
+}
+
+function findNestedSkillRoots(
+  repoRoot: string,
+  onUnavailable: () => void,
+  limits = DEFAULT_DISCOVERY_LIMITS
+): SkillRoot[] {
+  const found: SkillRoot[] = []
   const visitedRealPaths = new Set<string>()
 
-  function walk(dir: string, depth: number): void {
+  function walk(dir: string, depth: number, projectRoot: string): void {
     if (depth > limits.maxDepth || visitedRealPaths.size >= limits.maxDirectories) {
       onUnavailable()
       return
@@ -76,14 +84,18 @@ export function findNestedSkillsDirs(
       }
       if (!stats.isDirectory()) continue
 
+      // A grouping folder may contain independent repositories. Packages without a Git
+      // boundary keep their owning repository's settings and collision namespace.
+      const owningProject = allowedExistsSync(join(entryPath, '.git')) ? entryPath : projectRoot
       const skillsDir = join(entryPath, '.claude', 'skills')
-      if (allowedExistsSync(skillsDir)) found.push(skillsDir)
+      if (allowedExistsSync(skillsDir))
+        found.push({ dir: skillsDir, sourceType: 'project', projectRoot: owningProject })
 
-      walk(entryPath, depth + 1)
+      walk(entryPath, depth + 1, owningProject)
     }
   }
 
-  walk(repoRoot, 0)
+  walk(repoRoot, 0, repoRoot)
   return found
 }
 
@@ -106,17 +118,22 @@ export function defaultSkillRoots(): SkillRoot[] {
       projectRoot: path
     }
     let incomplete = false
-    const nested: SkillRoot[] = findNestedSkillsDirs(path, () => {
+    const nested = findNestedSkillRoots(path, () => {
       incomplete = true
-    }).map((dir) => ({
-      dir,
-      sourceType: 'project',
-      projectRoot: path
-    }))
+    })
     if (incomplete) topLevel.discoveryIncomplete = true
     return [topLevel, ...nested]
   })
-  return [globalRoot, ...projectRoots]
+  const uniqueRoots = new Map<string, SkillRoot>()
+  for (const root of projectRoots) {
+    const key = process.platform === 'win32' ? root.dir.toLowerCase() : root.dir
+    const previous = uniqueRoots.get(key)
+    uniqueRoots.set(key, {
+      ...root,
+      ...(previous?.discoveryIncomplete ? { discoveryIncomplete: true } : {})
+    })
+  }
+  return [globalRoot, ...uniqueRoots.values()]
 }
 
 const SYNCED_DIR_NAME = 'synced'
@@ -230,6 +247,7 @@ export function scanSkills(
   userSettingsPath?: string
 ): ScanTaskResult {
   let partial = roots.some((root) => root.discoveryIncomplete === true)
+  const issues = new Map<string, ScanIssue>()
   const rowsBySourceType = new Map<SkillRoot['sourceType'], SkillScanRow[]>()
   const rootDirsBySourceType = new Map<SkillRoot['sourceType'], string[]>()
   const expandedRoots = [...roots]
@@ -263,8 +281,10 @@ export function scanSkills(
       partial = true
       continue
     }
-    if (!readPluginEnablement(root.projectRoot, userSettingsPath).known) {
+    const enablement = readPluginEnablement(root.projectRoot, userSettingsPath)
+    if (!enablement.known) {
       partial = true
+      for (const issue of enablement.issues) issues.set(`${issue.code}\0${issue.path}`, issue)
       continue
     }
 
@@ -346,5 +366,8 @@ export function scanSkills(
     }
     writeSkillScan(db, sourceType, rows, rootDirs)
   }
-  return { status: partial ? 'partial' : 'complete' }
+  return {
+    status: partial ? 'partial' : 'complete',
+    ...(issues.size > 0 ? { issues: [...issues.values()] } : {})
+  }
 }

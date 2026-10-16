@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { grantPath, resetGrantedPaths } from '../permissions'
+import { grantPath, resetGrantedPaths, revokePath } from '../permissions'
 import { readPluginEnablement, readSkillOverrides } from './claude-settings'
 
 let tmpDir: string
@@ -29,6 +29,49 @@ function writeProjectSettings(projectRoot: string, fileName: string, content: un
 }
 
 describe('readPluginEnablement', () => {
+  it('identifies an unapproved project once instead of reporting two unreadable settings', () => {
+    const projectRoot = join(tmpDir, 'repo')
+    writeUserSettings({})
+    writeProjectSettings(projectRoot, 'settings.json', {})
+    revokePath(tmpDir)
+    grantPath(userSettingsPath)
+
+    expect(readPluginEnablement(projectRoot, userSettingsPath)).toMatchObject({
+      known: false,
+      issues: [{ code: 'permission_required', path: projectRoot }]
+    })
+  })
+
+  it('clears access issues when the project parent is granted', () => {
+    const projectRoot = join(tmpDir, 'HQ', 'repo')
+    writeUserSettings({})
+    writeProjectSettings(projectRoot, 'settings.json', {})
+
+    expect(readPluginEnablement(projectRoot, userSettingsPath)).toMatchObject({
+      known: true,
+      issues: []
+    })
+  })
+
+  it('reports a missing approved project instead of treating its settings as empty', () => {
+    writeUserSettings({})
+    const projectRoot = join(tmpDir, 'old-location')
+
+    expect(readPluginEnablement(projectRoot, userSettingsPath)).toMatchObject({
+      known: false,
+      issues: [{ code: 'project_missing', path: projectRoot }]
+    })
+  })
+
+  it('identifies malformed settings without discarding cached enablement confidence', () => {
+    writeFileSync(userSettingsPath, '{bad')
+
+    expect(readPluginEnablement(undefined, userSettingsPath)).toMatchObject({
+      known: false,
+      issues: [{ code: 'settings_invalid', path: userSettingsPath }]
+    })
+  })
+
   it('marks invalid user and project settings as unknown', () => {
     writeFileSync(userSettingsPath, '{bad')
     expect(readPluginEnablement(undefined, userSettingsPath).known).toBe(false)
