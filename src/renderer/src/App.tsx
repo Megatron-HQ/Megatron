@@ -15,7 +15,8 @@ import {
 } from '@/components/usage/SkillInvocationDialog'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { TREE_WIDTH_DEFAULT } from '@/lib/file-tree'
-import { matchesPluginFilter, type PluginFilter } from '@/lib/plugin-filter'
+import { createPluginRows, type PluginContext, type PluginFilter } from '@/lib/plugin-filter'
+import { isWithinProjectPath, normalizeProjectPath } from '../../shared/project-path'
 import { matchesFilter, type SourceFilter } from '@/lib/source-filter'
 import { SkillDetail } from './views/SkillDetail'
 import { SkillInventory } from './views/SkillInventory'
@@ -34,7 +35,8 @@ import type {
 type View =
   { kind: 'list' } | { kind: 'detail'; skillId: number } | { kind: 'files'; skillId: number }
 
-type PluginView = { kind: 'list' } | { kind: 'detail'; name: string; marketplace: string }
+type PluginView =
+  { kind: 'list' } | { kind: 'detail'; name: string; marketplace: string; context?: PluginContext }
 type SkillBackTarget = 'inventory' | 'usage-skills' | 'usage-skills-dialog'
 
 // Real value always arrives from the listSkills IPC round-trip almost immediately; this only
@@ -62,6 +64,8 @@ function App(): React.JSX.Element {
   const [section, setSection] = useState<AppSection>(() => window.api.getInitialSection())
   const [pluginView, setPluginView] = useState<PluginView>({ kind: 'list' })
   const [pluginFilter, setPluginFilter] = useState<PluginFilter>({ kind: 'all' })
+  const [skillExpandedProjects, setSkillExpandedProjects] = useState(() => new Set(['$projects']))
+  const [pluginExpandedProjects, setPluginExpandedProjects] = useState(() => new Set(['$projects']))
   const [usagePanel, setUsagePanel] = useState<UsagePanel>('activity')
   const [usageActivityWindow, setUsageActivityWindow] = useState<ActivityWindowKey>('30d')
   const [usageCostWindow, setUsageCostWindow] = useState<CostWindowKey>('30d')
@@ -92,6 +96,10 @@ function App(): React.JSX.Element {
     queryKey: ['folders'],
     queryFn: () => window.api.listAllowedPaths()
   })
+  const { data: projectsData } = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => window.api.listProjects()
+  })
 
   const {
     data: pluginsData,
@@ -108,6 +116,7 @@ function App(): React.JSX.Element {
       window.api.onScanComplete(() => {
         void queryClient.invalidateQueries({ queryKey: ['skills'] })
         void queryClient.invalidateQueries({ queryKey: ['folders'] })
+        void queryClient.invalidateQueries({ queryKey: ['projects'] })
         void queryClient.invalidateQueries({ queryKey: ['skill-meta'] })
         void queryClient.invalidateQueries({ queryKey: ['skill-files'] })
         void queryClient.invalidateQueries({ queryKey: ['plugins'] })
@@ -151,6 +160,34 @@ function App(): React.JSX.Element {
 
   const skills = useMemo(() => data?.skills ?? [], [data])
   const folders = useMemo(() => foldersData ?? [], [foldersData])
+  const projectCatalog = useMemo(() => projectsData ?? [], [projectsData])
+  const projectStatusByPath = useMemo(
+    () =>
+      new Map(
+        projectCatalog.map((project) => [normalizeProjectPath(project.path), project.status])
+      ),
+    [projectCatalog]
+  )
+  const projectAvailability = (
+    path: string | undefined,
+    aggregate = false
+  ): import('../../shared/ipc').ProjectFolder['status'] | undefined => {
+    if (path === undefined) return undefined
+    const status =
+      projectStatusByPath.get(normalizeProjectPath(path)) ??
+      (folders.some((folder) => isWithinProjectPath(path, folder.path))
+        ? 'unavailable'
+        : 'needs_access')
+    if (
+      aggregate &&
+      status === 'available' &&
+      projectCatalog.some(
+        (project) => isWithinProjectPath(project.path, path) && project.status !== 'available'
+      )
+    )
+      return 'unavailable'
+    return status
+  }
   const plugins = useMemo(() => pluginsData ?? [], [pluginsData])
   const scanComplete = data?.scanComplete ?? false
   const contextBudget = data?.contextBudget ?? DEFAULT_CONTEXT_BUDGET
@@ -161,8 +198,8 @@ function App(): React.JSX.Element {
   )
 
   const filteredPlugins = useMemo(
-    () => plugins.filter((plugin) => matchesPluginFilter(plugin, pluginFilter)),
-    [plugins, pluginFilter]
+    () => createPluginRows(plugins, pluginFilter, projectCatalog, skills),
+    [plugins, pluginFilter, projectCatalog, skills]
   )
 
   function handleFilterChange(next: SourceFilter): void {
@@ -239,8 +276,8 @@ function App(): React.JSX.Element {
     void window.api.setLastSection(next)
   }
 
-  function openPluginDetail(name: string, marketplace: string): void {
-    setPluginView({ kind: 'detail', name, marketplace })
+  function openPluginDetail(name: string, marketplace: string, context?: PluginContext): void {
+    setPluginView({ kind: 'detail', name, marketplace, context })
   }
 
   function selectPluginFromPalette(name: string, marketplace: string): void {
@@ -266,15 +303,33 @@ function App(): React.JSX.Element {
     await window.api.pickAndAddFolders()
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['skills'] }),
-      queryClient.invalidateQueries({ queryKey: ['folders'] })
+      queryClient.invalidateQueries({ queryKey: ['folders'] }),
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
     ])
   }
 
   async function handleRevokeFolder(path: string): Promise<void> {
-    await window.api.revokeAllowedPath(path)
+    const remaining = await window.api.revokeAllowedPath(path)
+    const covered = (selectedPath: string): boolean =>
+      remaining.some((folder) => isWithinProjectPath(selectedPath, folder.path))
+    if (filter.kind === 'project' && filter.projectRoot && !covered(filter.projectRoot))
+      handleFilterChange({ kind: 'project' })
+    if (
+      pluginFilter.kind === 'projects' &&
+      pluginFilter.projectPath &&
+      !covered(pluginFilter.projectPath)
+    )
+      handlePluginFilterChange({ kind: 'projects' })
+    if (
+      pluginView.kind === 'detail' &&
+      pluginView.context?.kind === 'project' &&
+      !covered(pluginView.context.path)
+    )
+      setPluginView({ kind: 'list' })
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['skills'] }),
-      queryClient.invalidateQueries({ queryKey: ['folders'] })
+      queryClient.invalidateQueries({ queryKey: ['folders'] }),
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
     ])
   }
 
@@ -315,6 +370,9 @@ function App(): React.JSX.Element {
                 onSelectSkill={openDetailFromAnywhere}
                 skills={skills}
                 folders={folders}
+                projectCatalog={projectCatalog}
+                expandedProjects={skillExpandedProjects}
+                setExpandedProjects={setSkillExpandedProjects}
               />
               {view.kind === 'detail' ? (
                 <SkillDetail
@@ -348,6 +406,11 @@ function App(): React.JSX.Element {
                 </div>
               ) : (
                 <SkillInventory
+                  availability={
+                    filter.kind === 'project'
+                      ? projectAvailability(filter.projectRoot, !filter.exact)
+                      : undefined
+                  }
                   skills={filteredSkills}
                   loading={!skills.length && !scanComplete}
                   filter={filter}
@@ -362,14 +425,23 @@ function App(): React.JSX.Element {
             <>
               <PluginSidebar
                 plugins={plugins}
+                folders={folders}
+                projectCatalog={projectCatalog}
+                expandedProjects={pluginExpandedProjects}
+                setExpandedProjects={setPluginExpandedProjects}
                 filter={pluginFilter}
                 onFilterChange={handlePluginFilterChange}
               />
               {pluginView.kind === 'detail' ? (
                 <PluginDetail
-                  key={`${pluginView.name}@${pluginView.marketplace}`}
+                  key={`${pluginView.name}@${pluginView.marketplace}:${JSON.stringify(pluginView.context)}`}
                   name={pluginView.name}
                   marketplace={pluginView.marketplace}
+                  context={pluginView.context}
+                  unavailable={
+                    pluginView.context?.kind === 'project' &&
+                    projectAvailability(pluginView.context.path) !== 'available'
+                  }
                   onBack={() => setPluginView({ kind: 'list' })}
                   onViewSkills={handleViewSkillsForPlugin}
                   onActionSuccess={showPluginActionToast}
@@ -391,10 +463,17 @@ function App(): React.JSX.Element {
                 </div>
               ) : (
                 <PluginInventory
+                  availability={
+                    pluginFilter.kind === 'projects'
+                      ? projectAvailability(pluginFilter.projectPath, !pluginFilter.exact)
+                      : undefined
+                  }
                   plugins={filteredPlugins}
                   loading={pluginsPending}
                   filter={pluginFilter}
-                  onSelect={(plugin) => openPluginDetail(plugin.name, plugin.marketplace)}
+                  onSelect={(plugin) =>
+                    openPluginDetail(plugin.name, plugin.marketplace, plugin.context)
+                  }
                   onOpenSearch={() => setPaletteOpen(true)}
                 />
               )}

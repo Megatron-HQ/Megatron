@@ -6,7 +6,7 @@ import Database from 'better-sqlite3'
 import { join, resolve } from 'path'
 import { mkdirSync, mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
-import { grantPath, resetGrantedPaths } from '../permissions'
+import { grantPath, isPathAllowed, resetGrantedPaths } from '../permissions'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { applySchema } from './schema'
 import {
@@ -637,6 +637,26 @@ describe('removeAllowedPath', () => {
 })
 
 describe('deleteSkillsForProjectRoot', () => {
+  it('preserves cached child skills still covered by another grant', () => {
+    const parent = resolve('/HQ')
+    const child = resolve('/HQ/repo')
+    insertSkill('covered', {
+      source_type: 'project',
+      source_path: join(child, '.claude', 'skills', 'covered'),
+      project_root: child
+    })
+    insertSkill('revoked', {
+      source_type: 'project',
+      source_path: join(parent, '.claude', 'skills', 'revoked'),
+      project_root: parent
+    })
+    grantPath(child)
+
+    deleteSkillsForProjectRoot(db, parent, isPathAllowed)
+
+    expect(allSkills().map((row) => row.name)).toEqual(['covered'])
+  })
+
   it('deletes project skills originating from that project root', () => {
     const rootA = '/repos/project-a'
     writeSkillScan(

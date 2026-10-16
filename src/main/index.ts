@@ -41,6 +41,7 @@ import {
 } from './db/queries'
 import {
   getGrantedPaths,
+  isPathAllowed,
   grantPath,
   restoreGrantedPath,
   revokePath,
@@ -54,6 +55,7 @@ import {
   type ThemeStore
 } from './theme'
 import { createScanController, startScanWorker } from './ingest/scan-all'
+import { sanitizeProjectFolders } from './ingest/project-discovery'
 import { readSkillFiles, readSkillMd } from './skill-files'
 import { openSafeExternal } from './shell'
 import { disablePlugin, enablePlugin, uninstallPlugin, updatePlugin } from './plugin-actions'
@@ -147,7 +149,8 @@ function notifyScanComplete(): void {
 const scans = createScanController(() =>
   startScanWorker(join(import.meta.dirname, 'scan-worker.js'), {
     databasePath: getDb().name,
-    grantedPaths: getGrantedPaths()
+    grantedPaths: getGrantedPaths(),
+    previousProjects: sanitizeProjectFolders(themeStore.get('projectFolders'))
   })
 )
 
@@ -155,6 +158,7 @@ async function scanAndNotify(): Promise<ScanSummary> {
   const previousSuccess = scanSummary?.lastSuccessfulAt ?? null
   try {
     scanSummary = await scans.request()
+    if (scanSummary.projects) themeStore.set('projectFolders', scanSummary.projects)
   } catch (error) {
     console.error('[ingest] scan failed', error)
     scanSummary = {
@@ -316,6 +320,11 @@ app.whenReady().then(() => {
   secureIpc.handle(IPC_CHANNELS.listAllowedPaths, () => {
     return listAllowedPaths(getDb())
   })
+  secureIpc.handle(IPC_CHANNELS.listProjects, () =>
+    sanitizeProjectFolders(themeStore.get('projectFolders')).filter((project) =>
+      isPathAllowed(project.path)
+    )
+  )
 
   secureIpc.handle(IPC_CHANNELS.pickAndAddFolders, async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender)
@@ -343,7 +352,7 @@ app.whenReady().then(() => {
     await scans.cancel()
     revokePath(path)
     removeAllowedPath(db, path)
-    deleteSkillsForProjectRoot(db, path)
+    deleteSkillsForProjectRoot(db, path, isPathAllowed)
     await scanAndNotify()
     return listAllowedPaths(db)
   })

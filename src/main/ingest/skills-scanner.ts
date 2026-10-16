@@ -1,11 +1,9 @@
 import type Database from 'better-sqlite3'
-import type { ScanIssue, ScanTaskResult } from '../../shared/ipc'
+import type { ProjectFolder, ScanIssue, ScanTaskResult } from '../../shared/ipc'
 import { homedir } from 'os'
 import { dirname, join, relative, resolve, sep } from 'path'
 import { writeSkillScan, type SkillScanRow } from '../db/queries'
 import {
-  allowedExistsSync,
-  allowedRealpathSync,
   allowedStatSync,
   getGrantedPaths,
   readAllowedFile,
@@ -13,90 +11,21 @@ import {
 } from '../permissions'
 import { readPluginEnablement, readSkillOverrides } from './claude-settings'
 import { parseSkillDirectory } from './skill-parser'
+import { discoverProjects, PROJECT_DISCOVERY_LIMITS } from './project-discovery'
 
-// Directory names never worth descending into while hunting for nested `.claude/skills/`
-// directories (Claude Code's own monorepo-package feature — docs/skill-scanner.md): the usual
-// huge/irrelevant trees, plus `.claude` itself so a skill's own reference/example files (which
-// can plausibly contain a fixture SKILL.md) never get mistaken for a real nested package root.
-const NESTED_SEARCH_SKIP_DIRS = new Set([
-  'node_modules',
-  '.git',
-  'dist',
-  'build',
-  'out',
-  'coverage',
-  'vendor',
-  'target',
-  '.next',
-  '.claude'
-])
-const DEFAULT_DISCOVERY_LIMITS = { maxDepth: 64, maxDirectories: 50_000 }
-
-// Nested `.claude/skills/` directories below a project's top-level one. The top-level
-// `<repoRoot>/.claude/skills` itself is handled separately in defaultSkillRoots() (it must be a
-// root even before the repo has ever been scanned, so it can't depend on a real walk finding
-// it) — this only looks for further ones nested below repoRoot's own subdirectories.
-//
-// Directory/depth budgets report partial discovery; canonical targets must be approved.
-// Tracking realpaths makes linked cycles a no-op.
 export function findNestedSkillsDirs(
   repoRoot: string,
   onUnavailable: () => void = () => undefined,
-  limits = DEFAULT_DISCOVERY_LIMITS
+  limits = PROJECT_DISCOVERY_LIMITS
 ): string[] {
-  return findNestedSkillRoots(repoRoot, onUnavailable, limits).map((root) => root.dir)
-}
-
-function findNestedSkillRoots(
-  repoRoot: string,
-  onUnavailable: () => void,
-  limits = DEFAULT_DISCOVERY_LIMITS
-): SkillRoot[] {
-  const found: SkillRoot[] = []
-  const visitedRealPaths = new Set<string>()
-
-  function walk(dir: string, depth: number, projectRoot: string): void {
-    if (depth > limits.maxDepth || visitedRealPaths.size >= limits.maxDirectories) {
-      onUnavailable()
-      return
-    }
-    const real = allowedRealpathSync(dir)
-    if (real === null) {
-      if (readAllowedDirectory(dir).status === 'unavailable') onUnavailable()
-      return
-    }
-    if (visitedRealPaths.has(real)) return
-    visitedRealPaths.add(real)
-
-    const directory = readAllowedDirectory(dir)
-    if (directory.status !== 'ok') {
-      if (directory.status === 'unavailable') onUnavailable()
-      return
-    }
-
-    for (const entryName of directory.entries) {
-      if (NESTED_SEARCH_SKIP_DIRS.has(entryName)) continue
-      const entryPath = join(dir, entryName)
-      const stats = allowedStatSync(entryPath)
-      if (stats === null) {
-        onUnavailable()
-        continue
-      }
-      if (!stats.isDirectory()) continue
-
-      // A grouping folder may contain independent repositories. Packages without a Git
-      // boundary keep their owning repository's settings and collision namespace.
-      const owningProject = allowedExistsSync(join(entryPath, '.git')) ? entryPath : projectRoot
-      const skillsDir = join(entryPath, '.claude', 'skills')
-      if (allowedExistsSync(skillsDir))
-        found.push({ dir: skillsDir, sourceType: 'project', projectRoot: owningProject })
-
-      walk(entryPath, depth + 1, owningProject)
-    }
-  }
-
-  walk(repoRoot, 0, repoRoot)
-  return found
+  const discovery = discoverProjects([repoRoot], [], limits)
+  if (discovery.incomplete) onUnavailable()
+  return discovery.skillRoots
+    .filter(
+      (root) =>
+        root.dir !== join(repoRoot, '.claude', 'skills') && allowedStatSync(root.dir)?.isDirectory()
+    )
+    .map((root) => root.dir)
 }
 
 export interface SkillRoot {
@@ -106,34 +35,11 @@ export interface SkillRoot {
   discoveryIncomplete?: boolean
 }
 
-export function defaultSkillRoots(): SkillRoot[] {
-  const globalRoot: SkillRoot = {
-    dir: resolve(homedir(), '.claude', 'skills'),
-    sourceType: 'global'
-  }
-  const projectRoots: SkillRoot[] = getGrantedPaths().flatMap((path) => {
-    const topLevel: SkillRoot = {
-      dir: join(path, '.claude', 'skills'),
-      sourceType: 'project',
-      projectRoot: path
-    }
-    let incomplete = false
-    const nested = findNestedSkillRoots(path, () => {
-      incomplete = true
-    })
-    if (incomplete) topLevel.discoveryIncomplete = true
-    return [topLevel, ...nested]
-  })
-  const uniqueRoots = new Map<string, SkillRoot>()
-  for (const root of projectRoots) {
-    const key = process.platform === 'win32' ? root.dir.toLowerCase() : root.dir
-    const previous = uniqueRoots.get(key)
-    uniqueRoots.set(key, {
-      ...root,
-      ...(previous?.discoveryIncomplete ? { discoveryIncomplete: true } : {})
-    })
-  }
-  return [globalRoot, ...uniqueRoots.values()]
+export function defaultSkillRoots(discovery = discoverProjects()): SkillRoot[] {
+  return [
+    { dir: resolve(homedir(), '.claude', 'skills'), sourceType: 'global' },
+    ...discovery.skillRoots
+  ]
 }
 
 const SYNCED_DIR_NAME = 'synced'
@@ -243,9 +149,13 @@ function qualifyCollidingNestedSkillNames(
 // considered. Add eager cleanup-on-revoke if M3's picker needs it.
 export function scanSkills(
   db: Database.Database,
-  roots: SkillRoot[] = defaultSkillRoots(),
-  userSettingsPath?: string
+  roots: SkillRoot[] | undefined = undefined,
+  userSettingsPath?: string,
+  previousProjects: ProjectFolder[] = []
 ): ScanTaskResult {
+  const discovery =
+    roots === undefined ? discoverProjects(getGrantedPaths(), previousProjects) : undefined
+  roots ??= defaultSkillRoots(discovery)
   let partial = roots.some((root) => root.discoveryIncomplete === true)
   const issues = new Map<string, ScanIssue>()
   const rowsBySourceType = new Map<SkillRoot['sourceType'], SkillScanRow[]>()
@@ -368,6 +278,7 @@ export function scanSkills(
   }
   return {
     status: partial ? 'partial' : 'complete',
-    ...(issues.size > 0 ? { issues: [...issues.values()] } : {})
+    ...(issues.size > 0 ? { issues: [...issues.values()] } : {}),
+    ...(discovery ? { projects: discovery.projects } : {})
   }
 }

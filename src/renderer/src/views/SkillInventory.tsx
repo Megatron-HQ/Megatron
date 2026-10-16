@@ -1,3 +1,6 @@
+import { projectDisplayLabels } from '@/lib/project-tree'
+import { normalizeProjectPath } from '../../../shared/project-path'
+import { ProjectAvailabilityNotice } from '@/components/ProjectAvailabilityNotice'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   createColumnHelper,
@@ -55,6 +58,7 @@ const features = tableFeatures({
 const columnHelper = createColumnHelper<typeof features, SkillRow>()
 
 const COLUMN_WIDTH: Record<string, string> = {
+  repository: 'w-[140px] max-[1000px]:w-[110px]',
   name: 'w-[200px]',
   status: 'w-[100px]',
   source: 'w-[120px]',
@@ -213,11 +217,39 @@ const allColumns = columnHelper.columns([
   usesColumn
 ])
 
-function buildColumns(showSource: boolean): ColumnDef<typeof features, SkillRow, unknown>[] {
+const repositoryColumn = (
+  labels: Map<string, string>
+): ColumnDef<typeof features, SkillRow, string> =>
+  columnHelper.accessor((skill) => skill.project_root ?? '', {
+    id: 'repository',
+    header: 'Repository',
+    sortFn: 'text',
+    cell: (info) => (
+      <span className="block truncate text-xs text-muted-foreground" title={info.getValue()}>
+        {labels.get(normalizeProjectPath(info.getValue())) ?? getFolderBasename(info.getValue())}
+      </span>
+    )
+  })
+
+function buildColumns(
+  showSource: boolean,
+  showRepository: boolean,
+  labels: Map<string, string>
+): ColumnDef<typeof features, SkillRow, unknown>[] {
+  if (showRepository)
+    return columnHelper.columns([
+      nameColumn,
+      statusColumn,
+      repositoryColumn(labels),
+      descriptionColumn,
+      tokensColumn,
+      usesColumn
+    ])
   return showSource ? allColumns : allColumns.filter((column) => column.id !== 'source')
 }
 
 interface SkillInventoryProps {
+  availability?: import('../../../shared/ipc').ProjectFolder['status']
   skills: SkillRow[]
   loading: boolean
   filter: SourceFilter
@@ -231,6 +263,7 @@ export function SkillInventory({
   skills,
   loading,
   filter,
+  availability,
   onSelect,
   onOpenSearch,
   onManageFolders,
@@ -242,8 +275,19 @@ export function SkillInventory({
   const { hoveredId, setHoveredId, onMouseLeave, reduceMotion, transition } =
     useGlideHighlight<number>()
 
-  const showSource = shouldShowSourceColumn(filter)
-  const columns = useMemo(() => buildColumns(showSource), [showSource])
+  const showRepository = filter.kind === 'project' && !filter.exact
+  const showSource = shouldShowSourceColumn(filter) && !showRepository
+  const labels = useMemo(
+    () =>
+      projectDisplayLabels(
+        skills.flatMap((skill) => (skill.project_root ? [skill.project_root] : []))
+      ),
+    [skills]
+  )
+  const columns = useMemo(
+    () => buildColumns(showSource, showRepository, labels),
+    [showSource, showRepository, labels]
+  )
 
   const table = useTable({
     features,
@@ -285,6 +329,7 @@ export function SkillInventory({
               <TableHead className="w-[200px] px-3 py-2">Name</TableHead>
               <TableHead className="w-[100px] px-3 py-2">Status</TableHead>
               {showSource && <TableHead className="w-[120px] px-3 py-2">Source</TableHead>}
+              {showRepository && <TableHead className="w-[120px] px-3 py-2">Repository</TableHead>}
               <TableHead className={cn('px-3 py-2', NARROW_VIEWPORT_DESCRIPTION_CLASS)}>
                 Description
               </TableHead>
@@ -301,6 +346,11 @@ export function SkillInventory({
                 <TableCell className="px-3 py-2">
                   <Skeleton className="h-4 w-12" />
                 </TableCell>
+                {showRepository && (
+                  <TableCell className="w-[120px] px-3 py-2">
+                    <Skeleton className="h-4 w-20" />
+                  </TableCell>
+                )}
                 {showSource && (
                   <TableCell className="px-3 py-2">
                     <Skeleton className="h-4 w-16" />
@@ -412,6 +462,7 @@ export function SkillInventory({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
+      <ProjectAvailabilityNotice status={availability} />
       <TableHeader
         title={getFilterHeaderTitle(filter)}
         count={loading ? null : rows.length}
@@ -438,19 +489,19 @@ function TableHeader({
   onManageFolders?: () => void
 }): React.JSX.Element {
   return (
-    <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-4">
-      <div className="flex min-w-0 items-center gap-3">
+    <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border px-4">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
         <span className="flex shrink-0 items-center gap-1.5 text-[13px] text-muted-foreground">
           <ClaudeIcon className="size-3.5" />
-          Claude Code
+          <span className="max-[1000px]:hidden">Claude Code</span>
         </span>
         <span className="h-4 w-px shrink-0 bg-border" />
-        <h2 className="truncate text-[13px] font-semibold">
+        <h2 className="truncate text-[13px] font-semibold" title={title}>
           {title}
           {count !== null && <span className="font-normal text-muted-foreground"> · {count}</span>}
         </h2>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         {count !== null && count > 0 && (
           <span className="hidden shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground min-[901px]:flex">
             <kbd className="rounded border border-border bg-background px-1 font-mono text-[11px]">
@@ -468,10 +519,12 @@ function TableHeader({
           <button
             type="button"
             onClick={onManageFolders}
+            aria-label="Manage Folders"
+            title="Manage Folders"
             className="flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-muted px-2.5 py-1 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <FolderOpen className="size-3.5" />
-            Manage Folders
+            <span className="max-[1000px]:sr-only">Manage Folders</span>
           </button>
         )}
         <button

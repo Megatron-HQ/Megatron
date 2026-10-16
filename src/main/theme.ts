@@ -1,7 +1,16 @@
 import type Store from 'electron-store'
-import { APP_SECTIONS, type AppSection, type ThemePreference } from '../shared/ipc'
+import {
+  APP_SECTIONS,
+  type AppSection,
+  type ProjectFolder,
+  type ThemePreference
+} from '../shared/ipc'
 
-export type ThemeStore = Store<{ theme?: ThemePreference; lastSection?: AppSection }>
+export type ThemeStore = Store<{
+  theme?: ThemePreference
+  lastSection?: AppSection
+  projectFolders?: ProjectFolder[]
+}>
 
 export function getStoredTheme(store: ThemeStore): ThemePreference | undefined {
   return store.get('theme')

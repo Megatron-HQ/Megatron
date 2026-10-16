@@ -1,10 +1,11 @@
 import type { SkillRow } from '../../../shared/ipc'
 import { getFolderBasename, getPluginBareName } from './source-name'
+import { normalizeProjectPath } from '../../../shared/project-path'
 
 export type SourceFilter =
   | { kind: 'all' }
   | { kind: 'global' }
-  | { kind: 'project'; projectRoot?: string }
+  | { kind: 'project'; projectRoot?: string; exact?: boolean }
   | { kind: 'plugin'; pluginName?: string }
   | { kind: 'disabled' }
   | { kind: 'user-invocable-only' }
@@ -14,10 +15,14 @@ export function normalizeSourcePath(path: string): string {
   return /^(?:[a-z]:\/|\/\/)/i.test(normalized) ? normalized.toLowerCase() : normalized
 }
 
+export function projectRootForSkill(skill: Pick<SkillRow, 'project_root' | 'source_path'>): string {
+  return skill.project_root ?? skill.source_path.split(/[\\/]\.claude[\\/]skills(?:[\\/]|$)/)[0]
+}
+
 export function isFilterEqual(a: SourceFilter, b: SourceFilter): boolean {
   if (a.kind !== b.kind) return false
   if (a.kind === 'project' && b.kind === 'project') {
-    return a.projectRoot === b.projectRoot
+    return a.projectRoot === b.projectRoot && !!a.exact === !!b.exact
   }
   if (a.kind === 'plugin' && b.kind === 'plugin') {
     return a.pluginName === b.pluginName
@@ -53,6 +58,7 @@ export function matchesFilter(skill: SkillRow, filter: SourceFilter): boolean {
     const targetRoot = normalizeSourcePath(filter.projectRoot)
     const skillRoot = skill.project_root ? normalizeSourcePath(skill.project_root) : null
     const skillPath = normalizeSourcePath(skill.source_path)
+    if (filter.exact) return normalizeProjectPath(projectRootForSkill(skill)) === targetRoot
     return (
       skillRoot === targetRoot || skillPath === targetRoot || skillPath.startsWith(targetRoot + '/')
     )

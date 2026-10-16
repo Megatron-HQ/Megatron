@@ -6,6 +6,12 @@ are locked here, and this doc is where they are argued.
 
 ## Locked decisions
 
+The renderer projects plugin identities into repository rows: project and local installs for the
+same `name@marketplace` and normalized `project_path` share one row. Different repositories and
+the User context remain separate rows. This does not change stored plugin or install identity.
+The derived project-folder catalog lives in private preferences, includes empty repositories and
+cached availability, and never grants filesystem access. No schema migration is needed.
+
 | Area                     | Decision                                                                                                   | Why                                                                                                                                                                                                                       |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | SQLite driver            | `better-sqlite3`, not `node:sqlite`                                                                        | `node:sqlite` is still experimental/evolving; wrong risk for the core data layer. `better-sqlite3` v13 ships N-API prebuilds (`prebuilds/darwin-arm64.node` etc.) — no native rebuild needed on install for this platform |

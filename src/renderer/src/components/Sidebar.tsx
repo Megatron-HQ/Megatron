@@ -1,14 +1,17 @@
-import { useMemo, useState } from 'react'
-import { Blocks, ChevronRight, FolderGit2, Globe, List } from 'lucide-react'
+import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
+import { Blocks, ChevronRight, Globe, List } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { ContextBudgetDialog } from '@/components/ContextBudgetDialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { budgetStatus } from '@/lib/context-budget'
 import { useElementGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
-import { getFolderBasename, getPluginBareName, getProjectNameFromPath } from '@/lib/source-name'
-import { normalizeSourcePath, type SourceFilter } from '@/lib/source-filter'
-import type { AllowedPathRow, ContextBudget, SkillRow } from '../../../shared/ipc'
+import { getPluginBareName } from '@/lib/source-name'
+import { projectRootForSkill, type SourceFilter } from '@/lib/source-filter'
+import type { AllowedPathRow, ContextBudget, ProjectFolder, SkillRow } from '../../../shared/ipc'
+
+import { ProjectNavigation } from '@/components/ProjectNavigation'
+import { buildProjectTree } from '@/lib/project-tree'
 
 interface SidebarProps {
   filter: SourceFilter
@@ -17,12 +20,9 @@ interface SidebarProps {
   onSelectSkill: (id: number) => void
   skills?: SkillRow[]
   folders?: AllowedPathRow[]
-}
-
-interface ProjectSidebarItem {
-  path: string
-  name: string
-  count: number
+  projectCatalog: ProjectFolder[]
+  expandedProjects: Set<string>
+  setExpandedProjects: Dispatch<SetStateAction<Set<string>>>
 }
 
 interface PluginSidebarItem {
@@ -37,66 +37,29 @@ export function Sidebar({
   contextBudget,
   onSelectSkill,
   skills = [],
-  folders = []
+  folders = [],
+  projectCatalog,
+  expandedProjects,
+  setExpandedProjects
 }: SidebarProps): React.JSX.Element {
-  const [projectExpanded, setProjectExpanded] = useState(false)
   const [pluginExpanded, setPluginExpanded] = useState(false)
   const { containerRef, highlightRect, onItemHover, onMouseLeave, transition } =
     useElementGlideHighlight<HTMLElement>()
 
-  const projects = useMemo<ProjectSidebarItem[]>(() => {
-    const map = new Map<string, ProjectSidebarItem>()
-
-    for (const folder of folders) {
-      const norm = normalizeSourcePath(folder.path)
-      map.set(norm, {
-        path: folder.path,
-        name: getFolderBasename(folder.path),
-        count: 0
-      })
-    }
-
-    for (const skill of skills) {
-      if (skill.source_type !== 'project') continue
-      const projectRoot = skill.project_root
-      if (projectRoot) {
-        const norm = projectRoot.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '')
-        let item = map.get(norm)
-        if (!item) {
-          item = {
-            path: projectRoot,
-            name: getFolderBasename(projectRoot),
-            count: 0
-          }
-          map.set(norm, item)
-        }
-        item.count++
-      } else {
-        const normPath = normalizeSourcePath(skill.source_path)
-        let matched = false
-        for (const [normRoot, item] of map.entries()) {
-          if (normPath === normRoot || normPath.startsWith(normRoot + '/')) {
-            item.count++
-            matched = true
-            break
-          }
-        }
-        if (!matched) {
-          const name = getProjectNameFromPath(skill.source_path)
-          const placeholderPath = skill.source_path
-          const norm = normalizeSourcePath(placeholderPath)
-          let item = map.get(norm)
-          if (!item) {
-            item = { path: placeholderPath, name, count: 0 }
-            map.set(norm, item)
-          }
-          item.count++
-        }
-      }
-    }
-
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
-  }, [folders, skills])
+  const projects = useMemo(
+    () =>
+      buildProjectTree(
+        folders,
+        projectCatalog,
+        skills
+          .filter((skill) => skill.source_type === 'project')
+          .map((skill) => ({
+            path: projectRootForSkill(skill),
+            count: 1
+          }))
+      ),
+    [folders, projectCatalog, skills]
+  )
 
   const plugins = useMemo<PluginSidebarItem[]>(() => {
     const map = new Map<string, PluginSidebarItem>()
@@ -132,12 +95,6 @@ export function Sidebar({
     }
     return items.sort((a, b) => a.displayName.localeCompare(b.displayName))
   }, [skills])
-
-  function handleProjectClick(): void {
-    onFilterChange({ kind: 'project' })
-    setProjectExpanded((open) => !open)
-    onItemHover(null)
-  }
 
   function handlePluginClick(): void {
     onFilterChange({ kind: 'plugin' })
@@ -200,99 +157,19 @@ export function Sidebar({
             <span>Global</span>
           </button>
 
-          <div className="flex flex-col">
-            <div
-              onMouseEnter={(e) => onItemHover(e.currentTarget)}
-              className={cn(
-                'relative z-10 flex h-8 items-center justify-between rounded-md px-2 text-sm transition-colors',
-                filter.kind === 'project' && !filter.projectRoot
-                  ? 'bg-accent-lime text-accent-lime-foreground'
-                  : filter.kind === 'project'
-                    ? 'text-foreground'
-                    : 'text-muted-foreground hover:text-accent-foreground'
-              )}
-            >
-              <button
-                type="button"
-                onClick={handleProjectClick}
-                className="flex h-full flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <FolderGit2 className="size-4 shrink-0" />
-                <span>Project</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setProjectExpanded((open) => !open)
-                  onItemHover(null)
-                }}
-                aria-expanded={projectExpanded}
-                aria-label={projectExpanded ? 'Collapse project list' : 'Expand project list'}
-                className="-mr-1 shrink-0 rounded p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <ChevronRight
-                  className={cn(
-                    'size-3.5 shrink-0 transition-transform duration-200',
-                    projectExpanded && 'rotate-90'
-                  )}
-                />
-              </button>
-            </div>
-
-            <AnimatePresence initial={false}>
-              {projectExpanded && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.15, ease: 'easeOut' }}
-                  className="overflow-hidden"
-                >
-                  <div className="my-0.5 ml-3 flex flex-col gap-0.5 border-l border-border/70 pl-2 py-0.5">
-                    {projects.length === 0 ? (
-                      <div className="px-2 py-1 text-[11px] text-muted-foreground italic">
-                        No project folders
-                      </div>
-                    ) : (
-                      projects.map((project) => {
-                        const isSelected =
-                          filter.kind === 'project' && filter.projectRoot === project.path
-                        return (
-                          <button
-                            key={project.path}
-                            type="button"
-                            title={project.path}
-                            onClick={() =>
-                              onFilterChange({ kind: 'project', projectRoot: project.path })
-                            }
-                            onMouseEnter={(e) => onItemHover(e.currentTarget)}
-                            className={cn(
-                              'relative z-10 flex h-7 items-center justify-between gap-1.5 rounded-md px-2 text-left text-xs transition-colors',
-                              isSelected
-                                ? 'bg-accent-lime font-medium text-accent-lime-foreground'
-                                : 'text-muted-foreground hover:text-accent-foreground'
-                            )}
-                          >
-                            <span className="truncate">{project.name}</span>
-                            <span
-                              className={cn(
-                                'ml-auto shrink-0 rounded px-1.5 py-0.2 font-mono text-[12px] tabular-nums',
-                                isSelected
-                                  ? 'bg-accent-lime-foreground/15 text-accent-lime-foreground'
-                                  : 'bg-muted text-muted-foreground'
-                              )}
-                            >
-                              {project.count}
-                            </span>
-                          </button>
-                        )
-                      })
-                    )}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+          <ProjectNavigation
+            nodes={projects}
+            selected={filter.kind === 'project'}
+            selection={
+              filter.kind === 'project' ? { path: filter.projectRoot, exact: filter.exact } : {}
+            }
+            expanded={expandedProjects}
+            setExpanded={setExpandedProjects}
+            onSelect={(path, exact) =>
+              onFilterChange({ kind: 'project', projectRoot: path, exact })
+            }
+            onItemHover={onItemHover}
+          />
 
           <div className="flex flex-col">
             <div

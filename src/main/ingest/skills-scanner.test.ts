@@ -71,6 +71,39 @@ afterEach(() => {
 })
 
 describe('scanSkills', () => {
+  it('reports empty repositories and unversioned projects beneath a parent grant', () => {
+    const emptyRepo = join(tmpDir, 'empty')
+    const plainProject = join(tmpDir, 'clients', 'plain')
+    mkdirSync(join(emptyRepo, '.git'), { recursive: true })
+    mkdirSync(join(plainProject, '.claude'), { recursive: true })
+    writeFileSync(join(plainProject, '.claude', 'settings.json'), '{}')
+    writeUserSettings({})
+
+    const result = scanSkills(db, undefined, userSettingsPath)
+
+    expect(result).toMatchObject({
+      projects: expect.arrayContaining([
+        { path: tmpDir, kind: 'folder', status: 'available' },
+        { path: emptyRepo, kind: 'repository', status: 'available' },
+        { path: plainProject, kind: 'repository', status: 'available' }
+      ])
+    })
+  })
+
+  it('uses an unversioned project own settings instead of its grouping folder', () => {
+    const repo = join(tmpDir, 'plain')
+    writeSkillDir(join(repo, '.claude', 'skills'), 'demo', '---\nname: demo\n---\nBody')
+    writeFileSync(join(repo, '.claude', 'settings.json'), '{"skillOverrides":{"demo":"off"}}')
+    writeUserSettings({})
+
+    scanSkills(db, undefined, userSettingsPath)
+
+    expect(allSkills().find((row) => row.source_path.startsWith(repo))).toMatchObject({
+      project_root: repo,
+      disabled_reason: 'override'
+    })
+  })
+
   it('includes invalid settings diagnostics while preserving the indexed skills', () => {
     const root = join(tmpDir, 'skills')
     writeSkillDir(root, 'demo', '---\nname: demo\n---\nBody')
@@ -754,6 +787,7 @@ describe('defaultSkillRoots', () => {
 
   it('includes a nested .claude/skills directory below a granted repo', () => {
     const repo = join(tmpDir, 'some-repo')
+    mkdirSync(join(repo, '.git'), { recursive: true })
     grantPath(repo)
     mkdirSync(join(repo, 'apps', 'web', '.claude', 'skills'), { recursive: true })
 

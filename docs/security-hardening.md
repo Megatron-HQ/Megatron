@@ -26,6 +26,12 @@ files, use no-follow/nonblocking flags where supported, and compare full-width f
 before and after opening. These checks reduce link-swap races; they are not an OS-enforced atomic
 containment guarantee against an actively mutating process running as the same user.
 
+Repository discovery metadata in the private preferences cache is descriptive, not an access
+capability. Discovery and catalog restoration retain current grants and canonical target checks.
+Revoking an overlapping grant removes cached skills only when no remaining grant covers them.
+Repository-scoped plugin rows do not broaden plugin actions: the existing IPC install-identity,
+enablement, folder access, and CLI working-directory checks still apply.
+
 User-data reads remain centralized in `permissions.ts`. Separate capabilities serve fixed CLI
 discovery, preparation of Electron's private cache, and compiled app assets. None accepts an
 arbitrary renderer filesystem path or broadens the skill permission set. Production assets use

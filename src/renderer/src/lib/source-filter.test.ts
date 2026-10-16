@@ -8,6 +8,34 @@ import {
   type SourceFilter
 } from './source-filter'
 
+describe('parent project filters', () => {
+  it('can still select legacy skills whose project root is absent from the cache', () => {
+    const skill = makeSkill({
+      source_type: 'project',
+      project_root: null,
+      source_path: '/HQ/repo/.claude/skills/demo'
+    })
+    expect(matchesFilter(skill, { kind: 'project', projectRoot: '/HQ/repo', exact: true })).toBe(
+      true
+    )
+  })
+  it('keeps the parent aggregate separate from its direct skills', () => {
+    const skill = makeSkill({
+      source_type: 'project',
+      project_root: '/HQ/repo',
+      source_path: '/HQ/repo/.claude/skills/demo'
+    })
+    expect(matchesFilter(skill, { kind: 'project', projectRoot: '/HQ' })).toBe(true)
+    expect(matchesFilter(skill, { kind: 'project', projectRoot: '/HQ', exact: true })).toBe(false)
+    expect(
+      isFilterEqual(
+        { kind: 'project', projectRoot: '/HQ' },
+        { kind: 'project', projectRoot: '/HQ', exact: true }
+      )
+    ).toBe(false)
+  })
+})
+
 function makeSkill(overrides: Partial<SkillRow> = {}): SkillRow {
   return {
     id: 1,

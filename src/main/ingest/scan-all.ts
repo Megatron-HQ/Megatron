@@ -101,9 +101,11 @@ export function runAllScans(
   reportError: ScanErrorReporter = () => undefined
 ): ScanSummary {
   const sources: ScanSummary['sources'] = []
+  let projects: ScanSummary['projects']
   for (const scan of scans) {
     try {
       const result = scan(db) as ScanTaskResult | undefined
+      if (result?.projects !== undefined) projects = result.projects
       sources.push({
         name: scan.name || 'scan',
         status: result?.status === 'partial' ? 'partial' : 'complete',
@@ -121,6 +123,7 @@ export function runAllScans(
         ? 'failed'
         : 'partial',
     completedAt: new Date().toISOString(),
-    sources
+    sources,
+    ...(projects !== undefined ? { projects } : {})
   }
 }

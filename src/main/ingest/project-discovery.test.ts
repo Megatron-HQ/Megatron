@@ -1,0 +1,99 @@
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { grantPath, resetGrantedPaths, revokePath } from '../permissions'
+import { discoverProjects } from './project-discovery'
+import type { ProjectFolder } from '../../shared/ipc'
+
+let root: string
+beforeEach(() => {
+  root = realpathSync(mkdtempSync(join(tmpdir(), 'megatron-project-discovery-')))
+  grantPath(root)
+})
+afterEach(() => {
+  resetGrantedPaths()
+  rmSync(root, { recursive: true, force: true })
+})
+
+describe('project discovery continuity', () => {
+  it('preserves monorepo ownership with overlapping package grants in either order', () => {
+    const repo = join(root, 'repo')
+    const packagePath = join(repo, 'packages', 'web')
+    const skills = join(packagePath, '.claude', 'skills')
+    mkdirSync(join(repo, '.git'), { recursive: true })
+    mkdirSync(skills, { recursive: true })
+    grantPath(packagePath)
+    for (const grants of [
+      [packagePath, root],
+      [root, packagePath]
+    ]) {
+      const result = discoverProjects(grants)
+      expect(result.skillRoots.find((entry) => entry.dir === skills)?.projectRoot).toBe(repo)
+      expect(
+        result.projects.filter((entry) => entry.kind === 'repository').map((entry) => entry.path)
+      ).toEqual([repo])
+      expect(result.projects).toContainEqual({
+        path: packagePath,
+        kind: 'folder',
+        status: 'available'
+      })
+    }
+  })
+  it('retains a missing directly granted repository and its identity', () => {
+    const repo = join(root, 'moved')
+    mkdirSync(join(repo, '.git'), { recursive: true })
+    grantPath(repo)
+    const before = discoverProjects([repo])
+    rmSync(repo, { recursive: true })
+    expect(discoverProjects([repo], before.projects).projects).toEqual([
+      { path: repo, kind: 'repository', status: 'missing' }
+    ])
+  })
+
+  it('keeps cached repositories unavailable after discovery runs out of budget', () => {
+    const repo = join(root, 'repo')
+    mkdirSync(join(repo, '.git'), { recursive: true })
+    const previous = discoverProjects([root]).projects
+    const after = discoverProjects([root], previous, { maxDepth: 64, maxDirectories: 1 })
+    expect(after.incomplete).toBe(true)
+    expect(after.projects).toContainEqual({ path: repo, kind: 'repository', status: 'unavailable' })
+  })
+
+  it('does not resurrect entries outside the remaining grants', () => {
+    const repo = join(root, 'repo')
+    mkdirSync(join(repo, '.git'), { recursive: true })
+    const previous = discoverProjects([root]).projects
+    revokePath(root)
+    grantPath(repo)
+    expect(discoverProjects([repo], previous).projects.map((entry) => entry.path)).toEqual([repo])
+  })
+
+  it('ignores malformed persisted catalog entries without granting their paths', () => {
+    const malformed = [
+      { path: 42 },
+      { path: '../escape', kind: 'repository' },
+      null
+    ] as unknown as ProjectFolder[]
+    expect(discoverProjects([root], malformed).projects).toEqual([
+      { path: root, kind: 'folder', status: 'available' }
+    ])
+  })
+
+  it('keeps nested Claude packages within their unversioned owning project', () => {
+    const repo = join(root, 'plain')
+    mkdirSync(join(repo, '.claude'), { recursive: true })
+    writeFileSync(join(repo, '.claude', 'settings.json'), '{}')
+    const skills = join(repo, 'packages', 'web', '.claude', 'skills')
+    mkdirSync(skills, { recursive: true })
+    const result = discoverProjects([root])
+    expect(
+      result.projects.filter((entry) => entry.kind === 'repository').map((entry) => entry.path)
+    ).toEqual([repo])
+    expect(result.skillRoots).toContainEqual({
+      dir: skills,
+      sourceType: 'project',
+      projectRoot: repo
+    })
+  })
+})

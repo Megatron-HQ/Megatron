@@ -22,6 +22,8 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { scopePluginDetail, type PluginContext } from '@/lib/plugin-filter'
+import { ProjectAvailabilityNotice } from '@/components/ProjectAvailabilityNotice'
 import type { PluginInstall } from '../../../shared/ipc'
 
 // Identifies one install within a plugin. Scope alone isn't enough — two projects can each hold
@@ -35,6 +37,8 @@ type ActionVerb = 'enable' | 'disable' | 'update' | 'uninstall'
 interface PluginDetailProps {
   name: string
   marketplace: string
+  context?: PluginContext
+  unavailable?: boolean
   onBack: () => void
   onViewSkills: (pluginName: string) => void
   onActionSuccess: (message: string) => void
@@ -56,17 +60,31 @@ function versionLabel(version: string): string {
 export function PluginDetail({
   name,
   marketplace,
+  context = { kind: 'all' },
+  unavailable = false,
   onBack,
   onViewSkills,
   onActionSuccess,
   onManageFolders
 }: PluginDetailProps): React.JSX.Element {
   const queryClient = useQueryClient()
-  const queryKey = ['plugin-detail', name, marketplace]
-  const { data, isPending, isError, refetch } = useQuery({
+  const queryKey = [
+    'plugin-detail',
+    name,
+    marketplace,
+    context.kind,
+    context.kind === 'project' ? context.path : null
+  ]
+  const {
+    data: rawData,
+    isPending,
+    isError,
+    refetch
+  } = useQuery({
     queryKey,
     queryFn: () => window.api.getPluginDetail(name, marketplace)
   })
+  const data = rawData ? scopePluginDetail(rawData, context, unavailable) : rawData
 
   const [pendingKey, setPendingKey] = useState<string | null>(null)
   const pendingActionRef = useRef(false)
@@ -183,7 +201,9 @@ export function PluginDetail({
         <MarketplaceBadge marketplace={plugin.marketplace} />
         <div className="flex shrink-0 items-center gap-1.5 font-mono text-xs text-muted-foreground whitespace-nowrap">
           <span title={`Installed version: ${versionLabel(plugin.installed_version)}`}>
-            {versionLabel(plugin.installed_version)}
+            {new Set(plugin.installs.map((install) => install.installed_version)).size > 1
+              ? 'Mixed'
+              : versionLabel(plugin.installed_version)}
           </span>
           {plugin.available_version && (
             <>
@@ -208,6 +228,15 @@ export function PluginDetail({
         <PluginStatusBadge disabledReason={plugin.disabled_reason} known={enablementKnown} />
       </div>
 
+      {context.kind === 'project' && (
+        <p
+          title={context.path}
+          className="shrink-0 truncate border-b border-border px-4 py-1.5 font-mono text-[11px] text-muted-foreground"
+        >
+          Repository: {context.path}
+        </p>
+      )}
+      {unavailable && <ProjectAvailabilityNotice status="unavailable" />}
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col gap-4 px-4 py-4">
           <Card className="shadow-none py-4">
@@ -227,7 +256,7 @@ export function PluginDetail({
                 }
               />
               <Stat
-                label="Uses"
+                label={context.kind === 'all' ? 'Uses' : 'Uses (all projects)'}
                 value={totalInvocations === 0 ? 'Never' : totalInvocations.toLocaleString()}
                 mono
               />

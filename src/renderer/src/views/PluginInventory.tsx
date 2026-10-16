@@ -22,6 +22,7 @@ import { getFolderBasename } from '@/lib/source-name'
 import {
   getPluginFilterHeaderTitle,
   shouldShowScopeColumn,
+  type PluginRepositoryRow as PluginRow,
   type PluginFilter
 } from '@/lib/plugin-filter'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -36,7 +37,9 @@ import {
 } from '@/components/ui/table'
 import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
-import type { PluginRow, PluginScope } from '../../../shared/ipc'
+import { ProjectAvailabilityNotice } from '@/components/ProjectAvailabilityNotice'
+import type { ProjectFolder } from '../../../shared/ipc'
+import type { PluginScope } from '../../../shared/ipc'
 
 const ROW_HEIGHT = 40
 const HEADER_HEIGHT = 40
@@ -48,7 +51,7 @@ const features = tableFeatures({
 })
 
 function pluginKey(plugin: PluginRow): string {
-  return `${plugin.name}@${plugin.marketplace}`
+  return plugin.rowKey
 }
 
 const SCOPE_SORT_ORDER: Record<PluginScope, number> = { user: 0, project: 1, local: 2 }
@@ -160,7 +163,7 @@ const installedVersionColumn = columnHelper.accessor(installVersionLabel, {
   id: 'installed_version',
   header: () => (
     <span>
-      Install<span className="max-[1000px]:hidden"> Version</span>
+      Install<span className="max-[1400px]:hidden"> Version</span>
     </span>
   ),
   sortFn: 'text',
@@ -173,14 +176,18 @@ const installedVersionColumn = columnHelper.accessor(installVersionLabel, {
       <div className="flex items-center gap-1.5 min-w-0">
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="shrink-0 font-mono text-xs tabular-nums text-foreground cursor-default">
+            <span className="min-w-0 truncate font-mono text-xs tabular-nums text-foreground cursor-default">
               {info.getValue()}
             </span>
           </TooltipTrigger>
           <TooltipContent side="top">{tooltipText}</TooltipContent>
         </Tooltip>
         {hasUpdate && (
-          <PluginUpdateBadge availableVersion={availableVersion} tooltipMessage={message} />
+          <PluginUpdateBadge
+            availableVersion={availableVersion}
+            tooltipMessage={message}
+            className="max-[1400px]:gap-0 max-[1400px]:px-1 max-[1400px]:[&>span]:sr-only"
+          />
         )}
       </div>
     )
@@ -191,7 +198,7 @@ const marketplaceVersionColumn = columnHelper.accessor((plugin) => plugin.availa
   id: 'marketplace_version',
   header: () => (
     <span>
-      Marketplace<span className="max-[1000px]:hidden"> Version</span>
+      Marketplace<span className="max-[1400px]:hidden"> Version</span>
     </span>
   ),
   sortFn: 'text',
@@ -226,13 +233,27 @@ const scopeColumn = columnHelper.accessor(scopeSortKey, {
     if (first === undefined) return null
     return (
       <div className="flex min-w-0 items-center gap-1">
-        <PluginScopeLabel scope={first.scope} projectPath={first.projectPath} />
+        <PluginScopeLabel scope={first.scope} projectPath={null} />
         {rest.length > 0 && (
           <span className="shrink-0 text-xs text-muted-foreground">+{rest.length}</span>
         )}
       </div>
     )
   }
+})
+
+const repositoryColumn = columnHelper.accessor('repositoryLabel', {
+  id: 'repository',
+  header: 'Repository',
+  sortFn: 'text',
+  cell: (info) => (
+    <span
+      title={info.row.original.repositoryPath ?? info.getValue()}
+      className="block truncate text-xs text-muted-foreground"
+    >
+      {info.getValue()}
+    </span>
+  )
 })
 
 const skillCountColumn = columnHelper.accessor('skill_count', {
@@ -271,6 +292,18 @@ const columns: ColumnDef<typeof features, PluginRow, unknown>[] = columnHelper.c
   statusColumn
 ])
 
+const columnsWithRepository: ColumnDef<typeof features, PluginRow, unknown>[] =
+  columnHelper.columns([
+    nameColumn,
+    repositoryColumn,
+    marketplaceColumn,
+    installedVersionColumn,
+    marketplaceVersionColumn,
+    scopeColumn,
+    skillCountColumn,
+    statusColumn
+  ])
+
 const columnsWithoutScope: ColumnDef<typeof features, PluginRow, unknown>[] = columnHelper.columns([
   nameColumn,
   marketplaceColumn,
@@ -292,10 +325,10 @@ const COLUMN_WIDTH: Record<string, string> = {
   name: 'w-[24%] max-[1000px]:w-auto',
   marketplace: 'w-[14%] max-[1000px]:hidden',
   installed_version: 'w-[14%] max-[1000px]:w-[100px]',
-  marketplace_version: 'w-[14%] max-[1000px]:w-[105px]',
-  scope: 'w-[18%] max-[1000px]:w-[100px]',
+  marketplace_version: 'w-[14%] max-[1000px]:w-[100px]',
+  scope: 'w-[18%] max-[1000px]:w-[90px]',
   skill_count: 'w-[6%] max-[1000px]:w-[45px]',
-  status: 'w-[10%] max-[1000px]:w-[90px]'
+  status: 'w-[10%] max-[1000px]:w-[105px]'
 }
 
 // "All Plugins" being empty means nothing is installed at all; any other filter being empty means
@@ -303,6 +336,9 @@ const COLUMN_WIDTH: Record<string, string> = {
 function emptyTitle(filter: PluginFilter): string {
   if (filter.kind === 'all') return 'No plugins installed'
   if (filter.kind === 'user') return 'No user-scope plugins'
+  if (filter.kind === 'unknown') return 'No plugins with an unknown project'
+  if (filter.kind === 'projects')
+    return filter.projectPath ? 'No plugins in this folder' : 'No project plugins'
   if (filter.projectPath) return `No ${filter.kind}-scope plugins in this project`
   return `No ${filter.kind}-scope plugins`
 }
@@ -315,12 +351,17 @@ function emptyDetail(filter: PluginFilter): string {
       return 'User-scope plugins are installed for you across every project.'
     case 'project':
       return 'Project-scope plugins are installed by a repo, in its .claude/settings.json.'
+    case 'projects':
+      return "Project and local plugins are discovered from each repository's Claude settings."
+    case 'unknown':
+      return 'These plugin records have no project location. Their actions are unavailable.'
     case 'local':
       return 'Local-scope plugins are installed for one project on this machine, in its .claude/settings.local.json.'
   }
 }
 
 interface PluginInventoryProps {
+  availability?: ProjectFolder['status']
   plugins: PluginRow[]
   loading: boolean
   filter: PluginFilter
@@ -332,6 +373,7 @@ export function PluginInventory({
   plugins,
   loading,
   filter,
+  availability,
   onSelect,
   onOpenSearch
 }: PluginInventoryProps): React.JSX.Element {
@@ -341,11 +383,26 @@ export function PluginInventory({
   const { hoveredId, setHoveredId, onMouseLeave, reduceMotion, transition } =
     useGlideHighlight<string>()
   const showScope = shouldShowScopeColumn(filter)
+  const showRepository = filter.kind === 'all' || (filter.kind === 'projects' && !filter.exact)
+  const columnWidth: Record<string, string> = {
+    ...COLUMN_WIDTH,
+    repository: 'w-[18%] max-[1000px]:w-[110px]',
+    ...(showRepository
+      ? {
+          name: 'w-[20%] max-[1000px]:w-auto',
+          marketplace: 'w-[10%] max-[1000px]:hidden',
+          installed_version: 'w-[12%] max-[1000px]:w-[95px]',
+          marketplace_version: 'w-[12%] max-[1000px]:hidden',
+          scope: 'w-[12%] max-[1000px]:w-[90px]'
+        }
+      : {})
+  }
 
   const table = useTable({
     features,
-    columns: showScope ? columns : columnsWithoutScope,
+    columns: showRepository ? columnsWithRepository : showScope ? columns : columnsWithoutScope,
     data: plugins,
+    getRowId: (row) => row.rowKey,
     state: { sorting },
     onSortingChange: setSorting
   })
@@ -379,47 +436,57 @@ export function PluginInventory({
         <Table className="table-fixed">
           <TableHeadGroup>
             <TableRow className="h-10">
-              <TableHead className={cn('px-3 py-2', COLUMN_WIDTH.name)}>Name</TableHead>
-              <TableHead className={cn('px-3 py-2', COLUMN_WIDTH.marketplace)}>
+              <TableHead className={cn('px-3 py-2', columnWidth.name)}>Name</TableHead>
+              {showRepository && (
+                <TableHead className={cn('px-3 py-2', columnWidth.repository)}>
+                  Repository
+                </TableHead>
+              )}
+              <TableHead className={cn('px-3 py-2', columnWidth.marketplace)}>
                 Marketplace
               </TableHead>
-              <TableHead className={cn('px-3 py-2', COLUMN_WIDTH.installed_version)}>
-                Install<span className="max-[1000px]:hidden"> Version</span>
+              <TableHead className={cn('px-3 py-2', columnWidth.installed_version)}>
+                Install<span className="max-[1400px]:hidden"> Version</span>
               </TableHead>
-              <TableHead className={cn('px-3 py-2', COLUMN_WIDTH.marketplace_version)}>
-                Marketplace<span className="max-[1000px]:hidden"> Version</span>
+              <TableHead className={cn('px-3 py-2', columnWidth.marketplace_version)}>
+                Marketplace<span className="max-[1400px]:hidden"> Version</span>
               </TableHead>
               {showScope && (
-                <TableHead className={cn('px-3 py-2', COLUMN_WIDTH.scope)}>Scope</TableHead>
+                <TableHead className={cn('px-3 py-2', columnWidth.scope)}>Scope</TableHead>
               )}
-              <TableHead className={cn('px-3 py-2', COLUMN_WIDTH.skill_count)}>Skills</TableHead>
-              <TableHead className={cn('px-3 py-2', COLUMN_WIDTH.status)}>Status</TableHead>
+              <TableHead className={cn('px-3 py-2', columnWidth.skill_count)}>Skills</TableHead>
+              <TableHead className={cn('px-3 py-2', columnWidth.status)}>Status</TableHead>
             </TableRow>
           </TableHeadGroup>
           <TableBody>
             {Array.from({ length: 6 }).map((_, i) => (
               <TableRow key={i} className="h-10 border-b-0">
-                <TableCell className={cn('px-3 py-2', COLUMN_WIDTH.name)}>
+                <TableCell className={cn('px-3 py-2', columnWidth.name)}>
                   <Skeleton className="h-4 w-32" />
                 </TableCell>
-                <TableCell className={cn('px-3 py-2', COLUMN_WIDTH.marketplace)}>
-                  <Skeleton className="h-4 w-20" />
-                </TableCell>
-                <TableCell className={cn('px-3 py-2', COLUMN_WIDTH.installed_version)}>
-                  <Skeleton className="h-4 w-12" />
-                </TableCell>
-                <TableCell className={cn('px-3 py-2', COLUMN_WIDTH.marketplace_version)}>
-                  <Skeleton className="h-4 w-12" />
-                </TableCell>
-                {showScope && (
-                  <TableCell className={cn('px-3 py-2', COLUMN_WIDTH.scope)}>
+                {showRepository && (
+                  <TableCell className={cn('px-3 py-2', columnWidth.repository)}>
                     <Skeleton className="h-4 w-16" />
                   </TableCell>
                 )}
-                <TableCell className={cn('px-3 py-2', COLUMN_WIDTH.skill_count)}>
+                <TableCell className={cn('px-3 py-2', columnWidth.marketplace)}>
+                  <Skeleton className="h-4 w-20" />
+                </TableCell>
+                <TableCell className={cn('px-3 py-2', columnWidth.installed_version)}>
+                  <Skeleton className="h-4 w-12" />
+                </TableCell>
+                <TableCell className={cn('px-3 py-2', columnWidth.marketplace_version)}>
+                  <Skeleton className="h-4 w-12" />
+                </TableCell>
+                {showScope && (
+                  <TableCell className={cn('px-3 py-2', columnWidth.scope)}>
+                    <Skeleton className="h-4 w-16" />
+                  </TableCell>
+                )}
+                <TableCell className={cn('px-3 py-2', columnWidth.skill_count)}>
                   <Skeleton className="ml-auto h-4 w-8" />
                 </TableCell>
-                <TableCell className={cn('px-3 py-2', COLUMN_WIDTH.status)}>
+                <TableCell className={cn('px-3 py-2', columnWidth.status)}>
                   <Skeleton className="h-4 w-16" />
                 </TableCell>
               </TableRow>
@@ -456,7 +523,7 @@ export function PluginInventory({
                     key={header.id}
                     className={cn(
                       'px-3 py-2 text-[11px] font-medium tracking-wide text-muted-foreground uppercase',
-                      COLUMN_WIDTH[header.column.id]
+                      columnWidth[header.column.id]
                     )}
                   >
                     {header.column.getCanSort() ? (
@@ -503,10 +570,7 @@ export function PluginInventory({
                 }}
               >
                 {row.getAllCells().map((cell) => (
-                  <TableCell
-                    key={cell.id}
-                    className={cn('px-3 py-2', COLUMN_WIDTH[cell.column.id])}
-                  >
+                  <TableCell key={cell.id} className={cn('px-3 py-2', columnWidth[cell.column.id])}>
                     <table.FlexRender cell={cell} />
                   </TableCell>
                 ))}
@@ -520,6 +584,7 @@ export function PluginInventory({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
+      <ProjectAvailabilityNotice status={availability} />
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-4">
         <h2 className="truncate text-[13px] font-semibold">
           {getPluginFilterHeaderTitle(filter)}

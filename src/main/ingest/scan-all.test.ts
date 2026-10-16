@@ -5,6 +5,13 @@ import { runAllScans, type ScanTask } from './scan-all'
 const database = {} as Database.Database
 
 describe('runAllScans', () => {
+  it('carries discovered empty projects through the worker summary', () => {
+    const projects = [{ path: '/HQ/empty', kind: 'repository', status: 'available' }]
+    expect(runAllScans(database, [() => ({ status: 'complete', projects })])).toMatchObject({
+      projects
+    })
+  })
+
   it('passes source diagnostics through to the renderer summary', () => {
     function plugins(): unknown {
       return {

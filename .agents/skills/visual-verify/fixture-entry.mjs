@@ -1,5 +1,6 @@
 // Test-only entry point. Production continues to launch out/main/index.js directly.
 import { ipcMain } from 'electron'
+import { projectTreeFixture } from './project-tree-fixture.mjs'
 
 const registeredHandlers = new Map()
 const overriddenChannels = new Set()
@@ -26,6 +27,7 @@ globalThis.megatronVisualFixtures = {
       if (mode === 'error') throw new Error('Visual fixture: unavailable source')
       if (mode === 'pending') return new Promise(() => {})
       const result = await original(event, ...args)
+      if (mode.startsWith('project-tree')) return projectTreeFixture(channel, args, result, mode)
       if (channel === 'skills:list' && ['scan-permission', 'scan-missing'].includes(mode)) {
         return {
           ...result,

@@ -348,7 +348,11 @@ export function removeAllowedPath(db: Database.Database, path: string): void {
   db.prepare('DELETE FROM allowed_paths WHERE path = ?').run(resolved)
 }
 
-export function deleteSkillsForProjectRoot(db: Database.Database, projectRoot: string): void {
+export function deleteSkillsForProjectRoot(
+  db: Database.Database,
+  projectRoot: string,
+  remainsAllowed: (path: string) => boolean = () => false
+): void {
   const resolvedRoot = resolve(projectRoot)
   const skillsDir = join(resolvedRoot, '.claude', 'skills')
   const rows = db
@@ -357,6 +361,7 @@ export function deleteSkillsForProjectRoot(db: Database.Database, projectRoot: s
 
   const idsToDelete = rows
     .filter((row) => {
+      if (remainsAllowed(row.source_path)) return false
       const resolvedPath = resolve(row.source_path)
       return (
         resolvedPath === skillsDir ||

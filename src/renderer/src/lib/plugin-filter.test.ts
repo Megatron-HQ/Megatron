@@ -7,6 +7,7 @@ import {
   matchesPluginFilter,
   shouldShowScopeColumn
 } from './plugin-filter'
+import { createPluginRows, scopePluginDetail } from './plugin-filter'
 
 function install(scope: PluginScope, projectPath: string | null = null): PluginInstall {
   return {
@@ -37,6 +38,44 @@ function plugin(name: string, installs: PluginInstall[]): PluginRow {
 }
 
 describe('matchesPluginFilter', () => {
+  it('selects both scopes below a parent without including similarly named siblings', () => {
+    expect(
+      matchesPluginFilter(plugin('a', [install('local', '/HQ/repo')]), {
+        kind: 'projects',
+        projectPath: '/HQ'
+      })
+    ).toBe(true)
+    expect(
+      matchesPluginFilter(plugin('a', [install('project', '/HQ-other/repo')]), {
+        kind: 'projects',
+        projectPath: '/HQ'
+      })
+    ).toBe(false)
+    expect(matchesPluginFilter(plugin('a', [install('user')]), { kind: 'projects' })).toBe(false)
+  })
+
+  it('keeps This folder filters distinct from their aggregate parent', () => {
+    const row = plugin('a', [install('project', '/HQ/repo')])
+    expect(matchesPluginFilter(row, { kind: 'projects', projectPath: '/HQ', exact: true })).toBe(
+      false
+    )
+    expect(
+      isPluginFilterEqual(
+        { kind: 'projects', projectPath: '/HQ' },
+        { kind: 'projects', projectPath: '/HQ', exact: true }
+      )
+    ).toBe(false)
+  })
+
+  it('does not conflate case-sensitive POSIX repositories', () => {
+    expect(
+      matchesPluginFilter(plugin('a', [install('project', '/HQ/Repo')]), {
+        kind: 'project',
+        projectPath: '/HQ/repo'
+      })
+    ).toBe(false)
+  })
+
   it('matches every plugin under the all filter', () => {
     expect(matchesPluginFilter(plugin('a', [install('project', '/repo')]), { kind: 'all' })).toBe(
       true
@@ -89,6 +128,52 @@ describe('matchesPluginFilter', () => {
 
   it('rejects a plugin with no installs at all under a scope filter', () => {
     expect(matchesPluginFilter(plugin('a', []), { kind: 'user' })).toBe(false)
+  })
+})
+
+describe('repository plugin rows', () => {
+  it('counts shared plugins once per repository while combining scopes within each repository', () => {
+    const plugins = ['a', 'b', 'c'].map((name) =>
+      plugin(name, [
+        install('project', 'C:\\HQ\\first'),
+        install('local', 'c:/hq/FIRST/'),
+        install('project', 'C:\\HQ\\second')
+      ])
+    )
+    const rows = createPluginRows(plugins, { kind: 'projects', projectPath: 'C:\\HQ' })
+    expect(rows).toHaveLength(6)
+    expect(new Set(rows.map((row) => row.rowKey)).size).toBe(6)
+    expect(
+      rows.filter((row) => row.repositoryPath === 'C:\\HQ\\first').map((row) => row.installs.length)
+    ).toEqual([2, 2, 2])
+  })
+
+  it('keeps user and unknown-project contexts separate from a named repository', () => {
+    const rows = createPluginRows([
+      plugin('a', [
+        install('user'),
+        install('project'),
+        install('local'),
+        install('project', '/repo')
+      ])
+    ])
+    expect(rows.map((row) => row.context.kind)).toEqual(['user', 'unknown', 'project'])
+    expect(createPluginRows(rows, { kind: 'unknown' })).toHaveLength(1)
+  })
+
+  it('rolls up only the selected repository status and disables unavailable contexts', () => {
+    const disabled = { ...install('project', '/first'), disabled_reason: 'plugin' }
+    const row = plugin('a', [disabled, install('project', '/second')])
+    const rows = createPluginRows([row], { kind: 'all' }, [
+      { path: '/second', kind: 'repository', status: 'missing' }
+    ])
+    expect(rows[0].disabled_reason).toBe('plugin')
+    expect(rows[1].installs[0].enablement_known).toBe(false)
+    const detail = { plugin: row, skills: [], totalInvocations: 7, errorCount: 0, warningCount: 0 }
+    expect(scopePluginDetail(detail, { kind: 'project', path: '/first' })?.plugin.installs).toEqual(
+      [disabled]
+    )
+    expect(scopePluginDetail(detail, { kind: 'project', path: '/missing' })).toBeNull()
   })
 })
 

@@ -33,6 +33,7 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.setTheme, theme),
   listAllowedPaths: (): Promise<AllowedPathRow[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.listAllowedPaths),
+  listProjects: () => ipcRenderer.invoke(IPC_CHANNELS.listProjects),
   pickAndAddFolders: (): Promise<AllowedPathRow[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.pickAndAddFolders),
   revokeAllowedPath: (path: string): Promise<AllowedPathRow[]> =>

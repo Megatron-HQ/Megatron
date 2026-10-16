@@ -254,6 +254,8 @@ A single radius scale rooted at 10px (`--radius: 0.625rem`), applied identically
 ### Sidebar Navigation
 
 - 32px items, rounded-md, icon + label. The active item is the One Stamp Rule's other live application — lime fill, never more than one item lit at a time. Nested project/plugin sublists indent under a border-left rule-line rather than a background change, and expand/collapse with a 0.15s ease-out height animation.
+- Skills and Plugins share a Projects tree. Granted parent folders show aggregate counts; selecting a label opens its children and selects all descendants, while the separate chevron only expands or collapses. Repository labels filter to that repository; a parent with direct entries also offers “This folder.” Empty repositories remain visible. Unavailable repositories retain cached counts and pair an alert icon with an explanatory tooltip and selected-view notice. Duplicate names use relative paths. Hover glides, keyboard focus, reduced motion, and expansion state across section switches are preserved.
+- Plugin inventory rows represent one plugin identity per repository (project and local installs combined), with User entries separate. Aggregate tables show Repository; scoped details and actions use only the selected repository. Global usage totals are labeled “Uses (all projects).”
 
 ### Inputs
 

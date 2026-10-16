@@ -33,6 +33,22 @@
 // capturing, so the screenshot shows the resolved state, not a stuck frame.
 const MOTION_SETTLE_MS = 300
 
+async function enableProjectHierarchy(window, app, mode = 'project-tree') {
+  await app.evaluate((_, selectedMode) => {
+    for (const channel of [
+      'folders:list',
+      'projects:list',
+      'plugins:list',
+      'skills:list',
+      'plugins:detail'
+    ])
+      globalThis.megatronVisualFixtures.set(channel, selectedMode)
+  }, mode)
+  await window.reload()
+  await window.getByRole('button', { name: 'Skills', exact: true }).click()
+  await window.getByRole('button', { name: 'Projects', exact: true }).waitFor()
+}
+
 /** Row click → SkillDetail, the common opening move for several scenarios below. */
 async function openFirstSkillDetail(window) {
   await window.locator('tbody tr').first().click()
@@ -303,6 +319,95 @@ export const scenarios = [
     }
   },
   {
+    name: 'plugins-parent-six',
+    screen: 'plugin-inventory',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app)
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
+      await window.getByText('Projects / Megatron HQ Plugins').waitFor()
+    }
+  },
+  {
+    name: 'plugins-child-three',
+    screen: 'plugin-inventory',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app)
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
+      await window.getByRole('button', { name: /^Megatron\s*3$/ }).click()
+      await window.getByText('Projects / Megatron Plugins').waitFor()
+    }
+  },
+  {
+    name: 'plugins-context-details',
+    screen: 'plugin-detail',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app)
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
+      await window.getByRole('button', { name: /^Megatron\s*3$/ }).click()
+      await window.locator('tbody tr').first().click()
+      await window.getByRole('button', { name: 'Back to plugins' }).waitFor()
+    }
+  },
+  {
+    name: 'plugins-parent-own-items',
+    screen: 'plugin-inventory',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app, 'project-tree-own')
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: /^Megatron HQ\s*7$/ }).click()
+      await window.getByRole('button', { name: /^This folder\s*1$/ }).click()
+    }
+  },
+  {
+    name: 'plugins-unavailable-cached',
+    screen: 'plugin-inventory',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app, 'project-tree-unavailable')
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: /Megatron HQ.*6/ }).click()
+      await window.getByRole('button', { name: /^Megatron(?:\s|Unavailable)*3$/ }).click()
+      await window.getByText(/This project folder is missing/).waitFor()
+    }
+  },
+  {
+    name: 'plugins-duplicate-repository-names',
+    screen: 'plugin-inventory',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app, 'project-tree-duplicates')
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
+    }
+  },
+  {
+    name: 'skills-parent-six',
+    screen: 'skill-inventory',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app)
+      await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
+    }
+  },
+  {
+    name: 'skills-child-three',
+    screen: 'skill-inventory',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app)
+      await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
+      await window.getByRole('button', { name: /^Megatron\s*3$/ }).click()
+    }
+  },
+  {
+    name: 'skills-empty-repository',
+    screen: 'skill-inventory',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app)
+      await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
+      await window.getByRole('button', { name: /^Empty-repo\s*0$/ }).click()
+    }
+  },
+  {
     name: 'settings-rescan-outcome',
     screen: 'settings-dialog',
     async run(window) {
@@ -462,7 +567,7 @@ export const scenarios = [
     name: 'project-filter-empty-state',
     screen: 'skill-inventory',
     async run(window) {
-      await window.getByRole('button', { name: 'Project', exact: true }).click()
+      await window.getByRole('button', { name: 'Projects', exact: true }).click()
     }
   },
   {
@@ -711,7 +816,7 @@ export const scenarios = [
     name: 'sidebar-projects-expanded',
     screen: 'sidebar',
     async run(window) {
-      await window.getByRole('button', { name: 'Project', exact: true }).click()
+      await window.getByRole('button', { name: 'Projects', exact: true }).click()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
@@ -731,6 +836,7 @@ export const scenarios = [
     screen: 'sidebar',
     async run(window) {
       await window.getByRole('button', { name: 'Global' }).click()
+      await window.getByRole('button', { name: 'Collapse project list' }).click()
       await window.getByRole('button', { name: 'Expand project list' }).click()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
@@ -868,7 +974,7 @@ export const scenarios = [
     }
   },
   {
-    // The AppRail's Plugins destination: PluginSidebar (All / User / Project / Local) beside
+    // The AppRail's Plugins destination: PluginSidebar (All / User / Projects) beside
     // the inventory table. Real ~/.claude data on this machine has plugins at all three
     // scopes, so this is never the empty state.
     name: 'plugins-inventory-open',
@@ -884,7 +990,7 @@ export const scenarios = [
     screen: 'plugin-inventory',
     async run(window) {
       await openPluginsSection(window)
-      await window.getByRole('button', { name: 'Project', exact: true }).click()
+      await window.getByRole('button', { name: 'Projects', exact: true }).click()
       await window.getByText('Project Plugins').waitFor()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
@@ -892,16 +998,16 @@ export const scenarios = [
   {
     // A single project selected under Local. The Scope column is deliberately dropped once a
     // scope is chosen — the sidebar already states it, and the table needs the width.
-    name: 'plugins-sidebar-local-project-selected',
+    name: 'plugins-sidebar-repository-selected',
     screen: 'plugin-inventory',
     shouldSkip: (window) => skipWithoutScopedPlugin(window, 'Local'),
     async run(window) {
       await openPluginsSection(window)
-      await window.getByRole('button', { name: 'Local', exact: true }).click()
+      await window.getByRole('button', { name: 'Projects', exact: true }).click()
       await window.waitForTimeout(MOTION_SETTLE_MS)
       await window.locator('nav button').filter({ hasText: 'Megatron' }).first().click()
       // Unanchored: the header renders the title followed by a " · N" count span.
-      await window.getByText(/Local \/ .+ Plugins/).waitFor()
+      await window.getByText(/Projects \/ .+ Plugins/).waitFor()
     }
   },
   {

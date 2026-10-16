@@ -1,5 +1,35 @@
 # Skill scanner — sources, symlinks, and real `~/.claude` data notes
 
+## Repository catalog and parent navigation (2026-10-15)
+
+`project-discovery.ts` owns the shared bounded walk used by skill scanning and both project
+sidebars. It records empty Git repositories and worktrees as well as unversioned Claude projects
+with `.claude/skills` or project settings. A Claude package inside an identified repository keeps
+that repository's ownership; a new Git boundary always starts another repository. Discovery
+retains the existing skip list, canonical permission checks, cycle guard, depth and directory limits.
+
+The catalog is derived metadata in the private preferences cache, independent of folder grants.
+It preserves known missing/unavailable repository entries across scans and restarts. Cached
+entries never grant access, and removing a grant drops entries no longer covered by another grant.
+Existing skill and plugin rows provide cached counts; a complete scan of a readable empty source
+reconciles its contents normally. A missing whole repository retains its cached data.
+
+Skills and Plugins share a granted-folder → repository tree. A parent selects its aggregate and
+expands its children; its chevron only expands/collapses. Intermediate directories are omitted
+unless explicitly granted. Overlapping grants appear once; duplicate repository names use paths
+relative to the displayed parent. A parent's own items have a separate "This folder" filter.
+Known empty repositories show zero, and unavailable entries identify their cached state.
+
+Plugins combine Project and Local scopes in one Projects tree. Counts and inventory rows use
+distinct `name@marketplace` plus repository; User is a separate context. The same plugin in two
+repositories contributes twice to a parent's count. Project/Local versions and enablement remain
+per-install, and details/actions selected from a repository row stay scoped to that repository.
+Usage metrics labelled "all projects" retain their existing aggregate meaning. Unknown project
+records remain visible separately and cannot be managed without a project location.
+
+The Skills Projects tree counts only repository-defined skills; Global and Plugin source groups
+are unchanged. Monorepo package ownership and name qualification remain repository-scoped.
+
 ## Parent-folder grants (2026-10-15)
 
 A grant may cover a grouping folder containing several repositories. A child directory with

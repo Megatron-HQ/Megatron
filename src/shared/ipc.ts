@@ -7,6 +7,7 @@ export const IPC_CHANNELS = {
   setTheme: 'theme:set',
   scanComplete: 'scan:complete',
   listAllowedPaths: 'folders:list',
+  listProjects: 'projects:list',
   pickAndAddFolders: 'folders:pickAndAdd',
   revokeAllowedPath: 'folders:revoke',
   openExternal: 'shell:openExternal',
@@ -28,6 +29,12 @@ export const IPC_CHANNELS = {
 export interface AllowedPathRow {
   path: string
   granted_at: string
+}
+
+export interface ProjectFolder {
+  path: string
+  kind: 'folder' | 'repository'
+  status: 'available' | 'unavailable' | 'missing' | 'needs_access'
 }
 
 export type SourceType = 'global' | 'project' | 'plugin'
@@ -118,6 +125,7 @@ export interface ScanIssue {
 export interface ScanTaskResult {
   status: 'complete' | 'partial'
   issues?: ScanIssue[]
+  projects?: ProjectFolder[]
 }
 
 export interface ScanSummary {
@@ -125,6 +133,7 @@ export interface ScanSummary {
   completedAt: string
   sources: { name: string; status: 'complete' | 'partial' | 'failed'; issues?: ScanIssue[] }[]
   lastSuccessfulAt?: string | null
+  projects?: ProjectFolder[]
 }
 
 export type FileStatus = 'ok' | 'too_large' | 'unreadable' | 'preview_limit'
