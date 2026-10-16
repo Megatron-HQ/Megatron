@@ -57,7 +57,11 @@ export function ProjectNavigation(props: ProjectNavigationProps): React.JSX.Elem
           aria-label="Projects"
           onClick={() => {
             onSelect()
-            open(GROUP_KEY)
+            if (selected && !selection.path) {
+              toggle(GROUP_KEY)
+            } else {
+              open(GROUP_KEY)
+            }
           }}
           className={cn('flex h-full min-w-0 flex-1 items-center gap-2 text-left', FOCUS)}
         >
@@ -84,7 +88,6 @@ export function ProjectNavigation(props: ProjectNavigationProps): React.JSX.Elem
               navigation={props}
               reduceMotion={!!reduceMotion}
               onToggle={toggle}
-              onOpen={open}
             />
           ))}
           {!!unknown?.count && (
@@ -114,15 +117,13 @@ function ProjectNode({
   depth,
   navigation,
   reduceMotion,
-  onToggle,
-  onOpen
+  onToggle
 }: {
   node: ProjectTreeNode
   depth: number
   navigation: ProjectNavigationProps
   reduceMotion: boolean
   onToggle: (key: string) => void
-  onOpen: (key: string) => void
 }): React.JSX.Element {
   const { selected, selection, expanded, onSelect, onItemHover } = navigation
   const hasChildren = node.children.length > 0
@@ -145,7 +146,7 @@ function ProjectNode({
             type="button"
             onClick={() => {
               onSelect(node.path, exact)
-              onOpen(node.key)
+              onToggle(node.key)
             }}
             className={cn('flex h-full min-w-0 flex-1 items-center gap-1.5 text-left', FOCUS)}
           >
@@ -223,7 +224,6 @@ function ProjectNode({
                 navigation={navigation}
                 reduceMotion={reduceMotion}
                 onToggle={onToggle}
-                onOpen={onOpen}
               />
             ))}
           </div>
