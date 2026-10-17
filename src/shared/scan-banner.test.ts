@@ -3,6 +3,7 @@ import {
   SCAN_BANNER_READING,
   SCAN_BANNER_REVEAL_MS,
   SCAN_BANNER_SNAPSHOT,
+  nextScanActivity,
   preferScanSummary,
   resolveScanBanner
 } from './scan-banner'
@@ -76,6 +77,23 @@ describe('resolveScanBanner', () => {
     })
   })
 
+  it('holds a quiet refresh, warning included, until that refresh has run for 8 seconds', () => {
+    const quiet = { ...ready, skillCount: 3, revealMs: 8_000 }
+
+    expect(resolveScanBanner({ ...quiet, elapsedMs: 7_999, hasPriorWarning: true })).toEqual({
+      state: { kind: 'warning' },
+      lockedMessage: null
+    })
+    expect(resolveScanBanner({ ...quiet, elapsedMs: 7_999, hasPriorWarning: false })).toEqual({
+      state: { kind: 'hidden' },
+      lockedMessage: null
+    })
+    expect(resolveScanBanner({ ...quiet, elapsedMs: 8_000, hasPriorWarning: true })).toEqual({
+      state: { kind: 'updating', message: SCAN_BANNER_SNAPSHOT },
+      lockedMessage: SCAN_BANNER_SNAPSHOT
+    })
+  })
+
   it('drops the updating line as soon as the scan finishes, and brings a warning back only when the result still needs attention', () => {
     expect(
       resolveScanBanner({
@@ -94,6 +112,26 @@ describe('resolveScanBanner', () => {
         hasPriorWarning: true
       })
     ).toEqual({ state: { kind: 'warning' }, lockedMessage: null })
+  })
+})
+
+describe('nextScanActivity', () => {
+  const quiet = { id: 1, startedAt: 1_000, revealMs: 8_000 }
+  const announced = { id: 1, startedAt: 1_000, revealMs: 500 }
+
+  it('adopts a shorter reveal for the same run and ignores a longer one', () => {
+    expect(nextScanActivity(quiet, { ...announced, startedAt: 5_000 })).toEqual(announced)
+    expect(nextScanActivity(announced, quiet)).toBeNull()
+    expect(nextScanActivity(quiet, quiet)).toBeNull()
+  })
+
+  it('replaces the current run when the incoming activity has a different id', () => {
+    expect(nextScanActivity(quiet, { id: 2, startedAt: 9_000, revealMs: 8_000 })).toEqual({
+      id: 2,
+      startedAt: 9_000,
+      revealMs: 8_000
+    })
+    expect(nextScanActivity(null, announced)).toEqual(announced)
   })
 })
 

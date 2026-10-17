@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ScanActivity, ScanSummary } from '../../../shared/ipc'
 import {
-  SCAN_BANNER_REVEAL_MS,
+  nextScanActivity,
   preferScanSummary,
   resolveScanBanner,
   type ScanBannerState
@@ -21,15 +21,20 @@ export function useScanBanner(input: {
   const [now, setNow] = useState(0)
   const closedIds = useRef(new Set<number>())
   const activeId = useRef<number | null>(null)
+  const scanRunRef = useRef<ScanActivity | null>(null)
 
   const reportedId = useRef<number | null>(null)
 
   function beginRun(activity: ScanActivity): void {
-    if (closedIds.current.has(activity.id) || activeId.current === activity.id) return
-    activeId.current = activity.id
-    setFinishedSummary(null)
+    if (closedIds.current.has(activity.id)) return
+    const next = nextScanActivity(scanRunRef.current, activity)
+    if (next === null) return
+    const starting = scanRunRef.current?.id !== next.id
+    scanRunRef.current = next
+    activeId.current = next.id
+    if (starting) setFinishedSummary(null)
     setNow(Date.now())
-    setScanRun(activity)
+    setScanRun(next)
   }
 
   useEffect(
@@ -55,6 +60,7 @@ export function useScanBanner(input: {
         closedIds.current.add(finished.id)
         const finishingCurrent = activeId.current === finished.id
         if (finishingCurrent) activeId.current = null
+        if (scanRunRef.current?.id === finished.id) scanRunRef.current = null
         setScanRun((current) => (current?.id === finished.id ? null : current))
         if (activeId.current === null) setFinishedSummary(finished.summary)
       }),
@@ -71,7 +77,7 @@ export function useScanBanner(input: {
 
   useEffect(() => {
     if (!scanRun) return
-    const delay = scanRun.startedAt + SCAN_BANNER_REVEAL_MS - Date.now()
+    const delay = scanRun.startedAt + scanRun.revealMs - Date.now()
     if (delay <= 0) return
     const timer = window.setTimeout(() => setNow(Date.now()), delay)
     return () => window.clearTimeout(timer)
@@ -89,7 +95,8 @@ export function useScanBanner(input: {
     skillCount: input.skillCount,
     pluginCount: input.pluginCount,
     lockedMessage: applicableLock,
-    hasPriorWarning: summary !== undefined && summary.outcome !== 'complete'
+    hasPriorWarning: summary !== undefined && summary.outcome !== 'complete',
+    revealMs: scanRun?.revealMs
   })
 
   if (scanRun && decision.lockedMessage && decision.lockedMessage !== applicableLock) {

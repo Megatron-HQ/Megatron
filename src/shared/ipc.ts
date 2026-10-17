@@ -109,6 +109,8 @@ export interface ContextBudget {
 export interface ScanActivity {
   id: number
   startedAt: number
+  // How long this run stays quiet before the updating banner. A joined scan can only shorten it.
+  revealMs: number
 }
 
 export interface ScanFinished {

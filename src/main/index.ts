@@ -19,7 +19,7 @@ import icon from '../../resources/icon.png?asset'
 // The .ico, not the PNG, so Windows can pick the hand-tuned no-sparkle art at 16/24 px.
 import windowsIcon from '../../resources/icon.ico?asset'
 import { getDb } from './db'
-import { createScanSession } from './scan-session'
+import { createScanSession, type ScanUrgency } from './scan-session'
 import { disableChromiumHttpCache } from './chromium-cache'
 import {
   addAllowedPath,
@@ -160,10 +160,10 @@ const scans = createScanController(() =>
   })
 )
 
-async function scanAndNotify(): Promise<ScanSummary> {
+async function scanAndNotify(urgency: ScanUrgency = 'announce'): Promise<ScanSummary> {
   const previousSuccess = scanSummary?.lastSuccessfulAt ?? null
-  const { run, started } = scanSession.begin(Date.now())
-  if (started) notifyScanStarted(run)
+  const { run, started, promoted } = scanSession.begin(Date.now(), urgency)
+  if (started || promoted) notifyScanStarted(run)
   try {
     try {
       scanSummary = await scans.request()
@@ -467,7 +467,7 @@ app.whenReady().then(() => {
   app.on('browser-window-focus', () => {
     if (scanComplete && Date.now() - lastFocusScan > MIN_FOCUS_SCAN_INTERVAL_MS) {
       lastFocusScan = Date.now()
-      void scanAndNotify()
+      void scanAndNotify('quiet')
     }
   })
 

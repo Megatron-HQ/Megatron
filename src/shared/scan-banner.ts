@@ -1,6 +1,7 @@
-import type { ScanSummary } from './ipc'
+import type { ScanActivity, ScanSummary } from './ipc'
 
 export const SCAN_BANNER_REVEAL_MS = 500
+export const SCAN_BANNER_QUIET_REVEAL_MS = 8_000
 export const SCAN_BANNER_SNAPSHOT = 'Updating your index. This is the last saved snapshot.'
 export const SCAN_BANNER_READING = 'Reading your Claude Code files.'
 
@@ -16,6 +17,17 @@ export interface ScanBannerInput {
   pluginCount: number
   lockedMessage: string | null
   hasPriorWarning: boolean
+  // Absent means the announced-scan wait. A focus refresh passes the longer quiet wait.
+  revealMs?: number
+}
+
+export function nextScanActivity(
+  current: ScanActivity | null,
+  incoming: ScanActivity
+): ScanActivity | null {
+  if (current === null || current.id !== incoming.id) return incoming
+  if (incoming.revealMs < current.revealMs) return { ...current, revealMs: incoming.revealMs }
+  return null
 }
 
 export function preferScanSummary(
@@ -49,7 +61,8 @@ export function resolveScanBanner(input: ScanBannerInput): {
     }
   }
   const listsReady = input.skillsLoaded && input.pluginsLoaded
-  if (input.elapsedMs < SCAN_BANNER_REVEAL_MS || !listsReady) return held(input.hasPriorWarning)
+  const revealMs = input.revealMs ?? SCAN_BANNER_REVEAL_MS
+  if (input.elapsedMs < revealMs || !listsReady) return held(input.hasPriorWarning)
   const message =
     input.skillCount > 0 || input.pluginCount > 0 ? SCAN_BANNER_SNAPSHOT : SCAN_BANNER_READING
   return { state: { kind: 'updating', message }, lockedMessage: message }
