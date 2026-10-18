@@ -108,7 +108,7 @@ export function discoverProjects(
         (name) => name === 'settings.json' || name === 'settings.local.json'
       )
       const isRepository =
-        owner === undefined && (directory.entries.includes('.git') || hasSkills || hasSettings)
+        directory.entries.includes('.git') || (owner === undefined && (hasSkills || hasSettings))
       const owningProject = isRepository ? canonical : owner
       if (isRepository || isGrant)
         projects.set(key, {

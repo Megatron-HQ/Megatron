@@ -832,6 +832,88 @@ describe('token estimate persistence', () => {
 })
 
 describe('listSkills usage aggregation', () => {
+  it('does not treat a project skill without an owning root as the filesystem root', () => {
+    insertSkill('deploy', { source_type: 'project' })
+    insertSession('unknown-root', '/repo')
+    insertInvocation({
+      source_uuid: 'unknown-root',
+      session_id: 'unknown-root',
+      skill_name: 'deploy'
+    })
+    expect(listSkills(db)[0].total_invocations).toBe(0)
+  })
+  it.each([
+    ['/repo', '/repo/child', '/repo/child/grandchild'],
+    ['C:\\HQ\\Repo', 'C:\\HQ\\Repo\\child', 'C:\\HQ\\Repo\\child\\grandchild']
+  ])('attributes nested invocations to the nearest matching repository below %s', (...roots) => {
+    const ids = roots.map((root) =>
+      insertSkill('deploy', {
+        source_type: 'project',
+        project_root: root,
+        source_path: `${root}/.claude/skills/deploy`
+      })
+    )
+    for (const [index, root] of roots.entries()) {
+      insertSession(`nested-${index}`, `${root}/packages/web`)
+      insertInvocation({
+        source_uuid: `nested-${index}`,
+        session_id: `nested-${index}`,
+        skill_name: 'deploy',
+        invoked_at: '2026-08-14T10:00:00.000Z'
+      })
+    }
+    for (const [index, id] of ids.entries()) {
+      const skill = getSkillById(db, id)!
+      expect(skill.total_invocations).toBe(1)
+      expect(getSkillUsageDetail(db, skill).byProject).toEqual([
+        { cwd: `${roots[index]}/packages/web`, count: 1 }
+      ])
+      expect(getSkillInvocationLog(db, skill).map((entry) => entry.cwd)).toEqual([
+        `${roots[index]}/packages/web`
+      ])
+    }
+    expect(
+      getSkillInvocationSlice(db, {
+        startAt: '2026-08-14T00:00:00.000Z',
+        endAt: '2026-08-15T00:00:00.000Z'
+      })
+        .map((entry) => entry.skillId)
+        .sort()
+    ).toEqual([...ids].sort())
+  })
+
+  it('resolves a nested Windows invocation despite separator and casing differences', () => {
+    insertSkill('deploy', {
+      source_type: 'project',
+      project_root: 'C:\\HQ\\Repo',
+      source_path: '/parent/deploy'
+    })
+    const childId = insertSkill('deploy', {
+      source_type: 'project',
+      project_root: 'C:\\HQ\\Repo\\Child',
+      source_path: '/child/deploy'
+    })
+    insertSession('windows-child', 'c:/hq/repo/child/packages')
+    insertInvocation({
+      source_uuid: 'windows-child',
+      session_id: 'windows-child',
+      skill_name: 'deploy'
+    })
+    expect(listSkills(db).map((skill) => skill.total_invocations)).toEqual([0, 1])
+    expect(
+      getSkillInvocationSlice(db, {
+        startAt: '2026-08-14T00:00:00.000Z',
+        endAt: '2026-08-15T00:00:00.000Z'
+      })[0].skillId
+    ).toBe(childId)
+    expect(
+      getSkillStats(db, new Date('2026-08-14T12:00:00.000Z')).last24h.bySkill[0]
+    ).toMatchObject({
+      skillId: childId,
+      resolution: 'installed'
+    })
+  })
+
   it('returns 0 invocations and a null last_invoked_at for a skill never invoked', () => {
     insertSkill('never-used')
 
@@ -2466,6 +2548,41 @@ describe('getResidentTaxStats', () => {
 })
 
 describe('getSkillStats', () => {
+  it('links nested repository usage and cost to the same nearest skill', () => {
+    insertSkill('alpha', {
+      source_type: 'project',
+      project_root: '/repo',
+      source_path: '/repo/skills/alpha'
+    })
+    const childId = insertSkill('alpha', {
+      source_type: 'project',
+      project_root: '/repo/child',
+      source_path: '/repo/child/skills/alpha'
+    })
+    insertSession('nested-cost', '2026-09-09T16:00:00.000Z')
+    db.prepare(
+      "UPDATE sessions_meta SET cwd = '/repo/child/packages' WHERE session_id = 'nested-cost'"
+    ).run()
+    insertCost({ sessionId: 'nested-cost', totalCostUsd: 1 })
+    insertInvocation({
+      uuid: 'nested-cost',
+      sessionId: 'nested-cost',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T16:00:00.000Z'
+    })
+    db.prepare(
+      "INSERT INTO timed_skill_cost (session_id, skill_name, allocated_at, est_cost_usd) VALUES ('nested-cost', 'alpha', '2026-09-09T16:00:00.000Z', 1)"
+    ).run()
+    const stats = getSkillStats(db, NOW).last24h
+    expect(stats.bySkill[0]).toMatchObject({ skillId: childId, resolution: 'installed' })
+    expect(stats.associations[0]).toMatchObject({ skillId: childId })
+    expect(stats.attribution.rows[0]).toMatchObject({
+      skillId: childId,
+      resolution: 'installed',
+      estimatedCostCents: 100
+    })
+  })
+
   const NOW = new Date('2026-09-09T17:00:00.000Z') // local Wed 2026-09-09 12:00 (UTC-5)
 
   function insertSession(sessionId: string, startedAt: string): void {

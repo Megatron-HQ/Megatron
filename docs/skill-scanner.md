@@ -16,8 +16,14 @@ reconciles its contents normally. A missing whole repository retains its cached 
 
 Skills and Plugins share a granted-folder → repository tree. A parent selects its aggregate and
 expands its children; its chevron only expands/collapses. Intermediate directories are omitted
-unless explicitly granted. Overlapping grants appear once; duplicate repository names use paths
-relative to the displayed parent. A parent's own items have a separate "This folder" filter.
+unless explicitly granted, with their path segments retained in the next repository's label.
+Every nested Git boundary (directory or worktree file) starts an independent repository, at any
+supported depth. Repositories attach to their nearest enclosing repository or granted folder;
+overlapping grants appear once. Table and detail labels use the local folder hierarchy, including
+the outer granted folder (for example `MegatronHQ/megatron`), preserve display casing, and use `/`.
+Directly granted repositories retain parent-folder context. Duplicate labels gain ancestors until
+distinct. A repository's own items have a separate "This repo" filter, including zero items;
+grouping folders with direct items retain "This folder".
 Known empty repositories show zero, and unavailable entries identify their cached state.
 
 Plugins combine Project and Local scopes in one Projects tree. Counts and inventory rows use

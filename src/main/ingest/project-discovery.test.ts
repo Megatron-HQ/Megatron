@@ -97,15 +97,48 @@ describe('project discovery continuity', () => {
     })
   })
 
-  it('does not discover nested repositories inside an existing repository as separate projects', () => {
+  it('discovers sibling and descendant Git boundaries with their own skill ownership', () => {
     const repo = join(root, 'repo')
     const nested = join(repo, 'references', 'nested-repo')
-    mkdirSync(join(repo, '.git'), { recursive: true })
-    mkdirSync(join(nested, '.git'), { recursive: true })
+    const sibling = join(repo, 'other-repo')
+    const grandchild = join(nested, 'grandchild')
+    for (const directory of [repo, nested, sibling, grandchild]) {
+      mkdirSync(join(directory, '.claude', 'skills'), { recursive: true })
+      if (directory === grandchild) writeFileSync(join(directory, '.git'), 'gitdir: outside')
+      else mkdirSync(join(directory, '.git'))
+    }
+    const packageSkills = join(grandchild, 'packages', 'web', '.claude', 'skills')
+    mkdirSync(packageSkills, { recursive: true })
     const result = discoverProjects([root])
     expect(
-      result.projects.filter((entry) => entry.kind === 'repository').map((entry) => entry.path)
-    ).toEqual([repo])
+      result.projects
+        .filter((entry) => entry.kind === 'repository')
+        .map((entry) => entry.path)
+        .sort()
+    ).toEqual([repo, nested, sibling, grandchild].sort())
+    for (const directory of [repo, nested, sibling, grandchild]) {
+      expect(result.skillRoots).toContainEqual({
+        dir: join(directory, '.claude', 'skills'),
+        sourceType: 'project',
+        projectRoot: directory
+      })
+    }
+    expect(result.skillRoots).toContainEqual({
+      dir: packageSkills,
+      sourceType: 'project',
+      projectRoot: grandchild
+    })
+  })
+
+  it('starts a Git repository beneath an unversioned Claude project', () => {
+    mkdirSync(join(root, '.claude', 'skills'), { recursive: true })
+    const child = join(root, 'child')
+    mkdirSync(join(child, '.git'), { recursive: true })
+    expect(discoverProjects([root]).projects).toContainEqual({
+      path: child,
+      kind: 'repository',
+      status: 'available'
+    })
   })
 
   it('skips __MACOSX directories during project traversal', () => {
@@ -128,6 +161,7 @@ describe('project discovery continuity', () => {
       { path: repo, kind: 'repository', status: 'available' },
       { path: nested, kind: 'repository', status: 'available' }
     ]
+    rmSync(join(nested, '.git'), { recursive: true })
     const result = discoverProjects([root], previous)
     expect(
       result.projects.filter((entry) => entry.kind === 'repository').map((entry) => entry.path)

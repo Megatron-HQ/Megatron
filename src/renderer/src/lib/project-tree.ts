@@ -18,35 +18,56 @@ export interface ProjectCountEntry {
   count: number
 }
 
-export function projectDisplayLabels(paths: Iterable<string>): Map<string, string> {
-  const groups = new Map<string, Map<string, string>>()
+interface ProjectLabelEntry {
+  parts: string[]
+  start: number
+}
+
+export function projectDisplayLabels(
+  paths: Iterable<string>,
+  grants: AllowedPathRow[] = []
+): Map<string, string> {
+  const entries = new Map<string, ProjectLabelEntry>()
+  const anchors = [...grants].sort(
+    (a, b) => normalizeProjectPath(a.path).length - normalizeProjectPath(b.path).length
+  )
   for (const path of paths) {
     const key = normalizeProjectPath(path)
-    const name = getFolderBasename(key)
-    const group = groups.get(name) ?? new Map<string, string>()
-    group.set(key, path)
-    groups.set(name, group)
-  }
-  const labels = new Map<string, string>()
-  for (const group of groups.values()) {
-    const keys = [...group.keys()].map((key) => key.split('/'))
-    let common = 0
-    if (keys.length > 1) {
-      while (
-        common < keys[0].length - 1 &&
-        keys.every((parts) => parts[common] === keys[0][common])
+    if (entries.has(key)) continue
+    const parts = path.replace(/\\/g, '/').replace(/\/+$/, '').split('/')
+    const anchor = anchors.find((grant) => isWithinProjectPath(path, grant.path))
+    const anchorDepth = anchor?.path.replace(/\\/g, '/').replace(/\/+$/, '').split('/').length
+    entries.set(key, {
+      parts,
+      start: Math.max(
+        0,
+        anchorDepth === undefined ? parts.length - 2 : Math.min(anchorDepth - 1, parts.length - 2)
       )
-        common++
+    })
+  }
+  // Include more ancestors only when the local hierarchy still leaves duplicate labels.
+  let expanded: boolean
+  do {
+    expanded = false
+    const groups = new Map<string, ProjectLabelEntry[]>()
+    for (const entry of entries.values()) {
+      const label = entry.parts.slice(entry.start).join('/').toLowerCase()
+      const group = groups.get(label) ?? []
+      group.push(entry)
+      groups.set(label, group)
     }
-    for (const [key, path] of group)
-      labels.set(
-        key,
-        group.size === 1
-          ? getFolderBasename(path)
-          : path.replace(/\\/g, '/').replace(/\/+$/, '').split('/').slice(common).join('/')
-      )
-  }
-  return labels
+    for (const group of groups.values()) {
+      if (group.length < 2) continue
+      for (const entry of group) {
+        if (entry.start === 0) continue
+        entry.start--
+        expanded = true
+      }
+    }
+  } while (expanded)
+  return new Map(
+    [...entries].map(([key, entry]) => [key, entry.parts.slice(entry.start).join('/')])
+  )
 }
 
 export function buildProjectTree(
@@ -84,11 +105,11 @@ export function buildProjectTree(
     node.directCount += entry.count
   }
   const roots: ProjectTreeNode[] = []
-  const grantNodes = [...grantKeys]
-    .map((key) => nodes.get(key)!)
-    .sort((first, second) => second.key.length - first.key.length)
+  const ancestors = [...nodes.values()].sort(
+    (first, second) => second.key.length - first.key.length
+  )
   for (const node of nodes.values()) {
-    const parent = grantNodes.find(
+    const parent = ancestors.find(
       (candidate) => candidate.key !== node.key && isWithinProjectPath(node.path, candidate.path)
     )
     if (parent) parent.children.push(node)
@@ -105,7 +126,7 @@ export function buildProjectTree(
         node.children.some((child) => child.status !== 'available')
       )
         node.status = 'unavailable'
-      if (labelCounts.get(node.label)! > 1) {
+      if (parent || labelCounts.get(node.label)! > 1) {
         const fullPath = node.path.replace(/\\/g, '/')
         node.label = parent
           ? fullPath.slice(normalizeProjectPath(parent.path).length + 1)

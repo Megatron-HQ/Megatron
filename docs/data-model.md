@@ -12,6 +12,13 @@ the User context remain separate rows. This does not change stored plugin or ins
 The derived project-folder catalog lives in private preferences, includes empty repositories and
 cached availability, and never grants filesystem access. No schema migration is needed.
 
+Nested repositories keep independent `project_root` values. For same-named project skills,
+an invocation belongs to the deepest matching enclosing root, after existing global/synced
+precedence. This rule applies to inventory totals, history, detail breakdowns, Usage links, and
+cost links. Mixed-repository aggregates remain unlinked when no single skill explains them.
+Windows comparisons normalize separators, drive/path casing, and trailing separators; POSIX
+paths retain case sensitivity. No schema change or user registry rewrite is required.
+
 | Area                     | Decision                                                                                                   | Why                                                                                                                                                                                                                       |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | SQLite driver            | `better-sqlite3`, not `node:sqlite`                                                                        | `node:sqlite` is still experimental/evolving; wrong risk for the core data layer. `better-sqlite3` v13 ships N-API prebuilds (`prebuilds/darwin-arm64.node` etc.) — no native rebuild needed on install for this platform |

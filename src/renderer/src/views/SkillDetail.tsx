@@ -23,11 +23,13 @@ import { parseHookEvents } from '@/lib/hook-events'
 import { hasDisableModelInvocationFrontmatter, parseExtraFrontmatterFields } from '@/lib/markdown'
 import { groupInvocationEntries } from '@/lib/invocation-grouping'
 import { getFolderBasename, getSkillDisplayName } from '@/lib/source-name'
+import { normalizeProjectPath } from '../../../shared/project-path'
 import { TRIGGER_META } from '@/lib/trigger-meta'
 import { cn } from '@/lib/utils'
 import type { ProjectCount, SkillRow, SkillUsageDetail, TriggerType } from '../../../shared/ipc'
 
 interface SkillDetailProps {
+  projectLabels: Map<string, string>
   skillId: number
   onBack: () => void
   onViewFiles: () => void
@@ -53,6 +55,7 @@ const SEGMENT_MIN_PERCENT = 8
 const PROJECT_ROW_CAP = 6
 
 export function SkillDetail({
+  projectLabels,
   skillId,
   onBack,
   onViewFiles,
@@ -188,6 +191,11 @@ export function SkillDetail({
               warningCount={skill.warning_count}
             />
             <SourceBadge
+              label={
+                skill.source_type === 'project' && skill.project_root
+                  ? projectLabels.get(normalizeProjectPath(skill.project_root))
+                  : undefined
+              }
               type={skill.source_type}
               sourcePath={skill.source_path}
               pluginName={skill.plugin_name}

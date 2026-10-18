@@ -336,7 +336,7 @@ export const scenarios = [
       await openPluginsSection(window)
       await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
       await window.getByRole('button', { name: /^Megatron\s*3$/ }).click()
-      await window.getByText('Projects / Megatron Plugins').waitFor()
+      await window.getByText('Projects / Megatron HQ/Megatron Plugins').waitFor()
     }
   },
   {
@@ -358,7 +358,7 @@ export const scenarios = [
       await enableProjectHierarchy(window, app, 'project-tree-own')
       await openPluginsSection(window)
       await window.getByRole('button', { name: /^Megatron HQ\s*7$/ }).click()
-      await window.getByRole('button', { name: /^This folder\s*1$/ }).click()
+      await window.getByRole('button', { name: /^This repo\s*1$/ }).click()
     }
   },
   {
@@ -381,7 +381,10 @@ export const scenarios = [
       await window.getByRole('button', { name: /Megatron HQ.*6/ }).click()
       await window.getByRole('button', { name: /^Megatron(?:\s|Unavailable)*3$/ }).click()
       await window.locator('tbody tr').first().click()
-      await window.getByText(/that folder is missing/).first().waitFor()
+      await window
+        .getByText(/that folder is missing/)
+        .first()
+        .waitFor()
     }
   },
   {
@@ -391,6 +394,40 @@ export const scenarios = [
       await enableProjectHierarchy(window, app, 'project-tree-duplicates')
       await openPluginsSection(window)
       await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
+    }
+  },
+  {
+    name: 'skills-nested-repositories',
+    screen: ['skill-inventory', 'sidebar'],
+    async run(window, app) {
+      await enableProjectHierarchy(window, app, 'project-tree-nested')
+      await window.getByRole('button', { name: /^Megatron HQ\s*9$/ }).click()
+      await window.getByRole('button', { name: /^Megatron\s*6$/ }).click()
+      await window.getByRole('button', { name: /^references\/child-a\s*2$/ }).click()
+      await window.getByRole('button', { name: /^grandchild\s*1$/ }).waitFor()
+    }
+  },
+  {
+    name: 'skills-nested-repository-own',
+    screen: ['skill-inventory', 'sidebar'],
+    async run(window, app) {
+      await enableProjectHierarchy(window, app, 'project-tree-nested')
+      await window.getByRole('button', { name: /^Megatron HQ\s*9$/ }).click()
+      await window.getByRole('button', { name: /^Megatron\s*6$/ }).click()
+      await window.getByRole('button', { name: /^references\/child-a\s*2$/ }).click()
+      await window.getByRole('button', { name: /^This repo\s*1$/ }).click()
+    }
+  },
+  {
+    name: 'plugins-nested-repositories',
+    screen: ['plugin-inventory', 'sidebar'],
+    async run(window, app) {
+      await enableProjectHierarchy(window, app, 'project-tree-nested')
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: /^Megatron HQ\s*9$/ }).click()
+      await window.getByRole('button', { name: /^Megatron\s*6$/ }).click()
+      await window.getByRole('button', { name: /^references\/child-a\s*2$/ }).click()
+      await window.getByRole('button', { name: /^grandchild\s*1$/ }).waitFor()
     }
   },
   {
@@ -435,7 +472,9 @@ export const scenarios = [
     name: 'scan-updating-banner',
     screen: 'skill-inventory',
     async run(window, app) {
-      await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'scan-updating'))
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-updating')
+      )
       await window.reload()
       await window
         .getByText(

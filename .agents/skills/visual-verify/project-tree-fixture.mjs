@@ -62,6 +62,7 @@ export function projectTreeFixture(channel, args, original, mode) {
   const unavailable = mode === 'project-tree-unavailable'
   const own = mode === 'project-tree-own'
   const duplicate = mode === 'project-tree-duplicates'
+  const nested = mode === 'project-tree-nested'
   const first = duplicate ? `${PARENT}\\apps\\Megatron` : FIRST
   const second = duplicate ? `${PARENT}\\clients\\Megatron` : SECOND
   const projects = [
@@ -90,6 +91,20 @@ export function projectTreeFixture(channel, args, original, mode) {
     )
   )
   if (own) skills.push(fixtureSkill('folder-skill', PARENT, 900100))
+  if (nested) {
+    const child = `${first}\\references\\child-a`
+    const descendants = [child, `${child}\\grandchild`, `${first}\\child-b`]
+    for (const [index, path] of descendants.entries()) {
+      projects.push({ path, kind: 'repository', status: 'available' })
+      skills.push(fixtureSkill('deploy', path, 900200 + index))
+    }
+    plugins.push(
+      fixturePlugin(
+        'nested-tools',
+        descendants.map((path) => fixtureInstall('project', path))
+      )
+    )
+  }
   if (channel === 'folders:list')
     return [
       { path: PARENT, granted_at: '' },

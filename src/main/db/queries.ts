@@ -4,6 +4,7 @@ import { dirname, join, resolve, sep } from 'path'
 import { CHARS_PER_TOKEN } from '../ingest/skill-parser'
 import { estimateResidentTokens } from '../ingest/token-estimate'
 import { readPluginEnablement } from '../ingest/claude-settings'
+import { isWithinProjectPath, normalizeProjectPath } from '../../shared/project-path'
 import type {
   ActivityStats,
   ActivityWindow,
@@ -30,18 +31,32 @@ import type {
   TriggerTypeCount
 } from '../../shared/ipc'
 
-const PROJECT_PATH_SEPARATORS = [...new Set([sep, '/', '\\'])]
-
-function projectPathScopeSql(cwdExpression: string, rootExpression: string): string {
-  const nestedPathChecks = PROJECT_PATH_SEPARATORS.map(
-    (separator) =>
-      `substr(${cwdExpression}, 1, length(${rootExpression}) + 1) = ${rootExpression} || '${separator}'`
-  ).join(' OR ')
-  return `(${cwdExpression} = ${rootExpression} OR ${nestedPathChecks})`
+function normalizedProjectPathSql(expression: string): string {
+  const slashes = `replace(${expression}, '\\', '/')`
+  const trimmed = `COALESCE(NULLIF(rtrim(${slashes}, '/'), ''), '/')`
+  return `(CASE WHEN substr(${slashes}, 2, 1) = ':' OR substr(${slashes}, 1, 2) = '//'
+    THEN lower(${trimmed}) ELSE ${trimmed} END)`
 }
 
-const SKILL_PROJECT_PATH_SCOPE = projectPathScopeSql('sm.cwd', 's.project_root')
-const PARAMETERIZED_PROJECT_PATH_SCOPE = projectPathScopeSql('sm.cwd', '@root')
+function projectPathScopeSql(cwdExpression: string, rootExpression: string): string {
+  const cwd = normalizedProjectPathSql(cwdExpression)
+  const root = normalizedProjectPathSql(rootExpression)
+  const prefix = `(${root} || CASE WHEN ${root} = '/' THEN '' ELSE '/' END)`
+  return `(${rootExpression} IS NOT NULL AND (${cwd} = ${root} OR substr(${cwd}, 1, length(${prefix})) = ${prefix}))`
+}
+
+function projectSkillScopeSql(root: string, name: string, synced: string): string {
+  return `(${projectPathScopeSql('sm.cwd', root)} AND NOT EXISTS (
+    SELECT 1 FROM skills nearer
+    WHERE nearer.source_type = 'project' AND nearer.name = ${name}
+      AND (nearer.is_synced = 0 OR ${synced} = 1)
+      AND length(${normalizedProjectPathSql('nearer.project_root')}) > length(${normalizedProjectPathSql(root)})
+      AND ${projectPathScopeSql('sm.cwd', 'nearer.project_root')}
+  ))`
+}
+
+const SKILL_PROJECT_PATH_SCOPE = projectSkillScopeSql('s.project_root', 's.name', 's.is_synced')
+const PARAMETERIZED_PROJECT_PATH_SCOPE = projectSkillScopeSql('@root', '@skillName', '@synced')
 
 // Live aggregate, not a stored count — skill_invocations is append-only and joined by
 // skill_name (no FK, per the locked no-FK decision), so this can never fall out of sync.
@@ -52,7 +67,8 @@ const PARAMETERIZED_PROJECT_PATH_SCOPE = projectPathScopeSql('sm.cwd', '@root')
 // name join, which would otherwise credit it with invocations that really ran the global one.
 // A non-shadowed project skill is scoped to sessions whose cwd is under its own project_root
 // (`substr`, not `LIKE` — `_`/`%` in a real path are literal characters, not wildcards) so two
-// different repos with a same-named skill don't inflate each other's counts. Global/plugin
+// different repos with a same-named skill don't inflate each other's counts. The deepest
+// applicable project root wins when repositories are nested. Global/plugin
 // skills stay unscoped by name: global wins everywhere, and plugin skills are namespaced
 // (`plugin-name:skill-name`) so they structurally cannot collide with anything.
 const SKILLS_WITH_USAGE_SELECT = `
@@ -392,7 +408,7 @@ export function getSkillUsageDetail(db: Database.Database, skill: SkillRow): Ski
   const scoped = skill.source_type === 'project' && skill.project_root !== null
   const scopeClause = scoped ? `AND ${PARAMETERIZED_PROJECT_PATH_SCOPE}` : ''
   const params = scoped
-    ? { skillName: skill.name, root: skill.project_root }
+    ? { skillName: skill.name, root: skill.project_root, synced: skill.is_synced }
     : { skillName: skill.name }
 
   const byTriggerType = db
@@ -451,7 +467,10 @@ export function getSkillInvocationLog(
   const limitClause = 'LIMIT @limit OFFSET @offset'
 
   const params: Record<string, string | number> = { skillName: skill.name }
-  if (scoped) params.root = skill.project_root as string
+  if (scoped) {
+    params.root = skill.project_root as string
+    params.synced = skill.is_synced
+  }
   params.limit = Math.min(limit, INVOCATION_PAGE_SIZE)
   params.offset = offset
 
@@ -503,16 +522,14 @@ function preferredSkillTargets(named: SkillTargetRow[]): SkillTargetRow[] {
 }
 
 function isWithinProject(cwd: string, projectRoot: string): boolean {
-  return (
-    cwd === projectRoot ||
-    PROJECT_PATH_SEPARATORS.some((separator) => cwd.startsWith(projectRoot + separator))
-  )
+  return isWithinProjectPath(cwd, projectRoot)
 }
 
 function costTargetMatchesLineage(
   target: SkillTargetRow,
   sessionIds: Set<string>,
-  lineageCwdsByTerminal: Map<string, Set<string>>
+  lineageCwdsByTerminal: Map<string, Set<string>>,
+  targets: Map<string, SkillTargetRow[]>
 ): boolean {
   if (target.source_type !== 'project') return true
   const projectRoot = target.project_root
@@ -520,7 +537,11 @@ function costTargetMatchesLineage(
   for (const sessionId of sessionIds) {
     const lineageCwds = lineageCwdsByTerminal.get(sessionId)
     if (lineageCwds === undefined || lineageCwds.size === 0) return false
-    if ([...lineageCwds].some((cwd) => !isWithinProject(cwd, projectRoot))) {
+    if (
+      [...lineageCwds].some(
+        (cwd) => resolveSkillTarget(target.name, cwd, targets)?.id !== target.id
+      )
+    ) {
       return false
     }
   }
@@ -537,7 +558,17 @@ function resolveSkillTarget(
     if (row.project_root === null) return false
     return isWithinProject(cwd, row.project_root)
   })
-  return matching.length === 1 ? matching[0] : null
+  const deepestRoot = Math.max(
+    ...matching.map((row) =>
+      row.project_root === null ? 0 : normalizeProjectPath(row.project_root).length
+    )
+  )
+  const nearest = matching.filter(
+    (row) =>
+      (row.project_root === null ? 0 : normalizeProjectPath(row.project_root).length) ===
+      deepestRoot
+  )
+  return nearest.length === 1 ? nearest[0] : null
 }
 
 export function getSkillInvocationSlice(
@@ -1110,7 +1141,6 @@ function buildSkillTrend(
 function reduceSkillStatsWindow(
   rows: SkillStatsInvocationRow[],
   costsBySession: Map<string, SkillStatsCostRow>,
-  skillIndex: Map<string, { id: number; source_type: SourceType }>,
   skillTargets: Map<string, SkillTargetRow[]>,
   now: Date,
   window: '24h' | '7d' | '30d',
@@ -1186,11 +1216,11 @@ function reduceSkillStatsWindow(
         associatedCostUsd += cost.total_cost_usd
         associatedOutputTokens += cost.output_tokens
       }
-      const skill = skillIndex.get(skillName)
+      const skill = bySkill.find((entry) => entry.skillName === skillName)
       return {
         skillName,
-        skillId: skill?.id ?? null,
-        sourceType: skill?.source_type ?? null,
+        skillId: skill?.skillId ?? null,
+        sourceType: skill?.sourceType ?? null,
         sessionCount: sessions.size,
         trackedSessionCount: pricedTerminals.size,
         associatedCostUsd,
@@ -1275,13 +1305,10 @@ function getSkillCostAttribution(
   const rows = rounded
     .map(({ row, cents }) => {
       const named = row.skill_name === null ? [] : (skillTargets.get(row.skill_name) ?? [])
-      const effective = preferredSkillTargets(named)
-      const candidate = effective.length === 1 ? effective[0] : null
-      const skill =
-        candidate !== null &&
-        costTargetMatchesLineage(candidate, row.sessionIds, lineageCwdsByTerminal)
-          ? candidate
-          : null
+      const matching = preferredSkillTargets(named).filter((candidate) =>
+        costTargetMatchesLineage(candidate, row.sessionIds, lineageCwdsByTerminal, skillTargets)
+      )
+      const skill = matching.length === 1 ? matching[0] : null
       return {
         skillName: row.skill_name,
         skillId: skill?.id ?? null,
@@ -1368,33 +1395,10 @@ export function getSkillStats(db: Database.Database, now: Date = new Date()): Sk
     .get() as { session_total: number; timed_total: number }
   const hasUndatedCost = costCoverage.session_total - costCoverage.timed_total > 0.000001
 
-  // One winning skills row per name, by the same precedence SKILLS_WITH_USAGE_SELECT resolves
-  // (global > project > synced) — but answering the opposite question: "which row wins for this
-  // bare name" rather than "which row shadows this one". Kept as a separate encoding on purpose;
-  // unifying them would couple two queries with different shapes.
-  const skillIndex = new Map(
-    (
-      db
-        .prepare(
-          `SELECT s1.name, s1.id, s1.source_type FROM skills s1
-           WHERE s1.id = (
-             SELECT s2.id FROM skills s2
-             WHERE s2.name = s1.name
-             ORDER BY s2.is_synced,
-                      CASE s2.source_type WHEN 'global' THEN 0 WHEN 'project' THEN 1 ELSE 2 END,
-                      s2.id
-             LIMIT 1
-           )`
-        )
-        .all() as { name: string; id: number; source_type: SourceType }[]
-    ).map((row) => [row.name, { id: row.id, source_type: row.source_type }])
-  )
-
   return {
     last24h: reduceSkillStatsWindow(
       rows,
       costsBySession,
-      skillIndex,
       skillTargets,
       now,
       '24h',
@@ -1411,7 +1415,6 @@ export function getSkillStats(db: Database.Database, now: Date = new Date()): Sk
     last7d: reduceSkillStatsWindow(
       rows,
       costsBySession,
-      skillIndex,
       skillTargets,
       now,
       '7d',
@@ -1428,7 +1431,6 @@ export function getSkillStats(db: Database.Database, now: Date = new Date()): Sk
     last30d: reduceSkillStatsWindow(
       rows,
       costsBySession,
-      skillIndex,
       skillTargets,
       now,
       '30d',

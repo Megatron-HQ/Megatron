@@ -19,6 +19,7 @@ import { TREE_WIDTH_DEFAULT } from '@/lib/file-tree'
 import { createPluginRows, type PluginContext, type PluginFilter } from '@/lib/plugin-filter'
 import { isWithinProjectPath, normalizeProjectPath } from '../../shared/project-path'
 import { matchesFilter, type SourceFilter } from '@/lib/source-filter'
+import { projectDisplayLabels } from '@/lib/project-tree'
 import { SkillDetail } from './views/SkillDetail'
 import { SkillInventory } from './views/SkillInventory'
 import { SkillFileViewer } from './views/SkillFileViewer'
@@ -191,6 +192,24 @@ function App(): React.JSX.Element {
     return status
   }
   const plugins = useMemo(() => pluginsData ?? [], [pluginsData])
+  const projectLabels = useMemo(
+    () =>
+      projectDisplayLabels(
+        [
+          ...projectCatalog
+            .filter((project) => project.kind === 'repository')
+            .map((project) => project.path),
+          ...skills.flatMap((skill) => (skill.project_root ? [skill.project_root] : [])),
+          ...plugins.flatMap((plugin) =>
+            plugin.installs.flatMap((install) =>
+              install.project_path ? [install.project_path] : []
+            )
+          )
+        ],
+        folders
+      ),
+    [projectCatalog, skills, plugins, folders]
+  )
   const scanComplete = data?.scanComplete ?? false
   const contextBudget = data?.contextBudget ?? DEFAULT_CONTEXT_BUDGET
   const { banner: scanBanner, summary: scanBannerSummary } = useScanBanner({
@@ -208,8 +227,8 @@ function App(): React.JSX.Element {
   )
 
   const filteredPlugins = useMemo(
-    () => createPluginRows(plugins, pluginFilter, projectCatalog, skills),
-    [plugins, pluginFilter, projectCatalog, skills]
+    () => createPluginRows(plugins, pluginFilter, projectCatalog, skills, folders),
+    [plugins, pluginFilter, projectCatalog, skills, folders]
   )
 
   function handleFilterChange(next: SourceFilter): void {
@@ -387,6 +406,7 @@ function App(): React.JSX.Element {
               />
               {view.kind === 'detail' ? (
                 <SkillDetail
+                  projectLabels={projectLabels}
                   key={view.skillId}
                   skillId={view.skillId}
                   onBack={leaveSkillDetail}
@@ -417,6 +437,7 @@ function App(): React.JSX.Element {
                 </div>
               ) : (
                 <SkillInventory
+                  projectLabels={projectLabels}
                   availability={
                     filter.kind === 'project'
                       ? projectAvailability(filter.projectRoot, !filter.exact)
@@ -475,6 +496,7 @@ function App(): React.JSX.Element {
                 </div>
               ) : (
                 <PluginInventory
+                  projectLabels={projectLabels}
                   availability={
                     pluginFilter.kind === 'projects'
                       ? projectAvailability(pluginFilter.projectPath, !pluginFilter.exact)

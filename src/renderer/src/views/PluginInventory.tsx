@@ -41,6 +41,7 @@ import { cn } from '@/lib/utils'
 import { ProjectAvailabilityNotice } from '@/components/ProjectAvailabilityNotice'
 import type { ProjectFolder } from '../../../shared/ipc'
 import type { PluginScope } from '../../../shared/ipc'
+import { normalizeProjectPath } from '../../../shared/project-path'
 
 const ROW_HEIGHT = 40
 const HEADER_HEIGHT = 40
@@ -250,7 +251,8 @@ const repositoryColumn = columnHelper.accessor('repositoryLabel', {
   cell: (info) => (
     <span
       title={info.row.original.repositoryPath ?? info.getValue()}
-      className="block truncate text-xs text-muted-foreground"
+      dir="rtl"
+      className="block truncate text-left text-xs text-muted-foreground"
     >
       {info.getValue()}
     </span>
@@ -363,6 +365,7 @@ function emptyDetail(filter: PluginFilter): string {
 }
 
 interface PluginInventoryProps {
+  projectLabels: Map<string, string>
   availability?: ProjectFolder['status']
   plugins: PluginRow[]
   loading: boolean
@@ -372,6 +375,7 @@ interface PluginInventoryProps {
 }
 
 export function PluginInventory({
+  projectLabels,
   plugins,
   loading,
   filter,
@@ -589,7 +593,9 @@ export function PluginInventory({
       <ProjectAvailabilityNotice status={availability} />
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-4">
         <h2 className="truncate text-[13px] font-semibold">
-          {getPluginFilterHeaderTitle(filter)}
+          {filter.kind === 'projects' && filter.projectPath
+            ? `Projects / ${projectLabels.get(normalizeProjectPath(filter.projectPath)) ?? getFolderBasename(filter.projectPath)} Plugins`
+            : getPluginFilterHeaderTitle(filter)}
           {!loading && <span className="font-normal text-muted-foreground"> · {rows.length}</span>}
         </h2>
         <button

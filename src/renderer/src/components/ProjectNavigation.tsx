@@ -21,6 +21,7 @@ interface ProjectNavigationProps {
 }
 
 const GROUP_KEY = '$projects'
+const MAX_INDENTED_REPOSITORY_DEPTH = 4
 const IDLE = 'text-muted-foreground hover:text-accent-foreground'
 const SELECTED = 'bg-accent-lime text-accent-lime-foreground'
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
@@ -193,10 +194,13 @@ function ProjectNode({
           <div
             className={cn(
               'my-0.5 flex min-w-0 flex-col gap-0.5',
-              depth < 2 && 'ml-3 border-l border-border/70 pl-2'
+              depth < 2 && 'ml-3 border-l border-border/70 pl-2',
+              depth >= 2 &&
+                depth < MAX_INDENTED_REPOSITORY_DEPTH &&
+                'ml-1 border-l border-border/70 pl-1'
             )}
           >
-            {node.directCount > 0 && (
+            {(node.kind === 'repository' || node.directCount > 0) && (
               <button
                 type="button"
                 title={`${node.path} — direct items only`}
@@ -208,7 +212,9 @@ function ProjectNode({
                   selected && samePath && selection.exact ? SELECTED : IDLE
                 )}
               >
-                <span className="truncate">This folder</span>
+                <span className="truncate">
+                  {node.kind === 'repository' ? 'This repo' : 'This folder'}
+                </span>
                 <Count
                   count={node.directCount}
                   selected={selected && samePath && !!selection.exact}

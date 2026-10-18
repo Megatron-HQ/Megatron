@@ -1,4 +1,3 @@
-import { projectDisplayLabels } from '@/lib/project-tree'
 import { normalizeProjectPath } from '../../../shared/project-path'
 import { ProjectAvailabilityNotice } from '@/components/ProjectAvailabilityNotice'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -157,24 +156,30 @@ const statusColumn = columnHelper.accessor('lint_status', {
   }
 })
 
-const sourceColumn = columnHelper.accessor(
-  (row) => getSourceSortKey(row.source_type, row.source_path, row.plugin_name, false),
-  {
-    id: 'source',
-    header: 'Source',
-    sortFn: 'text',
-    cell: (info) => {
-      const row = info.row.original
-      return (
-        <SourceBadge
-          type={row.source_type}
-          sourcePath={row.source_path}
-          pluginName={row.plugin_name}
-        />
-      )
+const sourceColumn = (labels: Map<string, string>): ColumnDef<typeof features, SkillRow, string> =>
+  columnHelper.accessor(
+    (row) => getSourceSortKey(row.source_type, row.source_path, row.plugin_name, false),
+    {
+      id: 'source',
+      header: 'Source',
+      sortFn: 'text',
+      cell: (info) => {
+        const row = info.row.original
+        return (
+          <SourceBadge
+            label={
+              row.source_type === 'project' && row.project_root
+                ? labels.get(normalizeProjectPath(row.project_root))
+                : undefined
+            }
+            type={row.source_type}
+            sourcePath={row.source_path}
+            pluginName={row.plugin_name}
+          />
+        )
+      }
     }
-  }
-)
+  )
 
 const descriptionColumn = columnHelper.accessor('description', {
   header: 'Description',
@@ -208,14 +213,15 @@ const usesColumn = columnHelper.accessor('total_invocations', {
   }
 })
 
-const allColumns = columnHelper.columns([
-  nameColumn,
-  statusColumn,
-  sourceColumn,
-  descriptionColumn,
-  tokensColumn,
-  usesColumn
-])
+const allColumns = (labels: Map<string, string>): ColumnDef<typeof features, SkillRow, unknown>[] =>
+  columnHelper.columns([
+    nameColumn,
+    statusColumn,
+    sourceColumn(labels),
+    descriptionColumn,
+    tokensColumn,
+    usesColumn
+  ])
 
 const repositoryColumn = (
   labels: Map<string, string>
@@ -225,7 +231,11 @@ const repositoryColumn = (
     header: 'Repository',
     sortFn: 'text',
     cell: (info) => (
-      <span className="block truncate text-xs text-muted-foreground" title={info.getValue()}>
+      <span
+        dir="rtl"
+        className="block truncate text-left text-xs text-muted-foreground"
+        title={info.getValue()}
+      >
         {labels.get(normalizeProjectPath(info.getValue())) ?? getFolderBasename(info.getValue())}
       </span>
     )
@@ -245,10 +255,12 @@ function buildColumns(
       tokensColumn,
       usesColumn
     ])
-  return showSource ? allColumns : allColumns.filter((column) => column.id !== 'source')
+  const columns = allColumns(labels)
+  return showSource ? columns : columns.filter((column) => column.id !== 'source')
 }
 
 interface SkillInventoryProps {
+  projectLabels: Map<string, string>
   availability?: import('../../../shared/ipc').ProjectFolder['status']
   skills: SkillRow[]
   loading: boolean
@@ -260,6 +272,7 @@ interface SkillInventoryProps {
 }
 
 export function SkillInventory({
+  projectLabels,
   skills,
   loading,
   filter,
@@ -277,16 +290,9 @@ export function SkillInventory({
 
   const showRepository = filter.kind === 'project' && !filter.exact
   const showSource = shouldShowSourceColumn(filter) && !showRepository
-  const labels = useMemo(
-    () =>
-      projectDisplayLabels(
-        skills.flatMap((skill) => (skill.project_root ? [skill.project_root] : []))
-      ),
-    [skills]
-  )
   const columns = useMemo(
-    () => buildColumns(showSource, showRepository, labels),
-    [showSource, showRepository, labels]
+    () => buildColumns(showSource, showRepository, projectLabels),
+    [showSource, showRepository, projectLabels]
   )
 
   const table = useTable({
@@ -464,7 +470,11 @@ export function SkillInventory({
     <div className="flex flex-1 flex-col overflow-hidden">
       <ProjectAvailabilityNotice status={availability} />
       <TableHeader
-        title={getFilterHeaderTitle(filter)}
+        title={
+          filter.kind === 'project' && filter.projectRoot
+            ? `Project / ${projectLabels.get(normalizeProjectPath(filter.projectRoot)) ?? getFolderBasename(filter.projectRoot)} Skills`
+            : getFilterHeaderTitle(filter)
+        }
         count={loading ? null : rows.length}
         filter={filter}
         onOpenSearch={onOpenSearch}

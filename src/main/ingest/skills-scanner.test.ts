@@ -712,6 +712,32 @@ describe('findNestedSkillsDirs', () => {
 })
 
 describe('defaultSkillRoots', () => {
+  it('reassigns cached nested skills to each Git repository and uses its own settings', () => {
+    const parent = join(tmpDir, 'parent')
+    const child = join(parent, 'child')
+    const grandchild = join(child, 'grandchild')
+    writeUserSettings({})
+    const paths = [parent, child, grandchild].map((repo) =>
+      writeSkillDir(join(repo, '.claude', 'skills'), 'deploy', '---\nname: deploy\n---\nBody')
+    )
+    mkdirSync(join(parent, '.git'))
+    // Seed the earlier ownership before the child repositories become identifiable.
+    scanSkills(db, undefined, userSettingsPath)
+    mkdirSync(join(child, '.git'))
+    writeFileSync(join(grandchild, '.git'), 'gitdir: outside')
+    writeFileSync(join(child, '.claude', 'settings.json'), '{"skillOverrides":{"deploy":"off"}}')
+    grantPath(child)
+    scanSkills(db, undefined, userSettingsPath)
+    expect(allSkills().filter((row) => row.source_type === 'project')).toHaveLength(3)
+    for (const [index, repo] of [parent, child, grandchild].entries()) {
+      expect(allSkills().find((row) => row.source_path === paths[index])).toMatchObject({
+        name: 'deploy',
+        project_root: repo,
+        disabled_reason: repo === child ? 'override' : null
+      })
+    }
+  })
+
   it('keeps sibling repositories separate when their parent folder is granted', () => {
     const firstRepo = join(tmpDir, 'Megatron')
     const secondRepo = join(tmpDir, 'Megatron-site')

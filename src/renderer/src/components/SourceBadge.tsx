@@ -35,7 +35,9 @@ export function SourceBadge({
           className={cn('inline-flex max-w-full items-center gap-1 font-normal', className)}
         >
           <Icon className="size-3 shrink-0" />
-          <span className="truncate">{displayName}</span>
+          <span dir={type === 'project' ? 'rtl' : undefined} className="truncate text-left">
+            {displayName}
+          </span>
           {type === 'plugin' && <Lock className="size-3 shrink-0" />}
         </Badge>
       </TooltipTrigger>

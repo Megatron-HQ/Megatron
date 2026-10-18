@@ -13,13 +13,56 @@ const catalog: ProjectFolder[] = [
   { path: 'C:\\HQ\\empty', kind: 'repository', status: 'available' }
 ]
 describe('project tree', () => {
+  it('keeps discovered folder casing when the registry spells the same path differently', () => {
+    expect([...projectDisplayLabels(['C:\\HQ\\Megatron', 'c:/hq/megatron']).values()]).toEqual([
+      'HQ/Megatron'
+    ])
+  })
   it('uses relative paths for duplicate table labels and preserves unique display casing', () => {
     const labels = projectDisplayLabels([
       'C:\\HQ\\apps\\Megatron',
       'c:/HQ/clients/Megatron',
       'C:\\HQ\\Site'
     ])
-    expect([...labels.values()]).toEqual(['apps/Megatron', 'clients/Megatron', 'Site'])
+    expect([...labels.values()]).toEqual(['apps/Megatron', 'clients/Megatron', 'HQ/Site'])
+  })
+  it('uses the granted hierarchy consistently even when only one repository is shown', () => {
+    const paths = [
+      'C:\\work\\MegatronHQ\\megatron',
+      'C:\\work\\MegatronHQ\\megatron\\children\\site'
+    ]
+    const folders = [{ path: 'C:\\work\\MegatronHQ', granted_at: '' }]
+    expect([...projectDisplayLabels(paths, folders).values()]).toEqual([
+      'MegatronHQ/megatron',
+      'MegatronHQ/megatron/children/site'
+    ])
+    expect([...projectDisplayLabels([paths[1]], folders).values()]).toEqual([
+      'MegatronHQ/megatron/children/site'
+    ])
+  })
+
+  it('nests repositories beneath their nearest ancestor and aggregates descendants once', () => {
+    const paths = [
+      '/HQ/repo',
+      '/HQ/repo/references/child',
+      '/HQ/repo/references/child/grandchild',
+      '/HQ/repo/other'
+    ]
+    const tree = buildProjectTree(
+      [{ path: '/HQ', granted_at: '' }],
+      paths.map((path) => ({
+        path,
+        kind: 'repository',
+        status: 'available'
+      })),
+      paths.map((path) => ({ path, count: 1 }))
+    )
+    const repo = tree[0].children[0]
+    expect(repo.path).toBe(paths[0])
+    expect([repo.directCount, repo.count]).toEqual([1, 4])
+    expect(repo.children.map((child) => child.label)).toEqual(['other', 'references/child'])
+    expect(repo.children[1].children[0].path).toBe(paths[2])
+    expect(repo.children[1].count).toBe(2)
   })
   it('marks an aggregate unavailable when a child uses cached data', () => {
     const tree = buildProjectTree(
