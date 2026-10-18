@@ -1,5 +1,14 @@
 # Usage view — resolved UI spec (Phase 2a)
 
+## Project names amendment (2026-10-18)
+
+Activity, Cost, and Cost details use the project name alone in their By project lists. Add only
+enough parent folders to distinguish duplicate names. Build one label mapping from all loaded
+Activity and Cost windows so the same project keeps its label across panels, windows, and details.
+Preserve nearest-repository naming for working directories beneath a known repository, including
+nested repositories. Full-path tooltips, row grouping, totals, order, hover effects, and motion
+remain unchanged. Other screens retain their existing project hierarchy labels.
+
 ## History paging amendment (2026-10-10)
 
 Activity and usage invocation dialogs load 200 rows per IPC page. Load more appends older rows;

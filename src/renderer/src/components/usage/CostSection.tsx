@@ -1,6 +1,6 @@
 import { Fragment, useRef, useState } from 'react'
 import { CircleDollarSign, TriangleAlert } from 'lucide-react'
-import { useProjectLabel } from '@/lib/use-project-label'
+import type { ProjectLabelResolver } from '@/lib/project-tree'
 import { olderVersionSummary, type ModelIdentity } from '@/lib/model-identity'
 import type { CostHour, CostModelSpend, CostStats, CostWindowKey } from '../../../../shared/ipc'
 import { ChartBlock } from './ChartBlock'
@@ -17,13 +17,14 @@ const formatDollars = (value: number): string => formatUsd(value, { cents: true 
 export function CostSection({
   cost,
   windowKey,
-  identifyModel
+  identifyModel,
+  resolveProjectLabel
 }: {
   cost: CostStats | null
   windowKey: CostWindowKey
   identifyModel: (key: string) => ModelIdentity
+  resolveProjectLabel: ProjectLabelResolver
 }): React.JSX.Element {
-  const resolveProjectLabel = useProjectLabel()
   const [selectedBucket, setSelectedBucket] = useState<
     { kind: 'day'; key: string } | { kind: 'hour'; hour: CostHour } | null
   >(null)
@@ -153,6 +154,7 @@ export function CostSection({
         onOpenChange={setDialogOpen}
         onRestoreFocus={() => triggerRef.current?.focus()}
         identifyModel={identifyModel}
+        resolveProjectLabel={resolveProjectLabel}
       />
     </section>
   )

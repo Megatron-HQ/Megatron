@@ -7,6 +7,8 @@ import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/relative-time'
 import { buildModelIdentity } from '@/lib/model-identity'
 import { useProjectLabel } from '@/lib/use-project-label'
+import type { ProjectLabelResolver } from '@/lib/project-tree'
+import { createUsageProjectLabelResolver } from '@/lib/usage-project-label'
 import { ChartBlock } from '@/components/usage/ChartBlock'
 import { StatCells } from '@/components/usage/StatCells'
 import { DayStrip } from '@/components/usage/DayStrip'
@@ -85,6 +87,21 @@ export function UsageView({
     [data?.cost, data?.models]
   )
 
+  const resolveHierarchyLabel = useProjectLabel()
+  const resolveProjectLabel = useMemo(
+    () =>
+      createUsageProjectLabelResolver(
+        [
+          ...(data?.activity
+            ? [data.activity.last24h, data.activity.last7d, data.activity.last30d]
+            : []),
+          ...(data?.cost ? [data.cost.last24h, data.cost.last7d, data.cost.last30d] : [])
+        ].flatMap((window) => window.byProject.map((entry) => entry.project)),
+        resolveHierarchyLabel
+      ),
+    [data, resolveHierarchyLabel]
+  )
+
   const loading = isPending || !data?.scanComplete
   const { label, Icon } = PANEL_META[panel]
 
@@ -152,13 +169,18 @@ export function UsageView({
               ) : loading ? (
                 <UsageSkeleton panel={panel} />
               ) : panel === 'activity' ? (
-                <ActivityPanel activity={data?.activity ?? null} windowKey={activityWindow} />
+                <ActivityPanel
+                  activity={data?.activity ?? null}
+                  windowKey={activityWindow}
+                  resolveProjectLabel={resolveProjectLabel}
+                />
               ) : panel === 'cost' ? (
                 <CostSection
                   key={costWindow}
                   cost={data?.cost ?? null}
                   windowKey={costWindow}
                   identifyModel={identifyModel}
+                  resolveProjectLabel={resolveProjectLabel}
                 />
               ) : panel === 'models' ? (
                 data?.models && data.models.last30d.turnCount > 0 ? (
@@ -240,10 +262,12 @@ function selectActivityWindow(activity: ActivityStats, key: ActivityWindowKey): 
 
 function ActivityPanel({
   activity,
-  windowKey
+  windowKey,
+  resolveProjectLabel
 }: {
   activity: ActivityStats | null
   windowKey: ActivityWindowKey
+  resolveProjectLabel: ProjectLabelResolver
 }): React.JSX.Element {
   if (
     activity === null ||
@@ -258,6 +282,7 @@ function ActivityPanel({
       win={window}
       windowKey={windowKey}
       hourlyTrend={activity.last24h.hourlyTrend}
+      resolveProjectLabel={resolveProjectLabel}
     />
   )
 }
@@ -265,13 +290,14 @@ function ActivityPanel({
 function ActivitySection({
   win,
   windowKey,
-  hourlyTrend
+  hourlyTrend,
+  resolveProjectLabel
 }: {
   win: ActivityWindow
   windowKey: ActivityWindowKey
   hourlyTrend: { key: string; count: number }[]
+  resolveProjectLabel: ProjectLabelResolver
 }): React.JSX.Element {
-  const resolveProjectLabel = useProjectLabel()
   const windowEmpty = win.prompts === 0 && win.slashCommands === 0
   const windowLabel = windowKey === '24h' ? '24 hours' : `${win.days} days`
   const emptyMessage = `No prompts in the last ${windowLabel}`

@@ -5,7 +5,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
-import { useProjectLabel } from '@/lib/use-project-label'
+import type { ProjectLabelResolver } from '@/lib/project-tree'
 import type { ModelIdentity } from '@/lib/model-identity'
 import type { CostDay, CostHour } from '../../../../shared/ipc'
 import { ChartBlock } from './ChartBlock'
@@ -21,15 +21,16 @@ export function CostDetailsDialog({
   open,
   onOpenChange,
   onRestoreFocus,
-  identifyModel
+  identifyModel,
+  resolveProjectLabel
 }: {
   bucket: CostDay | CostHour | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onRestoreFocus: () => void
   identifyModel: (key: string) => ModelIdentity
+  resolveProjectLabel: ProjectLabelResolver
 }): React.JSX.Element | null {
-  const resolveProjectLabel = useProjectLabel()
   if (!bucket) return null
   const isDay = 'date' in bucket
   const start = new Date(bucket.startAt)
