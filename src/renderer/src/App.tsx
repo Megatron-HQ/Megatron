@@ -19,7 +19,8 @@ import { TREE_WIDTH_DEFAULT } from '@/lib/file-tree'
 import { createPluginRows, type PluginContext, type PluginFilter } from '@/lib/plugin-filter'
 import { isWithinProjectPath, normalizeProjectPath } from '../../shared/project-path'
 import { matchesFilter, type SourceFilter } from '@/lib/source-filter'
-import { projectDisplayLabels } from '@/lib/project-tree'
+import { createProjectLabelResolver, projectDisplayLabels } from '@/lib/project-tree'
+import { ProjectLabelContext } from '@/lib/use-project-label'
 import { SkillDetail } from './views/SkillDetail'
 import { SkillInventory } from './views/SkillInventory'
 import { SkillFileViewer } from './views/SkillFileViewer'
@@ -211,6 +212,10 @@ function App(): React.JSX.Element {
     [projectCatalog, skills, plugins, folders]
   )
   const scanComplete = data?.scanComplete ?? false
+  const resolveProjectLabel = useMemo(
+    () => createProjectLabelResolver(projectLabels, folders),
+    [projectLabels, folders]
+  )
   const contextBudget = data?.contextBudget ?? DEFAULT_CONTEXT_BUDGET
   const { banner: scanBanner, summary: scanBannerSummary } = useScanBanner({
     skillsLoaded: !skillsPending,
@@ -227,8 +232,8 @@ function App(): React.JSX.Element {
   )
 
   const filteredPlugins = useMemo(
-    () => createPluginRows(plugins, pluginFilter, projectCatalog, skills, folders),
-    [plugins, pluginFilter, projectCatalog, skills, folders]
+    () => createPluginRows(plugins, pluginFilter, projectCatalog, skills, folders, projectLabels),
+    [plugins, pluginFilter, projectCatalog, skills, folders, projectLabels]
   )
 
   function handleFilterChange(next: SourceFilter): void {
@@ -370,7 +375,7 @@ function App(): React.JSX.Element {
     }, SUCCESS_TOAST_DURATION_MS)
   }
 
-  return (
+  const content = (
     <TooltipProvider>
       <div className="flex h-screen flex-col">
         {window.api?.platform === 'darwin' && (
@@ -406,7 +411,6 @@ function App(): React.JSX.Element {
               />
               {view.kind === 'detail' ? (
                 <SkillDetail
-                  projectLabels={projectLabels}
                   key={view.skillId}
                   skillId={view.skillId}
                   onBack={leaveSkillDetail}
@@ -437,7 +441,6 @@ function App(): React.JSX.Element {
                 </div>
               ) : (
                 <SkillInventory
-                  projectLabels={projectLabels}
                   availability={
                     filter.kind === 'project'
                       ? projectAvailability(filter.projectRoot, !filter.exact)
@@ -496,7 +499,6 @@ function App(): React.JSX.Element {
                 </div>
               ) : (
                 <PluginInventory
-                  projectLabels={projectLabels}
                   availability={
                     pluginFilter.kind === 'projects'
                       ? projectAvailability(pluginFilter.projectPath, !pluginFilter.exact)
@@ -575,6 +577,11 @@ function App(): React.JSX.Element {
         }
       />
     </TooltipProvider>
+  )
+  return (
+    <ProjectLabelContext.Provider value={resolveProjectLabel}>
+      {content}
+    </ProjectLabelContext.Provider>
   )
 }
 

@@ -23,6 +23,28 @@ interface ProjectLabelEntry {
   start: number
 }
 
+export type ProjectLabelResolver = (path: string) => string
+
+export function createProjectLabelResolver(
+  labels: ReadonlyMap<string, string>,
+  grants: AllowedPathRow[] = []
+): ProjectLabelResolver {
+  const roots = [...labels.keys()].sort((first, second) => second.length - first.length)
+  return (path) => {
+    if (!path) return 'Unknown project'
+    const key = normalizeProjectPath(path)
+    const exactLabel = labels.get(key)
+    if (exactLabel !== undefined) return exactLabel
+    const grantedFolder = grants.find((grant) => normalizeProjectPath(grant.path) === key)
+    if (grantedFolder !== undefined) return getFolderBasename(grantedFolder.path)
+
+    // Invocation working directories can be below the repository root.
+    const root = roots.find((candidate) => isWithinProjectPath(path, candidate))
+    if (root !== undefined) return labels.get(root)!
+    return projectDisplayLabels([path], grants).get(key) ?? getFolderBasename(path)
+  }
+}
+
 export function projectDisplayLabels(
   paths: Iterable<string>,
   grants: AllowedPathRow[] = []

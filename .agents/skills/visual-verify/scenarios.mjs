@@ -335,7 +335,7 @@ export const scenarios = [
       await enableProjectHierarchy(window, app)
       await openPluginsSection(window)
       await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
-      await window.getByRole('button', { name: /^Megatron\s*3$/ }).click()
+      await window.getByRole('button', { name: /^Megatron HQ\/Megatron\s*3$/ }).click()
       await window.getByText('Projects / Megatron HQ/Megatron Plugins').waitFor()
     }
   },
@@ -346,7 +346,7 @@ export const scenarios = [
       await enableProjectHierarchy(window, app)
       await openPluginsSection(window)
       await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
-      await window.getByRole('button', { name: /^Megatron\s*3$/ }).click()
+      await window.getByRole('button', { name: /^Megatron HQ\/Megatron\s*3$/ }).click()
       await window.locator('tbody tr').first().click()
       await window.getByRole('button', { name: 'Back to plugins' }).waitFor()
     }
@@ -357,7 +357,7 @@ export const scenarios = [
     async run(window, app) {
       await enableProjectHierarchy(window, app, 'project-tree-own')
       await openPluginsSection(window)
-      await window.getByRole('button', { name: /^Megatron HQ\s*7$/ }).click()
+      await window.getByRole('button', { name: /^Projects\/Megatron HQ\s*7$/ }).click()
       await window.getByRole('button', { name: /^This repo\s*1$/ }).click()
     }
   },
@@ -368,7 +368,9 @@ export const scenarios = [
       await enableProjectHierarchy(window, app, 'project-tree-unavailable')
       await openPluginsSection(window)
       await window.getByRole('button', { name: /Megatron HQ.*6/ }).click()
-      await window.getByRole('button', { name: /^Megatron(?:\s|Unavailable)*3$/ }).click()
+      await window
+        .getByRole('button', { name: /^Megatron HQ\/Megatron(?:\s|Unavailable)*3$/ })
+        .click()
       await window.getByText(/This project folder is missing/).waitFor()
     }
   },
@@ -379,7 +381,9 @@ export const scenarios = [
       await enableProjectHierarchy(window, app, 'project-tree-unavailable')
       await openPluginsSection(window)
       await window.getByRole('button', { name: /Megatron HQ.*6/ }).click()
-      await window.getByRole('button', { name: /^Megatron(?:\s|Unavailable)*3$/ }).click()
+      await window
+        .getByRole('button', { name: /^Megatron HQ\/Megatron(?:\s|Unavailable)*3$/ })
+        .click()
       await window.locator('tbody tr').first().click()
       await window
         .getByText(/that folder is missing/)
@@ -402,9 +406,15 @@ export const scenarios = [
     async run(window, app) {
       await enableProjectHierarchy(window, app, 'project-tree-nested')
       await window.getByRole('button', { name: /^Megatron HQ\s*9$/ }).click()
-      await window.getByRole('button', { name: /^Megatron\s*6$/ }).click()
-      await window.getByRole('button', { name: /^references\/child-a\s*2$/ }).click()
-      await window.getByRole('button', { name: /^grandchild\s*1$/ }).waitFor()
+      await window.getByRole('button', { name: /^Megatron HQ\/Megatron\s*6$/ }).click()
+      await window
+        .getByRole('button', { name: /^Megatron HQ\/Megatron\/references\/child-a\s*2$/ })
+        .click()
+      await window
+        .getByRole('button', {
+          name: /^Megatron HQ\/Megatron\/references\/child-a\/grandchild\s*1$/
+        })
+        .waitFor()
     }
   },
   {
@@ -413,8 +423,10 @@ export const scenarios = [
     async run(window, app) {
       await enableProjectHierarchy(window, app, 'project-tree-nested')
       await window.getByRole('button', { name: /^Megatron HQ\s*9$/ }).click()
-      await window.getByRole('button', { name: /^Megatron\s*6$/ }).click()
-      await window.getByRole('button', { name: /^references\/child-a\s*2$/ }).click()
+      await window.getByRole('button', { name: /^Megatron HQ\/Megatron\s*6$/ }).click()
+      await window
+        .getByRole('button', { name: /^Megatron HQ\/Megatron\/references\/child-a\s*2$/ })
+        .click()
       await window.getByRole('button', { name: /^This repo\s*1$/ }).click()
     }
   },
@@ -425,9 +437,15 @@ export const scenarios = [
       await enableProjectHierarchy(window, app, 'project-tree-nested')
       await openPluginsSection(window)
       await window.getByRole('button', { name: /^Megatron HQ\s*9$/ }).click()
-      await window.getByRole('button', { name: /^Megatron\s*6$/ }).click()
-      await window.getByRole('button', { name: /^references\/child-a\s*2$/ }).click()
-      await window.getByRole('button', { name: /^grandchild\s*1$/ }).waitFor()
+      await window.getByRole('button', { name: /^Megatron HQ\/Megatron\s*6$/ }).click()
+      await window
+        .getByRole('button', { name: /^Megatron HQ\/Megatron\/references\/child-a\s*2$/ })
+        .click()
+      await window
+        .getByRole('button', {
+          name: /^Megatron HQ\/Megatron\/references\/child-a\/grandchild\s*1$/
+        })
+        .waitFor()
     }
   },
   {
@@ -444,7 +462,7 @@ export const scenarios = [
     async run(window, app) {
       await enableProjectHierarchy(window, app)
       await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
-      await window.getByRole('button', { name: /^Megatron\s*3$/ }).click()
+      await window.getByRole('button', { name: /^Megatron HQ\/Megatron\s*3$/ }).click()
     }
   },
   {
@@ -453,7 +471,7 @@ export const scenarios = [
     async run(window, app) {
       await enableProjectHierarchy(window, app)
       await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
-      await window.getByRole('button', { name: /^Empty-repo\s*0$/ }).click()
+      await window.getByRole('button', { name: /^Megatron HQ\/Empty-repo\s*0$/ }).click()
     }
   },
   {

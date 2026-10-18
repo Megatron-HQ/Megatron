@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ChevronDown, ChevronRight, Image as ImageIcon } from 'lucide-react'
 import { parseInvocationPrompt } from '@/lib/invocation-prompt'
 import { formatRelativeTime } from '@/lib/relative-time'
-import { getFolderBasename } from '@/lib/source-name'
+import { useProjectLabel } from '@/lib/use-project-label'
 import { TRIGGER_META } from '@/lib/trigger-meta'
 import { cn } from '@/lib/utils'
 import type { SkillInvocationEntry } from '../../../shared/ipc'
@@ -12,6 +12,7 @@ import type { SkillInvocationEntry } from '../../../shared/ipc'
 // parseInvocationPrompt so an image-caption placeholder shows as a labelled row rather than
 // its raw "[Image: original …]" string.
 export function InvocationRow({ entry }: { entry: SkillInvocationEntry }): React.JSX.Element {
+  const resolveProjectLabel = useProjectLabel()
   const [expanded, setExpanded] = useState(false)
   const { label: triggerLabel, Icon } = TRIGGER_META[entry.trigger_type]
   const prompt = parseInvocationPrompt(entry.preceding_user_text)
@@ -61,8 +62,8 @@ export function InvocationRow({ entry }: { entry: SkillInvocationEntry }): React
       {expanded && (
         <dl className="mt-2 grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-3 gap-y-1 pl-[3.25rem] text-[11px]">
           <dt className="text-muted-foreground">Project</dt>
-          <dd className="min-w-0 break-words text-foreground">
-            {getFolderBasename(entry.cwd) || entry.cwd}
+          <dd title={entry.cwd} className="min-w-0 break-words text-foreground">
+            {resolveProjectLabel(entry.cwd)}
             {entry.git_branch !== null && (
               <span className="text-muted-foreground"> · {entry.git_branch}</span>
             )}

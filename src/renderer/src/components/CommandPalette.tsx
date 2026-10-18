@@ -1,6 +1,8 @@
 import { Blocks } from 'lucide-react'
 import { SOURCE_ICON, SYNCED_ICON } from '@/lib/source-icon'
 import { getSkillDisplayName, getSourceDisplayName } from '@/lib/source-name'
+import { projectRootForSkill } from '@/lib/source-filter'
+import { useProjectLabel } from '@/lib/use-project-label'
 import {
   CommandDialog,
   CommandEmpty,
@@ -28,6 +30,7 @@ export function CommandPalette({
   plugins,
   onSelectPlugin
 }: CommandPaletteProps): React.JSX.Element {
+  const resolveProjectLabel = useProjectLabel()
   return (
     <CommandDialog
       open={open}
@@ -64,12 +67,15 @@ export function CommandPalette({
           {skills.map((skill) => {
             const isSynced = skill.is_synced === 1
             const Icon = isSynced ? SYNCED_ICON : SOURCE_ICON[skill.source_type]
-            const sourceName = getSourceDisplayName(
-              skill.source_type,
-              skill.source_path,
-              skill.plugin_name,
-              isSynced
-            )
+            const sourceName =
+              skill.source_type === 'project'
+                ? resolveProjectLabel(projectRootForSkill(skill))
+                : getSourceDisplayName(
+                    skill.source_type,
+                    skill.source_path,
+                    skill.plugin_name,
+                    isSynced
+                  )
             return (
               <CommandItem
                 key={skill.id}

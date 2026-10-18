@@ -1,6 +1,6 @@
 import { Layers3 } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/relative-time'
-import { getFolderBasename } from '@/lib/source-name'
+import { useProjectLabel } from '@/lib/use-project-label'
 import type { ResidentTaxStats } from '../../../../shared/ipc'
 import { formatModelName } from './chart-utils'
 import { ResidentCompositionBar } from './ResidentCompositionBar'
@@ -10,6 +10,7 @@ export function ResidentTaxSection({
 }: {
   stats: ResidentTaxStats | null
 }): React.JSX.Element {
+  const resolveProjectLabel = useProjectLabel()
   if (stats === null) return <ResidentTaxEmpty />
 
   return (
@@ -32,7 +33,7 @@ export function ResidentTaxSection({
           yet been safely itemized.
         </p>
         <p className="flex flex-wrap gap-x-1.5">
-          <span title={stats.project}>{getFolderBasename(stats.project)}</span>
+          <span title={stats.project}>{resolveProjectLabel(stats.project)}</span>
           <span aria-hidden>·</span>
           <span>{formatModelName(stats.model)}</span>
           {stats.claudeVersion && (

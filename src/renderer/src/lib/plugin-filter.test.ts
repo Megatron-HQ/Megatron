@@ -135,6 +135,20 @@ describe('matchesPluginFilter', () => {
 })
 
 describe('repository plugin rows', () => {
+  it('uses the app-wide display label without changing repository scope', () => {
+    const rows = createPluginRows(
+      [plugin('a', [install('project', 'c:/hq/megatron')])],
+      { kind: 'all' },
+      [],
+      undefined,
+      [],
+      new Map([['c:/hq/megatron', 'HQ/Megatron']])
+    )
+    expect(rows[0].repositoryLabel).toBe('HQ/Megatron')
+    expect(rows[0].context).toEqual({ kind: 'project', path: 'c:/hq/megatron' })
+    expect(rows[0].installs[0].project_path).toBe('c:/hq/megatron')
+  })
+
   it('counts shared plugins once per repository while combining scopes within each repository', () => {
     const plugins = ['a', 'b', 'c'].map((name) =>
       plugin(name, [

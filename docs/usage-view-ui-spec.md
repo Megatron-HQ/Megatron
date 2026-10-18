@@ -1024,7 +1024,7 @@ by-model charts` to its parenthetical list.
 3. `byModel` keys arrive **normalized** (date suffix stripped, per `cost-parser.normalizeModelKey`)
    — `formatModelName` / `modelSeriesVar` assume that.
 4. `byProject[].project` is the **raw cwd path** — `RankedList` runs it through
-   `getFolderBasename` and shows the full path on hover, exactly like Activity's §5.4.
+   the shared repository-label resolver and shows the full path on hover, exactly like Activity's §5.4. Repository names use the same local hierarchy and display casing as Skills and Plugins; working directories below a known repository use that repository's label.
 5. Renderer work: `UsageView.tsx` gains the Cost section; new `components/usage/SpendBar.tsx`,
    `RankedList.tsx` (replacing `ProjectBars.tsx`); `chart-utils.ts` gains `formatUsd`,
    `formatModelName`, `modelSeriesVar`, `MODEL_SERIES`; `DayStrip` generalizes `days` to `number`;

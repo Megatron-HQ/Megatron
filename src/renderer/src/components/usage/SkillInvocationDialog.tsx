@@ -13,7 +13,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { TextLink } from '@/components/TextLink'
 import { InvocationRow } from '@/components/InvocationRow'
 import { parseInvocationPrompt } from '@/lib/invocation-prompt'
-import { getFolderBasename, getSkillDisplayName } from '@/lib/source-name'
+import { getSkillDisplayName } from '@/lib/source-name'
+import { useProjectLabel } from '@/lib/use-project-label'
+import type { ProjectLabelResolver } from '@/lib/project-tree'
 import { TRIGGER_META } from '@/lib/trigger-meta'
 import { cn } from '@/lib/utils'
 import type { SkillInvocationRecord, TriggerType } from '../../../../shared/ipc'
@@ -36,9 +38,13 @@ const TRIGGER_FILTERS: { value: TriggerFilter; label: string }[] = [
   { value: 'subagent', label: TRIGGER_META.subagent.label }
 ]
 
-function matchesSearch(entry: SkillInvocationRecord, needle: string): boolean {
+function matchesSearch(
+  entry: SkillInvocationRecord,
+  needle: string,
+  resolveProjectLabel: ProjectLabelResolver
+): boolean {
   const prompt = parseInvocationPrompt(entry.preceding_user_text).label.toLowerCase()
-  const project = getFolderBasename(entry.cwd).toLowerCase()
+  const project = resolveProjectLabel(entry.cwd).toLowerCase()
   return (
     prompt.includes(needle) ||
     project.includes(needle) ||
@@ -57,6 +63,7 @@ export function SkillInvocationDialog({
   selection: SkillInvocationSelection
   onSelectSkill: (skillId: number) => void
 }): React.JSX.Element {
+  const resolveProjectLabel = useProjectLabel()
   const [search, setSearch] = useState('')
   const [triggerFilter, setTriggerFilter] = useState<TriggerFilter>('all')
   const {
@@ -83,9 +90,9 @@ export function SkillInvocationDialog({
       entries.filter(
         (entry) =>
           (triggerFilter === 'all' || entry.trigger_type === triggerFilter) &&
-          (needle === '' || matchesSearch(entry, needle))
+          (needle === '' || matchesSearch(entry, needle, resolveProjectLabel))
       ),
-    [entries, triggerFilter, needle]
+    [entries, triggerFilter, needle, resolveProjectLabel]
   )
   const isFiltering = needle !== '' || triggerFilter !== 'all'
   const countLabel = isFiltering
@@ -182,8 +189,11 @@ export function SkillInvocationDialog({
                         {entry.sourceType}
                       </span>
                     )}
-                    <span className="min-w-0 truncate text-[11px] text-muted-foreground">
-                      · {getFolderBasename(entry.cwd) || entry.cwd}
+                    <span
+                      title={entry.cwd}
+                      className="min-w-0 truncate text-[11px] text-muted-foreground"
+                    >
+                      · {resolveProjectLabel(entry.cwd)}
                     </span>
                   </div>
                   <InvocationRow entry={entry} />

@@ -1,6 +1,6 @@
 import { Fragment, useRef, useState } from 'react'
 import { CircleDollarSign, TriangleAlert } from 'lucide-react'
-import { getFolderBasename } from '@/lib/source-name'
+import { useProjectLabel } from '@/lib/use-project-label'
 import { olderVersionSummary, type ModelIdentity } from '@/lib/model-identity'
 import type { CostHour, CostModelSpend, CostStats, CostWindowKey } from '../../../../shared/ipc'
 import { ChartBlock } from './ChartBlock'
@@ -23,6 +23,7 @@ export function CostSection({
   windowKey: CostWindowKey
   identifyModel: (key: string) => ModelIdentity
 }): React.JSX.Element {
+  const resolveProjectLabel = useProjectLabel()
   const [selectedBucket, setSelectedBucket] = useState<
     { kind: 'day'; key: string } | { kind: 'hour'; hour: CostHour } | null
   >(null)
@@ -138,7 +139,7 @@ export function CostSection({
       <ChartBlock label="By project" empty={empty} emptyMessage={emptyMessage}>
         <RankedList
           items={window.byProject.map((project) => ({
-            label: getFolderBasename(project.project),
+            label: resolveProjectLabel(project.project),
             fullLabel: project.project,
             value: project.costUsd
           }))}

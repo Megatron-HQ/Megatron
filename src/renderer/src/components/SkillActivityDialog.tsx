@@ -13,7 +13,8 @@ import { InvocationGroupRow } from '@/components/InvocationGroupRow'
 import { InvocationRow } from '@/components/InvocationRow'
 import { groupInvocationEntries } from '@/lib/invocation-grouping'
 import { parseInvocationPrompt } from '@/lib/invocation-prompt'
-import { getFolderBasename } from '@/lib/source-name'
+import { useProjectLabel } from '@/lib/use-project-label'
+import type { ProjectLabelResolver } from '@/lib/project-tree'
 import { TRIGGER_META } from '@/lib/trigger-meta'
 import { cn } from '@/lib/utils'
 import type { SkillInvocationEntry, TriggerType } from '../../../shared/ipc'
@@ -37,11 +38,15 @@ const TRIGGER_FILTERS: { value: TriggerFilter; label: string }[] = [
 ]
 
 // Case-insensitive substring over what the row actually shows — the parsed label ('Image
-// attachment' for a screenshot placeholder, never its raw text) and the project basename.
+// attachment' for a screenshot placeholder, never its raw text) and the displayed project label.
 // Matching the raw string would let "coordinates" silently hit every image row.
-function matchesSearch(entry: SkillInvocationEntry, needle: string): boolean {
+function matchesSearch(
+  entry: SkillInvocationEntry,
+  needle: string,
+  resolveProjectLabel: ProjectLabelResolver
+): boolean {
   const label = parseInvocationPrompt(entry.preceding_user_text).label.toLowerCase()
-  const project = getFolderBasename(entry.cwd).toLowerCase()
+  const project = resolveProjectLabel(entry.cwd).toLowerCase()
   return label.includes(needle) || project.includes(needle)
 }
 
@@ -52,6 +57,7 @@ export function SkillActivityDialog({
   skillName,
   initialTriggerFilter
 }: SkillActivityDialogProps): React.JSX.Element {
+  const resolveProjectLabel = useProjectLabel()
   const [search, setSearch] = useState('')
   const [triggerFilter, setTriggerFilter] = useState<TriggerFilter>(initialTriggerFilter)
 
@@ -93,9 +99,9 @@ export function SkillActivityDialog({
       entries.filter(
         (entry) =>
           (triggerFilter === 'all' || entry.trigger_type === triggerFilter) &&
-          (needle === '' || matchesSearch(entry, needle))
+          (needle === '' || matchesSearch(entry, needle, resolveProjectLabel))
       ),
-    [entries, triggerFilter, needle]
+    [entries, triggerFilter, needle, resolveProjectLabel]
   )
 
   const countLabel = isPending

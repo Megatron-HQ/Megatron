@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildProjectTree, projectDisplayLabels } from './project-tree'
+import { buildProjectTree, createProjectLabelResolver, projectDisplayLabels } from './project-tree'
 import type { ProjectFolder } from '../../../shared/ipc'
 
 const grants = [
@@ -12,6 +12,47 @@ const catalog: ProjectFolder[] = [
   { path: 'C:\\HQ\\second', kind: 'repository', status: 'available' },
   { path: 'C:\\HQ\\empty', kind: 'repository', status: 'available' }
 ]
+
+describe('project label resolver', () => {
+  const paths = [
+    'C:\\Megatron HQ\\Megatron',
+    'C:\\Megatron HQ\\Megatron\\references\\Child',
+    'C:\\Megatron HQ\\Megatron-site'
+  ]
+  const folders = [{ path: 'C:\\Megatron HQ', granted_at: '' }]
+  const resolveLabel = createProjectLabelResolver(projectDisplayLabels(paths, folders), folders)
+
+  it('uses the same display casing and hierarchy for Windows path variants', () => {
+    expect(resolveLabel('c:/megatron hq/megatron/')).toBe('Megatron HQ/Megatron')
+  })
+
+  it('resolves invocation working directories to their nearest repository', () => {
+    expect(resolveLabel('C:\\Megatron HQ\\Megatron\\src\\renderer')).toBe('Megatron HQ/Megatron')
+    expect(resolveLabel('c:/megatron hq/megatron/references/child/src')).toBe(
+      'Megatron HQ/Megatron/references/Child'
+    )
+  })
+
+  it('keeps path boundaries and different repositories separate', () => {
+    expect(resolveLabel('C:\\Megatron HQ\\Megatron-site')).toBe('Megatron HQ/Megatron-site')
+    expect(resolveLabel('C:\\Megatron HQ\\Megatron-other')).toBe('Megatron HQ/Megatron-other')
+  })
+
+  it('uses the granted hierarchy for historical projects outside the current catalog', () => {
+    expect(resolveLabel('c:/megatron hq')).toBe('Megatron HQ')
+    expect(resolveLabel('C:\\Megatron HQ\\Archived\\OldRepo')).toBe('Megatron HQ/Archived/OldRepo')
+    expect(resolveLabel('')).toBe('Unknown project')
+  })
+
+  it('preserves disambiguation and POSIX case sensitivity across screens', () => {
+    const labels = projectDisplayLabels(['/work/a/repo', '/home/a/repo', '/work/Repo'])
+    const resolveProject = createProjectLabelResolver(labels)
+    expect(resolveProject('/work/a/repo/src')).toBe('work/a/repo')
+    expect(resolveProject('/home/a/repo/src')).toBe('home/a/repo')
+    expect(resolveProject('/work/Repo/src')).toBe('work/Repo')
+    expect(resolveProject('/work/repo/src')).toBe('repo/src')
+  })
+})
 describe('project tree', () => {
   it('keeps discovered folder casing when the registry spells the same path differently', () => {
     expect([...projectDisplayLabels(['C:\\HQ\\Megatron', 'c:/hq/megatron']).values()]).toEqual([

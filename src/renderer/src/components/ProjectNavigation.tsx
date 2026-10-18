@@ -4,6 +4,7 @@ import type { Dispatch, SetStateAction } from 'react'
 import type { ProjectTreeNode } from '@/lib/project-tree'
 import { normalizeProjectPath } from '../../../shared/project-path'
 import { cn } from '@/lib/utils'
+import { useProjectLabel } from '@/lib/use-project-label'
 
 interface Selection {
   path?: string
@@ -127,6 +128,8 @@ function ProjectNode({
   onToggle: (key: string) => void
 }): React.JSX.Element {
   const { selected, selection, expanded, onSelect, onItemHover } = navigation
+  const resolveProjectLabel = useProjectLabel()
+  const label = node.kind === 'repository' ? resolveProjectLabel(node.path) : node.label
   const hasChildren = node.children.length > 0
   const exact = !hasChildren && node.kind === 'repository'
   const samePath = selection.path !== undefined && normalizeProjectPath(selection.path) === node.key
@@ -151,7 +154,9 @@ function ProjectNode({
             }}
             className={cn('flex h-full min-w-0 flex-1 items-center gap-1.5 text-left', FOCUS)}
           >
-            <span className="truncate">{node.label}</span>
+            <span dir="ltr" className="truncate text-left">
+              {label}
+            </span>
             {unavailable && (
               <CircleAlert
                 className="size-3 shrink-0"
@@ -161,7 +166,7 @@ function ProjectNode({
             <Count count={node.count} selected={isSelected} />
           </button>
           <Disclosure
-            label={`${node.label} repositories`}
+            label={`${label} repositories`}
             expanded={expanded.has(node.key)}
             onClick={() => onToggle(node.key)}
           />
@@ -178,7 +183,9 @@ function ProjectNode({
             isSelected ? SELECTED : IDLE
           )}
         >
-          <span className="truncate">{node.label}</span>
+          <span dir="ltr" className="truncate text-left">
+            {label}
+          </span>
           {unavailable && (
             <CircleAlert
               className="size-3 shrink-0"

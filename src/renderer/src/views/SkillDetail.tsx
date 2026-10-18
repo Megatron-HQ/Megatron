@@ -22,14 +22,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { parseHookEvents } from '@/lib/hook-events'
 import { hasDisableModelInvocationFrontmatter, parseExtraFrontmatterFields } from '@/lib/markdown'
 import { groupInvocationEntries } from '@/lib/invocation-grouping'
-import { getFolderBasename, getSkillDisplayName } from '@/lib/source-name'
-import { normalizeProjectPath } from '../../../shared/project-path'
+import { getSkillDisplayName } from '@/lib/source-name'
+import { useProjectLabel } from '@/lib/use-project-label'
+import { projectRootForSkill } from '@/lib/source-filter'
 import { TRIGGER_META } from '@/lib/trigger-meta'
 import { cn } from '@/lib/utils'
 import type { ProjectCount, SkillRow, SkillUsageDetail, TriggerType } from '../../../shared/ipc'
 
 interface SkillDetailProps {
-  projectLabels: Map<string, string>
   skillId: number
   onBack: () => void
   onViewFiles: () => void
@@ -55,12 +55,12 @@ const SEGMENT_MIN_PERCENT = 8
 const PROJECT_ROW_CAP = 6
 
 export function SkillDetail({
-  projectLabels,
   skillId,
   onBack,
   onViewFiles,
   onNavigate
 }: SkillDetailProps): React.JSX.Element {
+  const resolveProjectLabel = useProjectLabel()
   const { data, isPending, isError, refetch } = useQuery({
     queryKey: ['skill-meta', skillId],
     queryFn: () => window.api.openSkillMeta(skillId)
@@ -192,8 +192,8 @@ export function SkillDetail({
             />
             <SourceBadge
               label={
-                skill.source_type === 'project' && skill.project_root
-                  ? projectLabels.get(normalizeProjectPath(skill.project_root))
+                skill.source_type === 'project'
+                  ? resolveProjectLabel(projectRootForSkill(skill))
                   : undefined
               }
               type={skill.source_type}
@@ -560,6 +560,7 @@ function UsageSection({
 }
 
 function ByProject({ rows }: { rows: ProjectCount[] }): React.JSX.Element {
+  const resolveProjectLabel = useProjectLabel()
   const [showAll, setShowAll] = useState(false)
   const sorted = useMemo(() => [...rows].sort((a, b) => b.count - a.count), [rows])
   const max = sorted[0]?.count ?? 1
@@ -572,7 +573,7 @@ function ByProject({ rows }: { rows: ProjectCount[] }): React.JSX.Element {
       </p>
       <div className="space-y-0.5">
         {visible.map((row, index) => {
-          const label = getFolderBasename(row.cwd) || row.cwd
+          const label = resolveProjectLabel(row.cwd)
           const width = `${Math.max((row.count / max) * 100, 3)}%`
           return (
             <div

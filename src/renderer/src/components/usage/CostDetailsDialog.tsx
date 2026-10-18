@@ -5,7 +5,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
-import { getFolderBasename } from '@/lib/source-name'
+import { useProjectLabel } from '@/lib/use-project-label'
 import type { ModelIdentity } from '@/lib/model-identity'
 import type { CostDay, CostHour } from '../../../../shared/ipc'
 import { ChartBlock } from './ChartBlock'
@@ -29,6 +29,7 @@ export function CostDetailsDialog({
   onRestoreFocus: () => void
   identifyModel: (key: string) => ModelIdentity
 }): React.JSX.Element | null {
+  const resolveProjectLabel = useProjectLabel()
   if (!bucket) return null
   const isDay = 'date' in bucket
   const start = new Date(bucket.startAt)
@@ -95,7 +96,7 @@ export function CostDetailsDialog({
           <RankedList
             key={bucket.startAt}
             items={bucket.byProject.map((project) => ({
-              label: getFolderBasename(project.project),
+              label: resolveProjectLabel(project.project),
               fullLabel: project.project,
               value: project.costUsd
             }))}

@@ -11,6 +11,7 @@ import {
 import { pluginUpdateDetails } from '@/lib/plugin-update'
 import { isUpdateAvailable } from '../../../shared/version'
 import { TextLink } from '@/components/TextLink'
+import { useProjectLabel } from '@/lib/use-project-label'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
@@ -73,6 +74,7 @@ export function PluginDetail({
   onActionSuccess,
   onManageFolders
 }: PluginDetailProps): React.JSX.Element {
+  const resolveProjectLabel = useProjectLabel()
   const queryClient = useQueryClient()
   const queryKey = [
     'plugin-detail',
@@ -255,7 +257,7 @@ export function PluginDetail({
           title={context.path}
           className="shrink-0 truncate border-b border-border px-4 py-1.5 font-mono text-[11px] text-muted-foreground"
         >
-          Repository: {context.path}
+          Repository: {resolveProjectLabel(context.path)}
         </p>
       )}
       {noticeStatus && <ProjectAvailabilityNotice status={noticeStatus} />}

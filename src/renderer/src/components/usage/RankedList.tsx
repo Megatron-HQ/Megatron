@@ -7,7 +7,7 @@ import { percentLabel } from './share-bars'
 const TOP_N = 8
 
 export interface RankedItem {
-  label: string // display name (basename)
+  label: string // display name
   value: number
   fullLabel: string // full string shown on hover
   onSelect?: () => void

@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { getFolderBasename } from '@/lib/source-name'
+import { useProjectLabel } from '@/lib/use-project-label'
 import type { AllowedPathRow } from '../../../shared/ipc'
 
 interface ManageFoldersDialogProps {
@@ -28,6 +28,7 @@ export function ManageFoldersDialog({
   onAddFolders,
   onRevokeFolder
 }: ManageFoldersDialogProps): React.JSX.Element {
+  const resolveProjectLabel = useProjectLabel()
   const [loading, setLoading] = useState(false)
 
   async function handleAdd(): Promise<void> {
@@ -80,7 +81,7 @@ export function ManageFoldersDialog({
                   <Folder className="size-4 shrink-0 text-muted-foreground" />
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium leading-none">
-                      {getFolderBasename(folder.path)}
+                      {resolveProjectLabel(folder.path)}
                     </p>
                     <p
                       title={folder.path}
@@ -97,7 +98,7 @@ export function ManageFoldersDialog({
                       disabled={loading}
                       onClick={() => handleRevoke(folder.path)}
                       className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      aria-label={`Revoke access to ${getFolderBasename(folder.path)}`}
+                      aria-label={`Revoke access to ${resolveProjectLabel(folder.path)}`}
                     >
                       <Trash2 className="size-4" />
                     </button>

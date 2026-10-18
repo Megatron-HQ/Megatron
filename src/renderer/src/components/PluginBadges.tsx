@@ -1,7 +1,7 @@
 import { ArrowUpCircle, CircleCheck, CircleHelp, Power, ShieldCheck, Store } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { getFolderBasename } from '@/lib/source-name'
+import { useProjectLabel } from '@/lib/use-project-label'
 import { cn } from '@/lib/utils'
 import type { PluginScope } from '../../../shared/ipc'
 import { MISSING_PROJECT_STATUS_TOOLTIP } from '../../../shared/missing-project'
@@ -159,7 +159,8 @@ export function PluginScopeLabel({
   scope: PluginScope
   projectPath: string | null
 }): React.JSX.Element {
-  const projectName = projectPath === null ? null : getFolderBasename(projectPath)
+  const resolveProjectLabel = useProjectLabel()
+  const projectName = projectPath === null ? null : resolveProjectLabel(projectPath)
   return (
     <Tooltip>
       <TooltipTrigger asChild>

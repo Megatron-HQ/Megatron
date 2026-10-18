@@ -6,7 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/relative-time'
 import { buildModelIdentity } from '@/lib/model-identity'
-import { getFolderBasename } from '@/lib/source-name'
+import { useProjectLabel } from '@/lib/use-project-label'
 import { ChartBlock } from '@/components/usage/ChartBlock'
 import { StatCells } from '@/components/usage/StatCells'
 import { DayStrip } from '@/components/usage/DayStrip'
@@ -271,6 +271,7 @@ function ActivitySection({
   windowKey: ActivityWindowKey
   hourlyTrend: { key: string; count: number }[]
 }): React.JSX.Element {
+  const resolveProjectLabel = useProjectLabel()
   const windowEmpty = win.prompts === 0 && win.slashCommands === 0
   const windowLabel = windowKey === '24h' ? '24 hours' : `${win.days} days`
   const emptyMessage = `No prompts in the last ${windowLabel}`
@@ -316,7 +317,7 @@ function ActivitySection({
       <ChartBlock label="By project" empty={win.byProject.length === 0} emptyMessage={emptyMessage}>
         <RankedList
           items={win.byProject.map((project) => ({
-            label: getFolderBasename(project.project),
+            label: resolveProjectLabel(project.project),
             value: project.count,
             fullLabel: project.project
           }))}
