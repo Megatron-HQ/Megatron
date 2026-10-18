@@ -460,7 +460,7 @@ app.whenReady().then(() => {
     for (const row of allowed) {
       restoreGrantedPath(row.path)
     }
-    void scanAndNotify()
+    void scanAndNotify('startup')
   })
 
   let lastFocusScan = 0

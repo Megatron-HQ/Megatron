@@ -28,10 +28,20 @@ globalThis.megatronVisualFixtures = {
       if (mode === 'pending') return new Promise(() => {})
       const result = await original(event, ...args)
       if (mode.startsWith('project-tree')) return projectTreeFixture(channel, args, result, mode)
-      if (channel === 'skills:list' && mode === 'scan-updating') {
+      if (
+        channel === 'skills:list' &&
+        ['scan-updating', 'scan-background', 'scan-manual'].includes(mode)
+      ) {
         return {
           ...result,
-          scanActivity: { id: 9001, startedAt: Date.now() - 1000 }
+          scanComplete: true,
+          scanSummary: { outcome: 'complete', completedAt: new Date().toISOString(), sources: [] },
+          scanActivity: {
+            id: 9001,
+            startedAt: Date.now() - 60_000,
+            isStartup: mode === 'scan-updating',
+            revealMs: mode === 'scan-background' ? 8_000 : 500
+          }
         }
       }
       if (channel === 'skills:list' && ['scan-permission', 'scan-missing'].includes(mode)) {

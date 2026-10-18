@@ -109,6 +109,8 @@ export interface ContextBudget {
 export interface ScanActivity {
   id: number
   startedAt: number
+  // Only the launch scan may show app-wide progress; later refreshes stay silent.
+  isStartup: boolean
   // How long this run stays quiet before the updating banner. A joined scan can only shorten it.
   revealMs: number
 }

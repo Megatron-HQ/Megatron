@@ -1,7 +1,7 @@
 import type { ScanActivity } from '../shared/ipc'
 import { SCAN_BANNER_QUIET_REVEAL_MS, SCAN_BANNER_REVEAL_MS } from '../shared/scan-banner'
 
-export type ScanUrgency = 'announce' | 'quiet'
+export type ScanUrgency = 'startup' | 'announce' | 'quiet'
 export type ScanRun = ScanActivity
 
 export function createScanSession(): {
@@ -31,10 +31,18 @@ export function createScanSession(): {
         current = {
           id: nextId++,
           startedAt: now,
+          isStartup: urgency === 'startup',
           revealMs: urgency === 'quiet' ? SCAN_BANNER_QUIET_REVEAL_MS : SCAN_BANNER_REVEAL_MS
         }
-      } else if (urgency === 'announce' && current.revealMs > SCAN_BANNER_REVEAL_MS) {
-        current = { ...current, revealMs: SCAN_BANNER_REVEAL_MS }
+      } else if (
+        urgency !== 'quiet' &&
+        (current.revealMs > SCAN_BANNER_REVEAL_MS || (urgency === 'startup' && !current.isStartup))
+      ) {
+        current = {
+          ...current,
+          isStartup: current.isStartup || urgency === 'startup',
+          revealMs: SCAN_BANNER_REVEAL_MS
+        }
         promoted = true
       }
       depth++

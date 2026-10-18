@@ -484,6 +484,35 @@ export const scenarios = [
     }
   },
   {
+    name: 'scan-background-silent',
+    screen: 'skill-inventory',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-background')
+      )
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).waitFor()
+      await window
+        .getByRole('status')
+        .filter({ hasText: /Updating your index|Reading your Claude Code files/ })
+        .waitFor({ state: 'hidden' })
+    }
+  },
+  {
+    name: 'settings-rescan-local-progress',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() => {
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-manual')
+        globalThis.megatronVisualFixtures.set('app:rescan', 'pending')
+      })
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
+      await window.getByRole('button', { name: 'Rescanning…', exact: true }).waitFor()
+    }
+  },
+  {
     name: 'scan-access-banner',
     screen: 'settings-dialog',
     async run(window, app) {

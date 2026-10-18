@@ -76,7 +76,7 @@ export function useScanBanner(input: {
   }, [input.reportedActivity])
 
   useEffect(() => {
-    if (!scanRun) return
+    if (!scanRun?.isStartup) return
     const delay = scanRun.startedAt + scanRun.revealMs - Date.now()
     if (delay <= 0) return
     const timer = window.setTimeout(() => setNow(Date.now()), delay)
@@ -89,6 +89,7 @@ export function useScanBanner(input: {
     : preferScanSummary(finishedSummary, input.reportedSummary)
   const decision = resolveScanBanner({
     scanning: scanRun !== null,
+    isStartup: scanRun?.isStartup ?? false,
     elapsedMs: scanRun === null || now === 0 ? 0 : now - scanRun.startedAt,
     skillsLoaded: input.skillsLoaded,
     pluginsLoaded: input.pluginsLoaded,

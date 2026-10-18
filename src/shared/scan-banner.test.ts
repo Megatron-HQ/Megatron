@@ -10,6 +10,7 @@ import {
 
 const ready = {
   scanning: true,
+  isStartup: true,
   elapsedMs: SCAN_BANNER_REVEAL_MS,
   skillsLoaded: true,
   pluginsLoaded: true,
@@ -20,6 +21,24 @@ const ready = {
 }
 
 describe('resolveScanBanner', () => {
+  it.each([false, true])(
+    'keeps later scans silent with prior warning=%s, even after a long delay',
+    (hasPriorWarning) => {
+      expect(
+        resolveScanBanner({
+          ...ready,
+          isStartup: false,
+          elapsedMs: 60_000,
+          hasPriorWarning,
+          lockedMessage: SCAN_BANNER_SNAPSHOT
+        })
+      ).toEqual({
+        state: { kind: hasPriorWarning ? 'warning' : 'hidden' },
+        lockedMessage: null
+      })
+    }
+  )
+
   it('keeps a prior warning on screen until the scan has run long enough for both lists to have loaded', () => {
     expect(
       resolveScanBanner({
@@ -116,8 +135,16 @@ describe('resolveScanBanner', () => {
 })
 
 describe('nextScanActivity', () => {
-  const quiet = { id: 1, startedAt: 1_000, revealMs: 8_000 }
-  const announced = { id: 1, startedAt: 1_000, revealMs: 500 }
+  const quiet = { id: 1, startedAt: 1_000, revealMs: 8_000, isStartup: false }
+  const announced = { id: 1, startedAt: 1_000, revealMs: 500, isStartup: false }
+
+  it('recognizes startup joining the same run without changing its reveal delay', () => {
+    expect(nextScanActivity(announced, { ...announced, isStartup: true })).toEqual({
+      ...announced,
+      isStartup: true
+    })
+    expect(nextScanActivity({ ...announced, isStartup: true }, announced)).toBeNull()
+  })
 
   it('adopts a shorter reveal for the same run and ignores a longer one', () => {
     expect(nextScanActivity(quiet, { ...announced, startedAt: 5_000 })).toEqual(announced)
@@ -126,10 +153,13 @@ describe('nextScanActivity', () => {
   })
 
   it('replaces the current run when the incoming activity has a different id', () => {
-    expect(nextScanActivity(quiet, { id: 2, startedAt: 9_000, revealMs: 8_000 })).toEqual({
+    expect(
+      nextScanActivity(quiet, { id: 2, startedAt: 9_000, revealMs: 8_000, isStartup: false })
+    ).toEqual({
       id: 2,
       startedAt: 9_000,
-      revealMs: 8_000
+      revealMs: 8_000,
+      isStartup: false
     })
     expect(nextScanActivity(null, announced)).toEqual(announced)
   })

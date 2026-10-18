@@ -10,6 +10,7 @@ export type ScanBannerState =
 
 export interface ScanBannerInput {
   scanning: boolean
+  isStartup: boolean
   elapsedMs: number
   skillsLoaded: boolean
   pluginsLoaded: boolean
@@ -26,7 +27,13 @@ export function nextScanActivity(
   incoming: ScanActivity
 ): ScanActivity | null {
   if (current === null || current.id !== incoming.id) return incoming
-  if (incoming.revealMs < current.revealMs) return { ...current, revealMs: incoming.revealMs }
+  if (incoming.revealMs < current.revealMs || (incoming.isStartup && !current.isStartup)) {
+    return {
+      ...current,
+      isStartup: current.isStartup || incoming.isStartup,
+      revealMs: Math.min(current.revealMs, incoming.revealMs)
+    }
+  }
   return null
 }
 
@@ -53,7 +60,7 @@ export function resolveScanBanner(input: ScanBannerInput): {
   state: ScanBannerState
   lockedMessage: string | null
 } {
-  if (!input.scanning) return held(input.hasPriorWarning)
+  if (!input.scanning || !input.isStartup) return held(input.hasPriorWarning)
   if (input.lockedMessage !== null) {
     return {
       state: { kind: 'updating', message: input.lockedMessage },
