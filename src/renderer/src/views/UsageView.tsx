@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Activity, BrainCircuit, CircleDollarSign, Cpu, Layers3 } from 'lucide-react'
@@ -9,6 +9,7 @@ import { buildModelIdentity } from '@/lib/model-identity'
 import { useProjectLabel } from '@/lib/use-project-label'
 import type { ProjectLabelResolver } from '@/lib/project-tree'
 import { createUsageProjectLabelResolver } from '@/lib/usage-project-label'
+import { ActivityDetailsDialog } from '@/components/usage/ActivityDetailsDialog'
 import { ChartBlock } from '@/components/usage/ChartBlock'
 import { StatCells } from '@/components/usage/StatCells'
 import { DayStrip } from '@/components/usage/DayStrip'
@@ -23,6 +24,7 @@ import { ResidentTaxSection } from '@/components/usage/ResidentTaxSection'
 import { formatCount } from '@/components/usage/chart-utils'
 import type { UsagePanel } from '@/components/UsageSidebar'
 import type {
+  ActivityHour,
   ActivityStats,
   ActivityWindow,
   CostWindowKey,
@@ -295,12 +297,25 @@ function ActivitySection({
 }: {
   win: ActivityWindow
   windowKey: ActivityWindowKey
-  hourlyTrend: { key: string; count: number }[]
+  hourlyTrend: ActivityHour[]
   resolveProjectLabel: ProjectLabelResolver
 }): React.JSX.Element {
+  // An hour is captured whole: rolling hourly buckets shift on every refresh, so re-finding it by
+  // key would drop or change an open dialog. A date stays stable and is re-read (as in Cost).
+  const [selectedBucket, setSelectedBucket] = useState<
+    { kind: 'day'; date: string } | { kind: 'hour'; hour: ActivityHour } | null
+  >(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
   const windowEmpty = win.prompts === 0 && win.slashCommands === 0
   const windowLabel = windowKey === '24h' ? '24 hours' : `${win.days} days`
   const emptyMessage = `No prompts in the last ${windowLabel}`
+  const selectedDetails =
+    selectedBucket?.kind === 'day'
+      ? (win.byDay.find((day) => day.date === selectedBucket.date) ?? null)
+      : selectedBucket?.kind === 'hour'
+        ? selectedBucket.hour
+        : null
 
   return (
     <section className="flex flex-col gap-6 py-8">
@@ -314,7 +329,18 @@ function ActivitySection({
 
       {windowKey === '24h' ? (
         <ChartBlock label="By hour" empty={windowEmpty} emptyMessage={emptyMessage}>
-          <InvocationTrend data={hourlyTrend} window="24h" nounSingular="prompt" />
+          <InvocationTrend
+            data={hourlyTrend}
+            window="24h"
+            nounSingular="prompt"
+            onSelectBucket={(bucket, _label, trigger) => {
+              const hour = hourlyTrend.find((candidate) => candidate.key === bucket.key)
+              if (!hour) return
+              triggerRef.current = trigger
+              setSelectedBucket({ kind: 'hour', hour })
+              setDialogOpen(true)
+            }}
+          />
         </ChartBlock>
       ) : (
         <>
@@ -323,10 +349,16 @@ function ActivitySection({
               data={win.byDay.map((day) => ({
                 date: day.date,
                 value: day.count,
-                weekday: day.weekday
+                weekday: day.weekday,
+                partial: day.partial
               }))}
               days={win.days}
               formatValue={(value) => `${formatCount(value)} prompts`}
+              onSelectDay={(day, trigger) => {
+                triggerRef.current = trigger
+                setSelectedBucket({ kind: 'day', date: day.date })
+                setDialogOpen(true)
+              }}
             />
           </ChartBlock>
 
@@ -351,6 +383,13 @@ function ActivitySection({
           noun="projects"
         />
       </ChartBlock>
+      <ActivityDetailsDialog
+        bucket={selectedDetails}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        onRestoreFocus={() => triggerRef.current?.focus()}
+        resolveProjectLabel={resolveProjectLabel}
+      />
     </section>
   )
 }

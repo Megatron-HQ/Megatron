@@ -1986,7 +1986,7 @@ describe('getActivityStats', () => {
     insertPrompt({ typed_at: '2026-08-20T12:00:00.001Z' })
     const window = getActivityStats(db, NOW).last7d
     expect(window.prompts).toBe(1)
-    expect(window.byDay[0]).toEqual({ date: '2026-08-13', count: 1, weekday: 4 })
+    expect(window.byDay[0]).toMatchObject({ date: '2026-08-13', count: 1, weekday: 4 })
     expect(window.byDay.reduce((sum, day) => sum + day.count, 0)).toBe(window.prompts)
   })
 
@@ -2052,9 +2052,9 @@ describe('getActivityStats', () => {
 
     const hourlyTrend = Reflect.get(getActivityStats(db, NOW).last24h, 'hourlyTrend')
     expect(hourlyTrend).toHaveLength(24)
-    expect(hourlyTrend[0]).toEqual({ key: '2026-08-19T12:00:00.000Z', count: 1 })
-    expect(hourlyTrend[1]).toEqual({ key: '2026-08-19T13:00:00.000Z', count: 1 })
-    expect(hourlyTrend[23]).toEqual({ key: '2026-08-20T11:00:00.000Z', count: 1 })
+    expect(hourlyTrend[0]).toMatchObject({ key: '2026-08-19T12:00:00.000Z', count: 1 })
+    expect(hourlyTrend[1]).toMatchObject({ key: '2026-08-19T13:00:00.000Z', count: 1 })
+    expect(hourlyTrend[23]).toMatchObject({ key: '2026-08-20T11:00:00.000Z', count: 1 })
     expect(
       hourlyTrend.reduce((sum: number, bucket: { count: number }) => sum + bucket.count, 0)
     ).toBe(3)
@@ -2138,10 +2138,10 @@ describe('getActivityStats', () => {
     seedFixture()
     const { byDay } = getActivityStats(db, NOW).last7d
     expect(byDay).toHaveLength(8)
-    expect(byDay[0]).toEqual({ date: '2026-08-13', count: 0, weekday: 4 })
-    expect(byDay[1]).toEqual({ date: '2026-08-14', count: 1, weekday: 5 })
-    expect(byDay[7]).toEqual({ date: '2026-08-20', count: 0, weekday: 4 })
-    expect(byDay.find((d) => d.date === '2026-08-18')).toEqual({
+    expect(byDay[0]).toMatchObject({ date: '2026-08-13', count: 0, weekday: 4 })
+    expect(byDay[1]).toMatchObject({ date: '2026-08-14', count: 1, weekday: 5 })
+    expect(byDay[7]).toMatchObject({ date: '2026-08-20', count: 0, weekday: 4 })
+    expect(byDay.find((d) => d.date === '2026-08-18')).toMatchObject({
       date: '2026-08-18',
       count: 2,
       weekday: 2
@@ -2155,12 +2155,94 @@ describe('getActivityStats', () => {
     expect(byDay).toHaveLength(31)
     expect(byDay[0].date).toBe('2026-07-21')
     expect(byDay[30].date).toBe('2026-08-20')
-    expect(byDay.find((d) => d.date === '2026-07-25')).toEqual({
+    expect(byDay.find((d) => d.date === '2026-07-25')).toMatchObject({
       date: '2026-07-25',
       count: 1,
       weekday: 6
     })
     expect(byDay.reduce((sum, d) => sum + d.count, 0)).toBe(6)
+  })
+
+  it('breaks each day down by sessions, slash commands, and projects', () => {
+    seedFixture()
+    insertPrompt({ typed_at: '2026-08-18T15:00:00.000Z', session_id: 's7', project: '/repo-b' })
+    const { byDay } = getActivityStats(db, NOW).last7d
+    expect(byDay.find((d) => d.date === '2026-08-18')).toEqual({
+      date: '2026-08-18',
+      count: 3,
+      weekday: 2,
+      startAt: '2026-08-18T05:00:00.000Z',
+      endAt: '2026-08-19T05:00:00.000Z',
+      partial: false,
+      sessions: 2,
+      slashCommands: 0,
+      byProject: [
+        { project: '/repo-a', count: 2 },
+        { project: '/repo-b', count: 1 }
+      ]
+    })
+    // E is the day's only line and a bare slash command: no prompts, no sessions.
+    expect(byDay.find((d) => d.date === '2026-08-19')).toMatchObject({
+      count: 0,
+      sessions: 0,
+      slashCommands: 1,
+      byProject: []
+    })
+  })
+
+  it('clips the first and current days to the rolling window and flags them partial', () => {
+    const { byDay } = getActivityStats(db, NOW).last7d
+    expect(byDay[0]).toMatchObject({
+      date: '2026-08-13',
+      startAt: '2026-08-13T12:00:00.000Z',
+      endAt: '2026-08-14T05:00:00.000Z',
+      partial: true
+    })
+    expect(byDay[1]).toMatchObject({
+      startAt: '2026-08-14T05:00:00.000Z',
+      endAt: '2026-08-15T05:00:00.000Z',
+      partial: false
+    })
+    expect(byDay[7]).toMatchObject({
+      date: '2026-08-20',
+      startAt: '2026-08-20T05:00:00.000Z',
+      endAt: '2026-08-20T12:00:00.000Z',
+      partial: true
+    })
+  })
+
+  it('breaks each hourly bucket down with its interval, sessions, and slash commands', () => {
+    insertPrompt({ typed_at: '2026-08-20T11:05:00.000Z', session_id: 'a', project: '/repo-a' })
+    insertPrompt({ typed_at: '2026-08-20T11:10:00.000Z', session_id: 'b', project: '/repo-b' })
+    insertPrompt({ typed_at: '2026-08-20T11:20:00.000Z', session_id: 'b', project: '/repo-b' })
+    insertPrompt({
+      typed_at: '2026-08-20T11:30:00.000Z',
+      session_id: 'c',
+      project: '/repo-c',
+      is_slash_command: 1
+    })
+
+    const { hourlyTrend } = getActivityStats(db, NOW).last24h
+    expect(hourlyTrend[23]).toEqual({
+      key: '2026-08-20T11:00:00.000Z',
+      startAt: '2026-08-20T11:00:00.000Z',
+      endAt: '2026-08-20T12:00:00.000Z',
+      count: 3,
+      sessions: 2,
+      slashCommands: 1,
+      byProject: [
+        { project: '/repo-b', count: 2 },
+        { project: '/repo-a', count: 1 }
+      ]
+    })
+    expect(hourlyTrend[0]).toMatchObject({
+      startAt: '2026-08-19T12:00:00.000Z',
+      endAt: '2026-08-19T13:00:00.000Z',
+      count: 0,
+      sessions: 0,
+      slashCommands: 0,
+      byProject: []
+    })
   })
 
   it('returns zeroed windows when there is no prompt history', () => {

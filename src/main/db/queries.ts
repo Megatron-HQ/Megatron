@@ -6,6 +6,7 @@ import { estimateResidentTokens } from '../ingest/token-estimate'
 import { readPluginEnablement } from '../ingest/claude-settings'
 import { isWithinProjectPath, normalizeProjectPath } from '../../shared/project-path'
 import type {
+  ActivityBucketDetails,
   ActivityStats,
   ActivityWindow,
   AllowedPathRow,
@@ -759,6 +760,75 @@ function localDateKey(d: Date): string {
   return `${d.getFullYear()}-${month}-${day}`
 }
 
+type ActivityRowSummary = Omit<ActivityBucketDetails, 'startAt' | 'endAt'>
+
+// The prompt/session/slash/project split shared by a whole window and each of its bars, so a
+// bar's details always reconcile with the totals around it.
+function summarizeActivityRows(rows: PromptHistoryQueryRow[]): ActivityRowSummary {
+  const sessions = new Set<string>()
+  const projectCounts = new Map<string, number>()
+  let slashCommands = 0
+
+  for (const row of rows) {
+    if (row.is_slash_command === 1) {
+      slashCommands += 1
+      continue
+    }
+    sessions.add(row.session_id)
+    projectCounts.set(row.project, (projectCounts.get(row.project) ?? 0) + 1)
+  }
+
+  const byProject = [...projectCounts.entries()]
+    .map(([project, count]) => ({ project, count }))
+    .sort((a, b) => b.count - a.count || a.project.localeCompare(b.project))
+
+  return {
+    count: rows.length - slashCommands,
+    sessions: sessions.size,
+    slashCommands,
+    byProject
+  }
+}
+
+function groupRowsByLocalDate(rows: PromptHistoryQueryRow[]): Map<string, PromptHistoryQueryRow[]> {
+  const rowsByDate = new Map<string, PromptHistoryQueryRow[]>()
+  for (const row of rows) {
+    const date = localDateKey(new Date(row.typed_at))
+    const dateRows = rowsByDate.get(date)
+    if (dateRows) dateRows.push(row)
+    else rowsByDate.set(date, [row])
+  }
+  return rowsByDate
+}
+
+// Every local date intersecting [cutoff, now], each clipped to the window — the first and
+// current dates are partial (same rule as cost-queries' buildDailyCost).
+function buildActivityDays(
+  inWindow: PromptHistoryQueryRow[],
+  cutoff: Date,
+  now: Date
+): ActivityWindow['byDay'] {
+  const rowsByDate = groupRowsByLocalDate(inWindow)
+  const cursor = new Date(cutoff)
+  cursor.setHours(0, 0, 0, 0)
+  const byDay: ActivityWindow['byDay'] = []
+  while (cursor <= now) {
+    const nextDay = new Date(cursor)
+    nextDay.setDate(nextDay.getDate() + 1)
+    const date = localDateKey(cursor)
+    byDay.push({
+      date,
+      weekday: cursor.getDay(),
+      startAt: new Date(Math.max(cursor.getTime(), cutoff.getTime())).toISOString(),
+      endAt: new Date(Math.min(nextDay.getTime(), now.getTime())).toISOString(),
+      partial: cursor < cutoff || nextDay > now,
+      ...summarizeActivityRows(rowsByDate.get(date) ?? [])
+    })
+    cursor.setTime(nextDay.getTime())
+  }
+  return byDay
+}
+
 function reduceActivityWindow(
   rows: PromptHistoryQueryRow[],
   now: Date,
@@ -771,50 +841,31 @@ function reduceActivityWindow(
   const real = inWindow.filter((row) => row.is_slash_command === 0)
 
   const byHourWeekday = Array.from({ length: 7 }, () => Array<number>(24).fill(0))
-  const sessions = new Set<string>()
   const activeDays = new Set<string>()
-  const projectCounts = new Map<string, number>()
-  const dayCounts = new Map<string, number>()
 
   for (const row of real) {
     const at = new Date(row.typed_at)
-    const dayKey = localDateKey(at)
     byHourWeekday[at.getDay()][at.getHours()] += 1
-    sessions.add(row.session_id)
-    activeDays.add(dayKey)
-    projectCounts.set(row.project, (projectCounts.get(row.project) ?? 0) + 1)
-    dayCounts.set(dayKey, (dayCounts.get(dayKey) ?? 0) + 1)
+    activeDays.add(localDateKey(at))
   }
 
   const byHour = Array.from({ length: 24 }, (_, hour) =>
     byHourWeekday.reduce((sum, weekdayRow) => sum + weekdayRow[hour], 0)
   )
   const byWeekday = byHourWeekday.map((weekdayRow) => weekdayRow.reduce((sum, n) => sum + n, 0))
-
-  const cursor = new Date(cutoff)
-  cursor.setHours(0, 0, 0, 0)
-  const byDay: ActivityWindow['byDay'] = []
-  while (cursor <= now) {
-    const date = localDateKey(cursor)
-    byDay.push({ date, count: dayCounts.get(date) ?? 0, weekday: cursor.getDay() })
-    cursor.setDate(cursor.getDate() + 1)
-  }
-
-  const byProject = [...projectCounts.entries()]
-    .map(([project, count]) => ({ project, count }))
-    .sort((a, b) => b.count - a.count || a.project.localeCompare(b.project))
+  const summary = summarizeActivityRows(inWindow)
 
   return {
     days,
     activeDays: activeDays.size,
-    sessions: sessions.size,
-    prompts: real.length,
-    slashCommands: inWindow.length - real.length,
+    sessions: summary.sessions,
+    prompts: summary.count,
+    slashCommands: summary.slashCommands,
     byHour,
     byWeekday,
     byHourWeekday,
-    byProject,
-    byDay
+    byProject: summary.byProject,
+    byDay: buildActivityDays(inWindow, cutoff, now)
   }
 }
 
@@ -823,20 +874,24 @@ function buildActivityHourlyTrend(
   now: Date
 ): ActivityStats['last24h']['hourlyTrend'] {
   const cutoffMs = now.getTime() - DAY_MS
-  const counts = Array<number>(24).fill(0)
+  const rowsByHour = Array.from({ length: 24 }, (): PromptHistoryQueryRow[] => [])
 
   for (const row of rows) {
-    if (row.is_slash_command === 1) continue
     const offsetMs = new Date(row.typed_at).getTime() - cutoffMs
     if (!Number.isFinite(offsetMs) || offsetMs < 0 || offsetMs > DAY_MS) continue
     const index = Math.min(23, Math.floor(offsetMs / HOUR_MS))
-    counts[index] += 1
+    rowsByHour[index].push(row)
   }
 
-  return counts.map((count, index) => ({
-    key: new Date(cutoffMs + index * HOUR_MS).toISOString(),
-    count
-  }))
+  return rowsByHour.map((hourRows, index) => {
+    const startAt = new Date(cutoffMs + index * HOUR_MS).toISOString()
+    return {
+      key: startAt,
+      startAt,
+      endAt: new Date(cutoffMs + (index + 1) * HOUR_MS).toISOString(),
+      ...summarizeActivityRows(hourRows)
+    }
+  })
 }
 
 // One SQL pull of the last 30 days; both windows, both histograms, the project split and every

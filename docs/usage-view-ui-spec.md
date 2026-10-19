@@ -1,5 +1,22 @@
 # Usage view — resolved UI spec (Phase 2a)
 
+## Activity details amendment (2026-10-19)
+
+Activity's day and hour columns now open a details dialog, following the Cost details contract
+(§C window amendment). Clicking a nonzero **By day** column (7d/30d) or **By hour** column (24h), or
+activating it with Enter/Space, opens **Activity details**: the selected date (hour titles add local
+start/end times and timezone), the exact interval, Sessions, Prompts, the bare slash-command note,
+and the By project ranking. Values come from the same overview response as the bar
+(`ActivityDay`/`ActivityHour` carry `startAt`, `endAt`, `sessions`, `slashCommands`, `byProject`;
+days add `partial`). Prompt text is still never stored. An open hourly dialog retains its captured
+interval and counts when the overview refreshes. Escape/Close dismisses it. Zero-prompt columns
+support hover/focus inspection without opening a dialog, even when that bucket has slash
+commands. Activity days are clipped to the rolling window like Cost days, so the first column's
+hover/focus label and the dialog now say "partial day". Punchcard and By project rows remain
+inspection-only. Weekend shading, today's outline, hover dimming, and reduced motion are
+unchanged. Implementation: `components/usage/ActivityDetailsDialog.tsx`, wired in `UsageView`'s
+`ActivitySection`.
+
 ## Project names amendment (2026-10-18)
 
 Activity, Cost, and Cost details use the project name alone in their By project lists. Add only

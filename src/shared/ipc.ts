@@ -299,15 +299,24 @@ export interface ActivityProjectCount {
   count: number
 }
 
-export interface ActivityDay {
-  date: string // YYYY-MM-DD, local time
-  count: number
-  weekday: number // 0 = Sunday, server-computed so the renderer never re-parses `date`
+// One bar's drill-down, precomputed in the overview payload like CostDay/CostHour.
+export interface ActivityBucketDetails {
+  startAt: string // clipped, inclusive ISO boundary
+  endAt: string // clipped ISO boundary
+  count: number // prompts, excluding bare slash commands
+  sessions: number // distinct sessions with at least one prompt
+  slashCommands: number
+  byProject: ActivityProjectCount[] // count desc
 }
 
-export interface ActivityHour {
+export interface ActivityDay extends ActivityBucketDetails {
+  date: string // YYYY-MM-DD, local time
+  weekday: number // 0 = Sunday, server-computed so the renderer never re-parses `date`
+  partial: boolean // the rolling window cuts into this date
+}
+
+export interface ActivityHour extends ActivityBucketDetails {
   key: string // ISO start of a rolling one-hour bucket
-  count: number
 }
 
 export interface ActivityWindow {

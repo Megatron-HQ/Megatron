@@ -181,6 +181,41 @@ async function openUsagePanel(window, panelName) {
   await window.locator('header').getByText(panelName, { exact: true }).waitFor()
 }
 
+// Activity's chart columns, scoped by their ChartBlock label so Cost's columns never match.
+// Nonzero day columns carry aria-haspopup; hour columns (InvocationTrend) are named "<time>: N prompts".
+function activityChart(window, label) {
+  return window.getByText(label, { exact: true }).first().locator('..')
+}
+
+function activityDayColumns(window) {
+  return activityChart(window, 'By day').locator('button[aria-haspopup="dialog"]')
+}
+
+async function openHourlyActivity(window) {
+  await openUsageSection(window)
+  await window
+    .getByRole('radiogroup', { name: 'Activity window' })
+    .getByRole('radio', { name: '24 hours' })
+    .click()
+  await window.getByText('By hour', { exact: true }).waitFor()
+}
+
+function activityHourColumns(window) {
+  return activityChart(window, 'By hour').getByRole('button', { name: /: [1-9][\d,]* prompts?$/ })
+}
+
+async function skipWithoutActivityDay(window) {
+  await openUsageSection(window)
+  return (await activityDayColumns(window).count()) > 0
+    ? null
+    : 'no prompt history in the last 30 days'
+}
+
+async function skipWithoutActivityHour(window) {
+  await openHourlyActivity(window)
+  return (await activityHourColumns(window).count()) > 0 ? null : 'no prompts in the last 24 hours'
+}
+
 /**
  * The Cost section renders one of two shapes depending on whether this machine has any priced
  * `cost-state` history — the SpendBar/RankedList/DayStrip body, or the inline "No cost data yet."
@@ -1250,6 +1285,100 @@ export const scenarios = [
       await openUsageSection(window)
       await window.getByText('By project', { exact: true }).first().scrollIntoViewIfNeeded()
       await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // The first nonzero day column in the default 30-day window — often the partial cutoff day.
+    name: 'usage-activity-day-dialog',
+    screen: 'usage',
+    shouldSkip: skipWithoutActivityDay,
+    async run(window) {
+      await openUsageSection(window)
+      await activityDayColumns(window).first().click()
+      await window.getByRole('dialog', { name: /Activity details/ }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'usage-activity-day-dialog-dark',
+    screen: 'usage',
+    shouldSkip: skipWithoutActivityDay,
+    async run(window) {
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('radio', { name: 'Dark', exact: true }).click()
+      await window.keyboard.press('Escape')
+      await window.getByRole('dialog').waitFor({ state: 'hidden' })
+      await openUsageSection(window)
+      await activityDayColumns(window).last().click()
+      await window.getByRole('dialog', { name: /Activity details/ }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'usage-activity-hour-dialog',
+    screen: 'usage',
+    shouldSkip: skipWithoutActivityHour,
+    async run(window) {
+      await openHourlyActivity(window)
+      await activityHourColumns(window).first().click()
+      await window.getByRole('dialog', { name: /Activity details/ }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // Enter and Space both open the hour dialog; Escape returns focus to the column (ring visible).
+    name: 'usage-activity-hour-keyboard-return',
+    screen: 'usage',
+    shouldSkip: skipWithoutActivityHour,
+    async run(window) {
+      await openHourlyActivity(window)
+      await activityHourColumns(window).first().focus()
+      for (const key of ['Enter', 'Space']) {
+        await window.keyboard.press(key)
+        await window.getByRole('dialog', { name: /Activity details/ }).waitFor()
+        await window.keyboard.press('Escape')
+        await window.getByRole('dialog').waitFor({ state: 'hidden' })
+        await window.waitForTimeout(MOTION_SETTLE_MS)
+      }
+    }
+  },
+  {
+    name: 'usage-activity-day-keyboard-return',
+    screen: 'usage',
+    shouldSkip: skipWithoutActivityDay,
+    async run(window) {
+      await openUsageSection(window)
+      await activityDayColumns(window).first().focus()
+      await window.keyboard.press('Enter')
+      await window.getByRole('dialog', { name: /Activity details/ }).waitFor()
+      await window.keyboard.press('Escape')
+      await window.getByRole('dialog').waitFor({ state: 'hidden' })
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // A zero-prompt day column is inspect-only: clicking it must not open a dialog.
+    name: 'usage-activity-zero-day-inert',
+    screen: 'usage',
+    shouldSkip: async (window) => {
+      await openUsageSection(window)
+      return (await activityChart(window, 'By day')
+        .locator('button[aria-disabled="true"]')
+        .count()) > 0
+        ? null
+        : 'no zero-prompt day in the last 30 days'
+    },
+    async run(window) {
+      await openUsageSection(window)
+      // Playwright treats aria-disabled as not enabled; forcing the click is the point here.
+      await activityChart(window, 'By day')
+        .locator('button[aria-disabled="true"]')
+        .first()
+        .click({ force: true })
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+      if ((await window.getByRole('dialog').count()) > 0) {
+        throw new Error('A zero-prompt Activity day opened a dialog')
+      }
     }
   },
   {

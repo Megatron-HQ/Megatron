@@ -46,7 +46,7 @@ export function InvocationTrend({
   data: TrendBucket[]
   window: SkillStatsWindowKey
   nounSingular?: string
-  onSelectBucket?: (bucket: TrendBucket, label: string) => void
+  onSelectBucket?: (bucket: TrendBucket, label: string, trigger: HTMLButtonElement) => void
 }): React.JSX.Element {
   const reduceMotion = useReducedMotion() === true
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
@@ -77,8 +77,9 @@ export function InvocationTrend({
                   bucket.count > 0 &&
                   'cursor-pointer focus-visible:ring-1 focus-visible:ring-ring'
               )}
-              onClick={() => {
-                if (bucket.count > 0) onSelectBucket?.(bucket, detailLabel(bucket, window))
+              onClick={(event) => {
+                if (bucket.count > 0)
+                  onSelectBucket?.(bucket, detailLabel(bucket, window), event.currentTarget)
               }}
               onMouseEnter={() => setHoveredIndex(index)}
               onFocus={() => setHoveredIndex(index)}
