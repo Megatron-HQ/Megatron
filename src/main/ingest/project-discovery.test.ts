@@ -152,6 +152,116 @@ describe('project discovery continuity', () => {
     ).toEqual([repo])
   })
 
+  describe('nested Git repositories without Claude Code content', () => {
+    let repo: string
+    beforeEach(() => {
+      repo = join(root, 'repo')
+      mkdirSync(join(repo, '.git'), { recursive: true })
+    })
+    const repositories = (projects: ProjectFolder[]): string[] =>
+      projects
+        .filter((entry) => entry.kind === 'repository')
+        .map((entry) => entry.path)
+        .sort()
+
+    it('omits an empty clone inside a repository but keeps an empty top-level repository', () => {
+      const clone = join(repo, 'references', 'clone')
+      mkdirSync(join(clone, '.git'), { recursive: true })
+      mkdirSync(join(clone, 'src'))
+      const empty = join(root, 'empty')
+      mkdirSync(join(empty, '.git'), { recursive: true })
+      expect(repositories(discoverProjects([root]).projects)).toEqual([empty, repo].sort())
+    })
+
+    it('omits an empty submodule whose .git is a file', () => {
+      const submodule = join(repo, 'vendor-lib')
+      mkdirSync(submodule)
+      writeFileSync(join(submodule, '.git'), 'gitdir: ../.git/modules/vendor-lib')
+      expect(repositories(discoverProjects([root]).projects)).toEqual([repo])
+    })
+
+    it('keeps nested repositories with their own skills or settings', () => {
+      const withSkills = join(repo, 'skills-clone')
+      const withSettings = join(repo, 'settings-clone')
+      mkdirSync(join(withSkills, '.git'), { recursive: true })
+      mkdirSync(join(withSkills, '.claude', 'skills'), { recursive: true })
+      mkdirSync(join(withSettings, '.git'), { recursive: true })
+      mkdirSync(join(withSettings, '.claude'))
+      writeFileSync(join(withSettings, '.claude', 'settings.local.json'), '{}')
+      expect(repositories(discoverProjects([root]).projects)).toEqual(
+        [repo, withSkills, withSettings].sort()
+      )
+    })
+
+    it('keeps a nested repository whose unversioned package holds its skills', () => {
+      const clone = join(repo, 'clone')
+      const packageSkills = join(clone, 'packages', 'web', '.claude', 'skills')
+      mkdirSync(join(clone, '.git'), { recursive: true })
+      mkdirSync(packageSkills, { recursive: true })
+      const result = discoverProjects([root])
+      expect(repositories(result.projects)).toEqual([repo, clone].sort())
+      expect(result.skillRoots).toContainEqual({
+        dir: packageSkills,
+        sourceType: 'project',
+        projectRoot: clone
+      })
+    })
+
+    it('hides an empty repository inside a hidden clone but keeps a configured one', () => {
+      const clone = join(repo, 'clone')
+      const emptyInner = join(clone, 'inner')
+      const configuredInner = join(clone, 'configured')
+      for (const directory of [clone, emptyInner, configuredInner])
+        mkdirSync(join(directory, '.git'), { recursive: true })
+      mkdirSync(join(configuredInner, '.claude', 'skills'), { recursive: true })
+      expect(repositories(discoverProjects([root]).projects)).toEqual(
+        [repo, configuredInner].sort()
+      )
+    })
+
+    it('keeps an empty nested repository the user granted directly', () => {
+      const clone = join(repo, 'clone')
+      mkdirSync(join(clone, '.git'), { recursive: true })
+      grantPath(clone)
+      for (const grants of [
+        [root, clone],
+        [clone, root]
+      ]) {
+        expect(repositories(discoverProjects(grants).projects)).toEqual([repo, clone].sort())
+      }
+    })
+
+    it('keeps nested repositories when discovery runs out of budget', () => {
+      const clone = join(repo, 'a', 'clone')
+      mkdirSync(join(clone, '.git'), { recursive: true })
+      mkdirSync(join(repo, 'z'))
+      // root, repo, a, clone fit the budget; z does not, so the scan is incomplete.
+      const result = discoverProjects([root], [], { maxDepth: 64, maxDirectories: 4 })
+      expect(result.incomplete).toBe(true)
+      expect(repositories(result.projects)).toEqual([repo, clone].sort())
+    })
+
+    it('drops a cached entry for a nested repository that is now hidden', () => {
+      const clone = join(repo, 'clone')
+      mkdirSync(join(clone, '.git'), { recursive: true })
+      const previous: ProjectFolder[] = [
+        { path: repo, kind: 'repository', status: 'available' },
+        { path: clone, kind: 'repository', status: 'available' }
+      ]
+      expect(repositories(discoverProjects([root], previous).projects)).toEqual([repo])
+    })
+
+    it('still offers the hidden repository skill root so cached rows reconcile', () => {
+      const clone = join(repo, 'clone')
+      mkdirSync(join(clone, '.git'), { recursive: true })
+      expect(discoverProjects([root]).skillRoots).toContainEqual({
+        dir: join(clone, '.claude', 'skills'),
+        sourceType: 'project',
+        projectRoot: clone
+      })
+    })
+  })
+
   it('prunes previously cached nested entries on a complete scan when readable', () => {
     const repo = join(root, 'repo')
     const nested = join(repo, 'references', 'nested-repo')

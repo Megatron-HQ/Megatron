@@ -24,7 +24,11 @@ the outer granted folder (for example `MegatronHQ/megatron`), preserve display c
 Directly granted repositories retain parent-folder context. Duplicate labels gain ancestors until
 distinct. A repository's own items have a separate "This repo" filter, including zero items;
 grouping folders with direct items retain "This folder".
-Known empty repositories show zero, and unavailable entries identify their cached state.
+Known empty repositories show zero, and unavailable entries identify their cached state. A Git
+repository nested inside another Git repository is listed only when it, or a package it owns, has
+`.claude/skills` or `.claude` settings — an empty clone, submodule, or vendored checkout is not a
+project. It still owns its subtree and keeps its skill root for reconciliation. A directly
+granted repository is always listed, and an incomplete discovery hides nothing.
 
 Plugins combine Project and Local scopes in one Projects tree. Counts and inventory rows use
 distinct `name@marketplace` plus repository; User is a separate context. The same plugin in two

@@ -51,6 +51,9 @@ export function discoverProjects(
   const projects = new Map<string, ProjectFolder>()
   const roots = new Map<string, SkillRoot>()
   const visited = new Set<string>()
+  const gitRepositories = new Set<string>()
+  const nestedGitRepositories = new Set<string>()
+  const claudeContentOwners = new Set<string>()
   let incomplete = false
   const addRoot = (dir: string, projectRoot: string): void => {
     if (!roots.has(pathKey(dir)))
@@ -107,9 +110,14 @@ export function discoverProjects(
       const hasSettings = claude.entries.some(
         (name) => name === 'settings.json' || name === 'settings.local.json'
       )
-      const isRepository =
-        directory.entries.includes('.git') || (owner === undefined && (hasSkills || hasSettings))
+      const hasGit = directory.entries.includes('.git')
+      const isRepository = hasGit || (owner === undefined && (hasSkills || hasSettings))
       const owningProject = isRepository ? canonical : owner
+      if (hasGit) gitRepositories.add(key)
+      if (hasGit && owner !== undefined && gitRepositories.has(pathKey(owner)))
+        nestedGitRepositories.add(key)
+      if ((hasSkills || hasSettings) && owningProject !== undefined)
+        claudeContentOwners.add(pathKey(owningProject))
       if (isRepository || isGrant)
         projects.set(key, {
           path: canonical,
@@ -138,6 +146,16 @@ export function discoverProjects(
       const folder = projects.get(pathKey(grant))
       if (folder && folder.status === 'available') folder.status = 'unavailable'
     }
+  }
+
+  // A Git repository inside another one with no Claude Code content of its own is a clone,
+  // submodule, or vendored dependency, not a project. It still owns its subtree and keeps its
+  // skill root (so cached rows reconcile); it just isn't listed. An incomplete walk may not have
+  // reached its content, and a direct grant is the user naming it, so neither is hidden.
+  if (!incomplete) {
+    const grantKeys = new Set(grants.map(pathKey))
+    for (const key of nestedGitRepositories)
+      if (!claudeContentOwners.has(key) && !grantKeys.has(key)) projects.delete(key)
   }
 
   // Cached discovery is never a permission grant. A revoked ancestor may still be

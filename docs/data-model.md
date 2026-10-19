@@ -9,8 +9,9 @@ are locked here, and this doc is where they are argued.
 The renderer projects plugin identities into repository rows: project and local installs for the
 same `name@marketplace` and normalized `project_path` share one row. Different repositories and
 the User context remain separate rows. This does not change stored plugin or install identity.
-The derived project-folder catalog lives in private preferences, includes empty repositories and
-cached availability, and never grants filesystem access. No schema migration is needed.
+The derived project-folder catalog lives in private preferences, includes empty repositories
+(except empty Git repositories nested inside another, per `docs/skill-scanner.md`) and cached
+availability, and never grants filesystem access. No schema migration is needed.
 
 Nested repositories keep independent `project_root` values. For same-named project skills,
 an invocation belongs to the deepest matching enclosing root, after existing global/synced
