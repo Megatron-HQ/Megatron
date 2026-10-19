@@ -129,7 +129,10 @@ function ProjectNode({
 }): React.JSX.Element {
   const { selected, selection, expanded, onSelect, onItemHover } = navigation
   const resolveProjectLabel = useProjectLabel()
-  const label = node.kind === 'repository' ? resolveProjectLabel(node.path) : node.label
+  // Nested entries already sit under their parent group, so the parent-relative tree label avoids
+  // repeating (and truncating on) that prefix. Top-level repositories keep the app-wide name.
+  const label =
+    depth === 0 && node.kind === 'repository' ? resolveProjectLabel(node.path) : node.label
   const hasChildren = node.children.length > 0
   const exact = !hasChildren && node.kind === 'repository'
   const samePath = selection.path !== undefined && normalizeProjectPath(selection.path) === node.key
