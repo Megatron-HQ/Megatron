@@ -56,7 +56,7 @@ export function startScanWorker(
 }
 
 export function createScanController(start: () => ScanWorkerTask): {
-  request: () => Promise<ScanSummary>
+  request: (options?: { fresh?: boolean }) => Promise<ScanSummary>
   cancel: () => Promise<void>
 } {
   type Completion = {
@@ -70,6 +70,7 @@ export function createScanController(start: () => ScanWorkerTask): {
     completion: Completion
     superseded: boolean
     outcome: Outcome | null
+    refreshRequested: boolean
   }
   let current: ActiveScan | null = null
   let completion: Completion | null = null
@@ -78,14 +79,41 @@ export function createScanController(start: () => ScanWorkerTask): {
   function complete(scan: ActiveScan, outcome: Outcome): void {
     scan.outcome = outcome
     if (scan.superseded) return
+    // A CLI action may finish after this worker read the plugin registry. Keep callers
+    // waiting for one follow-up scan rather than publishing that older snapshot.
+    if (scan.refreshRequested) {
+      startScan(scan.completion)
+      return
+    }
     if (current === scan) current = null
     if (completion === scan.completion) completion = null
     if (outcome.ok) scan.completion.resolve(outcome.summary)
     else scan.completion.reject(outcome.error)
   }
 
+  function startScan(pending: Completion): void {
+    try {
+      const scan: ActiveScan = {
+        task: start(),
+        completion: pending,
+        superseded: false,
+        outcome: null,
+        refreshRequested: false
+      }
+      current = scan
+      void scan.task.result.then(
+        (summary) => complete(scan, { ok: true, summary }),
+        (error) => complete(scan, { ok: false, error })
+      )
+    } catch (error) {
+      current = null
+      completion = null
+      pending.reject(error)
+    }
+  }
+
   return {
-    request() {
+    request(options) {
       if (completion === null) {
         let resolve!: Completion['resolve']
         let reject!: Completion['reject']
@@ -97,23 +125,9 @@ export function createScanController(start: () => ScanWorkerTask): {
       }
       const pending = completion
       if (current === null && cancellation === null) {
-        try {
-          const task = start()
-          const scan: ActiveScan = {
-            task,
-            completion: pending,
-            superseded: false,
-            outcome: null
-          }
-          current = scan
-          void task.result.then(
-            (summary) => complete(scan, { ok: true, summary }),
-            (error) => complete(scan, { ok: false, error })
-          )
-        } catch (error) {
-          completion = null
-          pending.reject(error)
-        }
+        startScan(pending)
+      } else if (current !== null && !current.superseded && options?.fresh) {
+        current.refreshRequested = true
       }
       return pending.result
     },

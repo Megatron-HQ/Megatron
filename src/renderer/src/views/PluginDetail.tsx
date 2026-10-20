@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Loader2, Power, RefreshCw, Trash2 } from 'lucide-react'
 import {
   MarketplaceBadge,
@@ -9,6 +9,11 @@ import {
   PluginUpToDateBadge
 } from '@/components/PluginBadges'
 import { pluginUpdateDetails } from '@/lib/plugin-update'
+import {
+  performPluginAction,
+  type PluginActionVariables,
+  type PluginActionVerb
+} from '@/lib/plugin-action'
 import { isUpdateAvailable } from '../../../shared/version'
 import { TextLink } from '@/components/TextLink'
 import { useProjectLabel } from '@/lib/use-project-label'
@@ -39,7 +44,7 @@ function installKey(install: PluginInstall): string {
   return `${install.scope}:${install.project_path ?? ''}`
 }
 
-type ActionVerb = 'enable' | 'disable' | 'update' | 'uninstall'
+type ActionVerb = PluginActionVerb
 
 interface PluginDetailProps {
   name: string
@@ -100,59 +105,60 @@ export function PluginDetail({
       )
     : rawData
 
-  const [pendingKey, setPendingKey] = useState<string | null>(null)
-  const pendingActionRef = useRef(false)
-  const [actionError, setActionError] = useState<{ install: string; message: string } | null>(null)
   const [uninstallTarget, setUninstallTarget] = useState<PluginInstall | null>(null)
-
-  async function runAction(verb: ActionVerb, install: PluginInstall): Promise<void> {
-    if (pendingActionRef.current) return
-
-    const previousVersion = install.installed_version
-    const target = installKey(install)
-    pendingActionRef.current = true
-    setPendingKey(`${target}:${verb}`)
-    setActionError(null)
-    const input = {
-      name,
-      marketplace,
-      scope: install.scope,
-      projectPath: install.project_path
-    }
-    const apiFn = {
-      enable: window.api.enablePlugin,
-      disable: window.api.disablePlugin,
-      update: window.api.updatePlugin,
-      uninstall: window.api.uninstallPlugin
-    }[verb]
-    try {
-      const result = await apiFn(input)
-      if (!result.ok) {
-        setActionError({ install: target, message: result.stderr ?? 'Action failed.' })
-        return
+  const mutationKey = ['plugin-action', name, marketplace]
+  const actionStates = useMutationState({
+    filters: { mutationKey, exact: true },
+    select: (mutation) => ({
+      status: mutation.state.status,
+      variables: mutation.state.variables as PluginActionVariables | undefined,
+      error: mutation.state.error
+    })
+  })
+  const actionState = actionStates.at(-1)
+  const targetInstall = actionState?.variables
+    ? `${actionState.variables.input.scope}:${actionState.variables.input.projectPath ?? ''}`
+    : null
+  const pendingKey =
+    actionState?.status === 'pending' ? `${targetInstall}:${actionState.variables?.verb}` : null
+  const actionError =
+    actionState?.status === 'error'
+      ? {
+          install: targetInstall,
+          message: actionState.error?.message ?? 'Action failed. Try again.'
+        }
+      : null
+  const actionMutation = useMutation({
+    mutationKey,
+    networkMode: 'always',
+    retry: false,
+    mutationFn: async (variables: PluginActionVariables) => {
+      try {
+        const result = await performPluginAction(variables, window.api)
+        queryClient.setQueriesData(
+          { queryKey: ['plugin-detail', name, marketplace] },
+          result.detail
+        )
+        return result
+      } finally {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['plugin-detail', name, marketplace] }),
+          queryClient.invalidateQueries({ queryKey: ['plugins'] }),
+          queryClient.invalidateQueries({ queryKey: ['skills'] })
+        ])
       }
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey }),
-        queryClient.invalidateQueries({ queryKey: ['plugins'] })
-      ])
-      if (verb === 'update') {
-        const updatedPlugin = await window.api.getPluginDetail(name, marketplace)
-        const latestVersion =
-          updatedPlugin?.plugin.installs.find((row) => installKey(row) === target)
-            ?.installed_version ?? previousVersion
-        onActionSuccess(updateSuccessMessage(name, previousVersion, latestVersion))
-      } else {
-        onActionSuccess(`${name} ${pastTenseVerb(verb)}`)
-      }
-    } catch (error) {
-      setActionError({
-        install: target,
-        message: error instanceof Error ? error.message : 'Action failed unexpectedly. Try again.'
-      })
-    } finally {
-      pendingActionRef.current = false
-      setPendingKey(null)
-    }
+    },
+    onSuccess: (result) => onActionSuccess(result.message)
+  })
+
+  function runAction(verb: ActionVerb, install: PluginInstall): void {
+    // The cache guard is synchronous and survives unmounts, including a rapid back/reopen.
+    if (queryClient.isMutating({ mutationKey, exact: true }) > 0) return
+    actionMutation.mutate({
+      verb,
+      input: { name, marketplace, scope: install.scope, projectPath: install.project_path },
+      previousVersion: install.installed_version
+    })
   }
 
   if (isPending) {
@@ -325,11 +331,15 @@ export function PluginDetail({
               {uninstallTarget?.project_path != null && (
                 <>
                   {' '}
-                  for <span className="font-mono text-xs">{uninstallTarget.project_path}</span>
+                  for{' '}
+                  <span className="font-mono text-xs break-all">
+                    {uninstallTarget.project_path}
+                  </span>
                 </>
               )}{' '}
-              at <span className="font-mono text-xs">{uninstallTarget?.install_path}</span>. This
-              can&apos;t be undone from Megatron.
+              at{' '}
+              <span className="font-mono text-xs break-all">{uninstallTarget?.install_path}</span>.
+              This can&apos;t be undone from Megatron.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -340,10 +350,10 @@ export function PluginDetail({
               type="button"
               variant="destructive"
               disabled={pendingKey !== null}
-              onClick={async () => {
+              onClick={() => {
                 const target = uninstallTarget
                 setUninstallTarget(null)
-                if (target) await runAction('uninstall', target)
+                if (target) runAction('uninstall', target)
               }}
             >
               Uninstall
@@ -353,25 +363,6 @@ export function PluginDetail({
       </Dialog>
     </div>
   )
-}
-
-function pastTenseVerb(verb: ActionVerb): string {
-  return {
-    enable: 'enabled',
-    disable: 'disabled',
-    update: 'updated',
-    uninstall: 'uninstalled'
-  }[verb]
-}
-
-function updateSuccessMessage(
-  name: string,
-  previousVersion: string,
-  latestVersion: string
-): string {
-  return previousVersion === latestVersion
-    ? `${name} already in the latest version ${latestVersion}`
-    : `${name} updated to the latest version ${latestVersion}`
 }
 
 function InstallRow({
@@ -459,12 +450,18 @@ function InstallRow({
             disabled={anyPending || !actionable}
             onClick={disabled ? onEnable : onDisable}
           >
-            {isPending(disabled ? 'enable' : 'disable') ? (
+            {isPending('enable') || isPending('disable') ? (
               <Loader2 className="size-3.5 animate-spin" />
             ) : (
               <Power className="size-3.5" />
             )}
-            {disabled ? 'Enable' : 'Disable'}
+            {isPending('enable')
+              ? 'Enabling…'
+              : isPending('disable')
+                ? 'Disabling…'
+                : disabled
+                  ? 'Enable'
+                  : 'Disable'}
           </Button>
           <Button
             type="button"
@@ -481,7 +478,7 @@ function InstallRow({
             ) : (
               <RefreshCw className="size-3.5" />
             )}
-            Update
+            {isPending('update') ? 'Updating…' : 'Update'}
           </Button>
           <Button
             type="button"
@@ -496,7 +493,7 @@ function InstallRow({
             ) : (
               <Trash2 className="size-3.5" />
             )}
-            Uninstall
+            {isPending('uninstall') ? 'Uninstalling…' : 'Uninstall'}
           </Button>
         </div>
       </div>
@@ -526,7 +523,10 @@ function InstallRow({
         </p>
       )}
       {errorMessage && (
-        <p className="rounded border border-destructive/30 bg-destructive/10 px-2 py-1 font-mono text-[11px] text-destructive">
+        <p
+          role="alert"
+          className="rounded border border-destructive/30 bg-destructive/10 px-2 py-1 font-mono text-[11px] whitespace-pre-wrap break-words text-destructive"
+        >
           {errorMessage}
         </p>
       )}

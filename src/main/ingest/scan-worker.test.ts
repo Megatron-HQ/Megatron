@@ -16,10 +16,58 @@ const api = scans as typeof scans & {
   ) => { result: Promise<ScanSummary>; cancel: () => Promise<void> }
   createScanController: (
     start: () => { result: Promise<ScanSummary>; cancel: () => Promise<void> }
-  ) => { request: () => Promise<ScanSummary>; cancel: () => Promise<void> }
+  ) => {
+    request: (options?: { fresh?: boolean }) => Promise<ScanSummary>
+    cancel: () => Promise<void>
+  }
 }
 
 describe('isolated scans', () => {
+  it('waits for a scan started after a plugin change instead of returning the older snapshot', async () => {
+    let version = '1.0.0'
+    const finishes: (() => void)[] = []
+    const controller = api.createScanController(() => {
+      const snapshot = version
+      return {
+        result: new Promise((resolve) => {
+          finishes.push(() => resolve({ ...summary, completedAt: snapshot }))
+        }),
+        cancel: async () => undefined
+      }
+    })
+    const background = controller.request()
+    version = '2.0.0'
+    const afterAction = controller.request({ fresh: true })
+    const secondAction = controller.request({ fresh: true })
+    finishes[0]()
+    await Promise.resolve()
+    expect(finishes).toHaveLength(2)
+    finishes[1]()
+    expect((await afterAction).completedAt).toBe('2.0.0')
+    expect(await secondAction).toEqual(await afterAction)
+    expect(await background).toEqual(await afterAction)
+  })
+
+  it('runs the requested fresh scan even if the older scan fails', async () => {
+    let failOld!: (error: Error) => void
+    let started = 0
+    const controller = api.createScanController(() => ({
+      result:
+        started++ === 0
+          ? new Promise<ScanSummary>((_resolve, reject) => {
+              failOld = reject
+            })
+          : Promise.resolve(summary),
+      cancel: async () => undefined
+    }))
+    const background = controller.request()
+    const refreshed = controller.request({ fresh: true })
+    failOld(new Error('Old scan failed'))
+    expect(await refreshed).toEqual(summary)
+    expect(await background).toEqual(summary)
+    expect(started).toBe(2)
+  })
+
   it('holds requests made during termination for the replacement scan', async () => {
     let started = 0
     let finish!: (value: ScanSummary) => void

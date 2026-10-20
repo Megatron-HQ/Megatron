@@ -698,6 +698,36 @@ export const scenarios = [
     }
   },
   {
+    name: 'plugin-update-pending-after-navigation',
+    screen: 'plugin-detail',
+    async run(window, app) {
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'User', exact: true }).click()
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('plugins:update', 'pending'))
+      await window.locator('tbody tr').first().click()
+      await window.getByRole('button', { name: 'Update', exact: true }).first().click()
+      await window.getByRole('button', { name: 'Updating…', exact: true }).waitFor()
+      await window.getByRole('button', { name: 'Back to plugins', exact: true }).click()
+      await window.locator('tbody tr').first().click()
+      await window.getByRole('button', { name: 'Updating…', exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'plugin-action-error',
+    screen: 'plugin-detail',
+    async run(window, app) {
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'User', exact: true }).click()
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('plugins:update', 'error'))
+      await window.locator('tbody tr').first().click()
+      await window.getByRole('button', { name: 'Update', exact: true }).first().click()
+      await window
+        .getByRole('alert')
+        .filter({ hasText: 'Visual fixture: unavailable source' })
+        .waitFor()
+    }
+  },
+  {
     name: 'plugin-detail-load-error',
     screen: 'plugin-detail',
     async run(window, app) {

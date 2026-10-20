@@ -93,6 +93,31 @@ describe('disablePlugin', () => {
 })
 
 describe('updatePlugin', () => {
+  it('refreshes the named marketplace before updating the install', async () => {
+    const commands: string[][] = []
+    mockedExecFile.mockImplementation(((...args: unknown[]) => {
+      const command = args[1] as string[]
+      commands.push(command)
+      const callback = args[args.length - 1] as NodeCallback
+      callback(null, '', '')
+    }) as typeof execFile)
+
+    expect(await updatePlugin(input)).toEqual({ ok: true })
+    expect(commands).toEqual([
+      ['plugin', 'marketplace', 'update', 'claude-plugins-official'],
+      ['plugin', 'update', 'ponytail@claude-plugins-official', '--scope', 'user', '-y']
+    ])
+  })
+
+  it('does not update from a stale catalog when the marketplace refresh fails', async () => {
+    fail('Network unavailable')
+    const result = await updatePlugin(input)
+    expect(result.ok).toBe(false)
+    expect(result.stderr).toContain('refresh marketplace')
+    expect(result.stderr).toContain('Network unavailable')
+    expect(mockedExecFile).toHaveBeenCalledTimes(1)
+  })
+
   it('invokes claude plugin update with -y, since Megatron is never a TTY', async () => {
     succeed()
     await updatePlugin(input)
@@ -119,6 +144,23 @@ describe('uninstallPlugin', () => {
 })
 
 describe('action result', () => {
+  it('preserves errors printed on stdout when stderr is empty', async () => {
+    mockedExecFile.mockImplementation(((...args: unknown[]) => {
+      const callback = args[args.length - 1] as NodeCallback
+      callback(new Error('exit 1'), 'Plugin is managed by policy', '')
+    }) as typeof execFile)
+    expect(await disablePlugin(input)).toEqual({ ok: false, stderr: 'Plugin is managed by policy' })
+  })
+
+  it('releases the install lock after a synchronous launch failure so the action can be retried', async () => {
+    mockedExecFile.mockImplementation(() => {
+      throw new Error('Launch failed')
+    })
+    await expect(enablePlugin(input)).resolves.toEqual({ ok: false, stderr: 'Launch failed' })
+    succeed()
+    await expect(enablePlugin(input)).resolves.toEqual({ ok: true })
+  })
+
   it('supports scoped package identifiers without ambiguous marketplace syntax', async () => {
     succeed()
     expect((await enablePlugin({ ...input, name: '@scope/demo' })).ok).toBe(true)

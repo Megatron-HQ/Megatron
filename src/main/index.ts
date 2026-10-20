@@ -160,13 +160,16 @@ const scans = createScanController(() =>
   })
 )
 
-async function scanAndNotify(urgency: ScanUrgency = 'announce'): Promise<ScanSummary> {
+async function scanAndNotify(
+  urgency: ScanUrgency = 'announce',
+  fresh = false
+): Promise<ScanSummary> {
   const previousSuccess = scanSummary?.lastSuccessfulAt ?? null
   const { run, started, promoted } = scanSession.begin(Date.now(), urgency)
   if (started || promoted) notifyScanStarted(run)
   try {
     try {
-      scanSummary = await scans.request()
+      scanSummary = await scans.request({ fresh })
       if (scanSummary.projects) themeStore.set('projectFolders', scanSummary.projects)
     } catch (error) {
       console.error('[ingest] scan failed', error)
@@ -396,25 +399,25 @@ app.whenReady().then(() => {
 
   secureIpc.handle(IPC_CHANNELS.enablePlugin, async (_event, input: PluginActionInput) => {
     const result = await enablePlugin(input)
-    if (result.ok) await scanAndNotify()
+    if (result.ok) await scanAndNotify('quiet', true)
     return result
   })
 
   secureIpc.handle(IPC_CHANNELS.disablePlugin, async (_event, input: PluginActionInput) => {
     const result = await disablePlugin(input)
-    if (result.ok) await scanAndNotify()
+    if (result.ok) await scanAndNotify('quiet', true)
     return result
   })
 
   secureIpc.handle(IPC_CHANNELS.updatePlugin, async (_event, input: PluginActionInput) => {
     const result = await updatePlugin(input)
-    if (result.ok) await scanAndNotify()
+    if (result.ok) await scanAndNotify('quiet', true)
     return result
   })
 
   secureIpc.handle(IPC_CHANNELS.uninstallPlugin, async (_event, input: PluginActionInput) => {
     const result = await uninstallPlugin(input)
-    if (result.ok) await scanAndNotify()
+    if (result.ok) await scanAndNotify('quiet', true)
     return result
   })
 

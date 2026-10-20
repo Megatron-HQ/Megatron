@@ -57,8 +57,12 @@ function runClaudePlugin(args: string[], cwd?: string): Promise<PluginActionResu
       command.executable,
       [...command.prefixArguments, ...args],
       options,
-      (error, _stdout, stderr) => {
-        resolve(error ? { ok: false, stderr: actionError(error, stderr) } : { ok: true })
+      (error, stdout, stderr) => {
+        resolve(
+          error
+            ? { ok: false, stderr: actionError(error, stderr.trim() || stdout.trim()) }
+            : { ok: true }
+        )
       }
     )
   })
@@ -100,7 +104,7 @@ function actionCwd(input: PluginActionInput): { cwd?: string } | { error: string
   return { cwd: input.projectPath }
 }
 
-function runPluginAction(
+async function runPluginAction(
   input: PluginActionInput,
   verb: 'enable' | 'disable' | 'update' | 'uninstall'
 ): Promise<PluginActionResult> {
@@ -121,7 +125,28 @@ function runPluginAction(
   const args = ['plugin', verb, id, '--scope', input.scope]
   if (verb === 'update' || verb === 'uninstall') args.push('-y')
   runningPluginActions.add(actionKey)
-  return runClaudePlugin(args, resolved.cwd).finally(() => runningPluginActions.delete(actionKey))
+  try {
+    if (verb === 'update') {
+      const refreshed = await runClaudePlugin(
+        ['plugin', 'marketplace', 'update', input.marketplace],
+        resolved.cwd
+      )
+      if (!refreshed.ok) {
+        return {
+          ok: false,
+          stderr: `Could not refresh marketplace ${input.marketplace}: ${refreshed.stderr ?? 'Unknown error'}`
+        }
+      }
+    }
+    return await runClaudePlugin(args, resolved.cwd)
+  } catch (error) {
+    return {
+      ok: false,
+      stderr: error instanceof Error ? error.message : 'Could not launch Claude Code. Try again.'
+    }
+  } finally {
+    runningPluginActions.delete(actionKey)
+  }
 }
 
 export function enablePlugin(input: PluginActionInput): Promise<PluginActionResult> {
