@@ -120,11 +120,89 @@ beforeEach(() => {
   runtime.database!.prepare('DELETE FROM allowed_paths').run()
   resetGrantedPaths()
   runtime.contents.send.mockClear()
+  runtime.pickFolders.mockReset()
 })
 
 afterAll(() => runtime.database?.close())
 
 describe('folder access IPC', () => {
+  it('restarts an interrupted scan even if saving the folder grant fails', async () => {
+    let interrupt!: (error: Error) => void
+    const interrupted = new Promise<ScanSummary>((_resolve, reject) => (interrupt = reject))
+    const replacement = deferred<ScanSummary>()
+    runtime.startWorker
+      .mockReturnValueOnce({
+        result: interrupted,
+        cancel: async () => interrupt(new Error('Scan cancelled after folder permissions changed'))
+      })
+      .mockReturnValueOnce({ result: replacement.promise, cancel: async () => undefined })
+    addAllowedPath(runtime.database!, grantPath(folder))
+    runtime.database!.exec(`
+      CREATE TRIGGER fail_grant BEFORE INSERT ON allowed_paths
+      BEGIN SELECT RAISE(ABORT, 'Fixture: grant could not be saved'); END;
+    `)
+    runtime.pickFolders.mockResolvedValueOnce({ canceled: false, filePaths: [folder] })
+    let completed = false
+    const scanning = invoke(IPC_CHANNELS.rescan).then(() => (completed = true))
+    try {
+      await expect(invoke(IPC_CHANNELS.pickAndAddFolders)).rejects.toThrow(
+        'grant could not be saved'
+      )
+      replacement.resolve(summary)
+      await vi.waitFor(() => expect(completed).toBe(true), { timeout: 500 })
+      expect(listAllowedPaths(runtime.database!)).toHaveLength(1)
+    } finally {
+      runtime.database!.exec('DROP TRIGGER fail_grant')
+      replacement.resolve(summary)
+      await invoke(IPC_CHANNELS.rescan)
+      await scanning
+    }
+  })
+
+  it.each(['add', 'revoke'] as const)(
+    'does not publish a failure when %s replaces an active scan',
+    async (action) => {
+      let interrupt!: (error: Error) => void
+      const interrupted = new Promise<ScanSummary>((_resolve, reject) => (interrupt = reject))
+      const replacement = deferred<ScanSummary>()
+      const reportError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      runtime.startWorker
+        .mockReturnValueOnce({
+          result: interrupted,
+          cancel: async () =>
+            interrupt(new Error('Scan cancelled after folder permissions changed'))
+        })
+        .mockReturnValueOnce({ result: replacement.promise, cancel: async () => undefined })
+      addAllowedPath(runtime.database!, grantPath(folder))
+      runtime.pickFolders.mockResolvedValueOnce({ canceled: false, filePaths: [folder] })
+      const scanning = invoke(IPC_CHANNELS.rescan)
+      try {
+        await invoke(
+          action === 'add' ? IPC_CHANNELS.pickAndAddFolders : IPC_CHANNELS.revokeAllowedPath,
+          ...(action === 'revoke' ? [folder] : [])
+        )
+        expect(reportError).not.toHaveBeenCalled()
+        expect(
+          runtime.contents.send.mock.calls.filter(
+            ([channel]) => channel === IPC_CHANNELS.scanComplete
+          )
+        ).toEqual([])
+        expect((await invoke(IPC_CHANNELS.listSkills)) as { scanActivity: unknown }).toMatchObject({
+          scanActivity: expect.objectContaining({ id: expect.any(Number) })
+        })
+      } finally {
+        replacement.resolve(summary)
+        await scanning
+        reportError.mockRestore()
+      }
+      expect(
+        runtime.contents.send.mock.calls.filter(
+          ([channel]) => channel === IPC_CHANNELS.scanComplete
+        )
+      ).toEqual([[IPC_CHANNELS.scanComplete, expect.objectContaining({ summary })]])
+    }
+  )
+
   it('returns a persisted revocation before the replacement scan completes', async () => {
     const scan = deferred<ScanSummary>()
     runtime.startWorker.mockReturnValueOnce({ result: scan.promise, cancel: async () => undefined })

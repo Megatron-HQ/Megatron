@@ -59,35 +59,85 @@ export function createScanController(start: () => ScanWorkerTask): {
   request: () => Promise<ScanSummary>
   cancel: () => Promise<void>
 } {
-  let current: { task: ScanWorkerTask; result: Promise<ScanSummary> } | null = null
-  let cancelling = false
+  type Completion = {
+    result: Promise<ScanSummary>
+    resolve: (summary: ScanSummary) => void
+    reject: (error: unknown) => void
+  }
+  type Outcome = { ok: true; summary: ScanSummary } | { ok: false; error: unknown }
+  type ActiveScan = {
+    task: ScanWorkerTask
+    completion: Completion
+    superseded: boolean
+    outcome: Outcome | null
+  }
+  let current: ActiveScan | null = null
+  let completion: Completion | null = null
+  let cancellation: Promise<void> | null = null
+
+  function complete(scan: ActiveScan, outcome: Outcome): void {
+    scan.outcome = outcome
+    if (scan.superseded) return
+    if (current === scan) current = null
+    if (completion === scan.completion) completion = null
+    if (outcome.ok) scan.completion.resolve(outcome.summary)
+    else scan.completion.reject(outcome.error)
+  }
+
   return {
     request() {
-      if (cancelling) return Promise.reject(new Error('Scan cancellation is in progress'))
-      if (current !== null) return current.result
-      const task = start()
-      const pending = { task, result: task.result }
-      current = pending
-      void task.result.then(
-        () => {
-          if (current === pending) current = null
-        },
-        () => {
-          if (current === pending) current = null
+      if (completion === null) {
+        let resolve!: Completion['resolve']
+        let reject!: Completion['reject']
+        const result = new Promise<ScanSummary>((accept, fail) => {
+          resolve = accept
+          reject = fail
+        })
+        completion = { result, resolve, reject }
+      }
+      const pending = completion
+      if (current === null && cancellation === null) {
+        try {
+          const task = start()
+          const scan: ActiveScan = {
+            task,
+            completion: pending,
+            superseded: false,
+            outcome: null
+          }
+          current = scan
+          void task.result.then(
+            (summary) => complete(scan, { ok: true, summary }),
+            (error) => complete(scan, { ok: false, error })
+          )
+        } catch (error) {
+          completion = null
+          pending.reject(error)
         }
-      )
+      }
       return pending.result
     },
-    async cancel() {
+    cancel() {
+      if (cancellation !== null) return cancellation
       const pending = current
-      if (pending === null) return
-      cancelling = true
-      try {
-        await pending.task.cancel()
-      } finally {
-        if (current === pending) current = null
-        cancelling = false
-      }
+      if (pending === null) return Promise.resolve()
+      // Permission changes replace the worker, but all callers still need the new result.
+      pending.superseded = true
+      cancellation = Promise.resolve()
+        .then(() => pending.task.cancel())
+        .then(
+          () => {
+            if (current === pending) current = null
+            cancellation = null
+          },
+          (error) => {
+            cancellation = null
+            pending.superseded = false
+            if (pending.outcome !== null) complete(pending, pending.outcome)
+            throw error
+          }
+        )
+      return cancellation
     }
   }
 }

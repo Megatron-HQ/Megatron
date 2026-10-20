@@ -359,20 +359,26 @@ app.whenReady().then(() => {
     }
     const db = getDb()
     await scans.cancel()
-    for (const filePath of result.filePaths) {
-      addAllowedPath(db, grantPath(filePath))
+    try {
+      for (const filePath of result.filePaths) {
+        addAllowedPath(db, grantPath(filePath))
+      }
+    } finally {
+      void scanAndNotify()
     }
-    void scanAndNotify()
     return listAllowedPaths(db)
   })
 
   secureIpc.handle(IPC_CHANNELS.revokeAllowedPath, async (_event, path: string) => {
     const db = getDb()
     await scans.cancel()
-    revokePath(path)
-    removeAllowedPath(db, path)
-    deleteSkillsForProjectRoot(db, path, isPathAllowed)
-    void scanAndNotify()
+    try {
+      revokePath(path)
+      removeAllowedPath(db, path)
+      deleteSkillsForProjectRoot(db, path, isPathAllowed)
+    } finally {
+      void scanAndNotify()
+    }
     return listAllowedPaths(db)
   })
 
