@@ -49,6 +49,12 @@ async function enableProjectHierarchy(window, app, mode = 'project-tree') {
   await window.getByRole('button', { name: 'Projects', exact: true }).waitFor()
 }
 
+async function openManageFolders(window) {
+  await window.getByRole('button', { name: 'Settings', exact: true }).click()
+  await window.getByRole('button', { name: 'Manage…', exact: true }).click()
+  await window.getByRole('dialog', { name: 'Project Folders', exact: true }).waitFor()
+}
+
 /** Row click → SkillDetail, the common opening move for several scenarios below. */
 async function openFirstSkillDetail(window) {
   await window.locator('tbody tr').first().click()
@@ -599,6 +605,78 @@ export const scenarios = [
       await window.getByRole('button', { name: 'Scan details', exact: true }).click()
       await window.getByRole('button', { name: 'Manage folder access', exact: true }).click()
       await window.getByRole('button', { name: 'Add Folder...', exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'manage-folders-revoking',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app)
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('folders:revoke', 'pending'))
+      await openManageFolders(window)
+      await window
+        .getByRole('button', { name: /^Revoke access to/ })
+        .first()
+        .click()
+      await window.getByRole('status').filter({ hasText: 'Revoking folder access' }).waitFor()
+    }
+  },
+  {
+    name: 'manage-folders-revoke-error',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app)
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('folders:revoke', 'error'))
+      await openManageFolders(window)
+      await window
+        .getByRole('button', { name: /^Revoke access to/ })
+        .first()
+        .click()
+      await window
+        .getByRole('alert')
+        .filter({ hasText: 'Could not revoke folder access' })
+        .waitFor()
+    }
+  },
+  {
+    name: 'manage-folders-revoked-before-refetch',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app)
+      await openManageFolders(window)
+      await app.evaluate(() => {
+        globalThis.megatronVisualFixtures.set('folders:revoke', 'empty-folders')
+        globalThis.megatronVisualFixtures.set('folders:list', 'pending')
+      })
+      await window
+        .getByRole('button', { name: /^Revoke access to/ })
+        .first()
+        .click()
+      await window.getByText('No project folders granted', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'manage-folders-adding',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app)
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('folders:pickAndAdd', 'pending')
+      )
+      await openManageFolders(window)
+      await window.getByRole('button', { name: 'Add Folder...', exact: true }).click()
+      await window.getByRole('status').filter({ hasText: 'Adding folders' }).waitFor()
+    }
+  },
+  {
+    name: 'manage-folders-add-error',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app)
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('folders:pickAndAdd', 'error'))
+      await openManageFolders(window)
+      await window.getByRole('button', { name: 'Add Folder...', exact: true }).click()
+      await window.getByRole('alert').filter({ hasText: 'Could not add folders' }).waitFor()
     }
   },
   {

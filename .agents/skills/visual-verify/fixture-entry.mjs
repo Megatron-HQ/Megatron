@@ -26,6 +26,7 @@ globalThis.megatronVisualFixtures = {
     registerHandler(channel, async (event, ...args) => {
       if (mode === 'error') throw new Error('Visual fixture: unavailable source')
       if (mode === 'pending') return new Promise(() => {})
+      if (mode === 'empty-folders') return []
       const result = await original(event, ...args)
       if (mode.startsWith('project-tree')) return projectTreeFixture(channel, args, result, mode)
       if (

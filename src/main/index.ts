@@ -362,7 +362,7 @@ app.whenReady().then(() => {
     for (const filePath of result.filePaths) {
       addAllowedPath(db, grantPath(filePath))
     }
-    await scanAndNotify()
+    void scanAndNotify()
     return listAllowedPaths(db)
   })
 
@@ -372,7 +372,7 @@ app.whenReady().then(() => {
     revokePath(path)
     removeAllowedPath(db, path)
     deleteSkillsForProjectRoot(db, path, isPathAllowed)
-    await scanAndNotify()
+    void scanAndNotify()
     return listAllowedPaths(db)
   })
 

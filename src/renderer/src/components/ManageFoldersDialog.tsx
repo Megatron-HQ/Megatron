@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Folder, FolderPlus, Trash2 } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { CircleAlert, Folder, FolderPlus, LoaderCircle, Trash2 } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -21,6 +21,8 @@ interface ManageFoldersDialogProps {
   onRevokeFolder: (path: string) => Promise<void>
 }
 
+type FolderAction = { kind: 'add' } | { kind: 'revoke'; path: string }
+
 export function ManageFoldersDialog({
   open,
   onOpenChange,
@@ -29,23 +31,28 @@ export function ManageFoldersDialog({
   onRevokeFolder
 }: ManageFoldersDialogProps): React.JSX.Element {
   const resolveProjectLabel = useProjectLabel()
-  const [loading, setLoading] = useState(false)
+  const [pendingAction, setPendingAction] = useState<FolderAction | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const actionInProgress = useRef(false)
+  const loading = pendingAction !== null
 
-  async function handleAdd(): Promise<void> {
-    setLoading(true)
+  async function runAction(action: FolderAction): Promise<void> {
+    if (actionInProgress.current) return
+    actionInProgress.current = true
+    setPendingAction(action)
+    setError(null)
     try {
-      await onAddFolders()
+      if (action.kind === 'add') await onAddFolders()
+      else await onRevokeFolder(action.path)
+    } catch {
+      setError(
+        action.kind === 'add'
+          ? 'Could not add folders. Please try again.'
+          : 'Could not revoke folder access. Please try again.'
+      )
     } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handleRevoke(path: string): Promise<void> {
-    setLoading(true)
-    try {
-      await onRevokeFolder(path)
-    } finally {
-      setLoading(false)
+      actionInProgress.current = false
+      setPendingAction(null)
     }
   }
 
@@ -96,11 +103,18 @@ export function ManageFoldersDialog({
                     <button
                       type="button"
                       disabled={loading}
-                      onClick={() => handleRevoke(folder.path)}
-                      className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => void runAction({ kind: 'revoke', path: folder.path })}
+                      className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50"
                       aria-label={`Revoke access to ${resolveProjectLabel(folder.path)}`}
+                      aria-busy={
+                        pendingAction?.kind === 'revoke' && pendingAction.path === folder.path
+                      }
                     >
-                      <Trash2 className="size-4" />
+                      {pendingAction?.kind === 'revoke' && pendingAction.path === folder.path ? (
+                        <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" />
+                      ) : (
+                        <Trash2 className="size-4" />
+                      )}
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>Revoke folder access</TooltipContent>
@@ -110,12 +124,24 @@ export function ManageFoldersDialog({
           )}
         </div>
 
+        {pendingAction && (
+          <p role="status" className="text-xs text-muted-foreground">
+            {pendingAction.kind === 'add' ? 'Adding folders…' : 'Revoking folder access…'}
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="flex items-center gap-2 text-xs text-destructive">
+            <CircleAlert className="size-4 shrink-0" aria-hidden="true" />
+            {error}
+          </p>
+        )}
+
         <DialogFooter className="flex items-center justify-between sm:justify-between">
           <Button
             type="button"
             variant="outline"
             size="sm"
-            onClick={handleAdd}
+            onClick={() => void runAction({ kind: 'add' })}
             disabled={loading}
             className="flex items-center gap-1.5"
           >

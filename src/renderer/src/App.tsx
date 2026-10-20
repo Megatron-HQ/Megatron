@@ -334,16 +334,17 @@ function App(): React.JSX.Element {
   }
 
   async function handleAddFolders(): Promise<void> {
-    await window.api.pickAndAddFolders()
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['skills'] }),
-      queryClient.invalidateQueries({ queryKey: ['folders'] }),
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
-    ])
+    const folders = await window.api.pickAndAddFolders()
+    await queryClient.cancelQueries({ queryKey: ['folders'] })
+    queryClient.setQueryData(['folders'], folders)
+    void queryClient.invalidateQueries({ queryKey: ['skills'] })
+    void queryClient.invalidateQueries({ queryKey: ['projects'] })
   }
 
   async function handleRevokeFolder(path: string): Promise<void> {
     const remaining = await window.api.revokeAllowedPath(path)
+    await queryClient.cancelQueries({ queryKey: ['folders'] })
+    queryClient.setQueryData(['folders'], remaining)
     const covered = (selectedPath: string): boolean =>
       remaining.some((folder) => isWithinProjectPath(selectedPath, folder.path))
     if (filter.kind === 'project' && filter.projectRoot && !covered(filter.projectRoot))
@@ -360,11 +361,8 @@ function App(): React.JSX.Element {
       !covered(pluginView.context.path)
     )
       setPluginView({ kind: 'list' })
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['skills'] }),
-      queryClient.invalidateQueries({ queryKey: ['folders'] }),
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
-    ])
+    void queryClient.invalidateQueries({ queryKey: ['skills'] })
+    void queryClient.invalidateQueries({ queryKey: ['projects'] })
   }
 
   function showPluginActionToast(message: string): void {
