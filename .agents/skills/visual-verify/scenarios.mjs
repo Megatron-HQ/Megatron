@@ -697,6 +697,62 @@ export const scenarios = [
       await window.getByText('Could not load this skill.', { exact: true }).waitFor()
     }
   },
+  ...[
+    { phase: 'marketplace', label: 'Refreshing marketplace…' },
+    { phase: 'verify', label: 'Verifying…' }
+  ].map(({ phase, label }) => ({
+    name: `plugin-update-${phase}`,
+    screen: 'plugin-detail',
+    async run(window, app) {
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'User', exact: true }).click()
+      await app.evaluate(
+        (_electron, phase) =>
+          globalThis.megatronVisualFixtures.set('plugins:update', `update-phase-${phase}`),
+        phase
+      )
+      await window.locator('tbody tr').first().click()
+      await window.getByRole('button', { name: 'Update', exact: true }).first().click()
+      await window.getByRole('button', { name: label, exact: true }).waitFor()
+    }
+  })),
+  ...[
+    { verb: 'disable', state: 'plugin-enabled', button: 'Disable', pending: 'Disabling\u2026' },
+    { verb: 'enable', state: 'plugin-disabled', button: 'Enable', pending: 'Enabling\u2026' }
+  ].map(({ verb, state, button, pending }) => ({
+    name: `plugin-${verb}-pending-after-navigation`,
+    screen: 'plugin-detail',
+    async run(window, app) {
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'User', exact: true }).click()
+      await app.evaluate(
+        (_electron, { verb, state }) => {
+          globalThis.megatronVisualFixtures.set('plugins:detail', state)
+          globalThis.megatronVisualFixtures.set(`plugins:${verb}`, 'pending')
+        },
+        { verb, state }
+      )
+      await window.locator('tbody tr').first().click()
+      await window.getByRole('button', { name: button, exact: true }).first().click()
+      await window.getByRole('button', { name: pending, exact: true }).waitFor()
+      await window.getByRole('button', { name: 'Back to plugins', exact: true }).click()
+      await window.locator('tbody tr').first().click()
+      await window.getByRole('button', { name: pending, exact: true }).waitFor()
+    }
+  })),
+  {
+    name: 'plugin-disabled-state',
+    screen: 'plugin-detail',
+    async run(window, app) {
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'User', exact: true }).click()
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('plugins:detail', 'plugin-disabled')
+      )
+      await window.locator('tbody tr').first().click()
+      await window.getByRole('button', { name: 'Enable', exact: true }).first().waitFor()
+    }
+  },
   {
     name: 'plugin-update-pending-after-navigation',
     screen: 'plugin-detail',

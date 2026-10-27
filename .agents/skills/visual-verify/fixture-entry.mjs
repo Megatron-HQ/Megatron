@@ -26,8 +26,26 @@ globalThis.megatronVisualFixtures = {
     registerHandler(channel, async (event, ...args) => {
       if (mode === 'error') throw new Error('Visual fixture: unavailable source')
       if (mode === 'pending') return new Promise(() => {})
+      if (channel === 'plugins:update' && mode.startsWith('update-phase-')) {
+        event.sender.send('plugins:updateProgress', {
+          input: args[0],
+          phase: mode.slice('update-phase-'.length)
+        })
+        return new Promise(() => {})
+      }
       if (mode === 'empty-folders') return []
       const result = await original(event, ...args)
+      if (mode === 'plugin-disabled' || mode === 'plugin-enabled') {
+        const disabled = mode === 'plugin-disabled' ? 'plugin' : null
+        const transform = (plugin) => ({
+          ...plugin,
+          disabled_reason: disabled,
+          installs: plugin.installs.map((install) => ({ ...install, disabled_reason: disabled }))
+        })
+        if (channel === 'plugins:detail' && result)
+          return { ...result, plugin: transform(result.plugin) }
+        if (channel === 'plugins:list') return result.map(transform)
+      }
       if (mode.startsWith('project-tree')) return projectTreeFixture(channel, args, result, mode)
       if (
         channel === 'skills:list' &&

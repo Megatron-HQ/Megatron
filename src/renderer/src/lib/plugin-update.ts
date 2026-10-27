@@ -13,7 +13,8 @@ export function pluginUpdateDetails(plugin: PluginRow): {
   const behindInstalls = plugin.installs.filter((install) =>
     isUpdateAvailable(
       install.installed_version,
-      install.available_version ?? plugin.available_version
+      install.available_version ?? plugin.available_version,
+      install.git_commit_sha
     )
   )
   if (behindInstalls.length === 0) {

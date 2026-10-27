@@ -4,6 +4,7 @@ import type {
   OpenSkillMetaResult,
   OpenSkillResult,
   PluginActionInput,
+  PluginUpdateProgress,
   PluginActionResult,
   PluginDetailResult,
   PluginRow,
@@ -45,6 +46,7 @@ interface Api {
   rescan: () => Promise<ScanSummary>
   revealDataFolder: () => Promise<void>
   getVersion: () => string
+  onPluginUpdateProgress: (callback: (progress: PluginUpdateProgress) => void) => () => void
   onScanStarted: (callback: (activity: ScanActivity) => void) => () => void
   onScanComplete: (callback: (finished: ScanFinished) => void) => () => void
 }

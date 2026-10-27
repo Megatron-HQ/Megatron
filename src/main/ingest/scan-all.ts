@@ -55,8 +55,10 @@ export function startScanWorker(
   }
 }
 
-export function createScanController(start: () => ScanWorkerTask): {
-  request: (options?: { fresh?: boolean }) => Promise<ScanSummary>
+export type ScanScope = 'all' | 'plugins'
+
+export function createScanController(start: (scope: ScanScope) => ScanWorkerTask): {
+  request: (options?: { fresh?: boolean; scope?: ScanScope }) => Promise<ScanSummary>
   cancel: () => Promise<void>
 } {
   type Completion = {
@@ -67,35 +69,25 @@ export function createScanController(start: () => ScanWorkerTask): {
   type Outcome = { ok: true; summary: ScanSummary } | { ok: false; error: unknown }
   type ActiveScan = {
     task: ScanWorkerTask
-    completion: Completion
+    scope: ScanScope
     superseded: boolean
     outcome: Outcome | null
     refreshRequested: boolean
   }
+  const completions = new Map<ScanScope, Completion>()
   let current: ActiveScan | null = null
-  let completion: Completion | null = null
   let cancellation: Promise<void> | null = null
+  let permissionEpoch = 0
 
-  function complete(scan: ActiveScan, outcome: Outcome): void {
-    scan.outcome = outcome
-    if (scan.superseded) return
-    // A CLI action may finish after this worker read the plugin registry. Keep callers
-    // waiting for one follow-up scan rather than publishing that older snapshot.
-    if (scan.refreshRequested) {
-      startScan(scan.completion)
-      return
-    }
-    if (current === scan) current = null
-    if (completion === scan.completion) completion = null
-    if (outcome.ok) scan.completion.resolve(outcome.summary)
-    else scan.completion.reject(outcome.error)
-  }
-
-  function startScan(pending: Completion): void {
+  function startNext(): void {
+    if (current !== null || cancellation !== null) return
+    const scope = completions.has('plugins') ? 'plugins' : 'all'
+    const pending = completions.get(scope)
+    if (!pending) return
     try {
       const scan: ActiveScan = {
-        task: start(),
-        completion: pending,
+        task: start(scope),
+        scope,
         superseded: false,
         outcome: null,
         refreshRequested: false
@@ -106,52 +98,88 @@ export function createScanController(start: () => ScanWorkerTask): {
         (error) => complete(scan, { ok: false, error })
       )
     } catch (error) {
-      current = null
-      completion = null
+      completions.delete(scope)
       pending.reject(error)
+      startNext()
     }
+  }
+
+  function complete(scan: ActiveScan, outcome: Outcome): void {
+    scan.outcome = outcome
+    if (scan.superseded) return
+    if (current === scan) current = null
+    // A command may finish after this worker read the registry. Its callers need a new snapshot.
+    if (!scan.refreshRequested) {
+      const pending = completions.get(scan.scope)
+      completions.delete(scan.scope)
+      if (outcome.ok) pending?.resolve(outcome.summary)
+      else pending?.reject(outcome.error)
+    }
+    startNext()
+  }
+
+  function cancelActive(): Promise<void> {
+    if (cancellation !== null) return cancellation
+    const active = current
+    if (active === null) return Promise.resolve()
+    active.superseded = true
+    cancellation = Promise.resolve()
+      .then(() => active.task.cancel())
+      .then(
+        () => {
+          if (current === active) current = null
+          cancellation = null
+        },
+        (error) => {
+          cancellation = null
+          active.superseded = false
+          if (active.outcome !== null) complete(active, active.outcome)
+          throw error
+        }
+      )
+    return cancellation
+  }
+
+  function prioritizePlugins(): void {
+    const epoch = permissionEpoch
+    void cancelActive().then(
+      () => {
+        // A folder picker/revocation must finish changing grants before any worker restarts.
+        if (permissionEpoch === epoch) startNext()
+      },
+      (error) => {
+        const pending = completions.get('plugins')
+        completions.delete('plugins')
+        pending?.reject(error)
+      }
+    )
   }
 
   return {
     request(options) {
-      if (completion === null) {
+      const scope = options?.scope ?? 'all'
+      let pending = completions.get(scope)
+      if (!pending) {
         let resolve!: Completion['resolve']
         let reject!: Completion['reject']
         const result = new Promise<ScanSummary>((accept, fail) => {
           resolve = accept
           reject = fail
         })
-        completion = { result, resolve, reject }
+        pending = { result, resolve, reject }
+        completions.set(scope, pending)
       }
-      const pending = completion
       if (current === null && cancellation === null) {
-        startScan(pending)
-      } else if (current !== null && !current.superseded && options?.fresh) {
-        current.refreshRequested = true
+        startNext()
+      } else if (current !== null && !current.superseded) {
+        if (current.scope === scope && options?.fresh) current.refreshRequested = true
+        if (scope === 'plugins' && current.scope === 'all') prioritizePlugins()
       }
       return pending.result
     },
     cancel() {
-      if (cancellation !== null) return cancellation
-      const pending = current
-      if (pending === null) return Promise.resolve()
-      // Permission changes replace the worker, but all callers still need the new result.
-      pending.superseded = true
-      cancellation = Promise.resolve()
-        .then(() => pending.task.cancel())
-        .then(
-          () => {
-            if (current === pending) current = null
-            cancellation = null
-          },
-          (error) => {
-            cancellation = null
-            pending.superseded = false
-            if (pending.outcome !== null) complete(pending, pending.outcome)
-            throw error
-          }
-        )
-      return cancellation
+      permissionEpoch++
+      return cancelActive()
     }
   }
 }

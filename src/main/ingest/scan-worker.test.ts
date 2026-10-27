@@ -23,6 +23,58 @@ const api = scans as typeof scans & {
 }
 
 describe('isolated scans', () => {
+  it('prioritizes a post-update plugin scan and resumes the interrupted full scan afterward', async () => {
+    const starts: string[] = []
+    const finishes: ((summary: ScanSummary) => void)[] = []
+    const controller = scans.createScanController((scope) => {
+      starts.push(scope)
+      let rejectTask!: (error: Error) => void
+      return {
+        result: new Promise<ScanSummary>((resolve, reject) => {
+          finishes.push(resolve)
+          rejectTask = reject
+        }),
+        cancel: async () => rejectTask(new Error('Interrupted'))
+      }
+    })
+    const background = controller.request()
+    const updated = controller.request({ scope: 'plugins', fresh: true })
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(starts).toEqual(['all', 'plugins'])
+    finishes[1]({ ...summary, sources: [{ name: 'scanPluginRegistry', status: 'complete' }] })
+    expect((await updated).sources).toEqual([{ name: 'scanPluginRegistry', status: 'complete' }])
+    expect(starts).toEqual(['all', 'plugins', 'all'])
+    finishes[2](summary)
+    expect(await background).toEqual(summary)
+  })
+
+  it('does not restart a preempted scan until a folder permission change is finished', async () => {
+    let releaseCancellation!: () => void
+    let finish!: (summary: ScanSummary) => void
+    const starts: string[] = []
+    const controller = scans.createScanController((scope) => {
+      starts.push(scope)
+      return {
+        result: new Promise<ScanSummary>((resolve) => (finish = resolve)),
+        cancel: () => new Promise<void>((resolve) => (releaseCancellation = resolve))
+      }
+    })
+    const background = controller.request()
+    const updated = controller.request({ scope: 'plugins', fresh: true })
+    const permissionChange = controller.cancel()
+    await Promise.resolve()
+    releaseCancellation()
+    await permissionChange
+    await Promise.resolve()
+    expect(starts).toEqual(['all'])
+    controller.request()
+    expect(starts).toEqual(['all', 'plugins'])
+    finish(summary)
+    await updated
+    finish(summary)
+    await background
+  })
+
   it('waits for a scan started after a plugin change instead of returning the older snapshot', async () => {
     let version = '1.0.0'
     const finishes: (() => void)[] = []

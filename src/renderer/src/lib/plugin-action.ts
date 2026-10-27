@@ -1,5 +1,6 @@
 import type { PluginActionInput, PluginActionResult, PluginDetailResult } from '../../../shared/ipc'
 import { isUpdateAvailable } from '../../../shared/version'
+import { normalizeProjectPath } from '../../../shared/project-path'
 
 export type PluginActionVerb = 'enable' | 'disable' | 'update' | 'uninstall'
 export interface PluginActionVariables {
@@ -30,16 +31,24 @@ export async function performPluginAction(
     throw new Error(message || 'Action failed unexpectedly. Try again.')
   }
   if (!result.ok) throw new Error(result.stderr?.trim() || 'Action failed. Try again.')
+  if (result.verificationError) throw new Error(result.verificationError)
 
   const verificationMessage = `The ${verb} command completed, but Megatron could not verify the result. Refresh the plugin list to check its current state.`
   let detail: PluginDetailResult | null
   try {
-    detail = await api.getPluginDetail(input.name, input.marketplace)
+    detail =
+      result.detail !== undefined
+        ? result.detail
+        : await api.getPluginDetail(input.name, input.marketplace)
   } catch {
     throw new Error(verificationMessage)
   }
   const install = detail?.plugin.installs.find(
-    (row) => row.scope === input.scope && row.project_path === input.projectPath
+    (row) =>
+      row.scope === input.scope &&
+      (row.project_path === null || input.projectPath === null
+        ? row.project_path === input.projectPath
+        : normalizeProjectPath(row.project_path) === normalizeProjectPath(input.projectPath))
   )
   if (verb === 'uninstall') {
     if (install) throw new Error(verificationMessage)
@@ -54,7 +63,7 @@ export async function performPluginAction(
   }
 
   const availableVersion = install.available_version ?? detail?.plugin.available_version ?? null
-  if (isUpdateAvailable(install.installed_version, availableVersion)) {
+  if (isUpdateAvailable(install.installed_version, availableVersion, install.git_commit_sha)) {
     throw new Error(
       `Claude Code finished, but ${input.name} still has an update available (${install.installed_version} → ${availableVersion}). Refresh the plugin list and try again.`
     )

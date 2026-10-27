@@ -38,3 +38,40 @@ test('skips disabled-skill scenarios only when no disabled skill is available', 
     assert.equal(skipWhenPresent, null, name)
   }
 })
+
+test('plugin scenarios pass fixture arguments through ElectronApplication.evaluate correctly', async () => {
+  const locator = { click: async () => {}, waitFor: async () => {}, first: () => locator }
+  const window = { getByRole: () => locator, locator: () => locator }
+  const previous = globalThis.megatronVisualFixtures
+  try {
+    for (const [name, expected] of [
+      ['plugin-update-marketplace', [['plugins:update', 'update-phase-marketplace']]],
+      ['plugin-update-verify', [['plugins:update', 'update-phase-verify']]],
+      [
+        'plugin-disable-pending-after-navigation',
+        [
+          ['plugins:detail', 'plugin-enabled'],
+          ['plugins:disable', 'pending']
+        ]
+      ],
+      [
+        'plugin-enable-pending-after-navigation',
+        [
+          ['plugins:detail', 'plugin-disabled'],
+          ['plugins:enable', 'pending']
+        ]
+      ]
+    ]) {
+      const calls = []
+      globalThis.megatronVisualFixtures = { set: (channel, mode) => calls.push([channel, mode]) }
+      const app = {
+        evaluate: async (callback, argument) => callback({ app: {}, ipcMain: {} }, argument)
+      }
+      await scenarioByName(name).run(window, app)
+      assert.deepEqual(calls, expected, name)
+    }
+  } finally {
+    if (previous === undefined) delete globalThis.megatronVisualFixtures
+    else globalThis.megatronVisualFixtures = previous
+  }
+})

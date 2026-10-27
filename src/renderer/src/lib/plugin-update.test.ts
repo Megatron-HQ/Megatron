@@ -34,6 +34,20 @@ function makePlugin(overrides: Partial<PluginRow> = {}): PluginRow {
 }
 
 describe('pluginUpdateDetails', () => {
+  it('keeps a release-labeled install current when its recorded commit matches the marketplace', () => {
+    const plugin = makePlugin({
+      available_version: '41f619d61b99',
+      installs: [
+        makeInstall({
+          installed_version: '1.0.0',
+          available_version: '41f619d61b99',
+          git_commit_sha: '41f619d61b999adec1a1c8deb97d1a5b6ac35bb6'
+        })
+      ]
+    })
+    expect(pluginUpdateDetails(plugin).hasUpdate).toBe(false)
+  })
+
   it('returns hasUpdate: false when installed version matches available version', () => {
     const plugin = makePlugin({
       installed_version: '1.0.0',

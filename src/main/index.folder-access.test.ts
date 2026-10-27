@@ -17,6 +17,10 @@ const runtime = vi.hoisted(() => ({
   },
   pickFolders: vi.fn(),
   startWorker: vi.fn(),
+  updatePlugin: vi.fn(),
+  enablePlugin: vi.fn(),
+  disablePlugin: vi.fn(),
+  uninstallPlugin: vi.fn(),
   database: undefined as Database.Database | undefined
 }))
 
@@ -78,6 +82,14 @@ vi.mock('@electron-toolkit/utils', () => ({
 vi.mock('../../resources/icon.png?asset', () => ({ default: 'icon.png' }))
 vi.mock('../../resources/icon.ico?asset', () => ({ default: 'icon.ico' }))
 vi.mock('./db', () => ({ getDb: () => runtime.database }))
+vi.mock('./plugin-actions', async (original) => ({
+  ...(await original<typeof import('./plugin-actions')>()),
+  updatePlugin: runtime.updatePlugin,
+  enablePlugin: runtime.enablePlugin,
+  disablePlugin: runtime.disablePlugin,
+  uninstallPlugin: runtime.uninstallPlugin
+}))
+
 vi.mock('./permissions', async (original) => ({
   ...(await original<typeof import('./permissions')>()),
   securePrivateDataDirectory: vi.fn()
@@ -315,4 +327,168 @@ describe('folder access IPC', () => {
       reportError.mockRestore()
     }
   })
+})
+
+describe('plugin update IPC', () => {
+  const input = { name: 'demo', marketplace: 'market', scope: 'user', projectPath: null }
+  function seedInstall(): void {
+    runtime.database!.prepare('DELETE FROM plugin_registry').run()
+    runtime
+      .database!.prepare(
+        `INSERT INTO plugin_registry
+      (name, marketplace, scope, project_path, install_path, installed_version, available_version, last_scanned_at)
+      VALUES ('demo', 'market', 'user', '', '/fixture/plugin', '1.0.0', '2.0.0', '2026-10-20')`
+      )
+      .run()
+    runtime.updatePlugin.mockImplementation(async () => {
+      runtime.database!.prepare("UPDATE plugin_registry SET installed_version = '2.0.0'").run()
+      return { ok: true }
+    })
+  }
+
+  it('returns the refreshed plugin snapshot and requests only plugin work before completion', async () => {
+    seedInstall()
+    const scopes: string[] = []
+    runtime.startWorker.mockImplementation((_entry, input) => {
+      scopes.push(input.scope)
+      return {
+        result: Promise.resolve({
+          ...summary,
+          sources: [{ name: 'scanPluginRegistry', status: 'complete' }]
+        }),
+        cancel: async () => undefined
+      }
+    })
+    const result = await invoke(IPC_CHANNELS.updatePlugin, input)
+    expect(result).toMatchObject({ ok: true, detail: { plugin: { installed_version: '2.0.0' } } })
+    expect(scopes[0]).toBe('plugins')
+    expect(runtime.contents.send.mock.calls).toContainEqual([
+      IPC_CHANNELS.pluginUpdateProgress,
+      { input, phase: 'verify' }
+    ])
+    await new Promise((resolve) => setImmediate(resolve))
+  })
+
+  it('accepts a refreshed target when only unrelated projects need folder access', async () => {
+    seedInstall()
+    runtime.startWorker.mockImplementation(() => ({
+      result: Promise.resolve({
+        ...summary,
+        outcome: 'partial',
+        sources: [
+          {
+            name: 'scanPluginRegistry',
+            status: 'partial',
+            issues: [{ code: 'permission_required', path: '/unrelated/project' }]
+          }
+        ]
+      }),
+      cancel: async () => undefined
+    }))
+    const result = await invoke(IPC_CHANNELS.updatePlugin, input)
+    expect(result).toMatchObject({ ok: true, detail: { plugin: { installed_version: '2.0.0' } } })
+    await new Promise((resolve) => setImmediate(resolve))
+  })
+
+  it('blocks a duplicate update while the first command is awaiting verification', async () => {
+    seedInstall()
+    const focusedScan = deferred<ScanSummary>()
+    runtime.startWorker.mockImplementation((_entry, input) => ({
+      result: input.scope === 'plugins' ? focusedScan.promise : Promise.resolve(summary),
+      cancel: async () => undefined
+    }))
+    const first = invoke(IPC_CHANNELS.updatePlugin, input)
+    await new Promise((resolve) => setImmediate(resolve))
+    try {
+      await expect(invoke(IPC_CHANNELS.updatePlugin, input)).resolves.toMatchObject({
+        ok: false,
+        stderr: expect.stringMatching(/already running/)
+      })
+    } finally {
+      focusedScan.resolve({
+        ...summary,
+        sources: [{ name: 'scanPluginRegistry', status: 'complete' }]
+      })
+      await first
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+  })
+
+  it('reports verification failure separately after the CLI has succeeded', async () => {
+    seedInstall()
+    runtime.startWorker.mockImplementation(() => ({
+      result: Promise.resolve({
+        ...summary,
+        outcome: 'failed',
+        sources: [{ name: 'scanPluginRegistry', status: 'failed' }]
+      }),
+      cancel: async () => undefined
+    }))
+    const result = await invoke(IPC_CHANNELS.updatePlugin, input)
+    expect(result).toMatchObject({
+      ok: true,
+      verificationError: expect.stringMatching(/command completed.*inventory/i)
+    })
+    await new Promise((resolve) => setImmediate(resolve))
+  })
+})
+
+describe('plugin toggle IPC', () => {
+  const input = { name: 'demo', marketplace: 'market', scope: 'user', projectPath: null }
+
+  it.each(['enable', 'disable'] as const)(
+    '%s returns verified state while unrelated background work is unfinished',
+    async (verb) => {
+      runtime.database!.prepare('DELETE FROM plugin_registry').run()
+      runtime
+        .database!.prepare(
+          `INSERT INTO plugin_registry
+      (name, marketplace, scope, project_path, install_path, installed_version, last_scanned_at, disabled_reason)
+      VALUES ('demo', 'market', 'user', '', '/fixture/plugin', '1.0.0', '2026-10-20', ?)`
+        )
+        .run(verb === 'enable' ? 'plugin' : null)
+      runtime[`${verb}Plugin`].mockImplementation(async () => {
+        runtime
+          .database!.prepare('UPDATE plugin_registry SET disabled_reason = ?')
+          .run(verb === 'disable' ? 'plugin' : null)
+        return { ok: true }
+      })
+      const background = deferred<ScanSummary>()
+      const focused: ScanSummary = {
+        ...summary,
+        sources: [{ name: 'scanPluginRegistry', status: 'complete' }]
+      }
+      const scopes: string[] = []
+      runtime.startWorker.mockImplementation((_entry, input) => {
+        scopes.push(input.scope)
+        return {
+          result: input.scope === 'plugins' ? Promise.resolve(focused) : background.promise,
+          cancel: async () => undefined
+        }
+      })
+      let completed = false
+      const operation = invoke(
+        verb === 'enable' ? IPC_CHANNELS.enablePlugin : IPC_CHANNELS.disablePlugin,
+        input
+      ).then((result) => {
+        completed = true
+        return result
+      })
+      await new Promise((resolve) => setImmediate(resolve))
+      try {
+        expect(completed).toBe(true)
+        expect(await operation).toMatchObject({
+          ok: true,
+          detail: {
+            plugin: { installs: [{ disabled_reason: verb === 'disable' ? 'plugin' : null }] }
+          }
+        })
+        expect(scopes[0]).toBe('plugins')
+      } finally {
+        background.resolve(focused)
+        await operation
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+    }
+  )
 })

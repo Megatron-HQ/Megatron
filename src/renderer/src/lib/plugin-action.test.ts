@@ -45,6 +45,53 @@ function apiWith(result: PluginDetailResult | null): PluginActionApi {
 }
 
 describe('verified plugin actions', () => {
+  it('verifies a project toggle when Windows path spelling changes during the command', async () => {
+    const snapshot = detail([
+      {
+        ...install,
+        scope: 'project',
+        project_path: 'C:\\Projects\\demo',
+        disabled_reason: 'plugin'
+      }
+    ])
+    const result = await performPluginAction(
+      {
+        verb: 'disable',
+        input: { ...input, scope: 'project', projectPath: 'c:/projects/DEMO/' },
+        previousVersion: '1.0.0'
+      },
+      apiWith(snapshot)
+    )
+    expect(result.message).toBe('demo disabled')
+  })
+
+  it('uses the snapshot returned by update verification without waiting for another detail request', async () => {
+    const snapshot = detail([{ ...install, installed_version: '2.0.0' }])
+    const api = apiWith(null)
+    api.updatePlugin = async () => ({ ok: true, detail: snapshot })
+    api.getPluginDetail = async () => {
+      throw new Error('Redundant refresh must not block completion')
+    }
+    const result = await performPluginAction(
+      { verb: 'update', input, previousVersion: '1.0.0' },
+      api
+    )
+    expect(result.message).toBe('demo updated to 2.0.0')
+    expect(result.detail?.plugin.installs[0].installed_version).toBe('2.0.0')
+  })
+
+  it('distinguishes completed commands from failed inventory verification', async () => {
+    const api = apiWith(detail([{ ...install, installed_version: '2.0.0' }]))
+    api.updatePlugin = async () => ({
+      ok: true,
+      verificationError:
+        'The update command completed, but the plugin inventory could not be refreshed.'
+    })
+    await expect(
+      performPluginAction({ verb: 'update', input, previousVersion: '1.0.0' }, api)
+    ).rejects.toThrow(/command completed.*inventory/)
+  })
+
   it('does not claim an unchanged version is latest while the catalog still reports an update', async () => {
     await expect(
       performPluginAction(

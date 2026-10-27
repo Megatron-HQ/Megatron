@@ -2,6 +2,31 @@ import { describe, expect, it } from 'vitest'
 import { isUpdateAvailable } from './version'
 
 describe('isUpdateAvailable', () => {
+  it('uses a known installed commit even if its release version is unknown', () => {
+    expect(
+      isUpdateAvailable('unknown', '41f619d61b99', '41f619d61b999adec1a1c8deb97d1a5b6ac35bb6')
+    ).toBe(false)
+  })
+
+  it('recognizes shortened and uppercase forms of the same installed commit', () => {
+    expect(isUpdateAvailable('41F619D61B999ADEC1A1C8DEB97D1A5B6AC35BB6', '41f619d61b99')).toBe(
+      false
+    )
+    expect(isUpdateAvailable('41f619d61b99', '41F619D61B999ADEC1A1C8DEB97D1A5B6AC35BB6')).toBe(
+      false
+    )
+  })
+
+  it('compares a marketplace revision with the installed commit when the install uses a release version', () => {
+    expect(
+      isUpdateAvailable('1.0.0', '41f619d61b99', '41f619d61b999adec1a1c8deb97d1a5b6ac35bb6')
+    ).toBe(false)
+    expect(
+      isUpdateAvailable('1.0.0', 'abcdef012345', '41f619d61b999adec1a1c8deb97d1a5b6ac35bb6')
+    ).toBe(true)
+    expect(isUpdateAvailable('1.0.0', '2.0.0', 'abcdef012345')).toBe(true)
+  })
+
   it('detects semver patch, minor, and major updates', () => {
     expect(isUpdateAvailable('1.0.0', '1.0.1')).toBe(true)
     expect(isUpdateAvailable('1.0.0', '1.1.0')).toBe(true)

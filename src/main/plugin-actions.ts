@@ -1,7 +1,7 @@
 import { execFile } from 'child_process'
 import { isAbsolute } from 'path'
 import { allowedStatSync, isPathAllowed } from './permissions'
-import type { PluginActionInput, PluginActionResult } from '../shared/ipc'
+import type { PluginActionInput, PluginActionResult, PluginUpdatePhase } from '../shared/ipc'
 import { missingProjectInstallMessage } from '../shared/missing-project'
 import { resolveClaudeCommand } from './claude-cli'
 
@@ -29,6 +29,20 @@ const claudeOptions = {
   windowsHide: true
 }
 const runningPluginActions = new Set<string>()
+const marketplaceRefreshes = new Map<string, Promise<PluginActionResult>>()
+
+async function refreshMarketplace(marketplace: string, cwd?: string): Promise<PluginActionResult> {
+  const key = JSON.stringify([marketplace, cwd ?? null])
+  const active = marketplaceRefreshes.get(key)
+  if (active) return active
+  const refresh = runClaudePlugin(['plugin', 'marketplace', 'update', marketplace], cwd)
+  marketplaceRefreshes.set(key, refresh)
+  try {
+    return await refresh
+  } finally {
+    marketplaceRefreshes.delete(key)
+  }
+}
 
 function actionError(
   error: Error & { code?: string | number | null; killed?: boolean },
@@ -106,7 +120,8 @@ function actionCwd(input: PluginActionInput): { cwd?: string } | { error: string
 
 async function runPluginAction(
   input: PluginActionInput,
-  verb: 'enable' | 'disable' | 'update' | 'uninstall'
+  verb: 'enable' | 'disable' | 'update' | 'uninstall',
+  onProgress?: (phase: PluginUpdatePhase) => void
 ): Promise<PluginActionResult> {
   if (!isPluginActionInput(input))
     return Promise.resolve({ ok: false, stderr: UNSAFE_PLUGIN_DETAILS_MESSAGE })
@@ -127,10 +142,8 @@ async function runPluginAction(
   runningPluginActions.add(actionKey)
   try {
     if (verb === 'update') {
-      const refreshed = await runClaudePlugin(
-        ['plugin', 'marketplace', 'update', input.marketplace],
-        resolved.cwd
-      )
+      onProgress?.('marketplace')
+      const refreshed = await refreshMarketplace(input.marketplace, resolved.cwd)
       if (!refreshed.ok) {
         return {
           ok: false,
@@ -138,6 +151,7 @@ async function runPluginAction(
         }
       }
     }
+    if (verb === 'update') onProgress?.('install')
     return await runClaudePlugin(args, resolved.cwd)
   } catch (error) {
     return {
@@ -158,8 +172,11 @@ export function disablePlugin(input: PluginActionInput): Promise<PluginActionRes
 }
 
 // -y: Megatron invokes this from a GUI, never a TTY, and the CLI requires -y in that case.
-export function updatePlugin(input: PluginActionInput): Promise<PluginActionResult> {
-  return runPluginAction(input, 'update')
+export function updatePlugin(
+  input: PluginActionInput,
+  onProgress?: (phase: PluginUpdatePhase) => void
+): Promise<PluginActionResult> {
+  return runPluginAction(input, 'update', onProgress)
 }
 
 export function uninstallPlugin(input: PluginActionInput): Promise<PluginActionResult> {

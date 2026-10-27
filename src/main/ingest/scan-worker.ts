@@ -7,16 +7,18 @@ import { scanPluginRegistry } from './plugin-registry'
 import { scanTranscripts } from './transcript-scanner'
 import { scanPromptHistory } from './prompt-history-scanner'
 import { runLinter } from '../linter'
-import { runAllScans } from './scan-all'
+import { runAllScans, type ScanScope } from './scan-all'
 
 const {
   databasePath,
   grantedPaths,
-  previousProjects = []
+  previousProjects = [],
+  scope = 'all'
 } = workerData as {
   databasePath: string
   grantedPaths: string[]
   previousProjects?: ProjectFolder[]
+  scope?: ScanScope
 }
 function scanSkills(db: Database.Database): ScanTaskResult {
   return runSkillScan(db, undefined, undefined, previousProjects)
@@ -26,7 +28,9 @@ const database = new Database(databasePath)
 try {
   const summary = runAllScans(
     database,
-    [scanSkills, scanPluginRegistry, scanTranscripts, scanPromptHistory, runLinter],
+    scope === 'plugins'
+      ? [scanPluginRegistry]
+      : [scanSkills, scanPluginRegistry, scanTranscripts, scanPromptHistory, runLinter],
     (error) => {
       console.error('[ingest] scan failed', error)
     }

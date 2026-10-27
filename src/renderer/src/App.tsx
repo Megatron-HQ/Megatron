@@ -32,7 +32,8 @@ import type {
   ContextBudget,
   CostWindowKey,
   SkillStatsWindowKey,
-  ThemePreference
+  ThemePreference,
+  PluginUpdateProgress
 } from '../../shared/ipc'
 
 type View =
@@ -84,6 +85,17 @@ function App(): React.JSX.Element {
   const [treeWidth, setTreeWidth] = useState(TREE_WIDTH_DEFAULT)
   const [pluginActionToasts, setPluginActionToasts] = useState<PluginActionToast[]>([])
   const nextToastId = useRef(0)
+  const [pluginUpdateProgress, setPluginUpdateProgress] = useState<
+    Record<string, PluginUpdateProgress>
+  >({})
+  useEffect(
+    () =>
+      window.api.onPluginUpdateProgress((progress) => {
+        const key = `${progress.input.name}@${progress.input.marketplace}`
+        setPluginUpdateProgress((current) => ({ ...current, [key]: progress }))
+      }),
+    []
+  )
 
   const {
     data,
@@ -470,6 +482,9 @@ function App(): React.JSX.Element {
                   key={`${pluginView.name}@${pluginView.marketplace}:${JSON.stringify(pluginView.context)}`}
                   name={pluginView.name}
                   marketplace={pluginView.marketplace}
+                  updateProgress={
+                    pluginUpdateProgress[`${pluginView.name}@${pluginView.marketplace}`]
+                  }
                   context={pluginView.context}
                   availability={
                     pluginView.context?.kind === 'project'

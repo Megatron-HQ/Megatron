@@ -93,6 +93,37 @@ describe('disablePlugin', () => {
 })
 
 describe('updatePlugin', () => {
+  it('shares an in-flight marketplace refresh without skipping either install update', async () => {
+    const commands: string[][] = []
+    const refreshes: NodeCallback[] = []
+    mockedExecFile.mockImplementation(((...args: unknown[]) => {
+      const command = args[1] as string[]
+      const callback = args[args.length - 1] as NodeCallback
+      commands.push(command)
+      if (command[1] === 'marketplace') refreshes.push(callback)
+      else callback(null, '', '')
+    }) as typeof execFile)
+    const first = updatePlugin(input)
+    const second = updatePlugin({ ...input, name: 'another-plugin' })
+    const refreshCount = commands.length
+    for (const complete of refreshes) complete(null, '', '')
+    expect(await first).toEqual({ ok: true })
+    expect(await second).toEqual({ ok: true })
+    expect(refreshCount).toBe(1)
+    expect(commands.map((command) => command.slice(0, 3))).toEqual([
+      ['plugin', 'marketplace', 'update'],
+      ['plugin', 'update', 'ponytail@claude-plugins-official'],
+      ['plugin', 'update', 'another-plugin@claude-plugins-official']
+    ])
+  })
+
+  it('reports marketplace and installation progress in execution order', async () => {
+    succeed()
+    const phases: string[] = []
+    await updatePlugin(input, (phase) => phases.push(phase))
+    expect(phases).toEqual(['marketplace', 'install'])
+  })
+
   it('refreshes the named marketplace before updating the install', async () => {
     const commands: string[][] = []
     mockedExecFile.mockImplementation(((...args: unknown[]) => {

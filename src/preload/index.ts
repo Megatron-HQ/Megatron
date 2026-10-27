@@ -6,6 +6,7 @@ import {
   type OpenSkillMetaResult,
   type OpenSkillResult,
   type PluginActionInput,
+  type PluginUpdateProgress,
   type PluginActionResult,
   type PluginDetailResult,
   type PluginRow,
@@ -61,6 +62,11 @@ const api = {
   rescan: (): Promise<ScanSummary> => ipcRenderer.invoke(IPC_CHANNELS.rescan),
   revealDataFolder: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.revealDataFolder),
   getVersion: (): string => ipcRenderer.sendSync(IPC_CHANNELS.getVersion),
+  onPluginUpdateProgress: (callback: (progress: PluginUpdateProgress) => void): (() => void) => {
+    const listener = (_event: unknown, progress: PluginUpdateProgress): void => callback(progress)
+    ipcRenderer.on(IPC_CHANNELS.pluginUpdateProgress, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.pluginUpdateProgress, listener)
+  },
   onScanStarted: (callback: (activity: ScanActivity) => void): (() => void) => {
     const listener = (_event: unknown, activity: ScanActivity): void => callback(activity)
     ipcRenderer.on(IPC_CHANNELS.scanStarted, listener)

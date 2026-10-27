@@ -392,7 +392,28 @@ IPC channels — the "no query or IPC channel at all" gap above is closed. `inst
 on `PluginRow.installs[]`. Management actions (enable/disable/update/uninstall) shell out to the
 `claude plugin <verb>` CLI (`src/main/plugin-actions.ts`) rather than writing to
 `plugin_registry` directly — the table stays a read-only scan cache like every other table here;
-a successful action triggers the normal full-rescan-and-broadcast path to pick up the result.
+Enable, Disable, and Update request a fresh focused plugin-registry scan after their CLI command
+and return the verified detail snapshot through IPC. Uninstall retains its full refresh and verifies
+that the selected installation has disappeared. A shared service holds an installation-level lock
+through command execution and verification, across all four verbs. Windows aliases of the same
+project path share that lock; different installations remain independent.
+
+Focused verification retries at most once after a transient read or scan failure. The CLI mutation
+runs exactly once. Effective enablement still follows local > project > user; an override that keeps
+the target in the opposite state produces a verification error, not a false success. Unrelated
+ungranted projects do not prevent verification of a readable target.
+
+The scan coordinator terminates an older full worker before starting focused work, then resumes the
+full scan for its existing callers. Transcripts, prompt history, and linting finish in the background.
+Folder-permission changes still await worker termination and finish changing grants before any
+worker restarts.
+
+The renderer cancels older inventory/detail reads before publishing the verified snapshot to all
+cached plugin contexts. Affected skill metadata/file queries and the skill list/context budget are
+refreshed independently. Its success/loading state does not wait for those query refreshes.
+Progress events distinguish marketplace refresh, installation, and verification and remain visible
+across section changes. CLI failure and post-command verification failure remain separate outcomes;
+a successful command alone never stamps a persistent "updated" flag.
 
 **Plugin install identity and project scope (added 2026-09-03)**: Claude Code installs a plugin at
 one of three scopes, and `installed_plugins.json` records all of them in the same array under one
@@ -473,9 +494,13 @@ resolved strictly from local filesystem artifacts (`marketplace.json`, `plugin.j
   therefore leaves `available_version` NULL when no SHA exists.
 - **SemVer vs SHA comparisons**: Version comparison in `isUpdateAvailable` (`src/shared/version.ts`)
   uses a SemVer-compliant comparator when both versions parse as SemVer (stripping leading `v` and
-  ignoring build metadata). When either version is non-semver (e.g. a 12-char git commit SHA, or
-  `"unknown"`), comparison falls back to an inequality check (`installed !== available &&
-available !== 'unknown'`).
+  ignoring build metadata). Commit identifiers are case-insensitive; a validated 12-to-40-character
+  hexadecimal prefix and its full commit are the same revision. When the marketplace target is a
+  commit and the installed version is a release label (or unknown), compare the recorded installed
+  `git_commit_sha` when available. Distinct comparable commits remain actionable. Other non-SemVer
+  identifiers retain the inequality fallback; missing/unknown marketplace targets remain unresolved.
+  These rules are shared by inventory badges, detail rows, and post-update verification, so a restart
+  derives the same answer from the same registry and marketplace artifacts.
 - **UI surfacing**: The inventory table flags plugins where any install is behind with an inline
   amber badge (`PluginUpdateBadge`) in the Version column and a descriptive tooltip. The detail view
   surfaces the badge in both the header and individual install rows, prompts the user with the target

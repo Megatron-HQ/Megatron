@@ -17,6 +17,7 @@ export const IPC_CHANNELS = {
   enablePlugin: 'plugins:enable',
   disablePlugin: 'plugins:disable',
   updatePlugin: 'plugins:update',
+  pluginUpdateProgress: 'plugins:updateProgress',
   uninstallPlugin: 'plugins:uninstall',
   getInitialSection: 'app:getInitialSection',
   setLastSection: 'app:setLastSection',
@@ -278,6 +279,16 @@ export interface PluginDetailResult {
 export interface PluginActionResult {
   ok: boolean
   stderr?: string
+  // Present after a focused post-update scan; avoids reading a second, potentially stale snapshot.
+  detail?: PluginDetailResult | null
+  verificationError?: string
+}
+
+export type PluginUpdatePhase = 'marketplace' | 'install' | 'verify'
+
+export interface PluginUpdateProgress {
+  input: PluginActionInput
+  phase: PluginUpdatePhase
 }
 
 export interface PluginActionInput {

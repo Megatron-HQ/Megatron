@@ -77,11 +77,24 @@ function compareSemver(a: string, b: string): number | null {
 
 export function isUpdateAvailable(
   installedVersion: string,
-  availableVersion: string | null
+  availableVersion: string | null,
+  installedCommit: string | null = null
 ): boolean {
   const installed = installedVersion.trim()
   const available = availableVersion?.trim()
   if (!available || available === 'unknown') return false
+
+  const commitPattern = /^[0-9a-f]{12,40}$/i
+  const revision = commitPattern.test(installed) ? installed : installedCommit?.trim()
+  if (commitPattern.test(available) && revision && commitPattern.test(revision)) {
+    const normalizedInstalled = revision.toLowerCase()
+    const normalizedAvailable = available.toLowerCase()
+    return !(
+      normalizedInstalled.startsWith(normalizedAvailable) ||
+      normalizedAvailable.startsWith(normalizedInstalled)
+    )
+  }
+
   if (installed === 'unknown') return true
 
   const semverComp = compareSemver(available, installed)

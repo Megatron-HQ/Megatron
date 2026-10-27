@@ -61,6 +61,7 @@ import { sanitizeProjectFolders } from './ingest/project-discovery'
 import { readSkillFiles, readSkillMd } from './skill-files'
 import { openSafeExternal } from './shell'
 import { disablePlugin, enablePlugin, uninstallPlugin, updatePlugin } from './plugin-actions'
+import { createPluginActionService } from './plugin-action-service'
 import {
   IPC_CHANNELS,
   INVOCATION_PAGE_SIZE,
@@ -152,8 +153,9 @@ function notifyScanFinished(finished: ScanFinished): void {
   }
 }
 
-const scans = createScanController(() =>
+const scans = createScanController((scope) =>
   startScanWorker(join(import.meta.dirname, 'scan-worker.js'), {
+    scope,
     databasePath: getDb().name,
     grantedPaths: getGrantedPaths(),
     previousProjects: sanitizeProjectFolders(themeStore.get('projectFolders'))
@@ -397,29 +399,39 @@ app.whenReady().then(() => {
     getPluginDetail(getDb(), name, marketplace)
   )
 
-  secureIpc.handle(IPC_CHANNELS.enablePlugin, async (_event, input: PluginActionInput) => {
-    const result = await enablePlugin(input)
-    if (result.ok) await scanAndNotify('quiet', true)
-    return result
+  const pluginActions = createPluginActionService({
+    execute: {
+      enable: enablePlugin,
+      disable: disablePlugin,
+      update: updatePlugin,
+      uninstall: uninstallPlugin
+    },
+    refresh: (scope) =>
+      scope === 'plugins'
+        ? scans.request({ scope: 'plugins', fresh: true })
+        : scanAndNotify('quiet', true),
+    readDetail: (input) => getPluginDetail(getDb(), input.name, input.marketplace),
+    scheduleBackground: () => {
+      setImmediate(() => void scanAndNotify('quiet'))
+    },
+    reportError: (verb, error) => console.error('[plugins] action verification failed', verb, error)
   })
-
-  secureIpc.handle(IPC_CHANNELS.disablePlugin, async (_event, input: PluginActionInput) => {
-    const result = await disablePlugin(input)
-    if (result.ok) await scanAndNotify('quiet', true)
-    return result
-  })
-
-  secureIpc.handle(IPC_CHANNELS.updatePlugin, async (_event, input: PluginActionInput) => {
-    const result = await updatePlugin(input)
-    if (result.ok) await scanAndNotify('quiet', true)
-    return result
-  })
-
-  secureIpc.handle(IPC_CHANNELS.uninstallPlugin, async (_event, input: PluginActionInput) => {
-    const result = await uninstallPlugin(input)
-    if (result.ok) await scanAndNotify('quiet', true)
-    return result
-  })
+  secureIpc.handle(IPC_CHANNELS.enablePlugin, (_event, input: PluginActionInput) =>
+    pluginActions.run('enable', input)
+  )
+  secureIpc.handle(IPC_CHANNELS.disablePlugin, (_event, input: PluginActionInput) =>
+    pluginActions.run('disable', input)
+  )
+  secureIpc.handle(IPC_CHANNELS.updatePlugin, (_event, input: PluginActionInput) =>
+    pluginActions.run('update', input, (phase) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        window.webContents.send(IPC_CHANNELS.pluginUpdateProgress, { input, phase })
+      }
+    })
+  )
+  secureIpc.handle(IPC_CHANNELS.uninstallPlugin, (_event, input: PluginActionInput) =>
+    pluginActions.run('uninstall', input)
+  )
 
   // Composes like skills:list — the renderer polls until scanComplete.
   secureIpc.handle(IPC_CHANNELS.usageOverview, () => {

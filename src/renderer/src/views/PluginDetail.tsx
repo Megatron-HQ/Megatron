@@ -9,6 +9,7 @@ import {
   PluginUpToDateBadge
 } from '@/components/PluginBadges'
 import { pluginUpdateDetails } from '@/lib/plugin-update'
+import { cachePluginActionResult } from '@/lib/plugin-cache'
 import {
   performPluginAction,
   type PluginActionVariables,
@@ -36,7 +37,12 @@ import {
 } from '@/lib/plugin-filter'
 import { ProjectAvailabilityNotice } from '@/components/ProjectAvailabilityNotice'
 import { missingProjectInstallMessage } from '../../../shared/missing-project'
-import type { PluginInstall, ProjectFolder } from '../../../shared/ipc'
+import type {
+  PluginInstall,
+  ProjectFolder,
+  PluginUpdateProgress,
+  PluginUpdatePhase
+} from '../../../shared/ipc'
 
 // Identifies one install within a plugin. Scope alone isn't enough — two projects can each hold
 // a project-scope install of the same plugin, and they act independently.
@@ -51,6 +57,7 @@ interface PluginDetailProps {
   marketplace: string
   context?: PluginContext
   availability?: ProjectFolder['status']
+  updateProgress?: PluginUpdateProgress
   onBack: () => void
   onViewSkills: (pluginName: string) => void
   onActionSuccess: (message: string) => void
@@ -74,6 +81,7 @@ export function PluginDetail({
   marketplace,
   context = { kind: 'all' },
   availability,
+  updateProgress,
   onBack,
   onViewSkills,
   onActionSuccess,
@@ -135,20 +143,16 @@ export function PluginDetail({
     mutationFn: async (variables: PluginActionVariables) => {
       try {
         const result = await performPluginAction(variables, window.api)
-        queryClient.setQueriesData(
-          { queryKey: ['plugin-detail', name, marketplace] },
-          result.detail
-        )
+        await cachePluginActionResult(queryClient, variables.input, result.detail)
+        onActionSuccess(result.message)
         return result
-      } finally {
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ['plugin-detail', name, marketplace] }),
-          queryClient.invalidateQueries({ queryKey: ['plugins'] }),
-          queryClient.invalidateQueries({ queryKey: ['skills'] })
-        ])
+      } catch (error) {
+        void queryClient.invalidateQueries({ queryKey: ['plugin-detail', name, marketplace] })
+        void queryClient.invalidateQueries({ queryKey: ['plugins'] })
+        void queryClient.invalidateQueries({ queryKey: ['skills'] })
+        throw error
       }
-    },
-    onSuccess: (result) => onActionSuccess(result.message)
+    }
   })
 
   function runAction(verb: ActionVerb, install: PluginInstall): void {
@@ -305,6 +309,12 @@ export function PluginDetail({
                 install={install}
                 fallbackAvailableVersion={plugin.available_version}
                 pendingKey={pendingKey}
+                updatePhase={
+                  updateProgress?.input.scope === install.scope &&
+                  updateProgress.input.projectPath === install.project_path
+                    ? updateProgress.phase
+                    : undefined
+                }
                 onManageFolders={onManageFolders}
                 errorMessage={
                   actionError?.install === installKey(install) ? actionError.message : undefined
@@ -369,6 +379,7 @@ function InstallRow({
   install,
   fallbackAvailableVersion,
   pendingKey,
+  updatePhase,
   errorMessage,
   onEnable,
   onDisable,
@@ -379,6 +390,7 @@ function InstallRow({
   install: PluginInstall
   fallbackAvailableVersion: string | null
   pendingKey: string | null
+  updatePhase?: PluginUpdatePhase
   errorMessage?: string
   onEnable: () => void
   onDisable: () => void
@@ -396,7 +408,17 @@ function InstallRow({
   const actionable = block === null
 
   const availableVersion = install.available_version ?? fallbackAvailableVersion
-  const hasUpdate = isUpdateAvailable(install.installed_version, availableVersion)
+  const hasUpdate = isUpdateAvailable(
+    install.installed_version,
+    availableVersion,
+    install.git_commit_sha
+  )
+  const updateLabel =
+    updatePhase === 'marketplace'
+      ? 'Refreshing marketplace…'
+      : updatePhase === 'verify'
+        ? 'Verifying…'
+        : 'Updating…'
   const installedDisplay = formatVersionDisplay(install.installed_version)
   const availableDisplay = availableVersion ? formatVersionDisplay(availableVersion) : null
   const targetLabel = availableDisplay ? versionLabel(availableDisplay) : 'latest'
@@ -478,7 +500,7 @@ function InstallRow({
             ) : (
               <RefreshCw className="size-3.5" />
             )}
-            {isPending('update') ? 'Updating…' : 'Update'}
+            <span aria-live="polite">{isPending('update') ? updateLabel : 'Update'}</span>
           </Button>
           <Button
             type="button"
