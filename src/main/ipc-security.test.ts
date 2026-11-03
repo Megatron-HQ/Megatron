@@ -50,6 +50,18 @@ describe('renderer trust boundary', () => {
   })
 
   it.each([
+    [IPC_CHANNELS.usageCalendar, [2026]],
+    [IPC_CHANNELS.usageDay, ['2024-02-29']]
+  ])('accepts valid calendar requests for %s', (channel, args) => {
+    expect(() => security.validateIpcArguments(channel, args)).not.toThrow()
+  })
+  it.each([
+    [IPC_CHANNELS.usageCalendar, ['2026']],
+    [IPC_CHANNELS.usageCalendar, [10000]],
+    [IPC_CHANNELS.usageCalendar, [2026, 'extra']],
+    [IPC_CHANNELS.usageDay, ['2026-02-30']],
+    [IPC_CHANNELS.usageDay, ['2026-2-3']],
+    [IPC_CHANNELS.usageDay, ['../../preferences.json']],
     [IPC_CHANNELS.openSkill, [-1]],
     [IPC_CHANNELS.openSkill, ['1']],
     [IPC_CHANNELS.setTheme, ['purple']],

@@ -1,5 +1,33 @@
 # Usage view — resolved UI spec (Phase 2a)
 
+## Tokens and annual contributions amendment (2026-11-03)
+
+Add **Tokens** immediately after Activity in the existing Usage sidebar. Preserve the sidebar's
+hover glide, selected lime stamp, focus behavior, and row dimensions. Tokens has an independent
+24 hours / 7 days / 30 days control, initially 30 days, retained in App state across navigation.
+Its content is a total processed-token headline, input/output/cache-read/cache-write readouts,
+hourly (24h) or daily (7d/30d) trend, and By model / By project ranked lists. Time-based values
+are estimated; show missing data as unavailable and explain excluded untracked/undated records.
+Model dots retain existing family colors; trend fills and category readouts stay neutral.
+
+At the top of Activity, above the unchanged rolling-window charts, show a GitHub-style annual
+contribution grid. Display one calendar year, initially the current year, with buttons for all
+retained years. Year selection survives panel/section navigation and does not alter period filters.
+The grid uses Sunday-first week columns, month labels, weekday labels, four positive intensity
+levels plus a known-empty fill, and a Less–More legend. Intensity is prompt count; one shared
+all-history scale applies across years. `--contribution-1/2/3/4` mix the existing usage ink into the
+background at 22/42/65/90 percent. Thus higher activity is darker in light mode and lighter in dark
+mode. Acid lime remains reserved for navigation.
+
+Unavailable days use a dashed outline, future days are blank, and partial coverage is disclosed in
+hover/focus text and details. Hover/focus shows the local date, recorded prompt count and available
+estimated token total. The calendar is one tab stop, with arrow navigation (up/down one day,
+left/right one week). Enter/Space opens full-day details for observed days, including known empty
+days; unavailable prompt days may open when token records exist. Escape/Close restores the day
+trigger's focus. Details include sessions, prompts, slash commands, projects and available token
+categories, with explicit loading/error/retry states. Existing Activity day/hour dialogs retain their
+previous behavior. The grid has no per-cell entrance animation and respects existing reduced motion.
+
 ## Activity details amendment (2026-10-19)
 
 Activity's day and hour columns now open a details dialog, following the Cost details contract

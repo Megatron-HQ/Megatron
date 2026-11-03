@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { Activity, BrainCircuit, CircleDollarSign, Cpu, Layers3 } from 'lucide-react'
+import { Activity, BrainCircuit, CircleDollarSign, Cpu, Layers3, Binary } from 'lucide-react'
+import { TokensSection } from '@/components/usage/TokensSection'
+import { ContributionGraph } from '@/components/usage/ContributionGraph'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/relative-time'
@@ -35,6 +37,7 @@ export type ActivityWindowKey = '24h' | '7d' | '30d'
 
 const PANEL_META = {
   activity: { label: 'Activity', Icon: Activity },
+  tokens: { label: 'Tokens', Icon: Binary },
   cost: { label: 'Cost', Icon: CircleDollarSign },
   models: { label: 'Models', Icon: Cpu },
   skills: { label: 'Skills', Icon: BrainCircuit },
@@ -45,6 +48,10 @@ export function UsageView({
   panel,
   activityWindow,
   onActivityWindowChange,
+  tokenWindow,
+  onTokenWindowChange,
+  calendarYear,
+  onCalendarYearChange,
   costWindow,
   onCostWindowChange,
   modelWindow,
@@ -57,6 +64,10 @@ export function UsageView({
   panel: UsagePanel
   activityWindow: ActivityWindowKey
   onActivityWindowChange: (window: ActivityWindowKey) => void
+  tokenWindow: SkillStatsWindowKey
+  onTokenWindowChange: (window: SkillStatsWindowKey) => void
+  calendarYear: number
+  onCalendarYearChange: (year: number) => void
   costWindow: CostWindowKey
   onCostWindowChange: (window: CostWindowKey) => void
   modelWindow: SkillStatsWindowKey
@@ -84,9 +95,10 @@ export function UsageView({
     () =>
       buildModelIdentity([
         ...(data?.cost?.last30d.byModel ?? []).map((entry) => entry.model),
-        ...(data?.models?.last30d.byModel ?? []).map((row) => row.model)
+        ...(data?.models?.last30d.byModel ?? []).map((row) => row.model),
+        ...(data?.tokens?.last30d.byModel ?? []).map((row) => row.key)
       ]),
-    [data?.cost, data?.models]
+    [data?.cost, data?.models, data?.tokens]
   )
 
   const resolveHierarchyLabel = useProjectLabel()
@@ -98,7 +110,13 @@ export function UsageView({
             ? [data.activity.last24h, data.activity.last7d, data.activity.last30d]
             : []),
           ...(data?.cost ? [data.cost.last24h, data.cost.last7d, data.cost.last30d] : [])
-        ].flatMap((window) => window.byProject.map((entry) => entry.project)),
+        ]
+          .flatMap((window) => window.byProject.map((entry) => entry.project))
+          .concat(
+            [data?.tokens?.last24h, data?.tokens?.last7d, data?.tokens?.last30d].flatMap(
+              (window) => window?.byProject.map((entry) => entry.key) ?? []
+            )
+          ),
         resolveHierarchyLabel
       ),
     [data, resolveHierarchyLabel]
@@ -118,6 +136,13 @@ export function UsageView({
           <div className="flex items-center gap-3">
             {panel === 'activity' && (
               <ActivityWindowToggle value={activityWindow} onChange={onActivityWindowChange} />
+            )}
+            {panel === 'tokens' && (
+              <SkillWindowToggle
+                value={tokenWindow}
+                onChange={onTokenWindowChange}
+                ariaLabel="Token usage window"
+              />
             )}
             {panel === 'cost' && (
               <ActivityWindowToggle
@@ -171,9 +196,19 @@ export function UsageView({
               ) : loading ? (
                 <UsageSkeleton panel={panel} />
               ) : panel === 'activity' ? (
-                <ActivityPanel
-                  activity={data?.activity ?? null}
-                  windowKey={activityWindow}
+                <>
+                  <ContributionGraph year={calendarYear} onYearChange={onCalendarYearChange} />
+                  <ActivityPanel
+                    activity={data?.activity ?? null}
+                    windowKey={activityWindow}
+                    resolveProjectLabel={resolveProjectLabel}
+                  />
+                </>
+              ) : panel === 'tokens' ? (
+                <TokensSection
+                  stats={data.tokens}
+                  windowKey={tokenWindow}
+                  identifyModel={identifyModel}
                   resolveProjectLabel={resolveProjectLabel}
                 />
               ) : panel === 'cost' ? (

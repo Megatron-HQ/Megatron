@@ -1,5 +1,26 @@
 # Megatron: Data model
 
+## Persistent usage history amendment (2026-11-03)
+
+`usage-history.db` is a deliberate exception to the derived-cache invariant. It is a private,
+local-only archive, stored beside `megatron.db` with the same file protections, and is never
+deleted by `db:reset`. The index remains disposable. Successful prompt/transcript scans copy only
+usage metadata into the archive: prompt multiplicities, session/project/model identifiers,
+timestamps, continuation links, and numeric token counters. Prompt and response content are not
+archived. Source pruning and index rebuilds do not delete archived records. Nothing syncs off device.
+
+Prompt identity uses session/project/timestamp/slash classification with the maximum observed
+multiplicity, so rescans do not inflate counts or collapse distinct identical-timestamp entries.
+Response identity retains the scanner's corpus-wide logical key and source UUID protections.
+Session totals replace earlier snapshots as sessions grow; continuation ancestors are resolved to
+one usable terminal before allocation. Failed or partial sources are not copied. Archival writes
+and recomputed token shares commit together in one transaction.
+
+Coverage intervals record only successfully observed prompt-history ranges. Dates outside these
+ranges remain unavailable, and incomplete days are explicitly partial. Deleted history from before
+the first observation cannot be recovered. The archive accumulates only when Megatron scans;
+closing the app does not run a collector in the background.
+
 Owns the SQLite index — driver choice, table shapes, and the plugin-identity decisions the
 schema encodes. `CLAUDE.md` stays authoritative for repo-wide decisions; the decisions below
 are locked here, and this doc is where they are argued.

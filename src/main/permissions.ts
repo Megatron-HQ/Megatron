@@ -171,7 +171,15 @@ export function securePrivateDataDirectory(directory: string, ownedRoot?: string
   mkdirSync(directory, { recursive: true, mode: 0o700 })
   if (lstatSync(directory).isSymbolicLink()) throw new Error('Application data directory is linked')
   const files: string[] = []
-  for (const name of ['megatron.db', 'megatron.db-wal', 'megatron.db-shm', 'preferences.json']) {
+  for (const name of [
+    'megatron.db',
+    'megatron.db-wal',
+    'megatron.db-shm',
+    'preferences.json',
+    'usage-history.db',
+    'usage-history.db-wal',
+    'usage-history.db-shm'
+  ]) {
     const file = join(directory, name)
     try {
       const stats = lstatSync(file)

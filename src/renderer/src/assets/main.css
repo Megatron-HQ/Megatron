@@ -6,6 +6,13 @@
 
 @custom-variant dark (&:is(.dark *));
 
+:root {
+  --contribution-1: color-mix(in oklab, var(--usage-bar) 22%, var(--background));
+  --contribution-2: color-mix(in oklab, var(--usage-bar) 42%, var(--background));
+  --contribution-3: color-mix(in oklab, var(--usage-bar) 65%, var(--background));
+  --contribution-4: color-mix(in oklab, var(--usage-bar) 90%, var(--background));
+}
+
 @utility drag-region {
   -webkit-app-region: drag;
 }

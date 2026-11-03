@@ -18,7 +18,9 @@ import {
   type ScanActivity,
   type ScanFinished,
   type ScanSummary,
-  type UsageOverview
+  type UsageOverview,
+  type UsageCalendar,
+  type UsageDayDetails
 } from '../shared/ipc'
 
 // Custom APIs for renderer
@@ -54,6 +56,10 @@ const api = {
   uninstallPlugin: (input: PluginActionInput): Promise<PluginActionResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.uninstallPlugin, input),
   getUsageOverview: (): Promise<UsageOverview> => ipcRenderer.invoke(IPC_CHANNELS.usageOverview),
+  getUsageCalendar: (year: number): Promise<UsageCalendar> =>
+    ipcRenderer.invoke(IPC_CHANNELS.usageCalendar, year),
+  getUsageDay: (date: string): Promise<UsageDayDetails> =>
+    ipcRenderer.invoke(IPC_CHANNELS.usageDay, date),
   getUsageSkillInvocations: (input: SkillInvocationSliceInput): Promise<SkillInvocationRecord[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.usageSkillInvocations, input),
   getInitialSection: (): AppSection => ipcRenderer.sendSync(IPC_CHANNELS.getInitialSection),

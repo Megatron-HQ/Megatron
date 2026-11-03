@@ -72,6 +72,8 @@ function App(): React.JSX.Element {
   const [pluginExpandedProjects, setPluginExpandedProjects] = useState(() => new Set(['$projects']))
   const [usagePanel, setUsagePanel] = useState<UsagePanel>('activity')
   const [usageActivityWindow, setUsageActivityWindow] = useState<ActivityWindowKey>('30d')
+  const [usageTokenWindow, setUsageTokenWindow] = useState<SkillStatsWindowKey>('30d')
+  const [usageCalendarYear, setUsageCalendarYear] = useState(() => new Date().getFullYear())
   const [usageCostWindow, setUsageCostWindow] = useState<CostWindowKey>('30d')
   const [usageModelWindow, setUsageModelWindow] = useState<SkillStatsWindowKey>('30d')
   const [usageSkillWindow, setUsageSkillWindow] = useState<SkillStatsWindowKey>('30d')
@@ -533,6 +535,10 @@ function App(): React.JSX.Element {
               <UsageView
                 panel={usagePanel}
                 activityWindow={usageActivityWindow}
+                tokenWindow={usageTokenWindow}
+                onTokenWindowChange={setUsageTokenWindow}
+                calendarYear={usageCalendarYear}
+                onCalendarYearChange={setUsageCalendarYear}
                 onActivityWindowChange={setUsageActivityWindow}
                 costWindow={usageCostWindow}
                 onCostWindowChange={setUsageCostWindow}

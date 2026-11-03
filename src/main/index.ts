@@ -18,7 +18,8 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 // The .ico, not the PNG, so Windows can pick the hand-tuned no-sparkle art at 16/24 px.
 import windowsIcon from '../../resources/icon.ico?asset'
-import { getDb } from './db'
+import { getDb, getUsageArchive } from './db'
+import { getTokenStats, getUsageCalendar, getUsageDay } from './db/usage-history-queries'
 import { createScanSession, type ScanUrgency } from './scan-session'
 import { disableChromiumHttpCache } from './chromium-cache'
 import {
@@ -157,6 +158,7 @@ const scans = createScanController((scope) =>
   startScanWorker(join(import.meta.dirname, 'scan-worker.js'), {
     scope,
     databasePath: getDb().name,
+    archivePath: getUsageArchive().name,
     grantedPaths: getGrantedPaths(),
     previousProjects: sanitizeProjectFolders(themeStore.get('projectFolders'))
   })
@@ -439,6 +441,7 @@ app.whenReady().then(() => {
     const db = getDb()
     return {
       activity: getActivityStats(db, now),
+      tokens: getTokenStats(getUsageArchive(), now),
       cost: getCostStats(db, now),
       models: getModelStats(db, now),
       skills: getSkillStats(db, now),
@@ -447,6 +450,13 @@ app.whenReady().then(() => {
       scanSummary
     }
   })
+
+  secureIpc.handle(IPC_CHANNELS.usageCalendar, (_event, year: number) =>
+    getUsageCalendar(getUsageArchive(), year)
+  )
+  secureIpc.handle(IPC_CHANNELS.usageDay, (_event, date: string) =>
+    getUsageDay(getUsageArchive(), date)
+  )
 
   secureIpc.handle(
     IPC_CHANNELS.usageSkillInvocations,
