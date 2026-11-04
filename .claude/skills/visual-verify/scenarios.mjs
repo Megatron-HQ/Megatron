@@ -1518,7 +1518,41 @@ export const scenarios = [
         await openUsageSection(window)
         await window.getByRole('group', { name: /Daily activity calendar/ }).waitFor()
       }
-    }
+    },
+    ...['hover', 'details'].map((state) => ({
+      name: `usage-contributions-token-only-${state}-${theme}`,
+      screen: 'usage',
+      async run(window, app) {
+        await app.evaluate(() => {
+          globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-token-only')
+          globalThis.megatronVisualFixtures.set('usage:day', 'usage-history-token-only')
+        })
+        await window.getByRole('button', { name: 'Settings', exact: true }).click()
+        await window
+          .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
+          .click()
+        await window.keyboard.press('Escape')
+        await openUsageSection(window)
+        const day = window
+          .getByRole('group', { name: /Daily activity calendar/ })
+          .getByRole('button', { name: /Prompt history unavailable/ })
+          .and(window.locator('[aria-haspopup="dialog"]'))
+          .first()
+        await day.focus()
+        if (state === 'hover') {
+          await day.hover()
+          await window
+            .getByRole('tooltip')
+            .getByText(/estimated tokens/)
+            .waitFor()
+        } else {
+          await window.keyboard.press('Enter')
+          const dialog = window.getByRole('dialog')
+          await dialog.getByText(/Prompt history is unavailable for this day/).waitFor()
+          await dialog.getByText(/estimated tokens processed/).waitFor()
+        }
+      }
+    }))
   ]),
   {
     name: 'usage-tokens-24-hour',

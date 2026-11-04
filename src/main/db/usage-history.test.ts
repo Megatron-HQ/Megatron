@@ -284,3 +284,91 @@ describe('persistent usage history', () => {
     expect(getUsageDay(archive, '2026-11-03', now).tokens).toBeNull()
   })
 })
+
+describe('usage history across a skipped local midnight', () => {
+  let previousTimezone: string | undefined
+
+  beforeEach(() => {
+    previousTimezone = process.env.TZ
+    process.env.TZ = 'America/Santiago'
+  })
+
+  afterEach(() => {
+    if (previousTimezone === undefined) delete process.env.TZ
+    else process.env.TZ = previousTimezone
+  })
+
+  it('ends day details and coverage at the following midnight without counting the next day', () => {
+    const insertPrompt = archive.prepare('INSERT INTO history_prompts VALUES (?, ?, ?, 0, 1)')
+    insertPrompt.run('on-day', '/repo', '2026-09-06T13:00:00.000Z')
+    insertPrompt.run('next-day', '/repo', '2026-09-07T03:30:00.000Z')
+    const insertTokens = archive.prepare(
+      "INSERT INTO history_token_shares VALUES (?, '/repo', 'claude-sonnet-5', ?, 10, 20, 30, 40)"
+    )
+    insertTokens.run('on-day', '2026-09-06T13:00:00.000Z')
+    insertTokens.run('next-day', '2026-09-07T03:30:00.000Z')
+    archive
+      .prepare('INSERT INTO history_coverage VALUES (?, ?)')
+      .run('2026-09-06T04:00:00.000Z', '2026-09-07T03:00:00.000Z')
+    const asOf = new Date('2026-09-08T15:00:00.000Z')
+
+    expect(getUsageDay(archive, '2026-09-06', asOf)).toMatchObject({
+      startAt: '2026-09-06T04:00:00.000Z',
+      endAt: '2026-09-07T03:00:00.000Z',
+      count: 1,
+      sessions: 1,
+      byProject: [{ project: '/repo', count: 1 }],
+      coverage: 'available',
+      partial: false,
+      tokens: { input: 10, output: 20, cacheRead: 30, cacheWrite: 40, total: 100 }
+    })
+    expect(
+      getUsageCalendar(archive, 2026, asOf).days.find((day) => day.date === '2026-09-06')
+    ).toMatchObject({ coverage: 'available', tokens: { total: 100 } })
+  })
+
+  it.each(['last7d', 'last30d'] as const)(
+    'keeps %s day buckets at local midnight and includes the current early-morning tokens',
+    (windowKey) => {
+      const insertTokens = archive.prepare(
+        "INSERT INTO history_token_shares VALUES ('session', '/repo', 'claude-sonnet-5', ?, ?, 0, 0, 0)"
+      )
+      insertTokens.run('2026-09-06T13:00:00.000Z', 100)
+      insertTokens.run('2026-09-07T03:30:00.000Z', 200)
+      insertTokens.run('2026-09-08T03:15:00.000Z', 300)
+
+      const window = getTokenStats(archive, new Date('2026-09-08T03:30:00.000Z'))[windowKey]
+      expect(
+        window.trend
+          .filter((bucket) => bucket.key >= '2026-09-06')
+          .map((bucket) => ({
+            date: bucket.key,
+            start: bucket.startAt,
+            end: bucket.endAt,
+            total: bucket.tokens?.total
+          }))
+      ).toEqual([
+        {
+          date: '2026-09-06',
+          start: '2026-09-06T04:00:00.000Z',
+          end: '2026-09-07T03:00:00.000Z',
+          total: 100
+        },
+        {
+          date: '2026-09-07',
+          start: '2026-09-07T03:00:00.000Z',
+          end: '2026-09-08T03:00:00.000Z',
+          total: 200
+        },
+        {
+          date: '2026-09-08',
+          start: '2026-09-08T03:00:00.000Z',
+          end: '2026-09-08T03:30:00.001Z',
+          total: 300
+        }
+      ])
+      expect(window.tokens?.total).toBe(600)
+      expect(window.trend.reduce((sum, bucket) => sum + (bucket.tokens?.total ?? 0), 0)).toBe(600)
+    }
+  )
+})

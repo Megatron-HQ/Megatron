@@ -64,6 +64,8 @@ export function usageHistoryFixture(channel, args, original, mode) {
     while (cursor.getFullYear() === year) {
       const date = localDate(cursor)
       const available = cursor.getMonth() >= 1
+      const tokenOnly =
+        mode === 'usage-history-token-only' && cursor.getMonth() === 0 && cursor.getDate() === 1
       const count =
         available && cursor <= now ? (cursor.getDate() * 7 + cursor.getMonth() * 3) % 41 : 0
       days.push({
@@ -71,7 +73,7 @@ export function usageHistoryFixture(channel, args, original, mode) {
         weekday: cursor.getDay(),
         count,
         coverage: cursor > now ? 'future' : available ? 'available' : 'unavailable',
-        tokens: count > 0 ? counts(count) : null
+        tokens: tokenOnly ? counts() : count > 0 ? counts(count) : null
       })
       cursor.setDate(cursor.getDate() + 1)
     }
@@ -87,7 +89,9 @@ export function usageHistoryFixture(channel, args, original, mode) {
   if (channel === 'usage:day') {
     const date = args[0]
     const start = new Date(`${date}T00:00:00`)
-    const count = (start.getDate() * 7 + start.getMonth() * 3) % 41
+    const tokenOnly =
+      mode === 'usage-history-token-only' && start.getMonth() === 0 && start.getDate() === 1
+    const count = tokenOnly ? 0 : (start.getDate() * 7 + start.getMonth() * 3) % 41
     const end = new Date(start)
     end.setDate(end.getDate() + 1)
     return {
@@ -97,11 +101,11 @@ export function usageHistoryFixture(channel, args, original, mode) {
       endAt: end.toISOString(),
       partial: false,
       count,
-      sessions: 3,
-      slashCommands: 2,
-      byProject: [{ project: 'C:\\Projects\\Megatron', count }],
-      tokens: count > 0 ? counts(count) : null,
-      coverage: 'available'
+      sessions: tokenOnly ? 0 : 3,
+      slashCommands: tokenOnly ? 0 : 2,
+      byProject: tokenOnly ? [] : [{ project: 'C:\\Projects\\Megatron', count }],
+      tokens: tokenOnly ? counts() : count > 0 ? counts(count) : null,
+      coverage: tokenOnly ? 'unavailable' : 'available'
     }
   }
   return original

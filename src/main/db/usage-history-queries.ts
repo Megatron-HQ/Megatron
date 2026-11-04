@@ -30,12 +30,15 @@ function localDate(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
+function nextLocalMidnight(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1)
+}
+
 function dayBounds(key: string, now: Date): { start: Date; end: Date; next: Date } {
   const start = new Date(`${key}T00:00:00`)
   if (!Number.isFinite(start.getTime()) || localDate(start) !== key)
     throw new Error('Invalid history date')
-  const next = new Date(start)
-  next.setDate(next.getDate() + 1)
+  const next = nextLocalMidnight(start)
   return { start, next, end: new Date(Math.min(next.getTime(), now.getTime() + 1)) }
 }
 
@@ -91,9 +94,9 @@ function tokenWindow(allRows: TokenRow[], start: Date, end: Date, hourly: boolea
   if (!hourly) cursor.setHours(0, 0, 0, 0)
   let index = 0
   while (cursor < end && (!hourly || index < 24)) {
-    const next = new Date(cursor)
-    if (hourly) next.setTime(index === 23 ? end.getTime() : cursor.getTime() + HOUR_MS)
-    else next.setDate(next.getDate() + 1)
+    const next = hourly
+      ? new Date(index === 23 ? end.getTime() : cursor.getTime() + HOUR_MS)
+      : nextLocalMidnight(cursor)
     const key = hourly ? cursor.toISOString() : localDate(cursor)
     const group = buckets.get(hourly ? String(index) : key) ?? []
     trend.push({

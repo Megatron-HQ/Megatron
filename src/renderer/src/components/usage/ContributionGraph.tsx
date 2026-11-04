@@ -212,7 +212,8 @@ export function ContributionGraph({
                           }}
                           className={cn(
                             'aspect-square min-w-0 rounded-[2px] border border-border/60 outline-none hover:ring-1 hover:ring-usage-bar focus-visible:ring-2 focus-visible:ring-ring',
-                            !canOpen && 'cursor-default border-dashed',
+                            day.coverage === 'unavailable' && 'border-dashed',
+                            !canOpen && 'cursor-default',
                             day.date === today && 'ring-1 ring-usage-bar'
                           )}
                           style={{
