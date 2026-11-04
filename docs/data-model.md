@@ -55,8 +55,10 @@ paths retain case sensitivity. No schema change or user registry rewrite is requ
 
 No upfront sketch — each table was added by the milestone that knew its real shape. The core
 four below plus `allowed_paths` (Tier-2 folder grants), `lint_findings` (linter output),
-`prompt_history` (Usage view PR1), `session_cost` / `session_model_cost` (Usage view PR2), and
-`resident_context_sample` (Usage view PR5), each added once its feature needed it.
+`prompt_history` (Usage view PR1), and `session_cost` / `session_model_cost` (Usage view PR2),
+each added once its feature needed it. (`resident_context_sample`, PR5's table, was deleted on
+2026-11-03: Resident tax now reads Claude Code's `/context` and keeps nothing in the index — see
+`docs/usage-analytics.md`, "Resident tax rebuild".)
 
 ```sql
 CREATE TABLE IF NOT EXISTS skills (
@@ -171,25 +173,6 @@ CREATE TABLE IF NOT EXISTS session_model_cost (
   PRIMARY KEY (session_id, model)
 );
 
-CREATE TABLE IF NOT EXISTS resident_context_sample (
-  session_id TEXT PRIMARY KEY REFERENCES sessions_meta(session_id) ON DELETE CASCADE,
-  first_turn_at TEXT NOT NULL,
-  model TEXT NOT NULL,
-  claude_version TEXT,
-  cache_read_tokens INTEGER NOT NULL,
-  measured_tokens INTEGER NOT NULL,
-  cost_state_started_at TEXT,
-  skill_characters INTEGER NOT NULL,
-  skill_count INTEGER NOT NULL,
-  agent_characters INTEGER NOT NULL,
-  agent_count INTEGER NOT NULL,
-  hook_characters INTEGER NOT NULL,
-  hook_count INTEGER NOT NULL,
-  mcp_characters INTEGER NOT NULL,
-  mcp_count INTEGER NOT NULL,
-  instruction_characters INTEGER NOT NULL,
-  instruction_count INTEGER NOT NULL
-);
 ```
 
 `prompt_history` (added 2026-09-05, Usage view Phase 2a / PR1) is the mirror of Claude Code's
@@ -212,13 +195,6 @@ sessions_meta.continued_in_session_id IS NULL` (the fix for
 `docs/usage-analytics.md` hazard 3). `session_model_cost` cascades off `session_cost`
 (`ON DELETE CASCADE`); `session_cost` itself has a plain FK to `sessions_meta` (no cascade), so
 the retention sweep deletes it _before_ `sessions_meta`.
-
-`resident_context_sample` (added Usage view Phase 2a / PR5) holds one numeric-only first-turn
-candidate per main transcript. Ingest measures attachment text and discards it; no skill listing,
-hook output, MCP instructions, project instructions, prompt snapshot, or other content is stored.
-The row carries the measured cache write, cold-cache evidence, optional cost-state start time,
-provenance, and character/item counts for the five itemized categories. `getResidentTaxStats`
-applies the strict eligibility rules and chooses the newest valid candidate at read time.
 
 `turn_usage` / `session_skill_cost` (added Usage view Phase 2a / PR4) back the Models panel and
 the Skills panel's additive attribution ledger. `turn_usage` has one row per logical assistant

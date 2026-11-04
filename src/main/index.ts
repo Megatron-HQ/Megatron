@@ -31,7 +31,6 @@ import {
   getLintFindingsForSkill,
   getModelStats,
   getPluginDetail,
-  getResidentTaxStats,
   getSkillStats,
   getSkillById,
   getSkillInvocationLog,
@@ -58,6 +57,8 @@ import {
   type ThemeStore
 } from './theme'
 import { createScanController, startScanWorker } from './ingest/scan-all'
+import { findNewestRecordedRequest } from './ingest/recorded-request'
+import { measureContextBaseline } from './context-usage'
 import { sanitizeProjectFolders } from './ingest/project-discovery'
 import { readSkillFiles, readSkillMd } from './skill-files'
 import { openSafeExternal } from './shell'
@@ -445,11 +446,17 @@ app.whenReady().then(() => {
       cost: getCostStats(db, now),
       models: getModelStats(db, now),
       skills: getSkillStats(db, now),
-      residentTax: getResidentTaxStats(db),
       scanComplete,
       scanSummary
     }
   })
+
+  // Neither touches the index: /context runs the CLI from Megatron's own data folder, and the
+  // recorded request is read from the transcript on demand and discarded after the reply.
+  secureIpc.handle(IPC_CHANNELS.usageContextBaseline, () =>
+    measureContextBaseline(app.getPath('userData'))
+  )
+  secureIpc.handle(IPC_CHANNELS.usageRecordedRequest, () => findNewestRecordedRequest())
 
   secureIpc.handle(IPC_CHANNELS.usageCalendar, (_event, year: number) =>
     getUsageCalendar(getUsageArchive(), year)

@@ -20,7 +20,9 @@ import {
   type ScanSummary,
   type UsageOverview,
   type UsageCalendar,
-  type UsageDayDetails
+  type UsageDayDetails,
+  type ContextBaselineResult,
+  type RecordedRequest
 } from '../shared/ipc'
 
 // Custom APIs for renderer
@@ -62,6 +64,10 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.usageDay, date),
   getUsageSkillInvocations: (input: SkillInvocationSliceInput): Promise<SkillInvocationRecord[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.usageSkillInvocations, input),
+  getContextBaseline: (): Promise<ContextBaselineResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.usageContextBaseline),
+  getRecordedRequest: (): Promise<RecordedRequest | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.usageRecordedRequest),
   getInitialSection: (): AppSection => ipcRenderer.sendSync(IPC_CHANNELS.getInitialSection),
   setLastSection: (section: AppSection): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.setLastSection, section),

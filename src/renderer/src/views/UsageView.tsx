@@ -22,7 +22,7 @@ import { CostSection } from '@/components/usage/CostSection'
 import { SkillsSection, SkillWindowToggle } from '@/components/usage/SkillsSection'
 import type { SkillInvocationSelection } from '@/components/usage/SkillInvocationDialog'
 import { ModelsSection } from '@/components/usage/ModelsSection'
-import { ResidentTaxSection } from '@/components/usage/ResidentTaxSection'
+import { ResidentTaxRefresh, ResidentTaxSection } from '@/components/usage/ResidentTaxSection'
 import { formatCount } from '@/components/usage/chart-utils'
 import type { UsagePanel } from '@/components/UsageSidebar'
 import type {
@@ -132,43 +132,49 @@ export function UsageView({
           <Icon className="size-3.5" />
           {label}
         </span>
-        {!loading && (
-          <div className="flex items-center gap-3">
-            {panel === 'activity' && (
-              <ActivityWindowToggle value={activityWindow} onChange={onActivityWindowChange} />
-            )}
-            {panel === 'tokens' && (
-              <SkillWindowToggle
-                value={tokenWindow}
-                onChange={onTokenWindowChange}
-                ariaLabel="Token usage window"
-              />
-            )}
-            {panel === 'cost' && (
-              <ActivityWindowToggle
-                value={costWindow}
-                onChange={onCostWindowChange}
-                ariaLabel="Cost window"
-              />
-            )}
-            {panel === 'skills' && (
-              <SkillWindowToggle value={skillWindow} onChange={onSkillWindowChange} />
-            )}
-            {panel === 'models' && (
-              <SkillWindowToggle
-                value={modelWindow}
-                onChange={onModelWindowChange}
-                ariaLabel="Model activity window"
-              />
-            )}
-            {data?.activity && (
-              <span
-                className={cn('text-[11px] text-muted-foreground', isFetching && 'animate-pulse')}
-              >
-                Updated {formatRelativeTime(data.activity.generatedAt)}
-              </span>
-            )}
-          </div>
+        {/* Resident tax reads Claude Code's /context, not the index, so it never waits on a scan
+            and its freshness is its own measurement, not the overview's. */}
+        {panel === 'resident-tax' ? (
+          <ResidentTaxRefresh />
+        ) : (
+          !loading && (
+            <div className="flex items-center gap-3">
+              {panel === 'activity' && (
+                <ActivityWindowToggle value={activityWindow} onChange={onActivityWindowChange} />
+              )}
+              {panel === 'tokens' && (
+                <SkillWindowToggle
+                  value={tokenWindow}
+                  onChange={onTokenWindowChange}
+                  ariaLabel="Token usage window"
+                />
+              )}
+              {panel === 'cost' && (
+                <ActivityWindowToggle
+                  value={costWindow}
+                  onChange={onCostWindowChange}
+                  ariaLabel="Cost window"
+                />
+              )}
+              {panel === 'skills' && (
+                <SkillWindowToggle value={skillWindow} onChange={onSkillWindowChange} />
+              )}
+              {panel === 'models' && (
+                <SkillWindowToggle
+                  value={modelWindow}
+                  onChange={onModelWindowChange}
+                  ariaLabel="Model activity window"
+                />
+              )}
+              {data?.activity && (
+                <span
+                  className={cn('text-[11px] text-muted-foreground', isFetching && 'animate-pulse')}
+                >
+                  Updated {formatRelativeTime(data.activity.generatedAt)}
+                </span>
+              )}
+            </div>
+          )
         )}
       </header>
 
@@ -182,7 +188,9 @@ export function UsageView({
               exit={{ opacity: 0 }}
               transition={{ duration: reduceMotion ? 0 : 0.15, ease: 'easeOut' }}
             >
-              {isError ? (
+              {panel === 'resident-tax' ? (
+                <ResidentTaxSection />
+              ) : isError ? (
                 <div role="alert" className="py-6 text-sm text-muted-foreground">
                   <p>Could not load usage data.</p>
                   <button
@@ -236,10 +244,8 @@ export function UsageView({
                   onSelectSkill={onSelectSkill}
                   onShowInvocations={onShowInvocations}
                 />
-              ) : panel === 'skills' ? (
-                <SkillsEmpty />
               ) : (
-                <ResidentTaxSection stats={data?.residentTax ?? null} />
+                <SkillsEmpty />
               )}
             </motion.div>
           </AnimatePresence>

@@ -189,31 +189,6 @@ CREATE INDEX IF NOT EXISTS idx_turn_usage_session_id ON turn_usage(session_id);
 CREATE INDEX IF NOT EXISTS idx_turn_usage_invoked_at ON turn_usage(invoked_at);
 CREATE INDEX IF NOT EXISTS idx_turn_usage_active_skill ON turn_usage(active_skill);
 
--- One numeric-only candidate per main transcript for the Resident tax panel. Attachment text is
--- measured during ingest and discarded; no prompt, hook, instruction, or MCP content is stored.
-CREATE TABLE IF NOT EXISTS resident_context_sample (
-  session_id TEXT PRIMARY KEY REFERENCES sessions_meta(session_id) ON DELETE CASCADE,
-  first_turn_at TEXT NOT NULL,
-  model TEXT NOT NULL,
-  claude_version TEXT,
-  cache_read_tokens INTEGER NOT NULL CHECK (cache_read_tokens >= 0),
-  measured_tokens INTEGER NOT NULL CHECK (measured_tokens >= 0),
-  cost_state_started_at TEXT,
-  skill_characters INTEGER NOT NULL CHECK (skill_characters >= 0),
-  skill_count INTEGER NOT NULL CHECK (skill_count >= 0),
-  agent_characters INTEGER NOT NULL CHECK (agent_characters >= 0),
-  agent_count INTEGER NOT NULL CHECK (agent_count >= 0),
-  hook_characters INTEGER NOT NULL CHECK (hook_characters >= 0),
-  hook_count INTEGER NOT NULL CHECK (hook_count >= 0),
-  mcp_characters INTEGER NOT NULL CHECK (mcp_characters >= 0),
-  mcp_count INTEGER NOT NULL CHECK (mcp_count >= 0),
-  instruction_characters INTEGER NOT NULL CHECK (instruction_characters >= 0),
-  instruction_count INTEGER NOT NULL CHECK (instruction_count >= 0)
-);
-
-CREATE INDEX IF NOT EXISTS idx_resident_context_sample_first_turn_at
-  ON resident_context_sample(first_turn_at);
-
 -- Materialized attribution for priced terminal sessions. A NULL skill_name is the
 -- explicit General work bucket; partial indexes make that nullable identity unique.
 CREATE TABLE IF NOT EXISTS session_skill_cost (

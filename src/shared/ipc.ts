@@ -27,7 +27,9 @@ export const IPC_CHANNELS = {
   usageOverview: 'usage:overview',
   usageCalendar: 'usage:calendar',
   usageDay: 'usage:day',
-  usageSkillInvocations: 'usage:skillInvocations'
+  usageSkillInvocations: 'usage:skillInvocations',
+  usageContextBaseline: 'usage:contextBaseline',
+  usageRecordedRequest: 'usage:recordedRequest'
 } as const
 
 export interface AllowedPathRow {
@@ -535,23 +537,88 @@ export interface SkillCostAttribution {
   rows: SkillCostAttributionRow[]
 }
 
-export type ResidentTaxCategoryKey =
-  'skills' | 'agents' | 'hooks' | 'mcp' | 'instructions' | 'remainder'
+// Resident tax (docs/usage-view-ui-spec.md §R): Claude Code's own `/context` breakdown, parsed
+// generically so a category Claude Code adds later passes through instead of being dropped.
+export type ContextCategoryGroup = 'used' | 'deferred' | 'buffer' | 'free'
 
-export interface ResidentTaxCategory {
-  key: ResidentTaxCategoryKey
+export interface ContextCategory {
+  name: string
+  display: string // as /context printed it, e.g. "1.8k"
   tokens: number
-  itemCount: number | null
-  estimated: boolean
+  group: ContextCategoryGroup
 }
 
-export interface ResidentTaxStats {
-  measuredTokens: number
-  sampledAt: string
-  project: string
+export interface ContextSectionRow {
+  cells: string[]
+  // Parsed from the Tokens column for sorting only; "< 20" parses to its bound. Display the cell.
+  tokens: number | null
+}
+
+export interface ContextSection {
+  title: string
+  columns: string[]
+  rows: ContextSectionRow[]
+}
+
+export interface ContextUsage {
   model: string
-  claudeVersion: string | null
-  categories: ResidentTaxCategory[]
+  totalDisplay: string
+  totalTokens: number
+  windowDisplay: string
+  windowTokens: number
+  percentDisplay: string
+  categories: ContextCategory[]
+  sections: ContextSection[]
+}
+
+export type ContextBaselineResult =
+  | { ok: true; usage: ContextUsage; measuredAt: string }
+  // raw: Claude Code's unparsed output, so a format change still shows the user something.
+  | { ok: false; error: string; raw?: string }
+
+// The first request of the newest interactive session, read from its transcript on demand and
+// never stored (docs/usage-analytics.md). Sizes are exact characters; Megatron doesn't estimate
+// tokens for these — only /context's own per-item tokens are shown as tokens.
+export interface RecordedCacheControl {
+  ttl: string | null
+  scope: string | null
+}
+
+export interface RecordedSystemBlock {
+  text: string
+  chars: number
+  cacheControl: RecordedCacheControl | null
+}
+
+export interface RecordedTool {
+  name: string
+  chars: number
+  definitionJson: string
+  isMcp: boolean
+}
+
+export interface RecordedCacheBreakpoint {
+  path: string // e.g. "system[1]", "messages[1].content[3]"
+  cacheControl: RecordedCacheControl
+}
+
+export interface RecordedTextBlock {
+  name: string
+  text: string
+  chars: number
+}
+
+export interface RecordedRequest {
+  sessionId: string
+  cwd: string | null
+  claudeVersion: string
+  requestedAt: string
+  model: string | null
+  systemBlocks: RecordedSystemBlock[]
+  tools: RecordedTool[]
+  cacheBreakpoints: RecordedCacheBreakpoint[]
+  hookOutputs: RecordedTextBlock[]
+  mcpInstructions: RecordedTextBlock[]
 }
 
 export interface UsageOverview {
@@ -561,7 +628,6 @@ export interface UsageOverview {
   cost: CostStats | null
   models: ModelStats
   skills: SkillStats
-  residentTax: ResidentTaxStats | null
   scanComplete: boolean
   scanSummary?: ScanSummary
 }

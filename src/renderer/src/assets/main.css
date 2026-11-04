@@ -172,7 +172,8 @@
 
 /* Models effort mix: "Not recorded" sits off the ordinal ink ramp, so it's quiet stripes on the
    paper rather than a solid shade that would read as a step between Medium and High. Not
-   `.trigger-fill-hatch` — that one is full-ink and would read as Xhigh. */
+   `.trigger-fill-hatch` — that one is full-ink and would read as Xhigh. Resident tax reuses it
+   for the autocompact buffer: reserved space, neither a used category nor free. */
 .usage-fill-unrecorded {
   background-image: repeating-linear-gradient(
     -45deg,

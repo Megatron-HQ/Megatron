@@ -55,7 +55,7 @@ export function ContextBudgetDialog({
           </p>
           <p className="max-w-[72ch] text-left text-[13px] leading-relaxed text-muted-foreground">
             This is a configured skill-listing budget, not the measured total shown under Usage →
-            Resident tax. That panel samples all resident context categories from a cold session.
+            Resident tax. That panel shows Claude Code&apos;s own /context breakdown.
           </p>
         </DialogHeader>
 

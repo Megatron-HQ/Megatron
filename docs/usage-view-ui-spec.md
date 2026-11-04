@@ -1331,23 +1331,46 @@ PR3 association table.
 
 ---
 
-# R. Resident tax section (PR5)
+# R. Resident tax section (PR5, rebuilt 2026-11-03)
 
-**Status:** implemented 2026-09-11.
+**Status:** rebuilt 2026-11-03 on Claude Code's own `/context` (data sources:
+`docs/usage-analytics.md`, "Resident tax rebuild"). Supersedes the 2026-09-11 transcript-sampled
+panel.
 
 - Fifth sidebar destination, after Skills, labeled **Resident tax** with lucide `Layers3`. It has no
   time-window control and preserves the shared pinned header, crossfade, scroll reset, and glide.
-- The hero is only the measured first-turn `cache_creation_input_tokens` total. It deliberately
-  shows no context-window percentage.
-- One additive monochrome composition bar is direct-labeled by a six-row ledger: Skills, Agents,
-  SessionStart hooks, MCP instructions, Project instructions, and **System + tool schemas + other
-  unitemized context**. Zero-valued itemized categories remain visible with no segment.
-- The five itemized token figures use `ceil(characters / 3)` and carry the `≈` marker. The final row
-  is labeled **Not yet itemized**; there is no capture CTA or future-work placeholder.
-- Hovering or keyboard-focusing a bar segment or ledger row dims its siblings. Entrance animation
-  follows the existing Usage timing and becomes instant under reduced motion.
-- Provenance shows project basename (full path in its title), normalized model, Claude Code version
-  when available, and sample-relative time.
-- With no eligible sample, the panel shows a quiet no-sample explanation and no rejection counts or
-  action. The existing context-budget dialog explicitly distinguishes its configured skill-listing
-  estimate from this measured whole-resident-context sample.
+  It reads no index data, so it **never waits on a scan** (no scan skeleton) — its own skeleton,
+  captioned "Running /context in Claude Code…", covers the ≈4 s CLI run.
+- **Header:** a **Refresh** button (`RefreshCw`, spins as "Measuring…" while any measurement is in
+  flight, instant under reduced motion) replaces the overview's "Updated …" label on this panel.
+- **Hero mirrors `/context`:** `used / window · %` (e.g. `21.8k / 1M · 2%`), strings as `/context`
+  printed them (window suffix upper-cased). **This reverses the earlier no-percentage rule** — the
+  user chose `/context`'s framing over a used-only total. Caption: "In context before your first
+  message".
+- **The bar spans the whole window:** used categories in `/context`'s order on a monochrome ink
+  ramp (1 → 0.3 opacity), then the **autocompact buffer** in quiet stripes (`.usage-fill-unrecorded`),
+  then **free space** as the bare `bg-muted` track. At a 1M window the used part is a sliver — that
+  is the honest proportion.
+- **Ledger:** one row per in-window category (used → buffer → free), each with tokens as printed
+  plus `% of window`, and a second line saying where its detail lives (`N items`, "Detail from your
+  latest session", "Reserved for auto-compaction", "Unused"). Deferred categories sit in a separate
+  **"Deferred, not loaded"** group below, outlined swatch, no bar segment, no percentage, the
+  "(deferred)" suffix dropped from the label.
+- **Drill-ins** (chevron + click → dialog modeled on `CostDetailsDialog`, focus lands on Close):
+  - Categories `/context` itemizes (MCP tools, Custom agents, Memory files, Skills — deferred or
+    not) show its table, sorted by tokens, cells as printed. A table shared by loaded and deferred
+    MCP rows says so.
+  - **System prompt** / **System tools** open the newest interactive session's recorded request
+    with a segmented toggle: **System blocks** (chars, % of system, cache badge, expandable text),
+    **Tools** (ranked by chars, % of tools, MCP badge, expandable JSON definition), **Cache
+    breakpoints**. **Messages** → SessionStart hook output; **MCP server instructions** → the
+    instruction blocks. The header names the source (project · relative time · Claude Code
+    version) and notes that the total is the global baseline while the details are that session's.
+  - Free space, Autocompact buffer, System tools (deferred), and unknown categories get no drill-in.
+  - With no interactive 2.1.300+ transcript: "No interactive Claude Code 2.1.300+ session yet".
+- Hovering or keyboard-focusing a segment or ledger row dims its siblings (segments ×0.35, rows
+  `opacity-40`). Staggered `scaleX` entrance (0.3 s, 0.05 s step), instant under reduced motion.
+- **Error state:** the CLI's message (e.g. not found, timeout, not logged in), the raw `/context`
+  output when it no longer parses, and Retry.
+- The context-budget dialog distinguishes its configured skill-listing estimate from this panel:
+  "That panel shows Claude Code's own /context breakdown."

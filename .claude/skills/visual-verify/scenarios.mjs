@@ -258,9 +258,25 @@ async function skipWithoutCostHour(window) {
     : 'no timestamped cost hours in the last 24 hours'
 }
 
-async function residentTaxDataPresent(window) {
+// Resident tax always runs on the fixture: the real handler spawns `claude -p /context`, which
+// starts MCP servers and SessionStart hooks. Drill-ins into the recorded request still read real
+// transcripts, like every other scenario reads real ~/.claude data.
+async function openResidentTax(window, app, mode = 'context-baseline') {
+  await app.evaluate(
+    (_electron, fixtureMode) =>
+      globalThis.megatronVisualFixtures.set('usage:contextBaseline', fixtureMode),
+    mode
+  )
   await openUsagePanel(window, 'Resident tax')
-  return (await window.getByText('No cold-session sample yet').count()) === 0
+}
+
+async function setDarkTheme(window) {
+  const isDark = await window.evaluate(() => document.documentElement.classList.contains('dark'))
+  if (isDark) return
+  await window.getByRole('button', { name: 'Settings' }).click()
+  await window.getByRole('radio', { name: 'Dark' }).click()
+  await window.keyboard.press('Escape')
+  await window.getByRole('dialog').waitFor({ state: 'detached' })
 }
 
 /**
@@ -1957,43 +1973,67 @@ export const scenarios = [
     }
   },
   {
+    // Hero (used / window · %), the window-spanning bar (used ramp → buffer stripes → free
+    // track), the in-window ledger, and the separate "Deferred, not loaded" group.
     name: 'usage-resident-tax',
     screen: 'usage',
-    shouldSkip: async (window) =>
-      (await residentTaxDataPresent(window)) ? null : 'no eligible cold-session sample',
-    async run(window) {
-      await openUsagePanel(window, 'Resident tax')
-      await window.getByText('Measured turn-one resident tokens', { exact: true }).waitFor()
+    async run(window, app) {
+      await openResidentTax(window, app)
+      await window.getByText('In context before your first message', { exact: true }).waitFor()
       await window.waitForTimeout(MOTION_SETTLE_MS)
-    }
-  },
-  {
-    name: 'usage-resident-tax-no-data',
-    screen: 'usage',
-    shouldSkip: async (window) =>
-      (await residentTaxDataPresent(window)) ? 'eligible cold-session sample present' : null,
-    async run(window) {
-      await openUsagePanel(window, 'Resident tax')
-      await window.getByText('No cold-session sample yet', { exact: true }).waitFor()
     }
   },
   {
     name: 'usage-resident-tax-dark',
     screen: 'usage',
-    shouldSkip: async (window) =>
-      (await residentTaxDataPresent(window)) ? null : 'no eligible cold-session sample',
-    async run(window) {
-      const isDark = await window.evaluate(() =>
-        document.documentElement.classList.contains('dark')
-      )
-      if (!isDark) {
-        await window.getByRole('button', { name: 'Settings' }).click()
-        await window.getByRole('radio', { name: 'Dark' }).click()
-        await window.keyboard.press('Escape')
-        await window.getByRole('dialog').waitFor({ state: 'detached' })
-      }
-      await openUsagePanel(window, 'Resident tax')
-      await window.getByText('Measured turn-one resident tokens', { exact: true }).waitFor()
+    async run(window, app) {
+      await setDarkTheme(window)
+      await openResidentTax(window, app)
+      await window.getByText('In context before your first message', { exact: true }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'usage-resident-tax-loading',
+    screen: 'usage',
+    async run(window, app) {
+      await openResidentTax(window, app, 'pending')
+      await window.getByText('Running /context in Claude Code…', { exact: true }).waitFor()
+    }
+  },
+  {
+    // A /context format Megatron can't parse: the message, the raw output, and Retry.
+    name: 'usage-resident-tax-unreadable',
+    screen: 'usage',
+    async run(window, app) {
+      await openResidentTax(window, app, 'context-baseline-unreadable')
+      await window.getByText("Couldn't measure resident context", { exact: true }).waitFor()
+    }
+  },
+  {
+    // A category /context itemizes itself: its own table, sorted by tokens.
+    name: 'usage-resident-tax-drill-skills',
+    screen: 'usage',
+    async run(window, app) {
+      await openResidentTax(window, app)
+      await window.getByRole('button', { name: /^Skills.*tokens/ }).click()
+      await window.getByRole('dialog').getByText('synthetic-review', { exact: true }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // A category explained from the newest interactive transcript's first request.
+    name: 'usage-resident-tax-drill-system-prompt',
+    screen: 'usage',
+    async run(window, app) {
+      await openResidentTax(window, app)
+      await window.getByRole('button', { name: /^System prompt.*tokens/ }).click()
+      const dialog = window.getByRole('dialog')
+      await dialog
+        .getByRole('radio', { name: 'System blocks' })
+        .or(dialog.getByText(/No interactive Claude Code/))
+        .first()
+        .waitFor()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },

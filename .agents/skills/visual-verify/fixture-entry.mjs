@@ -2,6 +2,7 @@
 import { ipcMain } from 'electron'
 import { projectTreeFixture } from './project-tree-fixture.mjs'
 import { usageHistoryFixture } from './usage-history-fixture.mjs'
+import { contextBaselineFixture } from './context-baseline-fixture.mjs'
 
 const registeredHandlers = new Map()
 const overriddenChannels = new Set()
@@ -35,6 +36,8 @@ globalThis.megatronVisualFixtures = {
         return new Promise(() => {})
       }
       if (mode === 'empty-folders') return []
+      // Before `original`: the real handler would spawn the Claude Code CLI.
+      if (mode.startsWith('context-baseline')) return contextBaselineFixture(mode)
       const result = await original(event, ...args)
       if (mode.startsWith('usage-history')) return usageHistoryFixture(channel, args, result, mode)
       if (mode === 'plugin-disabled' || mode === 'plugin-enabled') {

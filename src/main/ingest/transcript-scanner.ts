@@ -18,7 +18,6 @@ import {
   type TurnUsageRow
 } from './cost-parser'
 import { rebuildSessionSkillCosts } from './skill-cost-allocation'
-import { extractResidentContextSample, type ResidentContextSample } from './resident-context-parser'
 
 export interface TranscriptSession {
   session_id: string
@@ -66,7 +65,6 @@ export interface TranscriptParse {
   // The last cost-state line's parsed shape, or null when the transcript has none (pre-v2.1.241
   // history). Main transcripts only — subagent cost is already inside the parent's total.
   cost: SessionCost | null
-  resident: ResidentContextSample | null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -411,26 +409,25 @@ export function parseTranscript(
   limits = DEFAULT_TRANSCRIPT_LIMITS
 ): TranscriptParse {
   if (!isPathAllowed(filePath)) {
-    return { session: null, invocations: [], turns: [], cost: null, resident: null }
+    return { session: null, invocations: [], turns: [], cost: null }
   }
 
   const records = parseLines(filePath, limits)
   if (records === null) {
-    return { session: null, invocations: [], turns: [], cost: null, resident: null }
+    return { session: null, invocations: [], turns: [], cost: null }
   }
   let cost: SessionCost | null
   try {
     cost = extractCostState(records)
   } catch (error) {
     if (!(error instanceof InvalidCostStateError)) throw error
-    return { session: null, invocations: [], turns: [], cost: null, resident: null }
+    return { session: null, invocations: [], turns: [], cost: null }
   }
   return {
     session: extractSession(records),
     invocations: extractInvocations(records),
     turns: extractTurnUsage(records),
-    cost,
-    resident: extractResidentContextSample(records)
+    cost
   }
 }
 
@@ -594,22 +591,6 @@ export function scanTranscripts(
       (@session_id, @total_cost_usd, @has_unknown_model_cost, @is_zeroed)
   `)
 
-  const deleteResidentContextSample = db.prepare(
-    'DELETE FROM resident_context_sample WHERE session_id = ?'
-  )
-  const insertResidentContextSample = db.prepare(`
-    INSERT INTO resident_context_sample
-      (session_id, first_turn_at, model, claude_version, cache_read_tokens, measured_tokens,
-       cost_state_started_at, skill_characters, skill_count, agent_characters, agent_count,
-       hook_characters, hook_count, mcp_characters, mcp_count, instruction_characters,
-       instruction_count)
-    VALUES
-      (@session_id, @first_turn_at, @model, @claude_version, @cache_read_tokens, @measured_tokens,
-       @cost_state_started_at, @skill_characters, @skill_count, @agent_characters, @agent_count,
-       @hook_characters, @hook_count, @mcp_characters, @mcp_count, @instruction_characters,
-       @instruction_count)
-  `)
-
   const insertModelCost = db.prepare(`
     INSERT INTO session_model_cost
       (session_id, model, cost_usd, input_tokens, output_tokens, thinking_tokens,
@@ -741,7 +722,6 @@ export function scanTranscripts(
         deleteSessionInvocations.run(parsed.session.session_id)
         deleteSessionTurns.run(parsed.session.session_id)
         deleteSessionCost.run(parsed.session.session_id)
-        deleteResidentContextSample.run(parsed.session.session_id)
         if (parsed.cost !== null) {
           insertSessionCost.run({
             session_id: parsed.session.session_id,
@@ -753,7 +733,6 @@ export function scanTranscripts(
             insertModelCost.run({ session_id: parsed.session.session_id, ...row })
           }
         }
-        if (parsed.resident !== null) insertResidentContextSample.run(parsed.resident)
         for (const invocation of parsed.invocations) {
           insertInvocation.run(invocation)
           parsedInvocations.push(invocation)

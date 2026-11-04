@@ -164,7 +164,7 @@ export interface TurnUsageRow {
 }
 
 // One row per main-transcript assistant turn — for per-turn SHAPE only (§3 model/effort mix as a
-// live COUNT GROUP BY, §4 turn-1 resident context via turn_index = 0). Never sum the token
+// live COUNT GROUP BY). Never sum the token
 // columns across turns: resume-replay inflates them ~2.3x. Mirrors extractInvocations —
 // `isSidechain === false` on the main chain, deduped by the line's own `uuid`. `<synthetic>`
 // turns (local/error messages, no cost) are dropped.
