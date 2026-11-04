@@ -84,6 +84,11 @@ vi.mock('electron-store', () => ({
     }
   }
 }))
+vi.mock('electron-updater', () => ({
+  default: {
+    autoUpdater: { on: vi.fn(), checkForUpdates: vi.fn(), quitAndInstall: vi.fn() }
+  }
+}))
 vi.mock('@electron-toolkit/utils', () => ({
   electronApp: { setAppUserModelId: vi.fn() },
   optimizer: { watchWindowShortcuts: vi.fn() },

@@ -21,7 +21,8 @@ import type {
   RecordedRequest,
   ScanActivity,
   ScanFinished,
-  ScanSummary
+  ScanSummary,
+  UpdateState
 } from '../shared/ipc'
 
 interface Api {
@@ -54,9 +55,15 @@ interface Api {
   rescan: () => Promise<ScanSummary>
   revealDataFolder: () => Promise<void>
   getVersion: () => string
+  getUpdateState: () => Promise<UpdateState>
+  checkForUpdates: () => Promise<void>
+  installUpdate: () => Promise<void>
+  setAutoUpdateCheck: (enabled: boolean) => Promise<void>
+  openUpdateDownload: () => Promise<void>
   onPluginUpdateProgress: (callback: (progress: PluginUpdateProgress) => void) => () => void
   onScanStarted: (callback: (activity: ScanActivity) => void) => () => void
   onScanComplete: (callback: (finished: ScanFinished) => void) => () => void
+  onUpdateState: (callback: (state: UpdateState) => void) => () => void
 }
 
 declare global {

@@ -101,6 +101,9 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
     case IPC_CHANNELS.setLastSection:
       valid = args.length === 1 && (APP_SECTIONS as readonly unknown[]).includes(value)
       break
+    case IPC_CHANNELS.setAutoUpdateCheck:
+      valid = args.length === 1 && typeof value === 'boolean'
+      break
     case IPC_CHANNELS.revokeAllowedPath:
     case IPC_CHANNELS.openExternal:
       valid = args.length === 1 && text(value)

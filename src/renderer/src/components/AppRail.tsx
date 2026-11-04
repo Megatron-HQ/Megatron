@@ -19,6 +19,8 @@ interface AppRailProps {
   section: AppSection
   onSectionChange: (section: AppSection) => void
   onOpenSettings: () => void
+  // "Update ready" / "Update available"; null when there's nothing to act on.
+  updateNotice?: string | null
 }
 
 // Ink-fill active state, deliberately never the lime accent — lime stays reserved for each
@@ -26,8 +28,10 @@ interface AppRailProps {
 export function AppRail({
   section,
   onSectionChange,
-  onOpenSettings
+  onOpenSettings,
+  updateNotice = null
 }: AppRailProps): React.JSX.Element {
+  const settingsLabel = updateNotice ? `Settings · ${updateNotice}` : 'Settings'
   const { hoveredId, setHoveredId, onMouseLeave, transition } = useGlideHighlight<AppSection>()
   const highlightIndex =
     hoveredId !== null ? SECTIONS.findIndex((s) => s.section === hoveredId) : -1
@@ -72,14 +76,21 @@ export function AppRail({
           <TooltipTrigger asChild>
             <button
               type="button"
-              aria-label="Settings"
+              aria-label={settingsLabel}
               onClick={onOpenSettings}
-              className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              className="relative flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             >
               <Settings className="size-4" />
+              {/* Ink, never lime or a flag color: an ambient notice, labeled by the tooltip. */}
+              {updateNotice && (
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute top-1 right-1 size-1.5 rounded-full bg-foreground"
+                />
+              )}
             </button>
           </TooltipTrigger>
-          <TooltipContent side="right">Settings</TooltipContent>
+          <TooltipContent side="right">{settingsLabel}</TooltipContent>
         </Tooltip>
       </div>
     </div>

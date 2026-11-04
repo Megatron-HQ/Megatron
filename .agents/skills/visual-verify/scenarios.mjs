@@ -862,6 +862,35 @@ export const scenarios = [
     }
   },
   {
+    // The rail gear's ink update dot plus its tooltip label. Dev builds report 'unsupported',
+    // so the fixture supplies a state; on macOS 'available' is what a real check produces.
+    name: 'rail-update-dot-tooltip',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('updates:getState', 'update-available')
+      )
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings · Update available' }).hover()
+      await window.getByRole('tooltip', { name: 'Settings · Update available' }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // Settings' Updates section once a newer version exists: Download plus the
+    // select-all brew line on macOS (Windows' "Restart to update" can't render on a Mac run).
+    name: 'settings-update-available',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('updates:getState', 'update-available')
+      )
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings · Update available' }).click()
+      await window.getByText('Version 0.1.1 is available.').waitFor()
+    }
+  },
+  {
     name: 'plugins-settings-dialog-open',
     screen: 'settings-dialog',
     async run(window) {
