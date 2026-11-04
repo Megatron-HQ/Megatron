@@ -16,7 +16,8 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "test": "vitest run",
-    "test:package-security": "node --test scripts/verify-package.test.mjs scripts/release-check.test.mjs",
+    "test:package-security": "node --test scripts/verify-package.test.mjs scripts/release-check.test.mjs scripts/audit.test.mjs",
+    "audit:deps": "node scripts/audit.mjs",
     "verify:package": "node scripts/verify-package.mjs",
     "verify:visual": "node .claude/skills/visual-verify/verify.mjs",
     "start": "electron-vite preview",
@@ -63,7 +64,7 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
-    "electron": "43.7.9",
+    "electron": "43.8.7",
     "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",
     "eslint": "^9.39.1",
@@ -82,7 +83,7 @@
     "vitest": "^5.0.3"
   },
   "allowScripts": {
-    "electron@43.7.9": true,
+    "electron@43.8.7": true,
     "better-sqlite3@13.0.3": true,
     "esbuild@0.25.12": true,
     "esbuild@0.28.2": true
