@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -15,5 +16,16 @@ export function validateReleaseEnvironment(platform, environment) {
       throw new Error(`Missing release setting: ${name}`)
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url))
-  validateReleaseEnvironment(process.argv[2], process.env)
+// latest*.yml carries package.json's version, so a tag that disagrees would publish an update
+// feed pointing at a release with a different name.
+export function validateReleaseTag(tag, version) {
+  if (tag !== `v${version}`)
+    throw new Error(`Release tag ${JSON.stringify(tag)} does not match package.json v${version}`)
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  if (process.argv[2] === 'tag') {
+    const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url)))
+    validateReleaseTag(process.argv[3], version)
+  } else validateReleaseEnvironment(process.argv[2], process.env)
+}
