@@ -1,6 +1,12 @@
 appId: com.megatron.app
 productName: Megatron
-publish: null
+# Embeds app-update.yml in the app and emits latest*.yml next to the artifacts. CI uploads them
+# with the gh CLI (release.yml); electron-builder itself always runs with --publish never.
+publish:
+  provider: github
+  owner: Megatron-HQ
+  repo: Megatron
+  releaseType: draft
 directories:
   buildResources: build
 files:
@@ -20,6 +26,15 @@ asarUnpack:
   - resources/**
   - node_modules/better-sqlite3/**
 mac:
+  # The zip is what electron-updater reads and the Homebrew cask installs; the DMG is for people
+  # downloading by hand. arm64 only: no Intel build ships.
+  target:
+    - target: dmg
+      arch: arm64
+    - target: zip
+      arch: arm64
+  # No spaces in artifact names: GitHub rewrites them in asset URLs, breaking latest-mac.yml.
+  artifactName: ${name}-${version}-mac.${ext}
   # Icon Composer file: electron-builder compiles it with Xcode 26+'s actool into Assets.car
   # (macOS 26+) plus a generated .icns fallback for older macOS and the DMG.
   icon: build/icon.icon
@@ -30,9 +45,12 @@ mac:
     NSDocumentsFolderUsageDescription: Megatron needs access to project folders you grant, to discover project-level skills.
   notarize: true
 win:
-  target: nsis
+  target:
+    - target: nsis
+      arch: x64
   icon: build/icon.ico
 nsis:
+  artifactName: ${name}-${version}-setup.${ext}
   packElevateHelper: false
   oneClick: true
   perMachine: false

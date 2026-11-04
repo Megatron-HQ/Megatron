@@ -144,19 +144,12 @@ async function verifyWorkerFlow() {
   try {
     database.pragma('journal_mode = WAL')
     database.exec(readFileSync(resolve('src/main/db/schema.sql'), 'utf8'))
-    database
-      .prepare('INSERT INTO allowed_paths (path, granted_at) VALUES (?, ?)')
-      .run(project, new Date().toISOString())
   } finally {
     database.close()
   }
+  // Folder grants live in the app's preferences store, which main reads and hands to the worker.
+  const grantedPaths = [project]
   async function scan(scope) {
-    const connection = new Database(databasePath, { readonly: true })
-    const grantedPaths = connection
-      .prepare('SELECT path FROM allowed_paths')
-      .all()
-      .map((row) => row.path)
-    connection.close()
     const worker = new Worker(resolve('out/main/scan-worker.js'), {
       workerData: { databasePath, grantedPaths, scope },
       env: isolatedEnvironment
@@ -243,7 +236,6 @@ async function verifyWorkerFlow() {
           .get().disabled_reason,
         verb === 'disable' ? 'plugin' : null
       )
-      assert.equal(reopened.prepare('SELECT path FROM allowed_paths').get().path, project)
     } finally {
       reopened.close()
     }
@@ -261,12 +253,11 @@ async function verifyWorkerFlow() {
         .get().installed_version,
       '2.0.0'
     )
-    assert.equal(restored.prepare('SELECT path FROM allowed_paths').get().path, project)
   } finally {
     restored.close()
   }
   console.log(
-    `Real CLI fixture and bundled scan worker passed in ${Date.now() - started} ms: focused refresh excludes usage scans; restart retains installed state and folder grant.`
+    `Real CLI fixture and bundled scan worker passed in ${Date.now() - started} ms: focused refresh excludes usage scans; restart retains installed state.`
   )
 }
 

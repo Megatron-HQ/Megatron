@@ -104,11 +104,6 @@ CREATE TABLE IF NOT EXISTS plugin_registry (
                                        -- for two different projects, shares one path.
 );
 
-CREATE TABLE IF NOT EXISTS allowed_paths (
-  path TEXT PRIMARY KEY,              -- resolved repository root
-  granted_at TEXT NOT NULL            -- ISO8601
-);
-
 CREATE TABLE IF NOT EXISTS prompt_history (
   session_id TEXT NOT NULL,          -- history.jsonl sessionId; NO FK — spans pruned sessions
   project TEXT NOT NULL,             -- raw cwd string, matches sessions_meta.cwd

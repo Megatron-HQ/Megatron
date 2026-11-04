@@ -19,10 +19,9 @@ through the Claude CLI.
   are outside the product's inventory scope.
 - **Read-only skill inspection and analytics.** Megatron does not edit skills or execute their
   scripts or hooks. Plugin enable, disable, update, and uninstall actions use Claude's own CLI.
-- **macOS and Windows.** Both platforms run the development checks in CI. macOS packaging is
-  configured; the intended release is a direct notarized DMG. The checked-in configuration
-  currently disables notarization. Windows installer type and code signing are still undecided,
-  and no `win:` block or dedicated Windows packaging script is configured. Linux is not a
+- **macOS (Apple silicon) and Windows (x64).** Releases ship as an ad-hoc signed DMG and Homebrew
+  cask on macOS and a per-user NSIS installer on Windows. Neither is notarized or code-signed yet;
+  see [Install](#install). Both platforms run the development checks in CI. Linux is not a
   distribution target.
 
 ## Features
@@ -119,6 +118,41 @@ Claude Code's `/context` headless (`claude -p "/context" --no-session-persistenc
 from an empty folder, so it shows the measured global baseline. Its per-item detail comes from your
 newest interactive session's recorded request (Claude Code 2.1.300+).
 
+## Install
+
+### macOS (Apple silicon)
+
+Install with Homebrew, which is also how you upgrade:
+
+```sh
+brew install --cask megatron-hq/tap/megatron
+```
+
+Or download `megatron-<version>.dmg` from
+[Releases](https://github.com/Megatron-HQ/Megatron/releases/latest), drag Megatron to Applications,
+and open it. Megatron isn't notarized yet, so macOS blocks the first launch: open **System Settings >
+Privacy & Security**, find the message about Megatron, and click **Open Anyway**.
+
+### Windows (x64)
+
+Download `megatron-<version>-setup.exe` from
+[Releases](https://github.com/Megatron-HQ/Megatron/releases/latest) and run it. It installs for
+your user only, with no administrator prompt. The installer isn't code-signed yet, so SmartScreen
+may warn about it: click **More info > Run anyway**.
+
+### Updates
+
+Megatron checks GitHub for a newer release 10 seconds after launch and every 6 hours. Turn this off
+in **Settings > Updates**; **Check now** works either way.
+
+- **Windows** downloads the update in the background. A dot on the Settings gear means it's ready:
+  choose **Restart to update**, or quit Megatron and it installs then.
+- **macOS** can't install its own updates without a Developer ID signature, so the dot means a new
+  version is available. Run `brew upgrade --cask megatron`, or choose **Download** for the new DMG.
+
+Each check is one request to github.com, which sees your IP address and which platform's update
+feed is fetched. No skills, usage data, or paths are sent.
+
 ## Getting started
 
 ### Prerequisites
@@ -164,10 +198,11 @@ If Electron's binary is missing or startup reports `Error: Electron uninstall`, 
 | `npm run test`           | Run Vitest tests                                                                         |
 | `npm run verify:visual`  | Build and capture Electron rendering evidence using Playwright                           |
 | `npm run build:unpack`   | Build and create an unpacked app with electron-builder `--dir`                           |
-| `npm run build:mac`      | Build and package for macOS using `electron-builder.yml`                                 |
+| `npm run build:mac`      | Package an ad-hoc signed DMG and zip; signs only with `MEGATRON_SIGNED_RELEASE=true`     |
+| `npm run build:win`      | Package the NSIS installer; signs only with `MEGATRON_SIGNED_RELEASE=true`               |
 | `npm run build:icons`    | Regenerate icon outputs under Electron; the macOS `.icon` remains hand-assembled         |
 | `npm run db`             | Open the local index in DB Browser for SQLite on macOS, or the associated app on Windows |
-| `npm run db:reset`       | Delete the local index and SQLite sidecar files; also removes repository grants          |
+| `npm run db:reset`       | Delete the local index and SQLite sidecar files; repository grants are kept              |
 | `npm run explore:usage`  | Inspect real local Claude usage data and overwrite `scripts/explore-usage.report.md`     |
 
 ### Verification
@@ -247,7 +282,8 @@ unsandboxed and exposes the application API without raw IPC or environment varia
 the trusted window's main frame, exact renderer URL, argument shapes, and matching plugin install.
 Navigation outside the app is blocked; HTTP(S) links open through the external browser.
 
-Analysis runs locally without Megatron telemetry or external LLM calls. Plugin actions delegate to
+Analysis runs locally without Megatron telemetry or external LLM calls. Installed builds check
+github.com for updates (see [Updates](#updates)). Plugin actions delegate to
 the Claude CLI, which may use the network; Resident tax runs `claude -p /context`, which is
 computed locally but does start your MCP servers and SessionStart hooks. The local index contains
 invocation arguments and preceding prompt excerpts; prompt-history rows retain metadata rather than
@@ -275,11 +311,12 @@ The database is `megatron.db` under Electron's user data directory. Default deve
 Use **Settings > Reveal data folder** to locate the active profile. Preferences are stored
 separately in that folder.
 
-After a schema change or when rebuilding the index, close Megatron, run `npm run db:reset`, and
-relaunch. The command removes the database and its WAL, SHM, and journal sidecars. Source skills,
-plugins, and transcripts remain intact, but **repository folder grants are deleted** and must be
-added again. Scanned data rebuilds from the Claude files still present. Schema changes use this
-reset workflow rather than migrations.
+The index rebuilds itself whenever a new version changes its schema, so updates never need a
+manual reset. To rebuild it by hand, close Megatron, run `npm run db:reset`, and relaunch; the
+command removes the database and its WAL, SHM, and journal sidecars. Source skills, plugins,
+transcripts, and repository folder grants (stored in `preferences.json`) remain intact, and
+scanned data rebuilds from the Claude files still present. The usage archive, `usage-history.db`,
+is never deleted by either.
 
 ## Development documentation
 

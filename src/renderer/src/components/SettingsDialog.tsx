@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { Folder, Monitor, Moon, RefreshCw, Sun } from 'lucide-react'
+import { Download, Folder, Monitor, Moon, RefreshCw, RotateCw, Sun } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { TextLink } from '@/components/TextLink'
 import { ScanIssueDetails } from '@/components/ScanStatus'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
-import type { ScanSummary, ThemePreference } from '../../../shared/ipc'
+import type { ScanSummary, ThemePreference, UpdateState } from '../../../shared/ipc'
 
 interface SettingsDialogProps {
   open: boolean
@@ -15,6 +16,7 @@ interface SettingsDialogProps {
   version: string
   scanSummary?: ScanSummary
   onManageFolders: () => void
+  updateState?: UpdateState
 }
 
 const APPEARANCE_OPTIONS = [
@@ -23,6 +25,27 @@ const APPEARANCE_OPTIONS = [
   { value: 'system', label: 'System', Icon: Monitor }
 ] as const
 
+function updateStatusText({ status, version }: UpdateState): string {
+  switch (status) {
+    case 'unsupported':
+      return 'Update checks run in installed builds only.'
+    case 'idle':
+      return 'Not checked yet.'
+    case 'checking':
+      return 'Checking for updates…'
+    case 'current':
+      return 'Megatron is up to date.'
+    case 'available':
+      return `Version ${version} is available.`
+    case 'downloading':
+      return `Downloading version ${version}…`
+    case 'ready':
+      return `Version ${version} installs when you quit Megatron.`
+    case 'error':
+      return "Couldn't check for updates. Try again later."
+  }
+}
+
 export function SettingsDialog({
   open,
   onOpenChange,
@@ -30,7 +53,8 @@ export function SettingsDialog({
   onThemeChange,
   version,
   scanSummary,
-  onManageFolders
+  onManageFolders,
+  updateState
 }: SettingsDialogProps): React.JSX.Element {
   const [isRescanning, setIsRescanning] = useState(false)
   const [rescanMessage, setRescanMessage] = useState<string | null>(null)
@@ -141,6 +165,78 @@ export function SettingsDialog({
               Manage…
             </Button>
           </section>
+
+          {updateState && (
+            <section className="flex flex-col gap-3 border-t border-border py-3">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium">Updates</p>
+                  <p role="status" className="text-xs text-muted-foreground">
+                    {updateStatusText(updateState)}
+                  </p>
+                </div>
+                {window.api.platform === 'win32' && updateState.status === 'ready' ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => window.api.installUpdate()}
+                    className="flex shrink-0 items-center gap-1.5"
+                  >
+                    <RotateCw className="size-4" />
+                    Restart to update
+                  </Button>
+                ) : window.api.platform === 'darwin' && updateState.status === 'available' ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => window.api.openUpdateDownload()}
+                    className="flex shrink-0 items-center gap-1.5"
+                  >
+                    <Download className="size-4" />
+                    Download
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => window.api.checkForUpdates()}
+                    disabled={['unsupported', 'checking', 'downloading'].includes(
+                      updateState.status
+                    )}
+                    className="flex shrink-0 items-center gap-1.5"
+                  >
+                    <RefreshCw
+                      className={cn('size-4', updateState.status === 'checking' && 'animate-spin')}
+                    />
+                    Check now
+                  </Button>
+                )}
+              </div>
+              {window.api.platform === 'darwin' && updateState.status === 'available' && (
+                // Selectable text, not a copy button: the session permission handler denies
+                // clipboard access.
+                <p className="text-xs text-muted-foreground">
+                  Installed with Homebrew? Run{' '}
+                  <code className="font-mono text-[11px] text-foreground select-all">
+                    brew upgrade --cask megatron
+                  </code>
+                </p>
+              )}
+              <div className="flex items-center justify-between gap-4">
+                <label htmlFor="auto-update-check" className="text-xs text-muted-foreground">
+                  Check for updates automatically
+                </label>
+                <Switch
+                  id="auto-update-check"
+                  checked={updateState.autoCheck}
+                  onCheckedChange={(checked) => void window.api.setAutoUpdateCheck(checked)}
+                />
+              </div>
+            </section>
+          )}
 
           <section className="flex items-center justify-between gap-4 border-t border-border pt-3">
             <p className="font-mono text-xs text-muted-foreground">Megatron v{version}</p>

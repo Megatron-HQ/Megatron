@@ -1,6 +1,9 @@
 import Database from 'better-sqlite3'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { applySchema } from './schema'
+import { existsSync, mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { applySchema, openIndex } from './schema'
 
 let db: Database.Database
 
@@ -21,7 +24,6 @@ describe('applySchema', () => {
         'sessions_meta',
         'skill_invocations',
         'plugin_registry',
-        'allowed_paths',
         'lint_findings',
         'prompt_history',
         'session_cost',
@@ -156,12 +158,12 @@ describe('applySchema', () => {
     })
   })
 
-  it('rejects a duplicate allowed_paths.path', () => {
+  it('no longer stores folder grants in the index', () => {
     applySchema(db)
-    const insert = db.prepare(`INSERT INTO allowed_paths (path, granted_at) VALUES (?, ?)`)
-    const now = new Date().toISOString()
-    insert.run('/path/to/repo', now)
-    expect(() => insert.run('/path/to/repo', now)).toThrow()
+    const grants = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'allowed_paths'")
+      .all()
+    expect(grants).toEqual([])
   })
 
   it('is idempotent — running twice does not throw', () => {
@@ -365,5 +367,74 @@ describe('applySchema', () => {
       project_root: string
     }
     expect(row.project_root).toBe('/repo')
+  })
+})
+
+describe('openIndex', () => {
+  let root: string
+  let path: string
+  const skillCount = (index: Database.Database): number =>
+    (index.prepare('SELECT COUNT(*) AS count FROM skills').get() as { count: number }).count
+  const insertSkill = (index: Database.Database): void => {
+    index
+      .prepare(
+        `INSERT INTO skills (name, source_type, source_path, description, last_scanned_at)
+         VALUES ('demo', 'global', '/skills/demo/SKILL.md', NULL, ?)`
+      )
+      .run(new Date().toISOString())
+  }
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'megatron-index-test-'))
+    path = join(root, 'megatron.db')
+  })
+  afterEach(() => rmSync(root, { recursive: true, force: true }))
+
+  it('stamps a fresh index with a non-zero schema version', () => {
+    const index = openIndex(path)
+    expect(index.pragma('user_version', { simple: true })).not.toBe(0)
+    index.close()
+  })
+
+  it('keeps rows when the stored version matches the current schema', () => {
+    const first = openIndex(path)
+    insertSkill(first)
+    first.close()
+
+    const second = openIndex(path)
+    expect(skillCount(second)).toBe(1)
+    second.close()
+  })
+
+  it('rebuilds an index written by a different schema', () => {
+    const first = openIndex(path)
+    insertSkill(first)
+    first.pragma('user_version = 1')
+    first.close()
+
+    const rebuilt = openIndex(path)
+    expect(skillCount(rebuilt)).toBe(0)
+    expect(rebuilt.pragma('user_version', { simple: true })).not.toBe(1)
+    rebuilt.close()
+  })
+
+  it('drops tables an older schema had, such as the old folder-grant table', () => {
+    const old = new Database(path)
+    old.exec('CREATE TABLE allowed_paths (path TEXT PRIMARY KEY, granted_at TEXT NOT NULL)')
+    old.close()
+
+    const rebuilt = openIndex(path)
+    const legacy = rebuilt
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'allowed_paths'")
+      .all()
+    expect(legacy).toEqual([])
+    rebuilt.close()
+  })
+
+  it('opens the rebuilt index in WAL mode', () => {
+    const index = openIndex(path)
+    expect(index.pragma('journal_mode', { simple: true })).toBe('wal')
+    index.close()
+    expect(existsSync(path)).toBe(true)
   })
 })

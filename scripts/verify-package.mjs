@@ -68,7 +68,38 @@ function findMacApp(directory) {
   throw new Error('Packaged macOS application was not found')
 }
 
-export async function verifyPackage(directory, { requireSigned = false } = {}) {
+const SIGNING_LEVELS = ['none', 'adhoc', 'trusted']
+
+export function parseVerifyArgs(argv) {
+  const directory = argv.find((arg) => !arg.startsWith('--'))
+  if (!directory)
+    throw new Error(
+      'Usage: node scripts/verify-package.mjs <packaged directory> [--signing=none|adhoc|trusted]'
+    )
+  const flag = argv.find((arg) => arg.startsWith('--signing='))
+  const signing = argv.includes('--require-signed')
+    ? 'trusted'
+    : flag
+      ? flag.slice('--signing='.length)
+      : 'none'
+  if (!SIGNING_LEVELS.includes(signing)) throw new Error(`Unknown signing level: ${signing}`)
+  return { directory, signing }
+}
+
+// Ad-hoc builds carry a real signature (arm64 macOS refuses to launch without one) but no
+// Developer ID, so Gatekeeper and notarization checks only apply at the trusted level.
+export function macSignatureChecks(signing, appPath) {
+  if (signing === 'none') return []
+  const verify = ['/usr/bin/codesign', ['--verify', '--deep', '--strict', appPath]]
+  if (signing === 'adhoc') return [verify]
+  return [
+    verify,
+    ['/usr/sbin/spctl', ['--assess', '--type', 'execute', '--verbose', appPath]],
+    ['/usr/bin/xcrun', ['stapler', 'validate', appPath]]
+  ]
+}
+
+export async function verifyPackage(directory, { signing = 'none' } = {}) {
   const appPath = process.platform === 'darwin' ? findMacApp(directory) : resolve(directory)
   const executable =
     process.platform === 'darwin'
@@ -110,16 +141,11 @@ export async function verifyPackage(directory, { requireSigned = false } = {}) {
     }
   }
   inspectUnpacked(unpacked)
-  if (requireSigned) {
-    if (process.platform === 'darwin') {
-      execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', appPath], {
-        stdio: 'inherit'
-      })
-      execFileSync('/usr/sbin/spctl', ['--assess', '--type', 'execute', '--verbose', appPath], {
-        stdio: 'inherit'
-      })
-      execFileSync('/usr/bin/xcrun', ['stapler', 'validate', appPath], { stdio: 'inherit' })
-    } else if (process.platform === 'win32') {
+  if (process.platform === 'darwin') {
+    for (const [command, args] of macSignatureChecks(signing, appPath))
+      execFileSync(command, args, { stdio: 'inherit' })
+  } else if (signing !== 'none') {
+    if (process.platform === 'win32' && signing === 'trusted') {
       const powershell = join(
         process.env.SystemRoot ?? 'C:\\Windows',
         'System32',
@@ -154,20 +180,14 @@ export async function verifyPackage(directory, { requireSigned = false } = {}) {
           ],
           { stdio: 'inherit' }
         )
-    } else throw new Error('Unsupported release platform')
+    } else throw new Error(`Signing level ${signing} is not supported on ${process.platform}`)
   }
   console.log(
-    `Verified ${entries.length} archive entries and all required Electron fuses${requireSigned ? '; signatures verified' : '; unsigned local artifact'}.`
+    `Verified ${entries.length} archive entries and all required Electron fuses; signing level: ${signing}.`
   )
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const directory = process.argv[2]
-  if (!directory)
-    throw new Error(
-      'Usage: node scripts/verify-package.mjs <packaged directory> [--require-signed]'
-    )
-  await verifyPackage(resolve(directory), {
-    requireSigned: process.argv.includes('--require-signed')
-  })
+  const { directory, signing } = parseVerifyArgs(process.argv.slice(2))
+  await verifyPackage(resolve(directory), { signing })
 }
