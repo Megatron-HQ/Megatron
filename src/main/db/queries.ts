@@ -2,7 +2,6 @@ import type Database from 'better-sqlite3'
 import { INVOCATION_PAGE_SIZE, MAX_INVOCATION_OFFSET } from '../../shared/ipc'
 import { dirname, join, resolve, sep } from 'path'
 import { CHARS_PER_TOKEN } from '../ingest/skill-parser'
-import { estimateResidentTokens } from '../ingest/token-estimate'
 import { readPluginEnablement } from '../ingest/claude-settings'
 import { isWithinProjectPath, normalizeProjectPath } from '../../shared/project-path'
 import type {
@@ -19,7 +18,6 @@ import type {
   PluginInstall,
   PluginRow,
   ProjectCount,
-  ResidentTaxStats,
   SkillInvocationEntry,
   SkillInvocationRecord,
   SkillInvocationSliceInput,
@@ -919,96 +917,6 @@ export function getActivityStats(db: Database.Database, now: Date = new Date()):
 }
 
 export { getCostStats } from './cost-queries'
-
-interface ResidentContextCandidateRow {
-  first_turn_at: string
-  model: string
-  claude_version: string | null
-  project: string
-  cache_read_tokens: number
-  measured_tokens: number
-  cost_state_started_at: string | null
-  skill_characters: number
-  skill_count: number
-  agent_characters: number
-  agent_count: number
-  hook_characters: number
-  hook_count: number
-  mcp_characters: number
-  mcp_count: number
-  instruction_characters: number
-  instruction_count: number
-}
-
-const MAX_COLD_CACHE_READ_TOKENS = 100
-const MAX_COST_START_OFFSET_MS = 5 * 60 * 1000
-
-export function getResidentTaxStats(db: Database.Database): ResidentTaxStats | null {
-  const candidates = db
-    .prepare(
-      `SELECT r.*, sm.cwd AS project
-       FROM resident_context_sample r
-       JOIN sessions_meta sm ON sm.session_id = r.session_id
-       WHERE r.cache_read_tokens <= ?
-         AND r.measured_tokens > 0
-         AND NOT EXISTS (
-           SELECT 1 FROM sessions_meta predecessor
-           WHERE predecessor.continued_in_session_id = r.session_id
-         )
-       ORDER BY r.first_turn_at DESC, r.session_id ASC`
-    )
-    .all(MAX_COLD_CACHE_READ_TOKENS) as ResidentContextCandidateRow[]
-
-  for (const candidate of candidates) {
-    if (candidate.cost_state_started_at !== null) {
-      const firstTurnTime = new Date(candidate.first_turn_at).getTime()
-      const costStartTime = new Date(candidate.cost_state_started_at).getTime()
-      if (
-        Number.isNaN(firstTurnTime) ||
-        Number.isNaN(costStartTime) ||
-        Math.abs(firstTurnTime - costStartTime) > MAX_COST_START_OFFSET_MS
-      ) {
-        continue
-      }
-    }
-
-    const skills = estimateResidentTokens(candidate.skill_characters)
-    const agents = estimateResidentTokens(candidate.agent_characters)
-    const hooks = estimateResidentTokens(candidate.hook_characters)
-    const mcp = estimateResidentTokens(candidate.mcp_characters)
-    const instructions = estimateResidentTokens(candidate.instruction_characters)
-    const itemizedTotal = skills + agents + hooks + mcp + instructions
-    if (itemizedTotal > candidate.measured_tokens) continue
-
-    return {
-      measuredTokens: candidate.measured_tokens,
-      sampledAt: candidate.first_turn_at,
-      project: candidate.project,
-      model: candidate.model,
-      claudeVersion: candidate.claude_version,
-      categories: [
-        { key: 'skills', tokens: skills, itemCount: candidate.skill_count, estimated: true },
-        { key: 'agents', tokens: agents, itemCount: candidate.agent_count, estimated: true },
-        { key: 'hooks', tokens: hooks, itemCount: candidate.hook_count, estimated: true },
-        { key: 'mcp', tokens: mcp, itemCount: candidate.mcp_count, estimated: true },
-        {
-          key: 'instructions',
-          tokens: instructions,
-          itemCount: candidate.instruction_count,
-          estimated: true
-        },
-        {
-          key: 'remainder',
-          tokens: candidate.measured_tokens - itemizedTotal,
-          itemCount: null,
-          estimated: false
-        }
-      ]
-    }
-  }
-
-  return null
-}
 
 interface ModelTurnRow {
   model: string

@@ -71,7 +71,10 @@ describe('renderer trust boundary', () => {
       [{ name: 'demo', marketplace: 'market', scope: 'bad', projectPath: null }]
     ],
     [IPC_CHANNELS.usageSkillInvocations, [{ startAt: 'bad', endAt: 'bad' }]],
-    [IPC_CHANNELS.listSkills, ['unexpected']]
+    [IPC_CHANNELS.listSkills, ['unexpected']],
+    // These two spawn the CLI and read transcripts; their cwd and paths are fixed in main.
+    [IPC_CHANNELS.usageContextBaseline, ['/tmp']],
+    [IPC_CHANNELS.usageRecordedRequest, ['/etc']]
   ])('rejects malformed arguments for %s', (channel, args) => {
     expect(() => security.validateIpcArguments(channel, args)).toThrow()
   })

@@ -50,7 +50,8 @@ This supersedes the earlier all-tracked-history Cost display rule. See the UI sp
 amendment for chart visibility and partial-date behavior.
 
 **Status:** Phase 2a landed — PR1 (Activity), PR2 (Cost), PR3 (Skills), PR4
-(Model & effort + proportional attribution), and PR5 (Resident tax) are implemented.
+(Model & effort + proportional attribution), and PR5 (Resident tax) are implemented. PR5's
+transcript pipeline was replaced on 2026-11-03 — see **Resident tax rebuild** below.
 This is the Phase-2 feature that `docs/mvp-build-spec.md`'s "Deferred, on purpose" row _"Cost
 analytics, MCP dashboard … Per original roadmap's Phase 2+"_ was pointing at.
 
@@ -64,6 +65,7 @@ association rows click through to skill detail, and a section caption reports pr
 fired no skill. Renderer decisions for the whole Usage view are locked in
 **`docs/usage-view-ui-spec.md`**. **PR5 — Resident tax — landed** (2026-09-11): strict cold-session
 selection, numeric-only attachment measurements, and the measured/itemized Resident-tax panel.
+**Superseded 2026-11-03** by the `/context` rebuild below.
 
 **Canonical PR sequence** (reconciles the build-order table below and `usage-view-ui-spec.md`,
 which have historically disagreed on numbering — the build-order `#` is a dependency order, not a
@@ -75,7 +77,39 @@ PR number):
 | PR2 | Cost                                                                        | ✅ landed |
 | PR3 | Skills section — 24h/7d/30d activity, trend, trigger mix, association table | ✅ landed |
 | PR4 | `turn_usage` + Model & effort section + the proportional-attribution rider  | ✅ landed |
-| PR5 | Resident tax — attachment parsing, fresh-session detection                  | ✅ landed |
+| PR5 | Resident tax — attachment parsing, fresh-session detection (superseded)     | ✅ landed |
+
+### Resident tax rebuild (2026-11-03)
+
+PR5's panel was wrong in four ways, all checked against a real index: (1) its "cold session" gate
+(turn-1 `cache_read_input_tokens` ≤ 100) almost never passes — Claude Code marks the `system[1]`
+breakpoint `cache_control.scope: "global"`, so the cache is shared across sessions and 126 of 132
+real sessions read 26k–43k cached tokens on turn 1, leaving a weeks-old headless run as the
+"sample"; (2) it counted only `cache_creation_input_tokens`; (3) turn 1 includes the first user
+prompt; (4) transcripts can't produce `/context`'s categories (system prompt, tool schemas,
+deferred tools).
+
+The panel now has two sources, and stores neither:
+
+- **Totals** — `claude -p "/context" --output-format json --no-session-persistence`, run with cwd
+  `<userData>/context-baseline/` (a fixed empty folder, so the figure is the **global baseline**:
+  no project CLAUDE.md, skills, or MCP servers). `/context` is computed locally: verified $0,
+  `duration_api_ms: 0`, no transcript written, ≈3.6 s. It does start MCP servers and run
+  SessionStart hooks. Run on the panel's first open per app launch, kept in TanStack Query memory,
+  re-run by the header's Refresh. Parsed generically (`src/main/context-usage.ts`) — a category
+  Claude Code adds later passes through; an unparseable result shows the raw output. `--bare` is
+  unusable: it skips CLAUDE.md and hooks.
+- **Per-item detail** — since Claude Code 2.1.300 main transcripts carry `api-request-shape`
+  (the exact `system` blocks and full `tools` definitions, keyed by `shapeHash`) and `api-request`
+  (`querySource`, `cacheControl` breakpoint paths, `shapeHash`). The drill-in reads the **first
+  `repl_main_thread` request of the newest interactive transcript** on demand
+  (`src/main/ingest/recorded-request.ts`), through `isPathAllowed` (Tier 1). `sdk` / `-p` sessions
+  are never used. Sizes are exact characters; `/context`'s own per-item tokens are the only tokens
+  shown — no `chars/N` estimates, and no `count_tokens` call (that would put Megatron in the auth
+  path).
+
+`resident_context_sample`, `resident-context-parser.ts`, `token-estimate.ts`, and
+`getResidentTaxStats` are deleted. Renderer authority: `docs/usage-view-ui-spec.md` §R.
 
 **Implementation:** usage extraction in `src/main/ingest/` (riding `transcript-scanner.ts`'s
 existing walk), derived-cache tables in `src/main/db/`, and a new top-level renderer view.
@@ -106,6 +140,7 @@ on) and `docs/data-model.md` (schema conventions) first.
 | No auth-regime split     | Do not design a surface that distinguishes "real money" sessions from subscription sessions                                                                                                              | **No auth marker exists anywhere local** — not transcripts, `settings.json`, or `~/.claude.json`. `service_tier` is `"standard"` everywhere; msg/req id prefixes identical                                                                           |
 | `turn_usage` granularity | Per-turn table, for **intra-session shape only** (context-growth curve, per-turn model/effort). A hard "never summed for totals" contract. Session rollups come from `cost-state`, derived at query time | Summing per-turn `message.usage` over-counts ~2.3× (verified). Per-turn data is still the right home for the proxy-like depth, and `requestId` is the seam to 2b captures                                                                            |
 | Organizing unit          | Standalone **"Usage" view** first. Detail-page weaving (`SkillDetail`/`PluginDetail` gain real numbers) and a session-centric view come later, in that order                                             | The single overview is what "insights on my context-window usage like the proxy" actually means, and the natural home for the 2b cut list. Detail-page weaving scatters the story; session-centric is the narrowest audience                         |
+| Resident tax source      | Totals from Claude Code's own `/context`, run headless from an empty `<userData>/context-baseline/` (global baseline), memory only. Detail from the newest interactive transcript, on demand             | Transcripts can't reproduce `/context`'s categories, and global cache scope makes "cold" turn-1 selection impossible. `/context` is local ($0, no API call, no transcript), so the no-proxy rule holds                                               |
 | Pre-feature history      | Sessions with no `cost-state` line show **"cost not tracked"** + a "Claude Code added cost tracking Aug 2026" note + a visible excluded-session count. No estimated dollar figure for them               | `cost-state` is version-gated (see hazards). A "loud rough flag" on a number known to be ~2.3× off is worse than an honest gap                                                                                                                       |
 
 ---
@@ -223,15 +258,23 @@ qualitative angle is ever wanted.
 
 `ClaudeCodeInternalEvent` events (feature usage, env, betas). Low priority.
 
-### What NONE of these have — 2b / capture only
+### Recorded requests (Claude Code 2.1.300+)
 
-1. **Full tool JSON schemas + their exact byte/token size** ("Artifact tool = 37,621 B ≈ 9,405
-   tok ≈ 12.3% of the request"). Transcripts have tool _names_, never `input_schema`.
-2. **The system prompt** (the "You are Claude Code…" identity, ~15 KB / ~3,900 tok). Roughly
-   constant, so one capture ≈ all captures — but still capture-only.
-3. **The exact assembled request** — ordering, `cache_control` breakpoints, how tools + system +
-   history sum to a specific billed `input_tokens`.
-4. `count_tokens` housekeeping calls.
+Before 2.1.300 these were capture-only. Main transcripts now record them for every request:
+
+1. **Full tool definitions** — `api-request-shape.shape.tools[]` (`name`, `description`,
+   `input_schema`), so tools can be ranked by exact serialized size. Per-tool **token** counts are
+   still not recorded; `/context`'s MCP Tools table is the only per-tool token source.
+2. **The system prompt** — `api-request-shape.shape.system[]`, the exact text blocks.
+3. **Cache breakpoints** — `api-request.cacheControl[]`, `{path, value}` per breakpoint
+   (e.g. `system[1]` with `scope: "global"`).
+4. Still absent: `count_tokens` housekeeping calls, and how tools + system + history sum to a
+   specific billed `input_tokens`.
+
+Headless runs record `querySource: "sdk"` and a different system prompt; only
+`repl_main_thread` describes an interactive session. The Resident tax drill-in reads these on
+demand (see **Resident tax rebuild**), so 2b's system-prompt sizing and tool cut list need no
+capture.
 
 ---
 
@@ -354,7 +397,7 @@ Everything considered, by robustness. The first cut is Tier 1 + the Tier 3 assoc
 | **Cost (tracked window)** | per-session $ cards, window total, per-model $ split, per-project $ ranking                                                      | `cost-state` verbatim — lineage-collapsed, last-line-only                                                      |
 | **Skill activity**        | invocations over 24 h / 7 d / 30 d, top skills, trend, user-invoked vs autonomous vs subagent, plus the Tier-3 association table | `skill_invocations` (already ingested) ⋈ `session_cost` for the association table                              |
 | **Model & effort mix**    | which model served your turns, `xhigh`/`high`/`medium`/`low` distribution                                                        | per-turn `model` / `effort` — **counts, not sums**                                                             |
-| **Resident context tax**  | measured total from a fresh session's turn-1 context + the itemizable parts (skill listing, hooks, MCP instructions — all exact) | turn-1 `cache_creation_input_tokens` + `skill_listing` / `hook_success` / `mcp_instructions_delta` attachments |
+| **Resident context tax**  | global-baseline used / window and every `/context` category, plus exact system blocks, tool definitions, cache breakpoints       | `claude -p /context` (not stored) + the newest interactive transcript's first recorded request, read on demand |
 
 ### Tier 2 — needs careful dedup, would ship with an "estimate" badge
 
@@ -403,8 +446,9 @@ never a ratio.
 
 ### Tier 4 — needs the 2b capture layer
 
-- Tool-schema **cut list** (tools ranked by token size — the proxy's best trick)
-- System-prompt size
+- Tool-schema **cut list** (tools ranked by token size — the proxy's best trick). Since 2.1.300
+  the definitions are in transcripts; the Resident tax drill-in ranks them by exact characters
+- System-prompt size — likewise in transcripts since 2.1.300 (Resident tax drill-in)
 - Exact per-request composition (tools vs system vs history summing to billed `input_tokens`)
 
 ---
@@ -422,8 +466,9 @@ Tier 1 + the Tier 3 association table. **Not** Tier 2 (dedup risk spent on "huh,
 2. **Cost** — estimated API-equivalent cost, coverage caveats, and model/project/day splits
 3. **Model & effort** — per-turn model and effort counts (PR4)
 4. **Skills** — 24h/7d/30d activity, trigger mix, and the clearly labelled Tier-3 association table
-5. **Resident tax** — the measured cold turn-1 total, estimated Skills / Agents / SessionStart
-   hooks / MCP instructions / Project instructions parts, and an honest unitemized remainder
+5. **Resident tax** — Claude Code's own `/context` breakdown for the global baseline (used /
+   window), with drill-ins into `/context`'s item tables and the newest interactive session's
+   recorded request (rebuilt 2026-11-03)
 
 ### Build order
 
@@ -435,7 +480,7 @@ number. The **Status** column maps each row to the canonical PR sequence at the 
 | 1   | `session_cost` + `session_model_cost` (one row per priced session / per-model), populated by the existing `scanTranscripts` walk — `extractCostState` on main transcripts only, `toModelCostRows` projection, one `transcript_parser_version` bump. `getCostStats` collapses `continued-in` lineages and drops zeroed rows at query time. Fixture-snapshot guards the JSON shape. **No `turn_usage`** — deferred past PR2 | Cost panel                                | ✅ PR2   |
 | 2a  | `history.jsonl` ingest + `prompt_history`                                                                                                                                                                                                                                                                                                                                                                                 | Activity section                          | ✅ PR1   |
 | 2b  | Reuse `skill_invocations` ⋈ `session_cost` (`getSkillStats`) + two `skill_invocations` indexes                                                                                                                                                                                                                                                                                                                            | Skills section + Tier-3 table             | ✅ PR3   |
-| 3   | Attachment parsing (`skill_listing`, `agent_listing_delta`, `hook_success`, `mcp_instructions_delta`, project instructions) + strict cold-session detection                                                                                                                                                                                                                                                               | Resident-tax panel                        | ✅ PR5   |
+| 3   | Attachment parsing (`skill_listing`, `agent_listing_delta`, `hook_success`, `mcp_instructions_delta`, project instructions) + strict cold-session detection                                                                                                                                                                                                                                                               | Resident-tax panel (superseded)           | ✅ PR5   |
 | 4   | `turn_usage` table (per-turn model/effort) + the proportional-attribution rider below                                                                                                                                                                                                                                                                                                                                     | Model & effort panel + honest per-skill $ | ✅ PR4   |
 | 5   | The "Usage" view assembling all sections                                                                                                                                                                                                                                                                                                                                                                                  | ship                                      | ✅ PR1–5 |
 
@@ -579,10 +624,10 @@ precedence over synced global copies when resolving links.
 
 ### Open questions for implementation
 
-- **Fresh-session detection** for the resident-tax measurement: how to be sure `apiBlockIndex 0`
-  is a cold start and not a resume/compaction. Candidate: first line has no `continued-in` in its
-  lineage **and** `cost-state.startTime` (if present) ≈ first-line timestamp **and** turn-1
-  `cache_read_input_tokens` ≈ 0.
+- ~~**Fresh-session detection** for the resident-tax measurement~~ — **closed 2026-11-03**:
+  unanswerable from transcripts. `system[1]` carries `cache_control.scope: "global"`, so turn 1 of
+  almost every session reads a warm shared cache. Resident tax now reads `/context` instead (see
+  **Resident tax rebuild**).
 - **`turn_usage` dedup key** — `source_uuid` (the line's `uuid`) vs `requestId`. `uuid` matches
   the `skill_invocations` pattern and is per-line; `requestId` can repeat across retried
   iterations. Leaning `uuid`.
@@ -616,10 +661,10 @@ precedence over synced global copies when resolving links.
 
 - **Context budget** (`src/renderer/src/lib/context-budget.ts`, `ContextBudgetDialog.tsx`) —
   currently sums `est_listing_tokens` (`chars / 3.0`, calibrated not exact) over enabled
-  model-invocable global + plugin skills. The Tier-1 **Resident tax** panel is this, ground-truthed
-  against the `skill_listing` attachment and extended to hooks + MCP instructions + (in 2b) tool
-  schemas. It supersedes the dialog's scope; the dialog's "heaviest skills / disable this" flow is
-  the template for the _first real lever_ this feature grows.
+  model-invocable global + plugin skills. The Tier-1 **Resident tax** panel is the ground truth
+  for the same question — Claude Code's own `/context`, covering tool schemas, MCP, memory files,
+  agents, and messages too. It supersedes the dialog's scope; the dialog's "heaviest skills /
+  disable this" flow is the template for the _first real lever_ this feature grows.
 - **`docs/transcript-ingest.md`** — this feature adds a second consumer of the transcript walk.
   Its `isSidechain === false` + dedicated-subagent-file rules are necessary but **not sufficient**
   for the cost path (hazard 2). Any change to the walk must keep both consumers correct.

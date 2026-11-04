@@ -85,7 +85,7 @@ The Usage section has five panels. Activity, Cost, Models, and Skills each have 
 | **Cost**         | Estimated API-equivalent spend, model-family/version breakdown, hourly/daily trends, time-of-day punchcard, project rankings, and clickable hour/day cost details         |
 | **Models**       | Logical turns, distinct models, output tokens, model and reasoning-effort rankings, and a model-by-effort matrix                                                          |
 | **Skills**       | Invocations, unique skills, active sessions, trend drilldowns, top skills, trigger distribution, and proportional estimated cost attribution with a General work bucket   |
-| **Resident tax** | A recent cold session's measured first-turn cache write, with estimated Skills, Agents, SessionStart hooks, MCP instructions, project instructions, and remainder context |
+| **Resident tax** | Claude Code's own `/context` for your global setup: used / window, every category, and drill-ins down to every skill, MCP tool, system-prompt block, and tool JSON schema |
 
 Invocation dialogs show timestamps, project context, trigger types, and preceding prompts. The
 Usage invocation dialog supports text search and trigger filtering. Skills with an unambiguous
@@ -114,9 +114,10 @@ user-versus-autonomous attribution is a preceding-message heuristic.
 - Persist appearance and the last active section. Inventory and file-tree navigation support
   keyboard controls, and the file-tree divider supports both pointer and keyboard resizing.
 
-The listing budget is an estimate for a reference context window. Resident tax separately measures
-first-turn cache creation; its category breakdowns are estimates from injected text. A suitable
-cold-session sample is required before that panel can show data.
+The listing budget is an estimate for a reference context window. Resident tax instead runs
+Claude Code's `/context` headless (`claude -p "/context" --no-session-persistence`, no API call)
+from an empty folder, so it shows the measured global baseline. Its per-item detail comes from your
+newest interactive session's recorded request (Claude Code 2.1.300+).
 
 ## Getting started
 
@@ -247,9 +248,10 @@ the trusted window's main frame, exact renderer URL, argument shapes, and matchi
 Navigation outside the app is blocked; HTTP(S) links open through the external browser.
 
 Analysis runs locally without Megatron telemetry or external LLM calls. Plugin actions delegate to
-the Claude CLI, which may use the network. The local index contains invocation arguments and
-preceding prompt excerpts; prompt-history rows and resident-context samples retain metadata or
-numeric measurements rather than full prompt/attachment text.
+the Claude CLI, which may use the network; Resident tax runs `claude -p /context`, which is
+computed locally but does start your MCP servers and SessionStart hooks. The local index contains
+invocation arguments and preceding prompt excerpts; prompt-history rows retain metadata rather than
+full prompt text, and Resident tax keeps its results in memory only.
 
 Scans distinguish **complete**, **partial**, and **failed** outcomes. Unavailable reads, invalid
 settings or registries, and corrupt cost snapshots preserve usable cached data while readable sources

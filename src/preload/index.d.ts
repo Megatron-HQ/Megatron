@@ -17,6 +17,8 @@ import type {
   UsageOverview,
   UsageCalendar,
   UsageDayDetails,
+  ContextBaselineResult,
+  RecordedRequest,
   ScanActivity,
   ScanFinished,
   ScanSummary
@@ -45,6 +47,8 @@ interface Api {
   getUsageCalendar: (year: number) => Promise<UsageCalendar>
   getUsageDay: (date: string) => Promise<UsageDayDetails>
   getUsageSkillInvocations: (input: SkillInvocationSliceInput) => Promise<SkillInvocationRecord[]>
+  getContextBaseline: () => Promise<ContextBaselineResult>
+  getRecordedRequest: () => Promise<RecordedRequest | null>
   getInitialSection: () => AppSection
   setLastSection: (section: AppSection) => Promise<void>
   rescan: () => Promise<ScanSummary>

@@ -52,7 +52,7 @@ metadata is a document finding rather than a process-wide parsing failure.
 
 - Parser version 9 safely reprocesses cached transcripts after the semantic changes.
 - Stored timestamps are validated and normalized; malformed cached cost timestamps cannot crash
-  chart reducers. Resident samples use the same first-turn timestamp policy.
+  chart reducers.
 - Costs must be finite, nonnegative, and representable in safe integer cents. Counters must be
   nonnegative safe integers. Corrupt cost snapshots leave the prior session snapshot intact.
 - Sidechain users cannot reset main-session attribution. Repeated cumulative usage uses

@@ -27,13 +27,12 @@ describe('applySchema', () => {
         'session_cost',
         'session_model_cost',
         'turn_usage',
-        'session_skill_cost',
-        'resident_context_sample'
+        'session_skill_cost'
       ])
     )
   })
 
-  it('stores continuation lineage independently from cost and resident samples as numeric-only data', () => {
+  it('stores continuation lineage on sessions, independently from cost', () => {
     applySchema(db)
 
     const sessionColumns = db
@@ -44,28 +43,9 @@ describe('applySchema', () => {
       .prepare('PRAGMA table_info(session_cost)')
       .all()
       .map((row) => (row as { name: string }).name)
-    const residentColumns = db
-      .prepare('PRAGMA table_info(resident_context_sample)')
-      .all()
-      .map((row) => (row as { name: string }).name)
 
     expect(sessionColumns).toContain('continued_in_session_id')
     expect(costColumns).not.toContain('continued_in_session_id')
-    expect(residentColumns).toEqual(
-      expect.arrayContaining([
-        'session_id',
-        'first_turn_at',
-        'model',
-        'cache_read_tokens',
-        'measured_tokens',
-        'skill_characters',
-        'agent_characters',
-        'hook_characters',
-        'mcp_characters',
-        'instruction_characters'
-      ])
-    )
-    expect(residentColumns).not.toContain('content')
   })
 
   it('rejects duplicate logical turns and duplicate General-work buckets', () => {

@@ -1,12 +1,9 @@
-import { execFile } from 'child_process'
 import { isAbsolute } from 'path'
 import { allowedStatSync, isPathAllowed } from './permissions'
 import type { PluginActionInput, PluginActionResult, PluginUpdatePhase } from '../shared/ipc'
 import { missingProjectInstallMessage } from '../shared/missing-project'
-import { resolveClaudeCommand } from './claude-cli'
+import { runClaude } from './claude-process'
 
-const CLAUDE_NOT_FOUND_MESSAGE =
-  'Claude Code CLI was not found. Install Claude Code and ensure `claude` is on your PATH.'
 const COMMAND_TIMEOUT_MESSAGE =
   'Claude Code did not finish within 5 minutes. Check your connection and try again.'
 const UNSAFE_PLUGIN_DETAILS_MESSAGE =
@@ -23,11 +20,6 @@ const MAX_IDENTIFIER_LENGTH = 200
 const ACTION_IN_PROGRESS_MESSAGE =
   'Another action is already running for this plugin. Wait for it to finish.'
 
-const claudeOptions = {
-  shell: false,
-  timeout: 300_000,
-  windowsHide: true
-}
 const runningPluginActions = new Set<string>()
 const marketplaceRefreshes = new Map<string, Promise<PluginActionResult>>()
 
@@ -44,42 +36,13 @@ async function refreshMarketplace(marketplace: string, cwd?: string): Promise<Pl
   }
 }
 
-function actionError(
-  error: Error & { code?: string | number | null; killed?: boolean },
-  stderr: string
-): string {
-  if (
-    error.code === 'ENOENT' ||
-    /not recognized as an internal command|command not found/i.test(stderr)
-  ) {
-    return CLAUDE_NOT_FOUND_MESSAGE
-  }
-  if (error.killed) return COMMAND_TIMEOUT_MESSAGE
-  return stderr || error.message
-}
-
-function runClaudePlugin(args: string[], cwd?: string): Promise<PluginActionResult> {
-  const command = resolveClaudeCommand(cwd)
-  if (command === null) return Promise.resolve({ ok: false, stderr: CLAUDE_NOT_FOUND_MESSAGE })
-  const options = {
-    ...claudeOptions,
-    env: command.environment,
-    ...(cwd === undefined ? {} : { cwd })
-  }
-  return new Promise((resolve) => {
-    execFile(
-      command.executable,
-      [...command.prefixArguments, ...args],
-      options,
-      (error, stdout, stderr) => {
-        resolve(
-          error
-            ? { ok: false, stderr: actionError(error, stderr.trim() || stdout.trim()) }
-            : { ok: true }
-        )
-      }
-    )
+async function runClaudePlugin(args: string[], cwd?: string): Promise<PluginActionResult> {
+  const result = await runClaude(args, {
+    cwd,
+    timeoutMs: 300_000,
+    timeoutMessage: COMMAND_TIMEOUT_MESSAGE
   })
+  return result.ok ? { ok: true } : { ok: false, stderr: result.error }
 }
 
 // Always disambiguated as `name@marketplace` and passed an explicit --scope from the

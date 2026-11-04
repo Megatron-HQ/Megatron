@@ -62,7 +62,7 @@ function comparePrerelease(a: string[] | null, b: string[] | null): number {
   return a.length - b.length
 }
 
-function compareSemver(a: string, b: string): number | null {
+export function compareSemver(a: string, b: string): number | null {
   const parsedA = parseSemver(a)
   const parsedB = parseSemver(b)
   if (!parsedA || !parsedB) return null
