@@ -127,18 +127,16 @@ export function ContributionGraph({
       ) : data ? (
         <>
           <div className="flex min-w-0 gap-2">
-            <div
-              aria-hidden
-              className="grid w-6 shrink-0 grid-rows-[16px_repeat(7,minmax(0,1fr))] gap-[2px] text-[9px] text-muted-foreground"
-            >
-              <span />
-              <span />
-              <span>Mon</span>
-              <span />
-              <span>Wed</span>
-              <span />
-              <span>Fri</span>
-              <span />
+            <div aria-hidden className="relative w-6 shrink-0 text-[9px] text-muted-foreground">
+              <div className="absolute inset-x-0 top-4 bottom-0 grid grid-rows-7 items-center gap-[2px] leading-none">
+                <span />
+                <span>Mon</span>
+                <span />
+                <span>Wed</span>
+                <span />
+                <span>Fri</span>
+                <span />
+              </div>
             </div>
             <div className="min-w-0 flex-1">
               <div
