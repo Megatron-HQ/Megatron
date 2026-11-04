@@ -22,8 +22,8 @@ import { getDb, getUsageArchive } from './db'
 import { getTokenStats, getUsageCalendar, getUsageDay } from './db/usage-history-queries'
 import { createScanSession, type ScanUrgency } from './scan-session'
 import { disableChromiumHttpCache } from './chromium-cache'
+import { addAllowedPath, listAllowedPaths, removeAllowedPath } from './folder-grants'
 import {
-  addAllowedPath,
   deleteSkillsForProjectRoot,
   getActivityStats,
   getContextBudget,
@@ -36,10 +36,8 @@ import {
   getSkillInvocationLog,
   getSkillInvocationSlice,
   getSkillUsageDetail,
-  listAllowedPaths,
   listPlugins,
-  listSkills,
-  removeAllowedPath
+  listSkills
 } from './db/queries'
 import {
   getGrantedPaths,
@@ -345,7 +343,7 @@ app.whenReady().then(() => {
   })
 
   secureIpc.handle(IPC_CHANNELS.listAllowedPaths, () => {
-    return listAllowedPaths(getDb())
+    return listAllowedPaths(themeStore)
   })
   secureIpc.handle(IPC_CHANNELS.listProjects, () =>
     sanitizeProjectFolders(themeStore.get('projectFolders')).filter((project) =>
@@ -363,18 +361,17 @@ app.whenReady().then(() => {
       ? await dialog.showOpenDialog(window, options)
       : await dialog.showOpenDialog(options)
     if (result.canceled || result.filePaths.length === 0) {
-      return listAllowedPaths(getDb())
+      return listAllowedPaths(themeStore)
     }
-    const db = getDb()
     await scans.cancel()
     try {
       for (const filePath of result.filePaths) {
-        addAllowedPath(db, grantPath(filePath))
+        addAllowedPath(themeStore, grantPath(filePath))
       }
     } finally {
       void scanAndNotify()
     }
-    return listAllowedPaths(db)
+    return listAllowedPaths(themeStore)
   })
 
   secureIpc.handle(IPC_CHANNELS.revokeAllowedPath, async (_event, path: string) => {
@@ -382,12 +379,12 @@ app.whenReady().then(() => {
     await scans.cancel()
     try {
       revokePath(path)
-      removeAllowedPath(db, path)
+      removeAllowedPath(themeStore, path)
       deleteSkillsForProjectRoot(db, path, isPathAllowed)
     } finally {
       void scanAndNotify()
     }
-    return listAllowedPaths(db)
+    return listAllowedPaths(themeStore)
   })
 
   secureIpc.handle(IPC_CHANNELS.openExternal, (_event, url: string) => {
@@ -494,7 +491,7 @@ app.whenReady().then(() => {
   createWindow()
 
   setImmediate(() => {
-    const allowed = listAllowedPaths(getDb())
+    const allowed = listAllowedPaths(themeStore)
     for (const row of allowed) {
       restoreGrantedPath(row.path)
     }
