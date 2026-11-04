@@ -1515,7 +1515,7 @@ export const scenarios = [
           .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
           .click()
         await window.keyboard.press('Escape')
-        await openUsageSection(window)
+        await openUsagePanel(window, 'History')
         await window.getByRole('group', { name: /Daily activity calendar/ }).waitFor()
       }
     },
@@ -1532,7 +1532,7 @@ export const scenarios = [
           .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
           .click()
         await window.keyboard.press('Escape')
-        await openUsageSection(window)
+        await openUsagePanel(window, 'History')
         const day = window
           .getByRole('group', { name: /Daily activity calendar/ })
           .getByRole('button', { name: /Prompt history unavailable/ })
@@ -1543,13 +1543,66 @@ export const scenarios = [
           await day.hover()
           await window
             .getByRole('tooltip')
-            .getByText(/estimated tokens/)
+            .getByText(/Tokens: .*estimated/)
             .waitFor()
         } else {
           await window.keyboard.press('Enter')
           const dialog = window.getByRole('dialog')
           await dialog.getByText(/Prompt history is unavailable for this day/).waitFor()
           await dialog.getByText(/estimated tokens processed/).waitFor()
+        }
+      }
+    })),
+    {
+      name: `usage-history-prompts-and-tokens-${theme}`,
+      screen: 'usage',
+      async run(window, app) {
+        await app.evaluate(() =>
+          globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
+        )
+        await window.getByRole('button', { name: 'Settings', exact: true }).click()
+        await window
+          .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
+          .click()
+        await window.keyboard.press('Escape')
+        await openUsagePanel(window, 'History')
+        const day = window
+          .getByRole('group', { name: /Daily activity calendar/ })
+          .locator('button[aria-haspopup="dialog"]')
+          .first()
+        await day.hover()
+        await window.getByRole('tooltip').getByText('Prompts: 10', { exact: true }).waitFor()
+        await window
+          .getByRole('tooltip')
+          .getByText('9,120,000 exact tokens', { exact: true })
+          .waitFor()
+      }
+    },
+    ...['tokens', 'token-exact', 'resident'].map((state) => ({
+      name: `usage-compact-${state}-${theme}`,
+      screen: 'usage',
+      async run(window, app) {
+        await app.evaluate(() =>
+          globalThis.megatronVisualFixtures.set('usage:overview', 'usage-history-format')
+        )
+        await window.getByRole('button', { name: 'Settings', exact: true }).click()
+        await window
+          .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
+          .click()
+        await window.keyboard.press('Escape')
+        await openUsagePanel(window, state === 'resident' ? 'Resident tax' : 'Tokens')
+        if (state === 'resident') {
+          await window.getByText('Measured turn-one resident tokens', { exact: true }).waitFor()
+        } else {
+          const headline = window.locator('p.text-usage-stat span[tabindex="0"]')
+          await headline.waitFor()
+          if (state === 'token-exact') {
+            await headline.focus()
+            await window
+              .getByRole('tooltip')
+              .getByText('2,501,251,250 exact tokens', { exact: true })
+              .waitFor()
+          }
         }
       }
     }))
@@ -1587,7 +1640,7 @@ export const scenarios = [
       await app.evaluate(() =>
         globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
       )
-      await openUsageSection(window)
+      await openUsagePanel(window, 'History')
       const previous = new Date().getFullYear() - 1
       await window
         .getByRole('navigation', { name: 'Contribution year' })
@@ -1604,7 +1657,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
         globalThis.megatronVisualFixtures.set('usage:day', 'usage-history-sample')
       })
-      await openUsageSection(window)
+      await openUsagePanel(window, 'History')
       const day = window
         .getByRole('group', { name: /Daily activity calendar/ })
         .locator('button[aria-haspopup="dialog"]')
@@ -1625,7 +1678,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
         globalThis.megatronVisualFixtures.set('usage:day', 'usage-history-sample')
       })
-      await openUsageSection(window)
+      await openUsagePanel(window, 'History')
       const day = window
         .getByRole('group', { name: /Daily activity calendar/ })
         .locator('button[aria-haspopup="dialog"]')
@@ -1641,6 +1694,58 @@ export const scenarios = [
         await window.keyboard.press('Escape')
         await window.getByRole('dialog').waitFor({ state: 'hidden' })
       }
+    }
+  },
+  {
+    name: 'usage-history-year-persists',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
+      )
+      await openUsagePanel(window, 'History')
+      const previous = new Date().getFullYear() - 1
+      await window
+        .getByRole('navigation', { name: 'Contribution year' })
+        .getByRole('button', { name: String(previous) })
+        .click()
+      await openUsagePanel(window, 'Tokens')
+      await window
+        .getByRole('radiogroup', { name: 'Token usage window' })
+        .getByRole('radio', { name: '7 days' })
+        .click()
+      await openUsagePanel(window, 'History')
+      await window.getByRole('group', { name: `Daily activity calendar for ${previous}` }).waitFor()
+    }
+  },
+  ...['pending', 'error'].map((mode) => ({
+    name: `usage-history-calendar-${mode}`,
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(
+        (_electron, mode) => globalThis.megatronVisualFixtures.set('usage:calendar', mode),
+        mode
+      )
+      await openUsagePanel(window, 'History')
+      if (mode === 'error') await window.getByText(/Could not load contribution history/).waitFor()
+      else
+        await window
+          .getByRole('region', { name: 'Contribution graph' })
+          .locator('[data-slot="skeleton"]')
+          .waitFor()
+    }
+  })),
+  {
+    name: 'usage-compact-rankings-expanded',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:overview', 'usage-history-format')
+      )
+      await openUsagePanel(window, 'Tokens')
+      await window.getByRole('button', { name: /Show 2 more projects/ }).click()
+      await window.getByText('repo-10', { exact: true }).waitFor()
+      await window.getByRole('button', { name: 'Show fewer', exact: true }).scrollIntoViewIfNeeded()
     }
   },
   {

@@ -44,8 +44,66 @@ function localDate(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
+function formatWindow(days) {
+  const window = tokenWindow(days, true)
+  const tokens = {
+    input: 1250,
+    output: 1250000,
+    cacheRead: 2500000000,
+    cacheWrite: 0,
+    total: 2501251250
+  }
+  const projectTokens = {
+    input: 125,
+    output: 125000,
+    cacheRead: 250000000,
+    cacheWrite: 0,
+    total: 250125125
+  }
+  return {
+    ...window,
+    tokens,
+    trend: window.trend.map((bucket, index) => ({
+      ...bucket,
+      tokens: index === window.trend.length - 1 ? tokens : null
+    })),
+    byModel: [{ key: 'claude-sonnet-5', tokens }],
+    byProject: Array.from({ length: 10 }, (_, index) => ({
+      key: `C:\\Projects\\repo-${index + 1}`,
+      tokens: projectTokens
+    }))
+  }
+}
+
 export function usageHistoryFixture(channel, args, original, mode) {
   const now = new Date()
+  if (channel === 'usage:overview' && mode === 'usage-history-format') {
+    return {
+      ...original,
+      tokens: {
+        last24h: formatWindow(1),
+        last7d: formatWindow(7),
+        last30d: formatWindow(30),
+        missingSessionCount: 0,
+        undatedTokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+      },
+      residentTax: {
+        measuredTokens: 1250000,
+        sampledAt: now.toISOString(),
+        project: 'C:\\Projects\\Megatron',
+        model: 'claude-sonnet-5',
+        claudeVersion: '2.1.0',
+        categories: [
+          { key: 'skills', tokens: 1250, itemCount: 2, estimated: true },
+          { key: 'agents', tokens: 500, itemCount: 1, estimated: true },
+          { key: 'hooks', tokens: 0, itemCount: 0, estimated: true },
+          { key: 'mcp', tokens: 1000000, itemCount: 3, estimated: true },
+          { key: 'instructions', tokens: 0, itemCount: 0, estimated: true },
+          { key: 'remainder', tokens: 248250, itemCount: null, estimated: false }
+        ]
+      }
+    }
+  }
   if (channel === 'usage:overview')
     return {
       ...original,

@@ -14,6 +14,8 @@ import { SegmentBar } from './SegmentBar'
 import { ShareBars } from './ShareBars'
 import { percentLabel, type ShareSeries } from './share-bars'
 import { formatCount, formatModelName } from './chart-utils'
+import { TokenValue } from './TokenValue'
+import { formatExactTokenCount, formatTokenCount } from '../../../../shared/token-format'
 
 const EFFORT_LABELS: Record<EffortBucket, string> = {
   xhigh: 'Xhigh',
@@ -151,7 +153,7 @@ export function ModelsSection({
         <span aria-hidden className="mt-1 hidden h-9 w-px bg-border sm:block" />
         <ModelStat label="Models" value={window.modelCount} />
         <span aria-hidden className="mt-1 hidden h-9 w-px bg-border sm:block" />
-        <ModelStat label="Output tokens" value={window.outputTokens} />
+        <ModelStat label="Output tokens" value={window.outputTokens} tokenCount />
       </div>
 
       <ChartBlock label="By model" empty={window.turnCount === 0} emptyMessage={emptyMessage}>
@@ -167,9 +169,11 @@ export function ModelsSection({
           }
           detail={(row) => [
             `${formatCount(row.turnCount)} ${row.turnCount === 1 ? 'turn' : 'turns'} · ${percentLabel(row.turnCount, window.turnCount)}`,
-            `${formatCount(row.outputTokens)} output tokens · ${percentLabel(row.outputTokens, window.outputTokens)}`,
+            `${formatTokenCount(row.outputTokens)} output tokens (${formatExactTokenCount(row.outputTokens)} exact) · ${percentLabel(row.outputTokens, window.outputTokens)}`,
             ...(row.turnCount > 0
-              ? [`${formatCount(Math.round(row.outputTokens / row.turnCount))} tokens per turn`]
+              ? [
+                  `${formatTokenCount(Math.round(row.outputTokens / row.turnCount))} tokens per turn (${formatExactTokenCount(Math.round(row.outputTokens / row.turnCount))} exact)`
+                ]
               : [])
           ]}
         />
@@ -219,7 +223,7 @@ export function ModelsSection({
                       {totalReadout(row.byEffort, row.total)}
                     </td>
                     <td className="border-l border-border pl-3 text-right font-mono text-[12px] tabular-nums text-muted-foreground">
-                      {formatCount(outputByModel.get(row.model) ?? 0)}
+                      <TokenValue value={outputByModel.get(row.model) ?? 0} />
                     </td>
                   </tr>
                 ))}
@@ -234,7 +238,7 @@ export function ModelsSection({
                     {totalReadout(effortTotals, window.turnCount)}
                   </td>
                   <td className="border-l border-border pl-3 text-right font-mono text-[12px] tabular-nums">
-                    {formatCount(window.outputTokens)}
+                    <TokenValue value={window.outputTokens} />
                   </td>
                 </tr>
               </tfoot>
@@ -279,16 +283,20 @@ function EffortSwatch({ effort }: { effort: EffortBucket }): React.JSX.Element {
 function ModelStat({
   label,
   value,
-  hint
+  hint,
+  tokenCount = false
 }: {
   label: string
   value: number
   hint?: string
+  tokenCount?: boolean
 }): React.JSX.Element {
   const labelClass = 'text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground'
   return (
     <div className="flex min-w-24 flex-col gap-1">
-      <span className="text-usage-stat text-foreground">{formatCount(value)}</span>
+      <span className="text-usage-stat text-foreground">
+        {tokenCount ? <TokenValue value={value} /> : formatCount(value)}
+      </span>
       {hint === undefined ? (
         <span className={labelClass}>{label}</span>
       ) : (

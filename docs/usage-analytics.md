@@ -2,7 +2,7 @@
 
 ## Token history and contribution calendar amendment (2026-11-03)
 
-Usage now includes a Tokens panel and an annual Activity contribution calendar, backed by the
+Usage now includes a Tokens panel and an annual contribution calendar in History, backed by the
 persistent local `usage-history.db` archive described in `data-model.md`. This supersedes the
 earlier deferral of an accumulating history store and the 30-day-only retention assumption for
 these new features. Existing Activity/Cost/Models/Skills queries retain their current semantics.
@@ -25,6 +25,11 @@ quartile thresholds, so a prompt count receives the same shade across years in a
 Future dates, unavailable history, known empty days, and partially observed history stay distinct.
 Day details query the whole local day, through the as-of instant for today, regardless of the
 rolling Activity filter. Token fields may be unavailable even when prompt history exists.
+
+History sits immediately after Activity in the Usage sidebar, with an independent retained-year
+selection. Token presentation across Usage uses compact K/M/B values with exact counts available
+on inspection. Calendar hover cards label prompts and tokens separately and disclose unavailable
+sources. These presentation changes preserve the allocation, retention, and coverage rules above.
 
 ## Scan feedback amendment (2026-11-03)
 

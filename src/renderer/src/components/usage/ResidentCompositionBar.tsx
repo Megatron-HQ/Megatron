@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { cn } from '@/lib/utils'
 import type { ResidentTaxCategory } from '../../../../shared/ipc'
+import { formatExactTokenCount, formatTokenCount } from '../../../../shared/token-format'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 const CATEGORY_LABELS: Record<ResidentTaxCategory['key'], string> = {
   skills: 'Skills',
@@ -56,28 +58,35 @@ export function ResidentCompositionBar({
             const opacity = CATEGORY_OPACITY[category.key]
             const dimmed = active !== null && active !== category.key
             return (
-              <motion.div
-                key={category.key}
-                tabIndex={0}
-                role="img"
-                aria-label={`${CATEGORY_LABELS[category.key]}, ${category.tokens.toLocaleString()} tokens`}
-                className="h-full min-w-px origin-left bg-usage-bar outline-none transition-opacity duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-                style={{
-                  width: `${(category.tokens / Math.max(total, 1)) * 100}%`,
-                  opacity: dimmed ? opacity * 0.35 : opacity
-                }}
-                onMouseEnter={() => setActive(category.key)}
-                onMouseLeave={() => setActive(null)}
-                onFocus={() => setActive(category.key)}
-                onBlur={() => setActive(null)}
-                initial={reduceMotion ? false : { scaleX: 0 }}
-                animate={{ scaleX: 1 }}
-                transition={
-                  reduceMotion
-                    ? { duration: 0 }
-                    : { duration: 0.3, ease: 'easeOut', delay: index * 0.05 }
-                }
-              />
+              <Tooltip key={category.key}>
+                <TooltipTrigger asChild>
+                  <motion.div
+                    tabIndex={0}
+                    role="img"
+                    aria-label={`${CATEGORY_LABELS[category.key]}, ${category.estimated ? 'approximately ' : ''}${formatExactTokenCount(category.tokens)} tokens`}
+                    className="h-full min-w-px origin-left bg-usage-bar outline-none transition-opacity duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                    style={{
+                      width: `${(category.tokens / Math.max(total, 1)) * 100}%`,
+                      opacity: dimmed ? opacity * 0.35 : opacity
+                    }}
+                    onMouseEnter={() => setActive(category.key)}
+                    onMouseLeave={() => setActive(null)}
+                    onFocus={() => setActive(category.key)}
+                    onBlur={() => setActive(null)}
+                    initial={reduceMotion ? false : { scaleX: 0 }}
+                    animate={{ scaleX: 1 }}
+                    transition={
+                      reduceMotion
+                        ? { duration: 0 }
+                        : { duration: 0.3, ease: 'easeOut', delay: index * 0.05 }
+                    }
+                  />
+                </TooltipTrigger>
+                <TooltipContent>
+                  {CATEGORY_LABELS[category.key]} · {category.estimated ? '≈ ' : ''}
+                  {formatExactTokenCount(category.tokens)} tokens
+                </TooltipContent>
+              </Tooltip>
             )
           })}
       </div>
@@ -86,36 +95,44 @@ export function ResidentCompositionBar({
         {categories.map((category) => {
           const opacity = CATEGORY_OPACITY[category.key]
           return (
-            <button
-              key={category.key}
-              type="button"
-              className={cn(
-                'flex items-center gap-3 rounded-sm py-2 text-left text-[13px] outline-none transition-opacity duration-150 focus-visible:ring-2 focus-visible:ring-ring',
-                active !== null && active !== category.key && 'opacity-40'
-              )}
-              onMouseEnter={() => setActive(category.key)}
-              onMouseLeave={() => setActive(null)}
-              onFocus={() => setActive(category.key)}
-              onBlur={() => setActive(null)}
-            >
-              <span
-                aria-hidden
-                className="size-2 shrink-0 rounded-full bg-usage-bar"
-                style={{ opacity }}
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-foreground">
-                  {CATEGORY_LABELS[category.key]}
-                </span>
-                <span className="block text-[11px] text-muted-foreground">
-                  {itemLabel(category)}
-                </span>
-              </span>
-              <span className="shrink-0 font-mono text-[12px] tabular-nums text-muted-foreground">
-                {category.estimated ? '≈' : ''}
-                {category.tokens.toLocaleString()} tokens
-              </span>
-            </button>
+            <Tooltip key={category.key}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    'flex items-center gap-3 rounded-sm py-2 text-left text-[13px] outline-none transition-opacity duration-150 focus-visible:ring-2 focus-visible:ring-ring',
+                    active !== null && active !== category.key && 'opacity-40'
+                  )}
+                  onMouseEnter={() => setActive(category.key)}
+                  onMouseLeave={() => setActive(null)}
+                  onFocus={() => setActive(category.key)}
+                  onBlur={() => setActive(null)}
+                  aria-label={`${CATEGORY_LABELS[category.key]}, ${category.estimated ? 'approximately ' : ''}${formatExactTokenCount(category.tokens)} tokens, ${itemLabel(category)}`}
+                >
+                  <span
+                    aria-hidden
+                    className="size-2 shrink-0 rounded-full bg-usage-bar"
+                    style={{ opacity }}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-foreground">
+                      {CATEGORY_LABELS[category.key]}
+                    </span>
+                    <span className="block text-[11px] text-muted-foreground">
+                      {itemLabel(category)}
+                    </span>
+                  </span>
+                  <span className="shrink-0 font-mono text-[12px] tabular-nums text-muted-foreground">
+                    {category.estimated ? '≈' : ''}
+                    {formatTokenCount(category.tokens)} tokens
+                  </span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {category.estimated ? '≈ ' : ''}
+                {formatExactTokenCount(category.tokens)} tokens
+              </TooltipContent>
+            </Tooltip>
           )
         })}
       </div>

@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { Activity, BrainCircuit, CircleDollarSign, Cpu, Layers3, Binary } from 'lucide-react'
+import {
+  Activity,
+  BrainCircuit,
+  CircleDollarSign,
+  Cpu,
+  Layers3,
+  Binary,
+  CalendarDays
+} from 'lucide-react'
 import { TokensSection } from '@/components/usage/TokensSection'
 import { ContributionGraph } from '@/components/usage/ContributionGraph'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -37,6 +45,7 @@ export type ActivityWindowKey = '24h' | '7d' | '30d'
 
 const PANEL_META = {
   activity: { label: 'Activity', Icon: Activity },
+  history: { label: 'History', Icon: CalendarDays },
   tokens: { label: 'Tokens', Icon: Binary },
   cost: { label: 'Cost', Icon: CircleDollarSign },
   models: { label: 'Models', Icon: Cpu },
@@ -196,14 +205,13 @@ export function UsageView({
               ) : loading ? (
                 <UsageSkeleton panel={panel} />
               ) : panel === 'activity' ? (
-                <>
-                  <ContributionGraph year={calendarYear} onYearChange={onCalendarYearChange} />
-                  <ActivityPanel
-                    activity={data?.activity ?? null}
-                    windowKey={activityWindow}
-                    resolveProjectLabel={resolveProjectLabel}
-                  />
-                </>
+                <ActivityPanel
+                  activity={data?.activity ?? null}
+                  windowKey={activityWindow}
+                  resolveProjectLabel={resolveProjectLabel}
+                />
+              ) : panel === 'history' ? (
+                <ContributionGraph year={calendarYear} onYearChange={onCalendarYearChange} />
               ) : panel === 'tokens' ? (
                 <TokensSection
                   stats={data.tokens}
@@ -470,6 +478,15 @@ function ModelsEmpty(): React.JSX.Element {
 }
 
 function UsageSkeleton({ panel }: { panel: UsagePanel }): React.JSX.Element {
+  if (panel === 'history') {
+    return (
+      <div className="flex flex-col gap-3 py-6">
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-3 w-64" />
+        <Skeleton className="h-[110px] w-full" />
+      </div>
+    )
+  }
   if (panel === 'cost') {
     return (
       <div className="flex flex-col gap-6 py-8">

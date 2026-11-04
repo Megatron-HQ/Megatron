@@ -4,6 +4,7 @@ import { useProjectLabel } from '@/lib/use-project-label'
 import type { ResidentTaxStats } from '../../../../shared/ipc'
 import { formatModelName } from './chart-utils'
 import { ResidentCompositionBar } from './ResidentCompositionBar'
+import { TokenValue } from './TokenValue'
 
 export function ResidentTaxSection({
   stats
@@ -17,7 +18,7 @@ export function ResidentTaxSection({
     <section className="flex flex-col gap-6 py-8">
       <div className="flex flex-col gap-1">
         <span className="text-usage-stat text-foreground">
-          {stats.measuredTokens.toLocaleString()}
+          <TokenValue value={stats.measuredTokens} hint="Measured first-turn resident tokens" />
         </span>
         <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground">
           Measured turn-one resident tokens
