@@ -3,6 +3,7 @@ import { join, resolve } from 'path'
 import { tmpdir } from 'os'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { applySchema } from './db/schema'
+import { openUsageArchive } from './db/usage-archive'
 import { addAllowedPath, listAllowedPaths } from './db/queries'
 import { grantPath, isPathAllowed, resetGrantedPaths } from './permissions'
 import { IPC_CHANNELS, type ScanSummary } from '../shared/ipc'
@@ -21,7 +22,8 @@ const runtime = vi.hoisted(() => ({
   enablePlugin: vi.fn(),
   disablePlugin: vi.fn(),
   uninstallPlugin: vi.fn(),
-  database: undefined as Database.Database | undefined
+  database: undefined as Database.Database | undefined,
+  archive: undefined as Database.Database | undefined
 }))
 
 vi.mock('electron', () => {
@@ -81,7 +83,7 @@ vi.mock('@electron-toolkit/utils', () => ({
 }))
 vi.mock('../../resources/icon.png?asset', () => ({ default: 'icon.png' }))
 vi.mock('../../resources/icon.ico?asset', () => ({ default: 'icon.ico' }))
-vi.mock('./db', () => ({ getDb: () => runtime.database }))
+vi.mock('./db', () => ({ getDb: () => runtime.database, getUsageArchive: () => runtime.archive }))
 vi.mock('./plugin-actions', async (original) => ({
   ...(await original<typeof import('./plugin-actions')>()),
   updatePlugin: runtime.updatePlugin,
@@ -118,6 +120,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
 }
 
 beforeAll(async () => {
+  runtime.archive = openUsageArchive(':memory:')
   runtime.database = new Database(':memory:')
   applySchema(runtime.database)
   runtime.startWorker.mockImplementation(() => ({
@@ -135,7 +138,10 @@ beforeEach(() => {
   runtime.pickFolders.mockReset()
 })
 
-afterAll(() => runtime.database?.close())
+afterAll(() => {
+  runtime.database?.close()
+  runtime.archive?.close()
+})
 
 describe('folder access IPC', () => {
   it('restarts an interrupted scan even if saving the folder grant fails', async () => {

@@ -15,6 +15,8 @@ import type {
   SkillsListResult,
   ThemePreference,
   UsageOverview,
+  UsageCalendar,
+  UsageDayDetails,
   ScanActivity,
   ScanFinished,
   ScanSummary
@@ -40,6 +42,8 @@ interface Api {
   updatePlugin: (input: PluginActionInput) => Promise<PluginActionResult>
   uninstallPlugin: (input: PluginActionInput) => Promise<PluginActionResult>
   getUsageOverview: () => Promise<UsageOverview>
+  getUsageCalendar: (year: number) => Promise<UsageCalendar>
+  getUsageDay: (date: string) => Promise<UsageDayDetails>
   getUsageSkillInvocations: (input: SkillInvocationSliceInput) => Promise<SkillInvocationRecord[]>
   getInitialSection: () => AppSection
   setLastSection: (section: AppSection) => Promise<void>

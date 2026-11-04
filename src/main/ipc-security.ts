@@ -61,6 +61,26 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
     !input.includes('\0')
   let valid: boolean
   switch (channel) {
+    case IPC_CHANNELS.usageCalendar:
+      valid =
+        args.length === 1 &&
+        Number.isInteger(value) &&
+        (value as number) >= 1970 &&
+        (value as number) <= 9999
+      break
+    case IPC_CHANNELS.usageDay: {
+      const date =
+        typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+          ? new Date(`${value}T00:00:00Z`)
+          : null
+      valid =
+        args.length === 1 &&
+        date !== null &&
+        Number.isFinite(date.getTime()) &&
+        date.toISOString().slice(0, 10) === value &&
+        date.getUTCFullYear() >= 1970
+      break
+    }
     case IPC_CHANNELS.openSkill:
     case IPC_CHANNELS.openSkillMeta:
       valid = args.length === 1 && Number.isSafeInteger(value) && (value as number) > 0

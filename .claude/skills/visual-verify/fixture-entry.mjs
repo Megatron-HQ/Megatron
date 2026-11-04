@@ -1,6 +1,7 @@
 // Test-only entry point. Production continues to launch out/main/index.js directly.
 import { ipcMain } from 'electron'
 import { projectTreeFixture } from './project-tree-fixture.mjs'
+import { usageHistoryFixture } from './usage-history-fixture.mjs'
 
 const registeredHandlers = new Map()
 const overriddenChannels = new Set()
@@ -35,6 +36,7 @@ globalThis.megatronVisualFixtures = {
       }
       if (mode === 'empty-folders') return []
       const result = await original(event, ...args)
+      if (mode.startsWith('usage-history')) return usageHistoryFixture(channel, args, result, mode)
       if (mode === 'plugin-disabled' || mode === 'plugin-enabled') {
         const disabled = mode === 'plugin-disabled' ? 'plugin' : null
         const transform = (plugin) => ({

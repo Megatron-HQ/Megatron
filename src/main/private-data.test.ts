@@ -14,6 +14,15 @@ const api = permissions as typeof permissions & {
   securePrivateDataDirectory: (directory: string) => void
 }
 describe('private application cache', () => {
+  it.each(['usage-history.db', 'usage-history.db-wal', 'usage-history.db-shm'])(
+    'rejects a special persistent archive path %s before opening it',
+    (name) => {
+      const directory = join(root, 'archive-profile')
+      mkdirSync(directory)
+      mkdirSync(join(directory, name))
+      expect(() => api.securePrivateDataDirectory(directory)).toThrow(/linked/)
+    }
+  )
   it('rejects hardlinked cache files before changing another file permissions', () => {
     const directory = join(root, 'profile')
     mkdirSync(directory)

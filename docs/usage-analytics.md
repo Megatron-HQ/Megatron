@@ -1,5 +1,31 @@
 # Megatron: Usage analytics
 
+## Token history and contribution calendar amendment (2026-11-03)
+
+Usage now includes a Tokens panel and an annual Activity contribution calendar, backed by the
+persistent local `usage-history.db` archive described in `data-model.md`. This supersedes the
+earlier deferral of an accumulating history store and the 30-day-only retention assumption for
+these new features. Existing Activity/Cost/Models/Skills queries retain their current semantics.
+
+The token headline is **Total tokens processed**: new input + output + cache reads + cache writes.
+Thinking is a subset of output and is never added again. Recorded per-model terminal-session
+`cost-state` counters are authoritative. For each category, distribute that counter among its
+model's deduplicated response timestamps using that category's observed counts as weights;
+fall back to output weights, then equal weights when no positive weights exist. Cumulative integer
+boundaries preserve each category's recorded total exactly. Continuation ancestors and subagents
+provide timing weights, never additional session totals. All time-based numbers are labeled
+estimated. Undated totals remain separate, and sessions without usable totals contribute no
+invented tokens. Rolling 24h/7d/30d bounds include the exact cutoff and as-of instant; future shares
+are excluded. Day buckets use local calendar boundaries, including daylight-saving changes.
+
+Calendar intensity counts prompts using the existing bare-slash exclusion. Calendar year and
+rolling window are independent. Year choices include the current year and every retained year
+with prompt or token records. Four positive intensity levels share three all-history positive-day
+quartile thresholds, so a prompt count receives the same shade across years in a given snapshot.
+Future dates, unavailable history, known empty days, and partially observed history stay distinct.
+Day details query the whole local day, through the as-of instant for today, regardless of the
+rolling Activity filter. Token fields may be unavailable even when prompt history exists.
+
 ## Scan integrity amendment (2026-10-02)
 
 Parser version 9 validates timestamps and numeric usage, safely aggregates model keys, filters

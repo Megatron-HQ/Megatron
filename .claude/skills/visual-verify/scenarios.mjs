@@ -1417,6 +1417,130 @@ export const scenarios = [
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
+  ...['light', 'dark'].flatMap((theme) => [
+    {
+      name: `usage-tokens-${theme}`,
+      screen: 'usage',
+      async run(window, app) {
+        await app.evaluate(() =>
+          globalThis.megatronVisualFixtures.set('usage:overview', 'usage-history-sample')
+        )
+        await window.getByRole('button', { name: 'Settings', exact: true }).click()
+        await window
+          .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
+          .click()
+        await window.keyboard.press('Escape')
+        await openUsagePanel(window, 'Tokens')
+        await window.getByText('Total tokens processed · estimated', { exact: true }).waitFor()
+      }
+    },
+    {
+      name: `usage-contributions-${theme}`,
+      screen: 'usage',
+      async run(window, app) {
+        await app.evaluate(() => {
+          globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
+          globalThis.megatronVisualFixtures.set('usage:day', 'usage-history-sample')
+        })
+        await window.getByRole('button', { name: 'Settings', exact: true }).click()
+        await window
+          .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
+          .click()
+        await window.keyboard.press('Escape')
+        await openUsageSection(window)
+        await window.getByRole('group', { name: /Daily activity calendar/ }).waitFor()
+      }
+    }
+  ]),
+  {
+    name: 'usage-tokens-24-hour',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:overview', 'usage-history-sample')
+      )
+      await openUsagePanel(window, 'Tokens')
+      await window
+        .getByRole('radiogroup', { name: 'Token usage window' })
+        .getByRole('radio', { name: '24 hours' })
+        .click()
+      await window.getByText('By hour', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'usage-tokens-unavailable',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:overview', 'usage-history-empty')
+      )
+      await openUsagePanel(window, 'Tokens')
+      await window.getByText(/No tracked token data in this period\. Token usage/).waitFor()
+    }
+  },
+  {
+    name: 'usage-contributions-prior-year',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
+      )
+      await openUsageSection(window)
+      const previous = new Date().getFullYear() - 1
+      await window
+        .getByRole('navigation', { name: 'Contribution year' })
+        .getByRole('button', { name: String(previous) })
+        .click()
+      await window.getByRole('group', { name: `Daily activity calendar for ${previous}` }).waitFor()
+    }
+  },
+  {
+    name: 'usage-contributions-day-details',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() => {
+        globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
+        globalThis.megatronVisualFixtures.set('usage:day', 'usage-history-sample')
+      })
+      await openUsageSection(window)
+      const day = window
+        .getByRole('group', { name: /Daily activity calendar/ })
+        .locator('button[aria-haspopup="dialog"]')
+        .first()
+      await day.focus()
+      await window.keyboard.press('Enter')
+      await window
+        .getByRole('dialog')
+        .getByText(/estimated tokens processed/)
+        .waitFor()
+    }
+  },
+  {
+    name: 'usage-contributions-keyboard-return',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() => {
+        globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
+        globalThis.megatronVisualFixtures.set('usage:day', 'usage-history-sample')
+      })
+      await openUsageSection(window)
+      const day = window
+        .getByRole('group', { name: /Daily activity calendar/ })
+        .locator('button[aria-haspopup="dialog"]')
+        .first()
+      await day.focus()
+      await window.keyboard.press('ArrowRight')
+      for (const key of ['Enter', 'Space']) {
+        await window.keyboard.press(key)
+        await window
+          .getByRole('dialog')
+          .getByText(/estimated tokens processed/)
+          .waitFor()
+        await window.keyboard.press('Escape')
+        await window.getByRole('dialog').waitFor({ state: 'hidden' })
+      }
+    }
+  },
   {
     name: 'usage-window-persists-across-rail-switch',
     screen: 'usage',
