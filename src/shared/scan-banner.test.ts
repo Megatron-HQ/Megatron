@@ -5,8 +5,75 @@ import {
   SCAN_BANNER_SNAPSHOT,
   nextScanActivity,
   preferScanSummary,
+  isMissingProjectOnlyScan,
   resolveScanBanner
 } from './scan-banner'
+import type { ScanIssue, ScanSourceSummary, ScanSummary } from './ipc'
+
+describe('missing-project scan classification', () => {
+  const missingSource: ScanSourceSummary = {
+    name: 'scanSkills',
+    status: 'partial',
+    issues: [{ code: 'project_missing', path: 'C:/Old Projects/Megatron' }]
+  }
+  const summary: ScanSummary = {
+    outcome: 'partial',
+    completedAt: '2026-11-03T00:00:00.000Z',
+    sources: [missingSource, { name: 'scanTranscripts', status: 'complete' }]
+  }
+
+  it('recognizes missing projects as informational while retaining their cached status', () => {
+    expect(isMissingProjectOnlyScan(summary)).toBe(true)
+    expect(
+      resolveScanBanner({
+        ...ready,
+        scanning: false,
+        hasPriorWarning: !isMissingProjectOnlyScan(summary)
+      }).state
+    ).toEqual({ kind: 'hidden' })
+    expect(summary.sources[0].status).toBe('partial')
+  })
+
+  it.each<ScanIssue['code']>([
+    'permission_required',
+    'settings_invalid',
+    'source_unavailable',
+    'scan_limit'
+  ])('keeps a mixed %s error actionable', (code) => {
+    expect(
+      isMissingProjectOnlyScan({
+        ...summary,
+        sources: [
+          missingSource,
+          { name: 'scanPluginRegistry', status: 'partial', issues: [{ code, path: 'C:/Projects' }] }
+        ]
+      })
+    ).toBe(false)
+  })
+
+  it.each<ScanSourceSummary>([
+    { name: 'scanWorker', status: 'failed', failureReason: 'timeout' },
+    { name: 'scanWorker', status: 'failed', failureReason: 'worker_crash' },
+    { name: 'scanSkills', status: 'partial' },
+    { name: 'scanSkills', status: 'partial', issues: [] },
+    { ...missingSource, status: 'failed' },
+    { ...missingSource, failureReason: 'scan_error' }
+  ])('does not hide an incomplete source without only missing-project issues: %j', (source) => {
+    expect(isMissingProjectOnlyScan({ ...summary, sources: [missingSource, source] })).toBe(false)
+  })
+
+  it('does not mistake complete, failed, or unexplained summaries for missing projects', () => {
+    expect(isMissingProjectOnlyScan({ ...summary, outcome: 'failed' })).toBe(false)
+    expect(isMissingProjectOnlyScan({ ...summary, outcome: 'complete' })).toBe(false)
+    expect(isMissingProjectOnlyScan({ ...summary, sources: [] })).toBe(false)
+    expect(
+      isMissingProjectOnlyScan({
+        ...summary,
+        sources: [{ name: 'scanSkills', status: 'complete' }]
+      })
+    ).toBe(false)
+  })
+})
 
 const ready = {
   scanning: true,

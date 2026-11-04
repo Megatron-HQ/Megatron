@@ -286,7 +286,10 @@ export function readAllowedDirectoryEntries(
   } catch (error) {
     const code =
       error instanceof Error && 'code' in error ? (error as NodeJS.ErrnoException).code : undefined
-    return { entries: [], status: code === 'ENOENT' ? 'missing' : 'unavailable' }
+    return {
+      entries: [],
+      status: code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : 'unavailable'
+    }
   }
 }
 
@@ -407,7 +410,7 @@ export function visitAllowedUtf8LinesSync(
   } catch (error) {
     const code =
       error instanceof Error && 'code' in error ? (error as NodeJS.ErrnoException).code : undefined
-    return code === 'ENOENT' ? 'missing' : 'unavailable'
+    return code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : 'unavailable'
   }
 
   const buffer = Buffer.allocUnsafe(STREAM_READ_CHUNK_BYTES)

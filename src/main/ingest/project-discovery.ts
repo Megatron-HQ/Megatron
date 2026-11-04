@@ -1,4 +1,4 @@
-import { isAbsolute, join, resolve, sep } from 'path'
+import { isAbsolute, join, relative, resolve, sep } from 'path'
 import type { ProjectFolder } from '../../shared/ipc'
 import {
   allowedRealpathSync,
@@ -9,19 +9,23 @@ import {
 } from '../permissions'
 import type { SkillRoot } from './skills-scanner'
 
-const SKIP_DIRECTORIES = new Set([
-  'node_modules',
-  '.git',
-  'dist',
-  'build',
-  'out',
-  'coverage',
-  'vendor',
-  'target',
-  '.next',
-  '.claude',
-  '__MACOSX'
-])
+const SKIP_DIRECTORIES = new Set(
+  [
+    'node_modules',
+    '.git',
+    'dist',
+    'build',
+    'out',
+    'coverage',
+    'vendor',
+    'target',
+    '.next',
+    '.claude',
+    '.tmp',
+    '.temp',
+    '__MACOSX'
+  ].map((name) => (process.platform === 'win32' ? name.toLowerCase() : name))
+)
 export const PROJECT_DISCOVERY_LIMITS = { maxDepth: 64, maxDirectories: 50_000 }
 
 export function sanitizeProjectFolders(value: unknown): ProjectFolder[] {
@@ -42,6 +46,29 @@ export function sanitizeProjectFolders(value: unknown): ProjectFolder[] {
 function pathKey(path: string): string {
   const absolute = resolve(path)
   return process.platform === 'win32' ? absolute.toLowerCase() : absolute
+}
+
+function shouldSkipDirectory(name: string): boolean {
+  return SKIP_DIRECTORIES.has(process.platform === 'win32' ? name.toLowerCase() : name)
+}
+
+function isDiscoverableFromGrant(projectPath: string, grant: string): boolean {
+  const subpath = relative(pathKey(grant), pathKey(projectPath))
+  if (subpath === '') return true
+  if (isAbsolute(subpath) || subpath === '..' || subpath.startsWith(`..${sep}`)) return false
+  return !subpath.split(sep).some(shouldSkipDirectory)
+}
+
+export function isProjectDiscoveryExcluded(
+  projectPath: string,
+  grants: string[] = getGrantedPaths()
+): boolean {
+  const key = pathKey(projectPath)
+  const covered = grants.some((grant) => {
+    const grantKey = pathKey(grant)
+    return key === grantKey || key.startsWith(grantKey.endsWith(sep) ? grantKey : grantKey + sep)
+  })
+  return covered && !grants.some((grant) => isDiscoverableFromGrant(projectPath, grant))
 }
 
 export function discoverProjects(
@@ -130,7 +157,7 @@ export function discoverProjects(
       if (hasSkills) addRoot(join(directoryPath, '.claude', 'skills'), owningProject ?? grant)
 
       for (const { name, type } of directory.entries) {
-        if (SKIP_DIRECTORIES.has(name)) continue
+        if (shouldSkipDirectory(name)) continue
         if (type === 'file') continue
         const child = join(directoryPath, name)
         if (type === 'directory') {
@@ -169,11 +196,7 @@ export function discoverProjects(
   // covered by another explicit grant; otherwise discard its catalog entry.
   for (const entry of sanitizeProjectFolders(previous)) {
     const key = pathKey(entry.path)
-    const covered = grants.some(
-      (grant) =>
-        key === pathKey(grant) ||
-        key.startsWith(pathKey(grant).endsWith(sep) ? pathKey(grant) : pathKey(grant) + sep)
-    )
+    const covered = grants.some((grant) => isDiscoverableFromGrant(entry.path, grant))
     if (!covered || (entry.kind === 'folder' && !grants.some((grant) => key === pathKey(grant))))
       continue
     const current = projects.get(key)

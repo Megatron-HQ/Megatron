@@ -71,6 +71,44 @@ afterEach(() => {
 })
 
 describe('scanSkills', () => {
+  it('removes indexed skills belonging only to an excluded temporary project', () => {
+    const repository = join(tmpDir, '.tmp', 'old-fixture')
+    const skillsDirectory = join(repository, '.claude', 'skills')
+    writeSkillDir(skillsDirectory, 'temporary-demo', '---\nname: temporary-demo\n---\nBody')
+    writeUserSettings({})
+    scanSkills(
+      db,
+      [{ dir: skillsDirectory, sourceType: 'project', projectRoot: repository }],
+      userSettingsPath
+    )
+    expect(allSkills().filter((row) => row.project_root === repository)).toHaveLength(1)
+    rmSync(repository, { recursive: true })
+
+    const result = scanSkills(db, undefined, userSettingsPath, [
+      { path: repository, kind: 'repository', status: 'available' }
+    ])
+
+    expect(result.status).toBe('complete')
+    expect(allSkills().filter((row) => row.project_root === repository)).toEqual([])
+  })
+
+  it('keeps a missing explicitly selected temporary project cached', () => {
+    const repository = join(tmpDir, '.tmp', 'selected-project')
+    const skillsDirectory = join(repository, '.claude', 'skills')
+    writeSkillDir(skillsDirectory, 'selected-demo', '---\nname: selected-demo\n---\nBody')
+    writeUserSettings({})
+    grantPath(repository)
+    const before = scanSkills(db, undefined, userSettingsPath)
+    const indexed = allSkills().find((row) => row.project_root === repository)
+    expect(indexed).toBeDefined()
+    rmSync(repository, { recursive: true })
+
+    const result = scanSkills(db, undefined, userSettingsPath, before.projects)
+
+    expect(result.issues).toContainEqual({ code: 'project_missing', path: repository })
+    expect(allSkills().find((row) => row.project_root === repository)).toEqual(indexed)
+  })
+
   it('reports empty repositories and unversioned projects beneath a parent grant', () => {
     const emptyRepo = join(tmpDir, 'empty')
     const plainProject = join(tmpDir, 'clients', 'plain')

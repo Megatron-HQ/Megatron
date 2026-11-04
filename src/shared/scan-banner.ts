@@ -22,6 +22,22 @@ export interface ScanBannerInput {
   revealMs?: number
 }
 
+export function isMissingProjectOnlyScan(summary: ScanSummary): boolean {
+  if (summary.outcome !== 'partial') return false
+  const affectedSources = summary.sources.filter((source) => source.status !== 'complete')
+  return (
+    affectedSources.length > 0 &&
+    affectedSources.every(
+      (source) =>
+        source.status === 'partial' &&
+        source.failureReason === undefined &&
+        source.issues !== undefined &&
+        source.issues.length > 0 &&
+        source.issues.every((issue) => issue.code === 'project_missing')
+    )
+  )
+}
+
 export function nextScanActivity(
   current: ScanActivity | null,
   incoming: ScanActivity

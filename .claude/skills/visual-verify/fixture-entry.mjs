@@ -5,6 +5,8 @@ import { usageHistoryFixture } from './usage-history-fixture.mjs'
 
 const registeredHandlers = new Map()
 const overriddenChannels = new Set()
+const PROJECT_SCAN_MODES = ['scan-permission', 'scan-missing', 'scan-mixed', 'scan-manual-partial']
+let projectScanCompletedAt
 const registerHandler = ipcMain.handle.bind(ipcMain)
 ipcMain.handle = (channel, handler) => {
   registeredHandlers.set(channel, handler)
@@ -18,12 +20,14 @@ globalThis.megatronVisualFixtures = {
       registerHandler(channel, registeredHandlers.get(channel))
     }
     overriddenChannels.clear()
+    projectScanCompletedAt = undefined
   },
   set(channel, mode) {
     const original = registeredHandlers.get(channel)
     if (!original) throw new Error(`Unknown fixture channel: ${channel}`)
     ipcMain.removeHandler(channel)
     overriddenChannels.add(channel)
+    if (PROJECT_SCAN_MODES.includes(mode)) projectScanCompletedAt ??= new Date().toISOString()
     registerHandler(channel, async (event, ...args) => {
       if (mode === 'error') throw new Error('Visual fixture: unavailable source')
       if (mode === 'pending') return new Promise(() => {})
@@ -35,7 +39,8 @@ globalThis.megatronVisualFixtures = {
         return new Promise(() => {})
       }
       if (mode === 'empty-folders') return []
-      const result = await original(event, ...args)
+      const fixtureProjectRescan = channel === 'app:rescan' && PROJECT_SCAN_MODES.includes(mode)
+      const result = fixtureProjectRescan ? undefined : await original(event, ...args)
       if (mode.startsWith('usage-history')) return usageHistoryFixture(channel, args, result, mode)
       if (mode === 'plugin-disabled' || mode === 'plugin-enabled') {
         const disabled = mode === 'plugin-disabled' ? 'plugin' : null
@@ -71,33 +76,38 @@ globalThis.megatronVisualFixtures = {
         }
       }
       if (
-        channel === 'skills:list' &&
-        ['scan-permission', 'scan-missing', 'scan-manual-partial'].includes(mode)
+        (channel === 'skills:list' || channel === 'app:rescan') &&
+        PROJECT_SCAN_MODES.includes(mode)
       ) {
-        return {
-          ...result,
-          scanComplete: true,
-          scanSummary: {
-            outcome: 'partial',
-            isStartup: mode !== 'scan-manual-partial',
-            completedAt: new Date().toISOString(),
-            sources: [
-              {
-                name: 'scanPluginRegistry',
-                status: 'partial',
-                issues: [
-                  {
-                    code: mode === 'scan-missing' ? 'project_missing' : 'permission_required',
-                    path:
-                      mode !== 'scan-missing'
-                        ? 'C:\\Projects\\Megatron HQ\\Megatron'
-                        : 'C:\\Old Projects\\Megatron'
-                  }
-                ]
-              }
-            ]
-          }
+        const missingProject = mode === 'scan-missing' || mode === 'scan-mixed'
+        const summary = {
+          outcome: 'partial',
+          isStartup: mode !== 'scan-manual-partial',
+          completedAt: projectScanCompletedAt,
+          sources: [
+            {
+              name: 'scanPluginRegistry',
+              status: 'partial',
+              issues: [
+                {
+                  code: missingProject ? 'project_missing' : 'permission_required',
+                  path: missingProject
+                    ? 'C:\\Old Projects\\Megatron'
+                    : 'C:\\Projects\\Megatron HQ\\Megatron'
+                }
+              ]
+            }
+          ]
         }
+        if (mode === 'scan-mixed')
+          summary.sources.push({
+            name: 'scanSkills',
+            status: 'partial',
+            issues: [{ code: 'source_unavailable', path: 'C:\\Projects\\Private\\.claude\\skills' }]
+          })
+        return channel === 'skills:list'
+          ? { ...result, scanComplete: true, scanActivity: null, scanSummary: summary }
+          : summary
       }
       if ((channel === 'skills:list' || channel === 'app:rescan') && mode === 'scan-timeout') {
         const summary = {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ScanActivity, ScanSummary } from '../../../shared/ipc'
 import {
   nextScanActivity,
+  isMissingProjectOnlyScan,
   preferScanSummary,
   resolveScanBanner,
   type ScanBannerState
@@ -79,7 +80,8 @@ export function useScanBanner(input: {
     skillCount: input.skillCount,
     pluginCount: input.pluginCount,
     lockedMessage: applicableLock,
-    hasPriorWarning: summary !== undefined && summary.outcome !== 'complete',
+    hasPriorWarning:
+      summary !== undefined && summary.outcome !== 'complete' && !isMissingProjectOnlyScan(summary),
     revealMs: scanRun?.revealMs
   })
 

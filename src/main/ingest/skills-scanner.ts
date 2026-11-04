@@ -11,7 +11,11 @@ import {
 } from '../permissions'
 import { readPluginEnablement, readSkillOverrides } from './claude-settings'
 import { parseSkillDirectory } from './skill-parser'
-import { discoverProjects, PROJECT_DISCOVERY_LIMITS } from './project-discovery'
+import {
+  discoverProjects,
+  isProjectDiscoveryExcluded,
+  PROJECT_DISCOVERY_LIMITS
+} from './project-discovery'
 
 export function findNestedSkillsDirs(
   repoRoot: string,
@@ -170,6 +174,18 @@ export function scanSkills(
     source_type: SkillRoot['sourceType']
     project_root: string | null
   }[]
+  if (discovery) {
+    const excludedRootDirectories = previous
+      .filter(
+        (skill) =>
+          skill.source_type === 'project' &&
+          skill.project_root !== null &&
+          isProjectDiscoveryExcluded(skill.project_root)
+      )
+      .map((skill) => dirname(skill.source_path))
+    if (excludedRootDirectories.length > 0)
+      writeSkillScan(db, 'project', [], excludedRootDirectories)
+  }
   for (const skill of previous) {
     const priorRoot = dirname(skill.source_path)
     const covering = roots.find(

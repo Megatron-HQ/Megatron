@@ -102,7 +102,7 @@ export function readPluginEnablement(
     if (!isPathAllowed(projectRoot)) {
       projectIssue = { code: 'permission_required', path: projectRoot }
     } else if (
-      allowedStatSync(projectRoot) === null &&
+      allowedStatSync(projectRoot)?.isDirectory() !== true &&
       readAllowedDirectory(projectRoot).status === 'missing'
     ) {
       projectIssue = { code: 'project_missing', path: projectRoot }

@@ -251,6 +251,20 @@ describe('readAllowedDirectory', () => {
     resetGrantedPaths()
     expect(readAllowedDirectory(tmpDir)).toEqual({ entries: [], status: 'unavailable' })
   })
+
+  it('reports a former directory replaced by an ordinary file as missing', () => {
+    grantPath(tmpDir)
+    const directory = join(tmpDir, 'removed-project')
+    mkdirSync(directory)
+    rmSync(directory, { recursive: true })
+    writeFileSync(directory, 'replacement file')
+
+    expect(readAllowedDirectory(directory)).toEqual({ entries: [], status: 'missing' })
+    expect(readAllowedDirectory(join(directory, '.claude'))).toEqual({
+      entries: [],
+      status: 'missing'
+    })
+  })
 })
 
 describe('directory entry types', () => {
@@ -457,5 +471,19 @@ describe('visitAllowedUtf8LinesSync', () => {
   it('reports a missing allowed file without throwing', () => {
     grantPath(tmpDir)
     expect(visitAllowedUtf8LinesSync(join(tmpDir, 'missing.txt'), () => undefined)).toBe('missing')
+  })
+
+  it('reports a transcript under a replaced parent directory as missing', () => {
+    grantPath(tmpDir)
+    const directory = join(tmpDir, 'removed-transcripts')
+    mkdirSync(directory)
+    rmSync(directory, { recursive: true })
+    writeFileSync(directory, 'replacement file')
+    const lines: string[] = []
+
+    expect(
+      visitAllowedUtf8LinesSync(join(directory, 'session.jsonl'), (line) => lines.push(line))
+    ).toBe('missing')
+    expect(lines).toEqual([])
   })
 })

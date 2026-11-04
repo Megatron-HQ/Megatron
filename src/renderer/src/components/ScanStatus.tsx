@@ -1,6 +1,7 @@
 import { TextLink } from '@/components/TextLink'
 import type { ScanIssue, ScanSummary } from '../../../shared/ipc'
 import { MISSING_PROJECT_SCAN_MESSAGE } from '../../../shared/missing-project'
+import { isMissingProjectOnlyScan } from '../../../shared/scan-banner'
 
 const SOURCE_LABELS: Record<string, string> = {
   scanSkills: 'Skills',
@@ -40,7 +41,7 @@ export function ScanStatusBanner({
   summary,
   onOpenDetails
 }: ScanStatusProps & { onOpenDetails: () => void }): React.JSX.Element | null {
-  if (summary.outcome === 'complete') return null
+  if (summary.outcome === 'complete' || isMissingProjectOnlyScan(summary)) return null
   const needsAccess = summary.sources.some((source) =>
     source.issues?.some((issue) => issue.code === 'permission_required')
   )
@@ -74,7 +75,9 @@ export function ScanIssueDetails({
       aria-label="Scan details"
       className="flex min-w-0 flex-col gap-2 border-t border-border py-3"
     >
-      <p className="text-sm font-medium">Scan needs attention</p>
+      <p className="text-sm font-medium">
+        {isMissingProjectOnlyScan(summary) ? 'Missing project folders' : 'Scan needs attention'}
+      </p>
       <ul className="max-h-40 space-y-3 overflow-y-auto text-xs text-muted-foreground">
         {affectedSources.map((source) => (
           <li key={source.name}>

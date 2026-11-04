@@ -7,7 +7,7 @@ import { ScanIssueDetails } from '@/components/ScanStatus'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { refreshScanQueries } from '@/lib/refresh-scan-queries'
-import { preferScanSummary } from '../../../shared/scan-banner'
+import { isMissingProjectOnlyScan, preferScanSummary } from '../../../shared/scan-banner'
 import type { ScanSummary, ThemePreference } from '../../../shared/ipc'
 
 interface SettingsDialogProps {
@@ -64,7 +64,7 @@ export function SettingsDialog({
         return
       }
       setRescanMessage(
-        result.outcome === 'complete'
+        result.outcome === 'complete' || isMissingProjectOnlyScan(result)
           ? 'Scan complete.'
           : result.outcome === 'partial'
             ? 'Some sources could not be refreshed. Review the details below.'

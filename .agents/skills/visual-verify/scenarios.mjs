@@ -653,13 +653,70 @@ export const scenarios = [
     }
   },
   {
+    name: 'scan-missing-project-without-top-warning',
+    screen: 'skill-inventory',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'scan-missing'))
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).waitFor()
+      await window
+        .getByRole('button', { name: 'Scan details', exact: true })
+        .waitFor({ state: 'hidden' })
+    }
+  },
+  {
     name: 'settings-moved-project-details',
     screen: 'settings-dialog',
     async run(window, app) {
       await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'scan-missing'))
       await window.reload()
-      await window.getByRole('button', { name: 'Scan details', exact: true }).click()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByText('Missing project folders', { exact: true }).waitFor()
       await window.getByText('C:\\Old Projects\\Megatron', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'settings-missing-project-rescan',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() => {
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-missing')
+        globalThis.megatronVisualFixtures.set('app:rescan', 'scan-missing')
+      })
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
+      await window.getByText('Scan complete.', { exact: true }).waitFor()
+      await window.getByText('Missing project folders', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'settings-missing-project-rescan-dark',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() => {
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-missing')
+        globalThis.megatronVisualFixtures.set('app:rescan', 'scan-missing')
+      })
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('radio', { name: 'Dark', exact: true }).click()
+      await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
+      await window.getByText('Scan complete.', { exact: true }).waitFor()
+      await window.getByText('Missing project folders', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'settings-missing-project-and-read-failure',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'scan-mixed'))
+      await window.reload()
+      await window.getByRole('button', { name: 'Scan details', exact: true }).click()
+      await window.getByText('Scan needs attention', { exact: true }).waitFor()
+      await window
+        .getByText('The source could not be read. Check file access and try rescanning.')
+        .waitFor()
     }
   },
   {
