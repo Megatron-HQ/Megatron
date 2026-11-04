@@ -253,6 +253,56 @@ describe('readAllowedDirectory', () => {
   })
 })
 
+describe('directory entry types', () => {
+  it('identifies directories and links without treating ordinary files as traversal targets', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'megatron-directory-types-'))
+    try {
+      grantPath(directory)
+      mkdirSync(join(directory, 'repo'))
+      writeFileSync(join(directory, 'ordinary-file'), 'not a directory')
+      symlinkSync(
+        join(directory, 'repo'),
+        join(directory, 'linked-repo'),
+        process.platform === 'win32' ? 'junction' : 'dir'
+      )
+      const read = permissions.readAllowedDirectoryEntries
+      expect(read(directory)).toEqual({
+        status: 'ok',
+        entries: [
+          { name: 'linked-repo', type: 'symlink' },
+          { name: 'ordinary-file', type: 'file' },
+          { name: 'repo', type: 'directory' }
+        ]
+      })
+      expect(read(directory, 1)).toMatchObject({ status: 'unavailable' })
+      expect(read(directory, 1).entries).toHaveLength(1)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('requires approval of a linked directory target as well as its discovered path', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'megatron-directory-link-'))
+    try {
+      const approved = join(directory, 'approved')
+      const outside = join(directory, 'outside')
+      mkdirSync(approved)
+      mkdirSync(outside)
+      const linked = join(approved, 'linked')
+      symlinkSync(outside, linked, process.platform === 'win32' ? 'junction' : 'dir')
+      grantPath(approved)
+      expect(permissions.readAllowedDirectoryEntries(linked)).toEqual({
+        status: 'unavailable',
+        entries: []
+      })
+      grantPath(outside)
+      expect(permissions.readAllowedDirectoryEntries(linked)).toEqual({ status: 'ok', entries: [] })
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('allowedExistsSync', () => {
   let tmpDir: string
 

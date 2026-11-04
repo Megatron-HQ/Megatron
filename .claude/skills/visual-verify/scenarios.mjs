@@ -513,7 +513,7 @@ export const scenarios = [
       await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
       await window
         .getByRole('status')
-        .filter({ hasText: /^Scan / })
+        .filter({ hasText: /^(Scan complete|Some sources could not|The scan could not)/ })
         .waitFor()
     }
   },
@@ -525,11 +525,79 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('skills:list', 'scan-updating')
       )
       await window.reload()
+      await window.getByText(/Refreshing Claude Code data|Scanning Claude Code data/).waitFor()
+    }
+  },
+  {
+    name: 'scan-retrying-hides-old-failure',
+    screen: 'skill-inventory',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-retrying')
+      )
+      await window.reload()
+      await window.getByText(/Refreshing Claude Code data|Scanning Claude Code data/).waitFor()
       await window
-        .getByText(
-          /Updating your index\. This is the last saved snapshot\.|Reading your Claude Code files\./
-        )
-        .waitFor()
+        .getByRole('status')
+        .filter({ hasText: /could not finish/ })
+        .waitFor({ state: 'hidden' })
+    }
+  },
+  {
+    name: 'settings-manual-partial-without-top-banner',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-manual-partial')
+      )
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('button', { name: 'Manage folder access', exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'settings-scan-newer-run-finishes-before-snapshot',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'scan-manual'))
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByText('Scanning Claude Code data…', { exact: true }).waitFor()
+      await app.evaluate(({ BrowserWindow }) => {
+        const contents = BrowserWindow.getAllWindows()[0].webContents
+        contents.send('scan:started', {
+          id: 9002,
+          startedAt: Date.now(),
+          isStartup: false,
+          revealMs: 500
+        })
+        contents.send('scan:complete', {
+          id: 9002,
+          summary: {
+            outcome: 'complete',
+            isStartup: false,
+            completedAt: new Date().toISOString(),
+            sources: []
+          }
+        })
+      })
+      await window
+        .getByText('Scanning Claude Code data…', { exact: true })
+        .waitFor({ state: 'hidden' })
+    }
+  },
+  {
+    name: 'settings-timeout-retains-usage',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() => {
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-timeout')
+        globalThis.megatronVisualFixtures.set('app:rescan', 'scan-timeout')
+      })
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
+      await window.getByText('This stage exceeded its time limit. Try rescanning.').waitFor()
     }
   },
   {
@@ -543,7 +611,7 @@ export const scenarios = [
       await window.getByRole('button', { name: 'Settings', exact: true }).waitFor()
       await window
         .getByRole('status')
-        .filter({ hasText: /Updating your index|Reading your Claude Code files/ })
+        .filter({ hasText: /Refreshing Claude Code data|Scanning Claude Code data/ })
         .waitFor({ state: 'hidden' })
     }
   },

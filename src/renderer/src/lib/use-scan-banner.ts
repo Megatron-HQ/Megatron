@@ -14,62 +14,45 @@ export function useScanBanner(input: {
   pluginCount: number
   reportedSummary: ScanSummary | undefined
   reportedActivity: ScanActivity | null | undefined
-}): { banner: ScanBannerState; summary: ScanSummary | undefined } {
+}): { banner: ScanBannerState; summary: ScanSummary | undefined; scanning: boolean } {
   const [scanRun, setScanRun] = useState<ScanActivity | null>(null)
   const [lock, setLock] = useState<{ id: number; message: string } | null>(null)
   const [finishedSummary, setFinishedSummary] = useState<ScanSummary | null>(null)
   const [now, setNow] = useState(0)
   const closedIds = useRef(new Set<number>())
-  const activeId = useRef<number | null>(null)
   const scanRunRef = useRef<ScanActivity | null>(null)
 
-  const reportedId = useRef<number | null>(null)
+  const latestRunId = useRef(0)
 
   function beginRun(activity: ScanActivity): void {
-    if (closedIds.current.has(activity.id)) return
+    if (closedIds.current.has(activity.id) || activity.id < latestRunId.current) return
     const next = nextScanActivity(scanRunRef.current, activity)
     if (next === null) return
     const starting = scanRunRef.current?.id !== next.id
     scanRunRef.current = next
-    activeId.current = next.id
+    latestRunId.current = next.id
     if (starting) setFinishedSummary(null)
     setNow(Date.now())
     setScanRun(next)
   }
 
-  useEffect(
-    () =>
-      window.api.onScanStarted((activity) => {
-        // A listSkills snapshot already names the run on screen. Ignore a different
-        // start so a stale event cannot replace it before that snapshot updates.
-        if (
-          reportedId.current !== null &&
-          activity.id !== reportedId.current &&
-          activeId.current === reportedId.current
-        ) {
-          return
-        }
-        beginRun(activity)
-      }),
-    []
-  )
+  useEffect(() => window.api.onScanStarted(beginRun), [])
 
   useEffect(
     () =>
       window.api.onScanComplete((finished) => {
         closedIds.current.add(finished.id)
-        const finishingCurrent = activeId.current === finished.id
-        if (finishingCurrent) activeId.current = null
-        if (scanRunRef.current?.id === finished.id) scanRunRef.current = null
-        setScanRun((current) => (current?.id === finished.id ? null : current))
-        if (activeId.current === null) setFinishedSummary(finished.summary)
+        if (finished.id < latestRunId.current) return
+        latestRunId.current = finished.id
+        scanRunRef.current = null
+        setScanRun(null)
+        setFinishedSummary(finished.summary)
       }),
     []
   )
 
   useEffect(() => {
     const activity = input.reportedActivity
-    if (activity) reportedId.current = activity.id
     if (!activity) return
     const timer = window.setTimeout(() => beginRun(activity), 0)
     return () => window.clearTimeout(timer)
@@ -89,7 +72,7 @@ export function useScanBanner(input: {
     : preferScanSummary(finishedSummary, input.reportedSummary)
   const decision = resolveScanBanner({
     scanning: scanRun !== null,
-    isStartup: scanRun?.isStartup ?? false,
+    isStartup: scanRun?.isStartup ?? summary?.isStartup ?? false,
     elapsedMs: scanRun === null || now === 0 ? 0 : now - scanRun.startedAt,
     skillsLoaded: input.skillsLoaded,
     pluginsLoaded: input.pluginsLoaded,
@@ -106,5 +89,5 @@ export function useScanBanner(input: {
     setLock(null)
   }
 
-  return { banner: decision.state, summary }
+  return { banner: decision.state, summary, scanning: scanRun !== null }
 }

@@ -17,6 +17,7 @@ import {
   type ThemePreference,
   type ScanActivity,
   type ScanFinished,
+  type ScanProgress,
   type ScanSummary,
   type UsageOverview,
   type UsageCalendar,
@@ -82,6 +83,11 @@ const api = {
     const listener = (_event: unknown, finished: ScanFinished): void => callback(finished)
     ipcRenderer.on(IPC_CHANNELS.scanComplete, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.scanComplete, listener)
+  },
+  onScanProgress: (callback: (progress: ScanProgress) => void): (() => void) => {
+    const listener = (_event: unknown, progress: ScanProgress): void => callback(progress)
+    ipcRenderer.on(IPC_CHANNELS.scanProgress, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.scanProgress, listener)
   }
 }
 

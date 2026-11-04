@@ -187,8 +187,13 @@ wherever they conflict. Logic lives in `lib/model-identity.ts` (unit-tested).
 
 ## Scan and query feedback amendment (2026-10-02)
 
-A completed scan attempt can be complete, partial, or failed. Partial and failed attempts show a
-status message while preserving available data; Settings reports the explicit rescan outcome.
+A completed scan attempt can be complete, partial, or failed. App-wide progress and terminal
+warnings belong only to the launch scan after a full quit/reopen. Settings rescans, focus refreshes,
+folder changes, and plugin actions never add a top banner. An active scan hides earlier failure
+messages. Settings owns manual progress, outcomes, and source details independently of the banner;
+it waits for active queries to refresh before reporting completion and distinguishes a reload error
+from an ingestion failure. Source timeouts name the affected stage and preserve completed results.
+Usage can render once its scan/archive stages have finished, while inventory scanning continues.
 Query errors show recovery controls rather than an indefinite loading state. Activity dialogs
 distinguish loading, unavailable data, and empty history. Rescans refresh open history and usage
 invocation dialogs. Existing navigation, chart interactions, focus behavior, and motion remain.

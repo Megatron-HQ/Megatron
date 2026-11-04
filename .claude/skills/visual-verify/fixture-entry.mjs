@@ -51,26 +51,35 @@ globalThis.megatronVisualFixtures = {
       if (mode.startsWith('project-tree')) return projectTreeFixture(channel, args, result, mode)
       if (
         channel === 'skills:list' &&
-        ['scan-updating', 'scan-background', 'scan-manual'].includes(mode)
+        ['scan-updating', 'scan-background', 'scan-manual', 'scan-retrying'].includes(mode)
       ) {
         return {
           ...result,
           scanComplete: true,
-          scanSummary: { outcome: 'complete', completedAt: new Date().toISOString(), sources: [] },
+          scanSummary: {
+            outcome: mode === 'scan-retrying' ? 'failed' : 'complete',
+            completedAt: new Date().toISOString(),
+            isStartup: mode === 'scan-retrying',
+            sources: mode === 'scan-retrying' ? [{ name: 'scanSkills', status: 'failed' }] : []
+          },
           scanActivity: {
             id: 9001,
             startedAt: Date.now() - 60_000,
-            isStartup: mode === 'scan-updating',
+            isStartup: mode === 'scan-updating' || mode === 'scan-retrying',
             revealMs: mode === 'scan-background' ? 8_000 : 500
           }
         }
       }
-      if (channel === 'skills:list' && ['scan-permission', 'scan-missing'].includes(mode)) {
+      if (
+        channel === 'skills:list' &&
+        ['scan-permission', 'scan-missing', 'scan-manual-partial'].includes(mode)
+      ) {
         return {
           ...result,
           scanComplete: true,
           scanSummary: {
             outcome: 'partial',
+            isStartup: mode !== 'scan-manual-partial',
             completedAt: new Date().toISOString(),
             sources: [
               {
@@ -78,9 +87,9 @@ globalThis.megatronVisualFixtures = {
                 status: 'partial',
                 issues: [
                   {
-                    code: mode === 'scan-permission' ? 'permission_required' : 'project_missing',
+                    code: mode === 'scan-missing' ? 'project_missing' : 'permission_required',
                     path:
-                      mode === 'scan-permission'
+                      mode !== 'scan-missing'
                         ? 'C:\\Projects\\Megatron HQ\\Megatron'
                         : 'C:\\Old Projects\\Megatron'
                   }
@@ -89,6 +98,21 @@ globalThis.megatronVisualFixtures = {
             ]
           }
         }
+      }
+      if ((channel === 'skills:list' || channel === 'app:rescan') && mode === 'scan-timeout') {
+        const summary = {
+          outcome: 'partial',
+          isStartup: false,
+          completedAt: new Date().toISOString(),
+          sources: [
+            { name: 'scanTranscripts', status: 'complete' },
+            { name: 'archiveTokens', status: 'complete' },
+            { name: 'scanSkills', status: 'failed', failureReason: 'timeout' }
+          ]
+        }
+        return channel === 'skills:list'
+          ? { ...result, scanComplete: true, scanActivity: null, scanSummary: summary }
+          : summary
       }
       if (mode === 'history-pages') {
         const offset = channel === 'skills:openHistory' ? (args[1] ?? 0) : (args[0]?.offset ?? 0)

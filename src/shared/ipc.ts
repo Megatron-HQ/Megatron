@@ -7,6 +7,7 @@ export const IPC_CHANNELS = {
   setTheme: 'theme:set',
   scanStarted: 'scan:started',
   scanComplete: 'scan:complete',
+  scanProgress: 'scan:progress',
   listAllowedPaths: 'folders:list',
   listProjects: 'projects:list',
   pickAndAddFolders: 'folders:pickAndAdd',
@@ -123,6 +124,22 @@ export interface ScanFinished {
   summary: ScanSummary
 }
 
+export interface ScanSourceSummary {
+  name: string
+  status: 'complete' | 'partial' | 'failed'
+  issues?: ScanIssue[]
+  failureReason?: 'timeout' | 'worker_crash' | 'scan_error'
+}
+
+export type ScanWorkerProgress =
+  | { type: 'source-started'; name: string }
+  | { type: 'source-complete'; source: ScanSourceSummary; projects?: ProjectFolder[] }
+
+export interface ScanProgress {
+  id: number
+  source: ScanSourceSummary
+}
+
 export interface SkillsListResult {
   skills: SkillRow[]
   scanComplete: boolean
@@ -151,7 +168,8 @@ export interface ScanTaskResult {
 export interface ScanSummary {
   outcome: 'complete' | 'partial' | 'failed'
   completedAt: string
-  sources: { name: string; status: 'complete' | 'partial' | 'failed'; issues?: ScanIssue[] }[]
+  sources: ScanSourceSummary[]
+  isStartup?: boolean
   lastSuccessfulAt?: string | null
   projects?: ProjectFolder[]
 }

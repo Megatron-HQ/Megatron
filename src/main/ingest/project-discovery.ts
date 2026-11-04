@@ -4,7 +4,8 @@ import {
   allowedRealpathSync,
   allowedStatSync,
   getGrantedPaths,
-  readAllowedDirectory
+  readAllowedDirectory,
+  readAllowedDirectoryEntries
 } from '../permissions'
 import type { SkillRoot } from './skills-scanner'
 
@@ -75,7 +76,7 @@ export function discoverProjects(
         unavailable()
         return
       }
-      const directory = readAllowedDirectory(directoryPath)
+      const directory = readAllowedDirectoryEntries(directoryPath)
       const isGrant = pathKey(directoryPath) === pathKey(grant)
       if (directory.status !== 'ok') {
         if (directory.status === 'unavailable') unavailable()
@@ -100,7 +101,8 @@ export function discoverProjects(
       }
       visited.add(key)
 
-      const claude = directory.entries.includes('.claude')
+      const names = new Set(directory.entries.map((entry) => entry.name))
+      const claude = names.has('.claude')
         ? readAllowedDirectory(join(directoryPath, '.claude'))
         : { status: 'missing' as const, entries: [] }
       if (claude.status === 'unavailable') unavailable()
@@ -110,7 +112,7 @@ export function discoverProjects(
       const hasSettings = claude.entries.some(
         (name) => name === 'settings.json' || name === 'settings.local.json'
       )
-      const hasGit = directory.entries.includes('.git')
+      const hasGit = names.has('.git')
       const isRepository = hasGit || (owner === undefined && (hasSkills || hasSettings))
       const owningProject = isRepository ? canonical : owner
       if (hasGit) gitRepositories.add(key)
@@ -127,9 +129,14 @@ export function discoverProjects(
       if (isRepository) addRoot(join(directoryPath, '.claude', 'skills'), canonical)
       if (hasSkills) addRoot(join(directoryPath, '.claude', 'skills'), owningProject ?? grant)
 
-      for (const name of directory.entries) {
+      for (const { name, type } of directory.entries) {
         if (SKIP_DIRECTORIES.has(name)) continue
+        if (type === 'file') continue
         const child = join(directoryPath, name)
+        if (type === 'directory') {
+          walk(child, depth + 1, owningProject)
+          continue
+        }
         const stats = allowedStatSync(child)
         if (stats === null) {
           unavailable()

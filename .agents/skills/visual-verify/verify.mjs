@@ -23,6 +23,7 @@ import { visualVerifierLaunchArgs } from './electron-launch.mjs'
 import { scenarios } from './scenarios.mjs'
 import { parseOnly, selectScenarios } from './select-scenarios.mjs'
 import { evaluateMainProcess, getWindowSizes } from './window-sizes.mjs'
+import { waitForInitialScan } from './wait-for-initial-scan.mjs'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../..')
 const OUT_DIR = join(REPO_ROOT, '.visual-verify')
@@ -48,9 +49,14 @@ const DIFF_PIXEL_FLOOR = 2000
 
 /** Waits past the loading skeleton into whichever real state comes next. */
 async function waitForSettle(window) {
+  // waitForFunction treats a returned Promise as truthy before it resolves to false.
+  // Poll IPC on the host first, then use a synchronous predicate for the DOM.
+  await waitForInitialScan(
+    () => window.evaluate(async () => (await window.api.listSkills()).scanComplete),
+    { timeoutMs: SETTLE_TIMEOUT_MS }
+  )
   await window.waitForFunction(
-    async () => {
-      if (!(await window.api.listSkills()).scanComplete) return false
+    () => {
       if (document.querySelector('[data-slot="skeleton"]')) return false
       const hasRow = document.querySelector('tbody tr') !== null
       const hasEmptyState = /no .*skills found/i.test(document.body.textContent ?? '')

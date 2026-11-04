@@ -7,6 +7,9 @@ sidebars. It records empty Git repositories and worktrees as well as unversioned
 with `.claude/skills` or project settings. A Claude package inside an identified repository keeps
 that repository's ownership; a new Git boundary always starts another repository. Discovery
 retains the existing skip list, canonical permission checks, cycle guard, depth and directory limits.
+Traversal uses guarded directory-entry types to skip ordinary files without resolving and statting
+each one. Directory targets and links still cross the canonical permission boundary; discovery scope
+and repository ownership are unchanged.
 
 The catalog is derived metadata in the private preferences cache, independent of folder grants.
 It preserves known missing/unavailable repository entries across scans and restarts. Cached

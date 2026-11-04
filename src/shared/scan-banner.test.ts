@@ -33,13 +33,13 @@ describe('resolveScanBanner', () => {
           lockedMessage: SCAN_BANNER_SNAPSHOT
         })
       ).toEqual({
-        state: { kind: hasPriorWarning ? 'warning' : 'hidden' },
+        state: { kind: 'hidden' },
         lockedMessage: null
       })
     }
   )
 
-  it('keeps a prior warning on screen until the scan has run long enough for both lists to have loaded', () => {
+  it('hides an earlier failure while the current startup scan is still running', () => {
     expect(
       resolveScanBanner({
         ...ready,
@@ -47,7 +47,7 @@ describe('resolveScanBanner', () => {
         skillCount: 3,
         hasPriorWarning: true
       })
-    ).toEqual({ state: { kind: 'warning' }, lockedMessage: null })
+    ).toEqual({ state: { kind: 'hidden' }, lockedMessage: null })
 
     expect(
       resolveScanBanner({
@@ -56,7 +56,7 @@ describe('resolveScanBanner', () => {
         skillCount: 3,
         hasPriorWarning: true
       })
-    ).toEqual({ state: { kind: 'warning' }, lockedMessage: null })
+    ).toEqual({ state: { kind: 'hidden' }, lockedMessage: null })
 
     expect(
       resolveScanBanner({
@@ -100,7 +100,7 @@ describe('resolveScanBanner', () => {
     const quiet = { ...ready, skillCount: 3, revealMs: 8_000 }
 
     expect(resolveScanBanner({ ...quiet, elapsedMs: 7_999, hasPriorWarning: true })).toEqual({
-      state: { kind: 'warning' },
+      state: { kind: 'hidden' },
       lockedMessage: null
     })
     expect(resolveScanBanner({ ...quiet, elapsedMs: 7_999, hasPriorWarning: false })).toEqual({
@@ -111,6 +111,12 @@ describe('resolveScanBanner', () => {
       state: { kind: 'updating', message: SCAN_BANNER_SNAPSHOT },
       lockedMessage: SCAN_BANNER_SNAPSHOT
     })
+  })
+
+  it('does not restore a completed manual scan warning at the top of the app', () => {
+    expect(
+      resolveScanBanner({ ...ready, scanning: false, isStartup: false, hasPriorWarning: true })
+    ).toEqual({ state: { kind: 'hidden' }, lockedMessage: null })
   })
 
   it('drops the updating line as soon as the scan finishes, and brings a warning back only when the result still needs attention', () => {
@@ -137,6 +143,10 @@ describe('resolveScanBanner', () => {
 describe('nextScanActivity', () => {
   const quiet = { id: 1, startedAt: 1_000, revealMs: 8_000, isStartup: false }
   const announced = { id: 1, startedAt: 1_000, revealMs: 500, isStartup: false }
+
+  it('ignores a delayed start from an older run while a newer run is active', () => {
+    expect(nextScanActivity({ ...announced, id: 2 }, quiet)).toBeNull()
+  })
 
   it('recognizes startup joining the same run without changing its reveal delay', () => {
     expect(nextScanActivity(announced, { ...announced, isStartup: true })).toEqual({

@@ -123,8 +123,8 @@ describe('scanSkills', () => {
   it('reports incomplete nested discovery even before a hidden root has been indexed', () => {
     const hidden = join(tmpDir, 'hidden')
     mkdirSync(hidden)
-    const directory = permissions.readAllowedDirectory
-    vi.spyOn(permissions, 'readAllowedDirectory').mockImplementation((path) =>
+    const directory = permissions.readAllowedDirectoryEntries
+    vi.spyOn(permissions, 'readAllowedDirectoryEntries').mockImplementation((path) =>
       path === hidden ? { status: 'unavailable', entries: [] } : directory(path)
     )
     expect(scanSkills(db, defaultSkillRoots(), userSettingsPath)).toMatchObject({

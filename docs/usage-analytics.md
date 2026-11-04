@@ -26,6 +26,16 @@ Future dates, unavailable history, known empty days, and partially observed hist
 Day details query the whole local day, through the as-of instant for today, regardless of the
 rolling Activity filter. Token fields may be unavailable even when prompt history exists.
 
+## Scan feedback amendment (2026-11-03)
+
+Usage stages run before inventory discovery. Transcript ingestion, token archival, prompt ingestion,
+and prompt archival report separate outcomes; a later inventory timeout does not erase successful
+usage results. Only complete source scans are archived. Archive opening is lazy, so focused plugin
+verification has no usage-archive dependency. Completion events refresh token, contribution-calendar,
+and open day-detail queries. App-wide scan feedback is limited to the launch scan; manual progress
+and source-specific outcomes stay in Settings. Rescan requests made during another scan wait for a
+fresh pass, and saving derived project-catalog preferences cannot change an ingestion outcome.
+
 ## Scan integrity amendment (2026-10-02)
 
 Parser version 9 validates timestamps and numeric usage, safely aggregates model keys, filters

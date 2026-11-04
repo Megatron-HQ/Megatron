@@ -57,7 +57,8 @@ import {
   setStoredTheme,
   type ThemeStore
 } from './theme'
-import { createScanController, startScanWorker } from './ingest/scan-all'
+import { createScanController, ScanWorkerError, startScanWorker } from './ingest/scan-all'
+import { USAGE_ARCHIVE_FILENAME } from './db/usage-archive'
 import { sanitizeProjectFolders } from './ingest/project-discovery'
 import { readSkillFiles, readSkillMd } from './skill-files'
 import { openSafeExternal } from './shell'
@@ -93,6 +94,7 @@ const APP_CONTENT_SECURITY_POLICY =
 securePrivateDataDirectory(app.getPath('userData'), join(app.getPath('appData'), app.getName()))
 const themeStore: ThemeStore = new Store({ name: 'preferences' })
 let scanComplete = false
+let usageComplete = false
 let scanSummary: ScanSummary | undefined
 const scanSession = createScanSession()
 let lastScanFinished: ScanFinished | null = null
@@ -155,13 +157,29 @@ function notifyScanFinished(finished: ScanFinished): void {
 }
 
 const scans = createScanController((scope) =>
-  startScanWorker(join(import.meta.dirname, 'scan-worker.js'), {
-    scope,
-    databasePath: getDb().name,
-    archivePath: getUsageArchive().name,
-    grantedPaths: getGrantedPaths(),
-    previousProjects: sanitizeProjectFolders(themeStore.get('projectFolders'))
-  })
+  startScanWorker(
+    join(import.meta.dirname, 'scan-worker.js'),
+    {
+      scope,
+      databasePath: getDb().name,
+      archivePath: join(app.getPath('userData'), USAGE_ARCHIVE_FILENAME),
+      grantedPaths: getGrantedPaths(),
+      previousProjects: sanitizeProjectFolders(themeStore.get('projectFolders'))
+    },
+    undefined,
+    (progress) => {
+      if (progress.type !== 'source-complete') return
+      if (progress.source.name === 'archivePrompts') usageComplete = true
+      const activity = scanSession.current()
+      if (!activity) return
+      for (const window of BrowserWindow.getAllWindows()) {
+        window.webContents.send(IPC_CHANNELS.scanProgress, {
+          id: activity.id,
+          source: progress.source
+        })
+      }
+    }
+  )
 )
 
 async function scanAndNotify(
@@ -174,17 +192,30 @@ async function scanAndNotify(
   try {
     try {
       scanSummary = await scans.request({ fresh })
-      if (scanSummary.projects) themeStore.set('projectFolders', scanSummary.projects)
     } catch (error) {
       console.error('[ingest] scan failed', error)
-      scanSummary = {
-        outcome: 'failed',
-        completedAt: new Date().toISOString(),
-        sources: [{ name: 'scanWorker', status: 'failed' }]
+      scanSummary =
+        error instanceof ScanWorkerError
+          ? error.summary
+          : {
+              outcome: 'failed',
+              completedAt: new Date().toISOString(),
+              sources: [{ name: 'scanWorker', status: 'failed', failureReason: 'worker_crash' }]
+            }
+    }
+    scanSummary = {
+      ...scanSummary,
+      isStartup: run.isStartup,
+      lastSuccessfulAt:
+        scanSummary.outcome === 'complete' ? scanSummary.completedAt : previousSuccess
+    }
+    if (scanSummary.projects) {
+      try {
+        themeStore.set('projectFolders', scanSummary.projects)
+      } catch (error) {
+        console.error('[ingest] could not save project catalog', error)
       }
     }
-    scanSummary.lastSuccessfulAt =
-      scanSummary.outcome === 'complete' ? scanSummary.completedAt : previousSuccess
     scanComplete = true
     return scanSummary
   } finally {
@@ -446,7 +477,7 @@ app.whenReady().then(() => {
       models: getModelStats(db, now),
       skills: getSkillStats(db, now),
       residentTax: getResidentTaxStats(db),
-      scanComplete,
+      scanComplete: usageComplete || scanComplete,
       scanSummary
     }
   })
@@ -473,7 +504,7 @@ app.whenReady().then(() => {
   })
 
   // Await the isolated scan; the completion broadcast invalidates renderer queries.
-  secureIpc.handle(IPC_CHANNELS.rescan, () => scanAndNotify())
+  secureIpc.handle(IPC_CHANNELS.rescan, () => scanAndNotify('announce', true))
 
   // openPath on the data folder rather than showItemInFolder on the db file: the folder
   // always exists (the index may have been deleted), and the documented recovery path also

@@ -2,8 +2,8 @@ import type { ScanActivity, ScanSummary } from './ipc'
 
 export const SCAN_BANNER_REVEAL_MS = 500
 export const SCAN_BANNER_QUIET_REVEAL_MS = 8_000
-export const SCAN_BANNER_SNAPSHOT = 'Updating your index. This is the last saved snapshot.'
-export const SCAN_BANNER_READING = 'Reading your Claude Code files.'
+export const SCAN_BANNER_SNAPSHOT = 'Refreshing Claude Code data…'
+export const SCAN_BANNER_READING = 'Scanning Claude Code data…'
 
 export type ScanBannerState =
   { kind: 'hidden' } | { kind: 'warning' } | { kind: 'updating'; message: string }
@@ -26,6 +26,7 @@ export function nextScanActivity(
   current: ScanActivity | null,
   incoming: ScanActivity
 ): ScanActivity | null {
+  if (current !== null && incoming.id < current.id) return null
   if (current === null || current.id !== incoming.id) return incoming
   if (incoming.revealMs < current.revealMs || (incoming.isStartup && !current.isStartup)) {
     return {
@@ -60,7 +61,8 @@ export function resolveScanBanner(input: ScanBannerInput): {
   state: ScanBannerState
   lockedMessage: string | null
 } {
-  if (!input.scanning || !input.isStartup) return held(input.hasPriorWarning)
+  if (!input.isStartup) return held(false)
+  if (!input.scanning) return held(input.hasPriorWarning)
   if (input.lockedMessage !== null) {
     return {
       state: { kind: 'updating', message: input.lockedMessage },
@@ -69,7 +71,7 @@ export function resolveScanBanner(input: ScanBannerInput): {
   }
   const listsReady = input.skillsLoaded && input.pluginsLoaded
   const revealMs = input.revealMs ?? SCAN_BANNER_REVEAL_MS
-  if (input.elapsedMs < revealMs || !listsReady) return held(input.hasPriorWarning)
+  if (input.elapsedMs < revealMs || !listsReady) return held(false)
   const message =
     input.skillCount > 0 || input.pluginCount > 0 ? SCAN_BANNER_SNAPSHOT : SCAN_BANNER_READING
   return { state: { kind: 'updating', message }, lockedMessage: message }
