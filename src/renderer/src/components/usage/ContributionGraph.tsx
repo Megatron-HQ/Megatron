@@ -8,6 +8,7 @@ import { createUsageProjectLabelResolver } from '@/lib/usage-project-label'
 import type { ContributionDay } from '../../../../shared/ipc'
 import { ActivityDetailsDialog } from './ActivityDetailsDialog'
 import { formatCount } from './chart-utils'
+import { formatExactTokenCount, formatTokenCount } from '../../../../shared/token-format'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const LEVELS = [
@@ -22,12 +23,16 @@ function intensity(day: ContributionDay, thresholds: number[]): number {
   return day.count <= 0 ? 0 : 1 + thresholds.filter((threshold) => day.count > threshold).length
 }
 
-function dayLabel(day: ContributionDay): string {
-  const date = new Date(`${day.date}T00:00:00`).toLocaleDateString(undefined, {
+function calendarDateLabel(date: string): string {
+  return new Date(`${date}T00:00:00`).toLocaleDateString(undefined, {
     month: 'long',
     day: 'numeric',
     year: 'numeric'
   })
+}
+
+function dayLabel(day: ContributionDay): string {
+  const date = calendarDateLabel(day.date)
   if (day.coverage === 'future') return `${date} · Future date`
   if (day.coverage === 'unavailable') return `${date} · Prompt history unavailable`
   return `${date} · ${formatCount(day.count)} recorded ${day.count === 1 ? 'prompt' : 'prompts'}${day.coverage === 'partial' ? ' · Partial history' : ''}`
@@ -127,18 +132,16 @@ export function ContributionGraph({
       ) : data ? (
         <>
           <div className="flex min-w-0 gap-2">
-            <div
-              aria-hidden
-              className="grid w-6 shrink-0 grid-rows-[16px_repeat(7,minmax(0,1fr))] gap-[2px] text-[9px] text-muted-foreground"
-            >
-              <span />
-              <span />
-              <span>Mon</span>
-              <span />
-              <span>Wed</span>
-              <span />
-              <span>Fri</span>
-              <span />
+            <div aria-hidden className="relative w-6 shrink-0 text-[9px] text-muted-foreground">
+              <div className="absolute inset-x-0 top-4 bottom-0 grid grid-rows-7 items-center gap-[2px] leading-none">
+                <span />
+                <span>Mon</span>
+                <span />
+                <span>Wed</span>
+                <span />
+                <span>Fri</span>
+                <span />
+              </div>
             </div>
             <div className="min-w-0 flex-1">
               <div
@@ -212,7 +215,8 @@ export function ContributionGraph({
                           }}
                           className={cn(
                             'aspect-square min-w-0 rounded-[2px] border border-border/60 outline-none hover:ring-1 hover:ring-usage-bar focus-visible:ring-2 focus-visible:ring-ring',
-                            !canOpen && 'cursor-default border-dashed',
+                            day.coverage === 'unavailable' && 'border-dashed',
+                            !canOpen && 'cursor-default',
                             day.date === today && 'ring-1 ring-usage-bar'
                           )}
                           style={{
@@ -224,12 +228,23 @@ export function ContributionGraph({
                         />
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p>{dayLabel(day)}</p>
-                        <p className="mt-1 opacity-75">
-                          {day.tokens
-                            ? `${formatCount(day.tokens.total)} estimated tokens`
-                            : 'Token data unavailable'}
+                        <p>{calendarDateLabel(day.date)}</p>
+                        <p className="mt-1">
+                          Prompts:{' '}
+                          {day.coverage === 'unavailable' ? 'Unavailable' : formatCount(day.count)}
+                          {day.coverage === 'partial' && ' · Partial history'}
                         </p>
+                        <p className="mt-1 opacity-75">
+                          Tokens:{' '}
+                          {day.tokens
+                            ? `${formatTokenCount(day.tokens.total)} estimated`
+                            : 'Unavailable'}
+                        </p>
+                        {day.tokens && (
+                          <p className="mt-1 text-[11px] opacity-75">
+                            {formatExactTokenCount(day.tokens.total)} exact tokens
+                          </p>
+                        )}
                       </TooltipContent>
                     </Tooltip>
                   )

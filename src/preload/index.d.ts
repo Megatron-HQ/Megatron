@@ -21,6 +21,7 @@ import type {
   RecordedRequest,
   ScanActivity,
   ScanFinished,
+  ScanProgress,
   ScanSummary
 } from '../shared/ipc'
 
@@ -57,6 +58,7 @@ interface Api {
   onPluginUpdateProgress: (callback: (progress: PluginUpdateProgress) => void) => () => void
   onScanStarted: (callback: (activity: ScanActivity) => void) => () => void
   onScanComplete: (callback: (finished: ScanFinished) => void) => () => void
+  onScanProgress: (callback: (progress: ScanProgress) => void) => () => void
 }
 
 declare global {

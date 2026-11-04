@@ -44,8 +44,51 @@ function localDate(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
+function formatWindow(days) {
+  const window = tokenWindow(days, true)
+  const tokens = {
+    input: 1250,
+    output: 1250000,
+    cacheRead: 2500000000,
+    cacheWrite: 0,
+    total: 2501251250
+  }
+  const projectTokens = {
+    input: 125,
+    output: 125000,
+    cacheRead: 250000000,
+    cacheWrite: 0,
+    total: 250125125
+  }
+  return {
+    ...window,
+    tokens,
+    trend: window.trend.map((bucket, index) => ({
+      ...bucket,
+      tokens: index === window.trend.length - 1 ? tokens : null
+    })),
+    byModel: [{ key: 'claude-sonnet-5', tokens }],
+    byProject: Array.from({ length: 10 }, (_, index) => ({
+      key: `C:\\Projects\\repo-${index + 1}`,
+      tokens: projectTokens
+    }))
+  }
+}
+
 export function usageHistoryFixture(channel, args, original, mode) {
   const now = new Date()
+  if (channel === 'usage:overview' && mode === 'usage-history-format') {
+    return {
+      ...original,
+      tokens: {
+        last24h: formatWindow(1),
+        last7d: formatWindow(7),
+        last30d: formatWindow(30),
+        missingSessionCount: 0,
+        undatedTokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+      }
+    }
+  }
   if (channel === 'usage:overview')
     return {
       ...original,
@@ -64,6 +107,8 @@ export function usageHistoryFixture(channel, args, original, mode) {
     while (cursor.getFullYear() === year) {
       const date = localDate(cursor)
       const available = cursor.getMonth() >= 1
+      const tokenOnly =
+        mode === 'usage-history-token-only' && cursor.getMonth() === 0 && cursor.getDate() === 1
       const count =
         available && cursor <= now ? (cursor.getDate() * 7 + cursor.getMonth() * 3) % 41 : 0
       days.push({
@@ -71,7 +116,7 @@ export function usageHistoryFixture(channel, args, original, mode) {
         weekday: cursor.getDay(),
         count,
         coverage: cursor > now ? 'future' : available ? 'available' : 'unavailable',
-        tokens: count > 0 ? counts(count) : null
+        tokens: tokenOnly ? counts() : count > 0 ? counts(count) : null
       })
       cursor.setDate(cursor.getDate() + 1)
     }
@@ -87,7 +132,9 @@ export function usageHistoryFixture(channel, args, original, mode) {
   if (channel === 'usage:day') {
     const date = args[0]
     const start = new Date(`${date}T00:00:00`)
-    const count = (start.getDate() * 7 + start.getMonth() * 3) % 41
+    const tokenOnly =
+      mode === 'usage-history-token-only' && start.getMonth() === 0 && start.getDate() === 1
+    const count = tokenOnly ? 0 : (start.getDate() * 7 + start.getMonth() * 3) % 41
     const end = new Date(start)
     end.setDate(end.getDate() + 1)
     return {
@@ -97,11 +144,11 @@ export function usageHistoryFixture(channel, args, original, mode) {
       endAt: end.toISOString(),
       partial: false,
       count,
-      sessions: 3,
-      slashCommands: 2,
-      byProject: [{ project: 'C:\\Projects\\Megatron', count }],
-      tokens: count > 0 ? counts(count) : null,
-      coverage: 'available'
+      sessions: tokenOnly ? 0 : 3,
+      slashCommands: tokenOnly ? 0 : 2,
+      byProject: tokenOnly ? [] : [{ project: 'C:\\Projects\\Megatron', count }],
+      tokens: tokenOnly ? counts() : count > 0 ? counts(count) : null,
+      coverage: tokenOnly ? 'unavailable' : 'available'
     }
   }
   return original

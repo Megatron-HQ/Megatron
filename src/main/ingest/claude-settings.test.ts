@@ -63,6 +63,19 @@ describe('readPluginEnablement', () => {
     })
   })
 
+  it('keeps enablement unknown when a project directory is replaced by a file', () => {
+    writeUserSettings({})
+    const projectRoot = join(tmpDir, 'replaced-project')
+    mkdirSync(projectRoot)
+    rmSync(projectRoot, { recursive: true })
+    writeFileSync(projectRoot, 'ordinary file')
+
+    expect(readPluginEnablement(projectRoot, userSettingsPath)).toMatchObject({
+      known: false,
+      issues: [{ code: 'project_missing', path: projectRoot }]
+    })
+  })
+
   it('identifies malformed settings without discarding cached enablement confidence', () => {
     writeFileSync(userSettingsPath, '{bad')
 

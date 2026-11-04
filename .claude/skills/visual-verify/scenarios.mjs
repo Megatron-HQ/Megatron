@@ -529,7 +529,7 @@ export const scenarios = [
       await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
       await window
         .getByRole('status')
-        .filter({ hasText: /^Scan / })
+        .filter({ hasText: /^(Scan complete|Some sources could not|The scan could not)/ })
         .waitFor()
     }
   },
@@ -541,11 +541,79 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('skills:list', 'scan-updating')
       )
       await window.reload()
+      await window.getByText(/Refreshing Claude Code data|Scanning Claude Code data/).waitFor()
+    }
+  },
+  {
+    name: 'scan-retrying-hides-old-failure',
+    screen: 'skill-inventory',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-retrying')
+      )
+      await window.reload()
+      await window.getByText(/Refreshing Claude Code data|Scanning Claude Code data/).waitFor()
       await window
-        .getByText(
-          /Updating your index\. This is the last saved snapshot\.|Reading your Claude Code files\./
-        )
-        .waitFor()
+        .getByRole('status')
+        .filter({ hasText: /could not finish/ })
+        .waitFor({ state: 'hidden' })
+    }
+  },
+  {
+    name: 'settings-manual-partial-without-top-banner',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-manual-partial')
+      )
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('button', { name: 'Manage folder access', exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'settings-scan-newer-run-finishes-before-snapshot',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'scan-manual'))
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByText('Scanning Claude Code data…', { exact: true }).waitFor()
+      await app.evaluate(({ BrowserWindow }) => {
+        const contents = BrowserWindow.getAllWindows()[0].webContents
+        contents.send('scan:started', {
+          id: 9002,
+          startedAt: Date.now(),
+          isStartup: false,
+          revealMs: 500
+        })
+        contents.send('scan:complete', {
+          id: 9002,
+          summary: {
+            outcome: 'complete',
+            isStartup: false,
+            completedAt: new Date().toISOString(),
+            sources: []
+          }
+        })
+      })
+      await window
+        .getByText('Scanning Claude Code data…', { exact: true })
+        .waitFor({ state: 'hidden' })
+    }
+  },
+  {
+    name: 'settings-timeout-retains-usage',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() => {
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-timeout')
+        globalThis.megatronVisualFixtures.set('app:rescan', 'scan-timeout')
+      })
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
+      await window.getByText('This stage exceeded its time limit. Try rescanning.').waitFor()
     }
   },
   {
@@ -559,7 +627,7 @@ export const scenarios = [
       await window.getByRole('button', { name: 'Settings', exact: true }).waitFor()
       await window
         .getByRole('status')
-        .filter({ hasText: /Updating your index|Reading your Claude Code files/ })
+        .filter({ hasText: /Refreshing Claude Code data|Scanning Claude Code data/ })
         .waitFor({ state: 'hidden' })
     }
   },
@@ -601,13 +669,70 @@ export const scenarios = [
     }
   },
   {
+    name: 'scan-missing-project-without-top-warning',
+    screen: 'skill-inventory',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'scan-missing'))
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).waitFor()
+      await window
+        .getByRole('button', { name: 'Scan details', exact: true })
+        .waitFor({ state: 'hidden' })
+    }
+  },
+  {
     name: 'settings-moved-project-details',
     screen: 'settings-dialog',
     async run(window, app) {
       await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'scan-missing'))
       await window.reload()
-      await window.getByRole('button', { name: 'Scan details', exact: true }).click()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByText('Missing project folders', { exact: true }).waitFor()
       await window.getByText('C:\\Old Projects\\Megatron', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'settings-missing-project-rescan',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() => {
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-missing')
+        globalThis.megatronVisualFixtures.set('app:rescan', 'scan-missing')
+      })
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
+      await window.getByText('Scan complete.', { exact: true }).waitFor()
+      await window.getByText('Missing project folders', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'settings-missing-project-rescan-dark',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() => {
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-missing')
+        globalThis.megatronVisualFixtures.set('app:rescan', 'scan-missing')
+      })
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('radio', { name: 'Dark', exact: true }).click()
+      await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
+      await window.getByText('Scan complete.', { exact: true }).waitFor()
+      await window.getByText('Missing project folders', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'settings-missing-project-and-read-failure',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'scan-mixed'))
+      await window.reload()
+      await window.getByRole('button', { name: 'Scan details', exact: true }).click()
+      await window.getByText('Scan needs attention', { exact: true }).waitFor()
+      await window
+        .getByText('The source could not be read. Check file access and try rescanning.')
+        .waitFor()
     }
   },
   {
@@ -1463,10 +1588,93 @@ export const scenarios = [
           .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
           .click()
         await window.keyboard.press('Escape')
-        await openUsageSection(window)
+        await openUsagePanel(window, 'History')
         await window.getByRole('group', { name: /Daily activity calendar/ }).waitFor()
       }
-    }
+    },
+    ...['hover', 'details'].map((state) => ({
+      name: `usage-contributions-token-only-${state}-${theme}`,
+      screen: 'usage',
+      async run(window, app) {
+        await app.evaluate(() => {
+          globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-token-only')
+          globalThis.megatronVisualFixtures.set('usage:day', 'usage-history-token-only')
+        })
+        await window.getByRole('button', { name: 'Settings', exact: true }).click()
+        await window
+          .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
+          .click()
+        await window.keyboard.press('Escape')
+        await openUsagePanel(window, 'History')
+        const day = window
+          .getByRole('group', { name: /Daily activity calendar/ })
+          .getByRole('button', { name: /Prompt history unavailable/ })
+          .and(window.locator('[aria-haspopup="dialog"]'))
+          .first()
+        await day.focus()
+        if (state === 'hover') {
+          await day.hover()
+          await window
+            .getByRole('tooltip')
+            .getByText(/Tokens: .*estimated/)
+            .waitFor()
+        } else {
+          await window.keyboard.press('Enter')
+          const dialog = window.getByRole('dialog')
+          await dialog.getByText(/Prompt history is unavailable for this day/).waitFor()
+          await dialog.getByText(/estimated tokens processed/).waitFor()
+        }
+      }
+    })),
+    {
+      name: `usage-history-prompts-and-tokens-${theme}`,
+      screen: 'usage',
+      async run(window, app) {
+        await app.evaluate(() =>
+          globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
+        )
+        await window.getByRole('button', { name: 'Settings', exact: true }).click()
+        await window
+          .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
+          .click()
+        await window.keyboard.press('Escape')
+        await openUsagePanel(window, 'History')
+        const day = window
+          .getByRole('group', { name: /Daily activity calendar/ })
+          .locator('button[aria-haspopup="dialog"]')
+          .first()
+        await day.hover()
+        await window.getByRole('tooltip').getByText('Prompts: 10', { exact: true }).waitFor()
+        await window
+          .getByRole('tooltip')
+          .getByText('9,120,000 exact tokens', { exact: true })
+          .waitFor()
+      }
+    },
+    ...['tokens', 'token-exact'].map((state) => ({
+      name: `usage-compact-${state}-${theme}`,
+      screen: 'usage',
+      async run(window, app) {
+        await app.evaluate(() =>
+          globalThis.megatronVisualFixtures.set('usage:overview', 'usage-history-format')
+        )
+        await window.getByRole('button', { name: 'Settings', exact: true }).click()
+        await window
+          .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
+          .click()
+        await window.keyboard.press('Escape')
+        await openUsagePanel(window, 'Tokens')
+        const headline = window.locator('p.text-usage-stat span[tabindex="0"]')
+        await headline.waitFor()
+        if (state === 'token-exact') {
+          await headline.focus()
+          await window
+            .getByRole('tooltip')
+            .getByText('2,501,251,250 exact tokens', { exact: true })
+            .waitFor()
+        }
+      }
+    }))
   ]),
   {
     name: 'usage-tokens-24-hour',
@@ -1501,7 +1709,7 @@ export const scenarios = [
       await app.evaluate(() =>
         globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
       )
-      await openUsageSection(window)
+      await openUsagePanel(window, 'History')
       const previous = new Date().getFullYear() - 1
       await window
         .getByRole('navigation', { name: 'Contribution year' })
@@ -1518,7 +1726,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
         globalThis.megatronVisualFixtures.set('usage:day', 'usage-history-sample')
       })
-      await openUsageSection(window)
+      await openUsagePanel(window, 'History')
       const day = window
         .getByRole('group', { name: /Daily activity calendar/ })
         .locator('button[aria-haspopup="dialog"]')
@@ -1539,7 +1747,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
         globalThis.megatronVisualFixtures.set('usage:day', 'usage-history-sample')
       })
-      await openUsageSection(window)
+      await openUsagePanel(window, 'History')
       const day = window
         .getByRole('group', { name: /Daily activity calendar/ })
         .locator('button[aria-haspopup="dialog"]')
@@ -1555,6 +1763,58 @@ export const scenarios = [
         await window.keyboard.press('Escape')
         await window.getByRole('dialog').waitFor({ state: 'hidden' })
       }
+    }
+  },
+  {
+    name: 'usage-history-year-persists',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
+      )
+      await openUsagePanel(window, 'History')
+      const previous = new Date().getFullYear() - 1
+      await window
+        .getByRole('navigation', { name: 'Contribution year' })
+        .getByRole('button', { name: String(previous) })
+        .click()
+      await openUsagePanel(window, 'Tokens')
+      await window
+        .getByRole('radiogroup', { name: 'Token usage window' })
+        .getByRole('radio', { name: '7 days' })
+        .click()
+      await openUsagePanel(window, 'History')
+      await window.getByRole('group', { name: `Daily activity calendar for ${previous}` }).waitFor()
+    }
+  },
+  ...['pending', 'error'].map((mode) => ({
+    name: `usage-history-calendar-${mode}`,
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(
+        (_electron, mode) => globalThis.megatronVisualFixtures.set('usage:calendar', mode),
+        mode
+      )
+      await openUsagePanel(window, 'History')
+      if (mode === 'error') await window.getByText(/Could not load contribution history/).waitFor()
+      else
+        await window
+          .getByRole('region', { name: 'Contribution graph' })
+          .locator('[data-slot="skeleton"]')
+          .waitFor()
+    }
+  })),
+  {
+    name: 'usage-compact-rankings-expanded',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:overview', 'usage-history-format')
+      )
+      await openUsagePanel(window, 'Tokens')
+      await window.getByRole('button', { name: /Show 2 more projects/ }).click()
+      await window.getByText('repo-10', { exact: true }).waitFor()
+      await window.getByRole('button', { name: 'Show fewer', exact: true }).scrollIntoViewIfNeeded()
     }
   },
   {

@@ -7,10 +7,17 @@ sidebars. It records empty Git repositories and worktrees as well as unversioned
 with `.claude/skills` or project settings. A Claude package inside an identified repository keeps
 that repository's ownership; a new Git boundary always starts another repository. Discovery
 retains the existing skip list, canonical permission checks, cycle guard, depth and directory limits.
+Traversal uses guarded directory-entry types to skip ordinary files without resolving and statting
+each one. Directory targets and links still cross the canonical permission boundary; discovery scope
+and repository ownership are unchanged.
 
 The catalog is derived metadata in the private preferences cache, independent of folder grants.
 It preserves known missing/unavailable repository entries across scans and restarts. Cached
 entries never grant access, and removing a grant drops entries no longer covered by another grant.
+Automatic discovery skips `.tmp` and `.temp`, along with the existing generated/dependency
+directories. Windows skip names are case-insensitive. Cached entries and derived skill rows under
+excluded project locations are discarded rather than rediscovered on every scan. A direct grant
+inside an excluded directory, including a grant of that directory itself, remains supported.
 Existing skill and plugin rows provide cached counts; a complete scan of a readable empty source
 reconciles its contents normally. A missing whole repository retains its cached data.
 
@@ -53,6 +60,13 @@ Scan summaries include actionable settings diagnostics. An unapproved project re
 access; an approved but absent project reports a missing location, including moved-project
 records. Settings failures preserve cached rows and disablement. Megatron does not guess a
 replacement project path or rewrite Claude's plugin registry during scans.
+
+Confirmed missing projects retain their cached state and appear as informational details in
+Settings. A scan whose only incomplete sources report `project_missing` does not raise an app-wide
+refresh warning; a manual rescan completes with the missing locations listed below it. Permission
+errors, invalid settings, read failures, scan limits, worker failures, and unexplained partial results
+still require attention, including when they occur alongside a missing project. A directory replaced
+by a regular file is treated as an absent directory, not as denied access.
 
 ## Scan integrity amendment (2026-10-02)
 

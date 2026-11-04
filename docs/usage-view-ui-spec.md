@@ -10,8 +10,9 @@ hourly (24h) or daily (7d/30d) trend, and By model / By project ranked lists. Ti
 are estimated; show missing data as unavailable and explain excluded untracked/undated records.
 Model dots retain existing family colors; trend fills and category readouts stay neutral.
 
-At the top of Activity, above the unchanged rolling-window charts, show a GitHub-style annual
-contribution grid. Display one calendar year, initially the current year, with buttons for all
+History follows Activity in the Usage sidebar and owns the annual contribution grid and day
+details. Activity contains only its rolling-window charts; History has a year selector instead of
+a rolling-window control. Display one calendar year, initially the current year, with buttons for all
 retained years. Year selection survives panel/section navigation and does not alter period filters.
 The grid uses Sunday-first week columns, month labels, weekday labels, four positive intensity
 levels plus a known-empty fill, and a Less–More legend. Intensity is prompt count; one shared
@@ -27,6 +28,14 @@ days; unavailable prompt days may open when token records exist. Escape/Close re
 trigger's focus. Details include sessions, prompts, slash commands, projects and available token
 categories, with explicit loading/error/retry states. Existing Activity day/hour dialogs retain their
 previous behavior. The grid has no per-cell entrance animation and respects existing reduced motion.
+
+All token amounts throughout Usage use one compact formatter: uppercase K/M/B, up to two decimal
+places, and ordinary numbers below 1,000. Exact counts remain available on hover and keyboard focus;
+prompt, session, turn, and item counts retain their ordinary formatting. Calendar hover/focus cards
+separate date, **Prompts**, and **Tokens**, with the full token figure as secondary text. Missing
+prompt history says **Unavailable**, including days with token records; it never implies zero.
+Existing model colors, effort selection, resident-tax highlighting, ranking expansion, and navigation
+motion stay intact. Formatting does not change the recorded data or aggregation rules.
 
 ## Activity details amendment (2026-10-19)
 
@@ -187,8 +196,13 @@ wherever they conflict. Logic lives in `lib/model-identity.ts` (unit-tested).
 
 ## Scan and query feedback amendment (2026-10-02)
 
-A completed scan attempt can be complete, partial, or failed. Partial and failed attempts show a
-status message while preserving available data; Settings reports the explicit rescan outcome.
+A completed scan attempt can be complete, partial, or failed. App-wide progress and terminal
+warnings belong only to the launch scan after a full quit/reopen. Settings rescans, focus refreshes,
+folder changes, and plugin actions never add a top banner. An active scan hides earlier failure
+messages. Settings owns manual progress, outcomes, and source details independently of the banner;
+it waits for active queries to refresh before reporting completion and distinguishes a reload error
+from an ingestion failure. Source timeouts name the affected stage and preserve completed results.
+Usage can render once its scan/archive stages have finished, while inventory scanning continues.
 Query errors show recovery controls rather than an indefinite loading state. Activity dialogs
 distinguish loading, unavailable data, and empty history. Rescans refresh open history and usage
 invocation dialogs. Existing navigation, chart interactions, focus behavior, and motion remain.

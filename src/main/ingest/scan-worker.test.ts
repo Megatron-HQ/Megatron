@@ -23,6 +23,40 @@ const api = scans as typeof scans & {
 }
 
 describe('isolated scans', () => {
+  it('waits for the final summary after source progress messages', async () => {
+    const task = api.startScanWorker(
+      workerUrl(`
+      import { parentPort, workerData } from 'node:worker_threads';
+      parentPort.postMessage({ type: 'source-started', name: 'scanTranscripts' });
+      parentPort.postMessage({ type: 'source-complete', source: { name: 'scanTranscripts', status: 'complete' } });
+      setTimeout(() => parentPort.postMessage(workerData), 20);
+    `),
+      summary
+    )
+    expect(await task.result).toEqual(summary)
+  })
+
+  it('retains successful source results when a later source times out', async () => {
+    const task = api.startScanWorker(
+      workerUrl(`
+      import { parentPort } from 'node:worker_threads';
+      parentPort.postMessage({ type: 'source-complete', source: { name: 'scanTranscripts', status: 'complete' } });
+      parentPort.postMessage({ type: 'source-started', name: 'scanSkills' });
+      while (true) {}
+    `),
+      {},
+      500
+    )
+    await expect(task.result).rejects.toMatchObject({
+      summary: {
+        outcome: 'partial',
+        sources: [
+          { name: 'scanTranscripts', status: 'complete' },
+          { name: 'scanSkills', status: 'failed', failureReason: 'timeout' }
+        ]
+      }
+    })
+  })
   it('prioritizes a post-update plugin scan and resumes the interrupted full scan afterward', async () => {
     const starts: string[] = []
     const finishes: ((summary: ScanSummary) => void)[] = []

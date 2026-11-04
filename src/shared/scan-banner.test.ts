@@ -5,8 +5,75 @@ import {
   SCAN_BANNER_SNAPSHOT,
   nextScanActivity,
   preferScanSummary,
+  isMissingProjectOnlyScan,
   resolveScanBanner
 } from './scan-banner'
+import type { ScanIssue, ScanSourceSummary, ScanSummary } from './ipc'
+
+describe('missing-project scan classification', () => {
+  const missingSource: ScanSourceSummary = {
+    name: 'scanSkills',
+    status: 'partial',
+    issues: [{ code: 'project_missing', path: 'C:/Old Projects/Megatron' }]
+  }
+  const summary: ScanSummary = {
+    outcome: 'partial',
+    completedAt: '2026-11-03T00:00:00.000Z',
+    sources: [missingSource, { name: 'scanTranscripts', status: 'complete' }]
+  }
+
+  it('recognizes missing projects as informational while retaining their cached status', () => {
+    expect(isMissingProjectOnlyScan(summary)).toBe(true)
+    expect(
+      resolveScanBanner({
+        ...ready,
+        scanning: false,
+        hasPriorWarning: !isMissingProjectOnlyScan(summary)
+      }).state
+    ).toEqual({ kind: 'hidden' })
+    expect(summary.sources[0].status).toBe('partial')
+  })
+
+  it.each<ScanIssue['code']>([
+    'permission_required',
+    'settings_invalid',
+    'source_unavailable',
+    'scan_limit'
+  ])('keeps a mixed %s error actionable', (code) => {
+    expect(
+      isMissingProjectOnlyScan({
+        ...summary,
+        sources: [
+          missingSource,
+          { name: 'scanPluginRegistry', status: 'partial', issues: [{ code, path: 'C:/Projects' }] }
+        ]
+      })
+    ).toBe(false)
+  })
+
+  it.each<ScanSourceSummary>([
+    { name: 'scanWorker', status: 'failed', failureReason: 'timeout' },
+    { name: 'scanWorker', status: 'failed', failureReason: 'worker_crash' },
+    { name: 'scanSkills', status: 'partial' },
+    { name: 'scanSkills', status: 'partial', issues: [] },
+    { ...missingSource, status: 'failed' },
+    { ...missingSource, failureReason: 'scan_error' }
+  ])('does not hide an incomplete source without only missing-project issues: %j', (source) => {
+    expect(isMissingProjectOnlyScan({ ...summary, sources: [missingSource, source] })).toBe(false)
+  })
+
+  it('does not mistake complete, failed, or unexplained summaries for missing projects', () => {
+    expect(isMissingProjectOnlyScan({ ...summary, outcome: 'failed' })).toBe(false)
+    expect(isMissingProjectOnlyScan({ ...summary, outcome: 'complete' })).toBe(false)
+    expect(isMissingProjectOnlyScan({ ...summary, sources: [] })).toBe(false)
+    expect(
+      isMissingProjectOnlyScan({
+        ...summary,
+        sources: [{ name: 'scanSkills', status: 'complete' }]
+      })
+    ).toBe(false)
+  })
+})
 
 const ready = {
   scanning: true,
@@ -33,13 +100,13 @@ describe('resolveScanBanner', () => {
           lockedMessage: SCAN_BANNER_SNAPSHOT
         })
       ).toEqual({
-        state: { kind: hasPriorWarning ? 'warning' : 'hidden' },
+        state: { kind: 'hidden' },
         lockedMessage: null
       })
     }
   )
 
-  it('keeps a prior warning on screen until the scan has run long enough for both lists to have loaded', () => {
+  it('hides an earlier failure while the current startup scan is still running', () => {
     expect(
       resolveScanBanner({
         ...ready,
@@ -47,7 +114,7 @@ describe('resolveScanBanner', () => {
         skillCount: 3,
         hasPriorWarning: true
       })
-    ).toEqual({ state: { kind: 'warning' }, lockedMessage: null })
+    ).toEqual({ state: { kind: 'hidden' }, lockedMessage: null })
 
     expect(
       resolveScanBanner({
@@ -56,7 +123,7 @@ describe('resolveScanBanner', () => {
         skillCount: 3,
         hasPriorWarning: true
       })
-    ).toEqual({ state: { kind: 'warning' }, lockedMessage: null })
+    ).toEqual({ state: { kind: 'hidden' }, lockedMessage: null })
 
     expect(
       resolveScanBanner({
@@ -100,7 +167,7 @@ describe('resolveScanBanner', () => {
     const quiet = { ...ready, skillCount: 3, revealMs: 8_000 }
 
     expect(resolveScanBanner({ ...quiet, elapsedMs: 7_999, hasPriorWarning: true })).toEqual({
-      state: { kind: 'warning' },
+      state: { kind: 'hidden' },
       lockedMessage: null
     })
     expect(resolveScanBanner({ ...quiet, elapsedMs: 7_999, hasPriorWarning: false })).toEqual({
@@ -111,6 +178,12 @@ describe('resolveScanBanner', () => {
       state: { kind: 'updating', message: SCAN_BANNER_SNAPSHOT },
       lockedMessage: SCAN_BANNER_SNAPSHOT
     })
+  })
+
+  it('does not restore a completed manual scan warning at the top of the app', () => {
+    expect(
+      resolveScanBanner({ ...ready, scanning: false, isStartup: false, hasPriorWarning: true })
+    ).toEqual({ state: { kind: 'hidden' }, lockedMessage: null })
   })
 
   it('drops the updating line as soon as the scan finishes, and brings a warning back only when the result still needs attention', () => {
@@ -137,6 +210,10 @@ describe('resolveScanBanner', () => {
 describe('nextScanActivity', () => {
   const quiet = { id: 1, startedAt: 1_000, revealMs: 8_000, isStartup: false }
   const announced = { id: 1, startedAt: 1_000, revealMs: 500, isStartup: false }
+
+  it('ignores a delayed start from an older run while a newer run is active', () => {
+    expect(nextScanActivity({ ...announced, id: 2 }, quiet)).toBeNull()
+  })
 
   it('recognizes startup joining the same run without changing its reveal delay', () => {
     expect(nextScanActivity(announced, { ...announced, isStartup: true })).toEqual({

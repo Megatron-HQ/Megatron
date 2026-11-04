@@ -18,6 +18,7 @@ export interface RankedItem {
 interface RankedListProps {
   items: RankedItem[] // pre-sorted: descending by value, or family-grouped for model lists
   formatValue: (value: number) => string
+  formatExactValue?: (value: number) => string
   noun: string // plural, for the disclosure row ("projects")
 }
 
@@ -26,7 +27,12 @@ interface RankedListProps {
 // skewed distribution. The fill is a *tinted row*, not a bar: it renders at final width (no
 // grow), deepens one notch on hover. Two columns only. Monochrome — model color reaches here only
 // as an optional label swatch, never the fill (docs/usage-view-ui-spec.md §C4).
-export function RankedList({ items, formatValue, noun }: RankedListProps): React.JSX.Element {
+export function RankedList({
+  items,
+  formatValue,
+  formatExactValue,
+  noun
+}: RankedListProps): React.JSX.Element {
   const reduceMotion = useReducedMotion() === true
   const [expanded, setExpanded] = useState(false)
 
@@ -76,12 +82,44 @@ export function RankedList({ items, formatValue, noun }: RankedListProps): React
           <TooltipContent>{item.fullLabel}</TooltipContent>
         </Tooltip>
         <span className="relative flex w-[110px] shrink-0 justify-end gap-2 font-mono text-[12px] tabular-nums text-muted-foreground">
-          <span>{formatValue(item.value)}</span>
+          {formatExactValue ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  tabIndex={0}
+                  aria-label={formatExactValue(item.value)}
+                  className="rounded-[2px] outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  {formatValue(item.value)}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{formatExactValue(item.value)}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <span>{formatValue(item.value)}</span>
+          )}
           <span className="w-8 text-right">{percentLabel(item.value, total)}</span>
         </span>
       </motion.div>
     )
   }
+
+  const disclosureButton = (
+    <button
+      type="button"
+      onClick={() => setExpanded((value) => !value)}
+      className="mt-1 self-start text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground hover:text-foreground"
+      aria-label={
+        formatExactValue
+          ? expanded
+            ? 'Show fewer'
+            : `Show ${rest.length} more ${noun}, ${formatExactValue(restTotal)}`
+          : undefined
+      }
+    >
+      {expanded ? 'Show fewer' : `+ ${rest.length} more ${noun} · ${formatValue(restTotal)}`}
+    </button>
+  )
 
   return (
     <div className="flex flex-col">
@@ -101,15 +139,17 @@ export function RankedList({ items, formatValue, noun }: RankedListProps): React
         )}
       </AnimatePresence>
 
-      {rest.length > 0 && (
-        <button
-          type="button"
-          onClick={() => setExpanded((value) => !value)}
-          className="mt-1 self-start text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground hover:text-foreground"
-        >
-          {expanded ? 'Show fewer' : `+ ${rest.length} more ${noun} · ${formatValue(restTotal)}`}
-        </button>
-      )}
+      {rest.length > 0 &&
+        (formatExactValue ? (
+          <Tooltip>
+            <TooltipTrigger asChild>{disclosureButton}</TooltipTrigger>
+            <TooltipContent>
+              {formatExactValue(restTotal)} across {rest.length} more {noun}
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          disclosureButton
+        ))}
     </div>
   )
 }

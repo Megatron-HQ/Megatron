@@ -8,6 +8,7 @@ import { PluginSidebar } from '@/components/PluginSidebar'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { ScanStatusBanner, ScanUpdatingBanner } from '@/components/ScanStatus'
 import { useScanBanner } from '@/lib/use-scan-banner'
+import { refreshScanQueries } from '@/lib/refresh-scan-queries'
 import { Sidebar } from '@/components/Sidebar'
 import { UsageSidebar, type UsagePanel } from '@/components/UsageSidebar'
 import {
@@ -132,16 +133,17 @@ function App(): React.JSX.Element {
   useEffect(
     () =>
       window.api.onScanComplete(() => {
-        void queryClient.invalidateQueries({ queryKey: ['skills'] })
-        void queryClient.invalidateQueries({ queryKey: ['folders'] })
-        void queryClient.invalidateQueries({ queryKey: ['projects'] })
-        void queryClient.invalidateQueries({ queryKey: ['skill-meta'] })
-        void queryClient.invalidateQueries({ queryKey: ['skill-files'] })
-        void queryClient.invalidateQueries({ queryKey: ['plugins'] })
-        void queryClient.invalidateQueries({ queryKey: ['plugin-detail'] })
-        void queryClient.invalidateQueries({ queryKey: ['usage'] })
-        void queryClient.invalidateQueries({ queryKey: ['skill-history'] })
-        void queryClient.invalidateQueries({ queryKey: ['usage-skill-invocations'] })
+        void refreshScanQueries(queryClient)
+      }),
+    [queryClient]
+  )
+
+  useEffect(
+    () =>
+      window.api.onScanProgress(({ source }) => {
+        if (source.name === 'archiveTokens' || source.name === 'archivePrompts') {
+          void queryClient.invalidateQueries({ queryKey: ['usage'] }, { cancelRefetch: false })
+        }
       }),
     [queryClient]
   )
@@ -231,7 +233,11 @@ function App(): React.JSX.Element {
     [projectLabels, folders]
   )
   const contextBudget = data?.contextBudget ?? DEFAULT_CONTEXT_BUDGET
-  const { banner: scanBanner, summary: scanBannerSummary } = useScanBanner({
+  const {
+    banner: scanBanner,
+    summary: scanBannerSummary,
+    scanning
+  } = useScanBanner({
     skillsLoaded: !skillsPending,
     pluginsLoaded: !pluginsPending,
     skillCount: skills.length,
@@ -576,7 +582,8 @@ function App(): React.JSX.Element {
         themePreference={themePreference}
         onThemeChange={handleThemeChange}
         version={version}
-        scanSummary={scanBanner.kind === 'warning' ? scanBannerSummary : undefined}
+        scanSummary={scanBannerSummary}
+        scanning={scanning}
         onManageFolders={() => {
           setSettingsOpen(false)
           setFoldersDialogOpen(true)

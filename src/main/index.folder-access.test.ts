@@ -22,6 +22,8 @@ const runtime = vi.hoisted(() => ({
   enablePlugin: vi.fn(),
   disablePlugin: vi.fn(),
   uninstallPlugin: vi.fn(),
+  failProjectCatalogSave: false,
+  startupUsageReady: [] as boolean[],
   database: undefined as Database.Database | undefined,
   archive: undefined as Database.Database | undefined
 }))
@@ -72,6 +74,8 @@ vi.mock('electron-store', () => ({
       return this.values.get(key)
     }
     set(key: string, value: unknown): void {
+      if (key === 'projectFolders' && runtime.failProjectCatalogSave)
+        throw new Error('Catalog could not be saved')
       this.values.set(key, value)
     }
   }
@@ -127,11 +131,33 @@ beforeAll(async () => {
     result: Promise.resolve(summary),
     cancel: async () => undefined
   }))
+  const startup = deferred<ScanSummary>()
+  runtime.startWorker.mockReturnValueOnce({
+    result: startup.promise,
+    cancel: async () => undefined
+  })
   await import('./index')
+  await new Promise((resolve) => setImmediate(resolve))
+  runtime.startupUsageReady.push(
+    ((await invoke(IPC_CHANNELS.usageOverview)) as { scanComplete: boolean }).scanComplete
+  )
+  const reportProgress = runtime.startWorker.mock.calls[0][3]
+  reportProgress?.({
+    type: 'source-complete',
+    source: { name: 'archivePrompts', status: 'complete' }
+  })
+  runtime.startupUsageReady.push(
+    ((await invoke(IPC_CHANNELS.usageOverview)) as { scanComplete: boolean }).scanComplete
+  )
+  startup.resolve(summary)
   await new Promise((resolve) => setImmediate(resolve))
 })
 
 beforeEach(() => {
+  runtime.startWorker.mockReset().mockImplementation(() => ({
+    result: Promise.resolve(summary),
+    cancel: async () => undefined
+  }))
   runtime.database!.prepare('DELETE FROM allowed_paths').run()
   resetGrantedPaths()
   runtime.contents.send.mockClear()
@@ -144,6 +170,43 @@ afterAll(() => {
 })
 
 describe('folder access IPC', () => {
+  it('makes completed usage data available while startup inventory scanning continues', () => {
+    expect(runtime.startupUsageReady).toEqual([false, true])
+  })
+
+  it('takes a new snapshot when Settings requests a rescan during an older scan', async () => {
+    const older = deferred<ScanSummary>()
+    const fresh = deferred<ScanSummary>()
+    runtime.startWorker
+      .mockReturnValueOnce({ result: older.promise, cancel: async () => undefined })
+      .mockReturnValueOnce({ result: fresh.promise, cancel: async () => undefined })
+    const background = invoke(IPC_CHANNELS.rescan)
+    const manual = invoke(IPC_CHANNELS.rescan)
+    older.resolve(summary)
+    const updated = { ...summary, completedAt: '2026-11-03T18:00:00.000Z' }
+    fresh.resolve(updated)
+    expect(await manual).toMatchObject({
+      completedAt: '2026-11-03T18:00:00.000Z',
+      isStartup: false
+    })
+    expect(await background).toMatchObject({ completedAt: '2026-11-03T18:00:00.000Z' })
+  })
+
+  it('keeps a successful ingestion result when saving the project catalog fails', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    runtime.failProjectCatalogSave = true
+    runtime.startWorker.mockReturnValueOnce({
+      result: Promise.resolve({ ...summary, projects: [] }),
+      cancel: async () => undefined
+    })
+    try {
+      expect(await invoke(IPC_CHANNELS.rescan)).toMatchObject({ outcome: 'complete' })
+    } finally {
+      runtime.failProjectCatalogSave = false
+      logged.mockRestore()
+    }
+  })
+
   it('restarts an interrupted scan even if saving the folder grant fails', async () => {
     let interrupt!: (error: Error) => void
     const interrupted = new Promise<ScanSummary>((_resolve, reject) => (interrupt = reject))
@@ -217,7 +280,12 @@ describe('folder access IPC', () => {
         runtime.contents.send.mock.calls.filter(
           ([channel]) => channel === IPC_CHANNELS.scanComplete
         )
-      ).toEqual([[IPC_CHANNELS.scanComplete, expect.objectContaining({ summary })]])
+      ).toEqual([
+        [
+          IPC_CHANNELS.scanComplete,
+          expect.objectContaining({ summary: expect.objectContaining(summary) })
+        ]
+      ])
     }
   )
 

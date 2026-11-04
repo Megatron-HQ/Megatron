@@ -1,12 +1,22 @@
-import { Activity, BrainCircuit, CircleDollarSign, Cpu, Layers3, Binary } from 'lucide-react'
+import {
+  Activity,
+  BrainCircuit,
+  CircleDollarSign,
+  Cpu,
+  Layers3,
+  Binary,
+  CalendarDays
+} from 'lucide-react'
 import { motion } from 'motion/react'
 import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
 
-export type UsagePanel = 'activity' | 'tokens' | 'cost' | 'models' | 'skills' | 'resident-tax'
+export type UsagePanel =
+  'activity' | 'history' | 'tokens' | 'cost' | 'models' | 'skills' | 'resident-tax'
 
 const PANELS = [
   { key: 'activity', label: 'Activity', Icon: Activity },
+  { key: 'history', label: 'History', Icon: CalendarDays },
   { key: 'tokens', label: 'Tokens', Icon: Binary },
   { key: 'cost', label: 'Cost', Icon: CircleDollarSign },
   { key: 'models', label: 'Models', Icon: Cpu },

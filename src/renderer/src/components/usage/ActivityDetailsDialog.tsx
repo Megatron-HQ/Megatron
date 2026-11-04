@@ -13,6 +13,7 @@ import type {
   TokenCounts
 } from '../../../../shared/ipc'
 import { TokenReadout } from './TokenReadout'
+import { TokenValue } from './TokenValue'
 import { ChartBlock } from './ChartBlock'
 import { RankedList } from './RankedList'
 import { formatCount } from './chart-utils'
@@ -161,9 +162,17 @@ export function ActivityDetailsDialog({
         {tokens !== undefined && bucket && (
           <div className="flex flex-col gap-3 border-t border-border pt-4">
             <p className="text-[13px] font-medium">
-              {tokens
-                ? `${formatCount(tokens.total)} estimated tokens processed`
-                : 'Token data unavailable'}
+              {tokens ? (
+                <>
+                  <TokenValue
+                    value={tokens.total}
+                    hint="Estimated share of recorded session totals"
+                  />{' '}
+                  estimated tokens processed
+                </>
+              ) : (
+                'Token data unavailable'
+              )}
             </p>
             {tokens && <TokenReadout tokens={tokens} />}
             {tokens && (

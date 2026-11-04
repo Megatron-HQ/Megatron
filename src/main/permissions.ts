@@ -237,31 +237,59 @@ export interface AllowedDirectoryRead {
   status: 'ok' | 'missing' | 'unavailable'
 }
 
+export interface AllowedDirectoryEntry {
+  name: string
+  type: 'directory' | 'file' | 'symlink' | 'other'
+}
+
 export function readAllowedDirectory(
   dirPath: string,
   maximumEntries = MAX_DIRECTORY_ENTRIES
 ): AllowedDirectoryRead {
+  const result = readAllowedDirectoryEntries(dirPath, maximumEntries)
+  return { status: result.status, entries: result.entries.map((entry) => entry.name) }
+}
+
+export function readAllowedDirectoryEntries(
+  dirPath: string,
+  maximumEntries = MAX_DIRECTORY_ENTRIES
+): { entries: AllowedDirectoryEntry[]; status: AllowedDirectoryRead['status'] } {
   if (!isPathAllowed(dirPath)) return { entries: [], status: 'unavailable' }
   try {
     const canonical = realpathSync(dirPath)
     if (!isPathAllowed(canonical)) return { entries: [], status: 'unavailable' }
     const directory = opendirSync(canonical)
-    const entries: string[] = []
+    const entries: AllowedDirectoryEntry[] = []
+    const sorted = (): AllowedDirectoryEntry[] =>
+      entries.sort((first, second) =>
+        first.name < second.name ? -1 : first.name > second.name ? 1 : 0
+      )
     // Replay ownership must not depend on the filesystem's enumeration order.
     try {
       for (let entry = directory.readSync(); entry !== null; entry = directory.readSync()) {
-        if (entries.length >= maximumEntries)
-          return { entries: entries.sort(), status: 'unavailable' }
-        entries.push(entry.name)
+        if (entries.length >= maximumEntries) return { entries: sorted(), status: 'unavailable' }
+        entries.push({
+          name: entry.name,
+          type: entry.isSymbolicLink()
+            ? 'symlink'
+            : entry.isDirectory()
+              ? 'directory'
+              : entry.isFile()
+                ? 'file'
+                : 'other'
+        })
       }
-      return { entries: entries.sort(), status: 'ok' }
+      return { entries: sorted(), status: 'ok' }
     } finally {
       directory.closeSync()
     }
   } catch (error) {
     const code =
       error instanceof Error && 'code' in error ? (error as NodeJS.ErrnoException).code : undefined
-    return { entries: [], status: code === 'ENOENT' ? 'missing' : 'unavailable' }
+    return {
+      entries: [],
+      status: code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : 'unavailable'
+    }
   }
 }
 
@@ -382,7 +410,7 @@ export function visitAllowedUtf8LinesSync(
   } catch (error) {
     const code =
       error instanceof Error && 'code' in error ? (error as NodeJS.ErrnoException).code : undefined
-    return code === 'ENOENT' ? 'missing' : 'unavailable'
+    return code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : 'unavailable'
   }
 
   const buffer = Buffer.allocUnsafe(STREAM_READ_CHUNK_BYTES)

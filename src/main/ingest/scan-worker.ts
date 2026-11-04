@@ -7,7 +7,7 @@ import { scanPluginRegistry } from './plugin-registry'
 import { scanTranscripts as runTranscriptScan } from './transcript-scanner'
 import { scanPromptHistory as runPromptScan } from './prompt-history-scanner'
 import { openUsageArchive } from '../db/usage-archive'
-import { archiveUsageHistory } from './usage-history'
+import { createUsageScanTasks } from './usage-scan-tasks'
 import { runLinter } from '../linter'
 import { runAllScans, type ScanScope } from './scan-all'
 
@@ -29,31 +29,38 @@ function scanSkills(db: Database.Database): ScanTaskResult {
 }
 for (const path of grantedPaths) restoreGrantedPath(path)
 const database = new Database(databasePath)
-const archive = openUsageArchive(archivePath)
-function scanTranscripts(db: Database.Database): ScanTaskResult {
-  const result = runTranscriptScan(db)
-  if (result.status === 'complete')
-    archiveUsageHistory(db, archive, { prompts: false, tokens: true })
-  return result
-}
-function scanPromptHistory(db: Database.Database): ScanTaskResult {
-  const result = runPromptScan(db)
-  if (result.status === 'complete')
-    archiveUsageHistory(db, archive, { prompts: true, tokens: false })
-  return result
-}
+let archive: Database.Database | undefined
+const usageScans = createUsageScanTasks({
+  scanTranscripts: runTranscriptScan,
+  scanPromptHistory: runPromptScan,
+  getArchive: () => (archive ??= openUsageArchive(archivePath))
+})
+let sourceStartedAt = 0
 try {
   const summary = runAllScans(
     database,
     scope === 'plugins'
-      ? [scanPluginRegistry]
-      : [scanSkills, scanPluginRegistry, scanTranscripts, scanPromptHistory, runLinter],
+      ? [{ name: 'scanPluginRegistry', run: scanPluginRegistry }]
+      : [
+          ...usageScans,
+          { name: 'scanSkills', run: scanSkills },
+          { name: 'scanPluginRegistry', run: scanPluginRegistry },
+          { name: 'runLinter', run: runLinter }
+        ],
     (error) => {
       console.error('[ingest] scan failed', error)
+    },
+    (progress) => {
+      if (progress.type === 'source-started') sourceStartedAt = Date.now()
+      else
+        console.info(
+          `[ingest] ${progress.source.name}: ${progress.source.status} (${Date.now() - sourceStartedAt} ms)`
+        )
+      parentPort?.postMessage(progress)
     }
   )
   parentPort?.postMessage(summary)
 } finally {
-  archive.close()
+  archive?.close()
   database.close()
 }

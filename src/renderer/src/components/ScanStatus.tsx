@@ -1,12 +1,15 @@
 import { TextLink } from '@/components/TextLink'
 import type { ScanIssue, ScanSummary } from '../../../shared/ipc'
 import { MISSING_PROJECT_SCAN_MESSAGE } from '../../../shared/missing-project'
+import { isMissingProjectOnlyScan } from '../../../shared/scan-banner'
 
 const SOURCE_LABELS: Record<string, string> = {
   scanSkills: 'Skills',
   scanPluginRegistry: 'Plugins',
   scanTranscripts: 'Transcripts',
   scanPromptHistory: 'Prompt history',
+  archiveTokens: 'Token history',
+  archivePrompts: 'Contribution history',
   runLinter: 'Skill checks',
   scanWorker: 'Scan worker'
 }
@@ -38,7 +41,7 @@ export function ScanStatusBanner({
   summary,
   onOpenDetails
 }: ScanStatusProps & { onOpenDetails: () => void }): React.JSX.Element | null {
-  if (summary.outcome === 'complete') return null
+  if (summary.outcome === 'complete' || isMissingProjectOnlyScan(summary)) return null
   const needsAccess = summary.sources.some((source) =>
     source.issues?.some((issue) => issue.code === 'permission_required')
   )
@@ -46,10 +49,10 @@ export function ScanStatusBanner({
     <div role="status" className={SCAN_BANNER_CLASS}>
       <p>
         {summary.outcome === 'failed'
-          ? 'Scan failed. Showing the last available data.'
+          ? 'The startup scan could not finish. Open Scan details for more information.'
           : needsAccess
-            ? 'Some project settings need folder access. Showing the last available data.'
-            : 'Some sources could not be refreshed. Showing the last available data.'}
+            ? 'Some project settings need folder access to finish scanning.'
+            : 'Some sources could not be refreshed. Open Scan details for more information.'}
       </p>
       <TextLink onClick={onOpenDetails} className="shrink-0 hover:text-foreground">
         Scan details
@@ -72,7 +75,9 @@ export function ScanIssueDetails({
       aria-label="Scan details"
       className="flex min-w-0 flex-col gap-2 border-t border-border py-3"
     >
-      <p className="text-sm font-medium">Scan needs attention</p>
+      <p className="text-sm font-medium">
+        {isMissingProjectOnlyScan(summary) ? 'Missing project folders' : 'Scan needs attention'}
+      </p>
       <ul className="max-h-40 space-y-3 overflow-y-auto text-xs text-muted-foreground">
         {affectedSources.map((source) => (
           <li key={source.name}>
@@ -90,9 +95,15 @@ export function ScanIssueDetails({
               </ul>
             ) : (
               <p className="mt-1">
-                {source.status === 'failed'
-                  ? 'This source could not be scanned. Try rescanning.'
-                  : 'Some files could not be read or exceeded scan limits. Try rescanning.'}
+                {source.failureReason === 'timeout'
+                  ? 'This stage exceeded its time limit. Try rescanning.'
+                  : source.failureReason === 'worker_crash'
+                    ? 'The scan worker stopped unexpectedly. Try rescanning.'
+                    : source.status === 'failed'
+                      ? 'This source could not be refreshed. Try rescanning.'
+                      : source.name === 'archiveTokens' || source.name === 'archivePrompts'
+                        ? 'This history was preserved because its source scan was incomplete.'
+                        : 'This source could not be fully refreshed. Try rescanning.'}
               </p>
             )}
           </li>

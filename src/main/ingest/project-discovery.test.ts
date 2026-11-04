@@ -17,6 +17,89 @@ afterEach(() => {
 })
 
 describe('project discovery continuity', () => {
+  it.each(process.platform === 'win32' ? ['.tmp', '.temp', '.TMP'] : ['.tmp', '.temp'])(
+    'ignores automatically discovered repositories under %s',
+    (temporaryName) => {
+      const temporaryRepo = join(root, temporaryName, 'fixture-project')
+      const repository = join(root, 'real-project')
+      for (const directory of [temporaryRepo, repository]) {
+        mkdirSync(join(directory, '.git'), { recursive: true })
+        mkdirSync(join(directory, '.claude', 'skills'), { recursive: true })
+      }
+
+      const result = discoverProjects([root])
+
+      expect(result.incomplete).toBe(false)
+      expect(result.projects.map((entry) => entry.path).sort()).toEqual([root, repository].sort())
+      expect(result.skillRoots.some((entry) => entry.projectRoot === temporaryRepo)).toBe(false)
+    }
+  )
+
+  it.each(['.tmp', '.temp', 'node_modules'])(
+    'does not resurrect cached projects under an excluded %s directory',
+    (excludedName) => {
+      const excludedRepo = join(root, excludedName, 'deleted-fixture')
+      const previous: ProjectFolder[] = [
+        { path: excludedRepo, kind: 'repository', status: 'available' }
+      ]
+
+      const result = discoverProjects([root], previous)
+
+      expect(result.projects).toEqual([{ path: root, kind: 'folder', status: 'available' }])
+      expect(result.skillRoots.some((entry) => entry.projectRoot === excludedRepo)).toBe(false)
+    }
+  )
+
+  it('honors an explicit repository grant inside a temporary folder after deletion', () => {
+    const repository = join(root, '.tmp', 'selected-project')
+    mkdirSync(join(repository, '.git'), { recursive: true })
+    grantPath(repository)
+    const before = discoverProjects([root, repository])
+    expect(before.projects).toContainEqual({
+      path: repository,
+      kind: 'repository',
+      status: 'available'
+    })
+
+    rmSync(repository, { recursive: true })
+    const after = discoverProjects([root, repository], before.projects)
+
+    expect(after.incomplete).toBe(false)
+    expect(after.projects).toContainEqual({
+      path: repository,
+      kind: 'repository',
+      status: 'missing'
+    })
+    expect(after.skillRoots).toContainEqual({
+      dir: join(repository, '.claude', 'skills'),
+      sourceType: 'project',
+      projectRoot: repository
+    })
+  })
+
+  it('does not restore excluded projects when an unrelated discovery limit is reached', () => {
+    const excludedRepo = join(root, '.tmp', 'old-fixture')
+    const repository = join(root, 'real-project')
+    mkdirSync(repository)
+    const result = discoverProjects(
+      [root],
+      [
+        { path: excludedRepo, kind: 'repository', status: 'missing' },
+        { path: repository, kind: 'repository', status: 'available' }
+      ],
+      { maxDepth: 64, maxDirectories: 1 }
+    )
+
+    expect(result.incomplete).toBe(true)
+    expect(result.projects).toContainEqual({
+      path: repository,
+      kind: 'repository',
+      status: 'unavailable'
+    })
+    expect(result.projects.some((entry) => entry.path === excludedRepo)).toBe(false)
+    expect(result.skillRoots.some((entry) => entry.projectRoot === excludedRepo)).toBe(false)
+  })
+
   it('preserves monorepo ownership with overlapping package grants in either order', () => {
     const repo = join(root, 'repo')
     const packagePath = join(repo, 'packages', 'web')
