@@ -1691,6 +1691,84 @@ export const scenarios = [
       await window.getByText('By hour', { exact: true }).waitFor()
     }
   },
+  ...['light', 'dark'].map((theme) => ({
+    name: `usage-history-project-inspection-${theme}`,
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
+      )
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window
+        .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
+        .click()
+      await window.keyboard.press('Escape')
+      await openUsagePanel(window, 'History')
+      const cell = window
+        .getByRole('region', { name: 'Project timeline' })
+        .getByRole('img', { name: /of this month/ })
+        .first()
+      await cell.focus()
+      await window.keyboard.press('ArrowRight')
+      await window
+        .getByRole('tooltip')
+        .getByText(/of this month/)
+        .waitFor()
+    }
+  })),
+  {
+    name: 'usage-history-projects-expanded',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
+      )
+      await openUsagePanel(window, 'History')
+      await window.getByRole('button', { name: /more projects/ }).click()
+      await window.getByRole('button', { name: 'Show fewer', exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'usage-history-busiest-day-keyboard-return',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() => {
+        globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
+        globalThis.megatronVisualFixtures.set('usage:day', 'usage-history-sample')
+      })
+      await openUsagePanel(window, 'History')
+      await window.getByRole('button', { name: /^Busiest day:/ }).focus()
+      for (const key of ['Enter', 'Space']) {
+        await window.keyboard.press(key)
+        await window
+          .getByRole('dialog')
+          .getByText(/estimated tokens processed/)
+          .waitFor()
+        await window.keyboard.press('Escape')
+        await window.getByRole('dialog').waitFor({ state: 'hidden' })
+      }
+    }
+  },
+  ...['empty', 'unavailable'].map((mode) => ({
+    name: `usage-history-${mode}`,
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(
+        (_electron, mode) =>
+          globalThis.megatronVisualFixtures.set('usage:calendar', `usage-history-${mode}`),
+        mode
+      )
+      await openUsagePanel(window, 'History')
+      await window
+        .getByText(
+          mode === 'empty'
+            ? 'No project prompts recorded in this year.'
+            : 'Project activity is unavailable for this year.',
+          { exact: true }
+        )
+        .waitFor()
+    }
+  })),
   {
     name: 'usage-tokens-unavailable',
     screen: 'usage',
@@ -1801,6 +1879,7 @@ export const scenarios = [
         await window
           .getByRole('region', { name: 'Contribution graph' })
           .locator('[data-slot="skeleton"]')
+          .last()
           .waitFor()
     }
   })),

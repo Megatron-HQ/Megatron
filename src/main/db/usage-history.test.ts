@@ -65,6 +65,80 @@ afterEach(() => {
 })
 
 describe('persistent usage history', () => {
+  it('summarizes recorded activity within the selected local year', () => {
+    const insert = archive.prepare('INSERT INTO history_prompts VALUES (?, ?, ?, ?, ?)')
+    insert.run('previous', '/repo', new Date(2025, 11, 31, 23).toISOString(), 0, 100)
+    insert.run('first', '/repo', new Date(2026, 0, 1, 10).toISOString(), 0, 3)
+    insert.run('second', '/repo', new Date(2026, 0, 2, 10).toISOString(), 0, 5)
+    insert.run('third', '/repo', new Date(2026, 0, 3, 10).toISOString(), 0, 5)
+    insert.run('slash', '/repo', new Date(2026, 0, 3, 11).toISOString(), 1, 80)
+    insert.run('future', '/repo', at(4), 0, 100)
+    archive
+      .prepare('INSERT INTO history_coverage VALUES (?, ?)')
+      .run(new Date(2026, 0, 1).toISOString(), new Date(2026, 0, 5).toISOString())
+
+    expect(getUsageCalendar(archive, 2026, now)).toMatchObject({
+      prompts: 13,
+      activeDays: 3,
+      summary: {
+        observedDays: 4,
+        partialDays: 0,
+        elapsedDays: 307,
+        longestStreak: { days: 3, startDate: '2026-01-01', endDate: '2026-01-03' },
+        busiestDay: { date: '2026-01-02', count: 5 },
+        promptsPerActiveDay: 13 / 3
+      }
+    })
+  })
+
+  it('keeps verified streaks separate across missing and known-empty days', () => {
+    const insert = archive.prepare('INSERT INTO history_prompts VALUES (?, ?, ?, 0, 1)')
+    for (const day of [1, 2, 4, 5, 7]) insert.run(`day-${day}`, '/repo', at(day))
+    const cover = archive.prepare('INSERT INTO history_coverage VALUES (?, ?)')
+    cover.run(new Date(2026, 10, 1).toISOString(), new Date(2026, 10, 3).toISOString())
+    cover.run(new Date(2026, 10, 4, 9).toISOString(), new Date(2026, 10, 8).toISOString())
+
+    expect(getUsageCalendar(archive, 2026, new Date(2026, 10, 8, 12)).summary).toMatchObject({
+      observedDays: 6,
+      partialDays: 1,
+      longestStreak: { days: 2, startDate: '2026-11-01', endDate: '2026-11-02' }
+    })
+  })
+
+  it('does not invent records or averages when no prompt history is observed', () => {
+    expect(getUsageCalendar(archive, 2026, now).summary).toEqual({
+      observedDays: 0,
+      partialDays: 0,
+      elapsedDays: 307,
+      longestStreak: null,
+      busiestDay: null,
+      promptsPerActiveDay: null
+    })
+  })
+
+  it('groups project months using prompt multiplicity and excludes commands and other years', () => {
+    const insert = archive.prepare('INSERT INTO history_prompts VALUES (?, ?, ?, ?, ?)')
+    insert.run('jan', '/alpha', new Date(2026, 0, 31, 23, 59).toISOString(), 0, 3)
+    insert.run('feb', '/alpha', new Date(2026, 1, 1).toISOString(), 0, 2)
+    insert.run('beta', '/beta', new Date(2026, 1, 2).toISOString(), 0, 7)
+    insert.run('command', '/beta', new Date(2026, 1, 2, 1).toISOString(), 1, 20)
+    insert.run('older', '/beta', new Date(2025, 11, 31).toISOString(), 0, 80)
+    insert.run('future', '/beta', at(4), 0, 80)
+    archive
+      .prepare('INSERT INTO history_coverage VALUES (?, ?)')
+      .run(new Date(2026, 1, 1).toISOString(), new Date(2026, 2, 1).toISOString())
+
+    const calendar = getUsageCalendar(archive, 2026, now)
+    expect(calendar.byProject).toEqual([
+      { project: '/beta', total: 7, byMonth: [0, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+      { project: '/alpha', total: 5, byMonth: [3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }
+    ])
+    expect(calendar.months).toHaveLength(12)
+    expect(calendar.months[0]).toEqual({ month: 1, count: 3, coverage: 'unavailable' })
+    expect(calendar.months[1]).toEqual({ month: 2, count: 9, coverage: 'available' })
+    expect(calendar.months[11]).toEqual({ month: 12, count: 0, coverage: 'future' })
+  })
+
   it('rejects future day-detail requests instead of returning a reversed interval', () => {
     expect(() => getUsageDay(archive, '2026-11-04', now)).toThrow(/future/i)
   })

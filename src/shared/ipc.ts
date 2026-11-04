@@ -697,6 +697,27 @@ export interface ContributionDay {
   tokens: TokenCounts | null
 }
 
+export interface HistoryYearSummary {
+  observedDays: number
+  partialDays: number
+  elapsedDays: number
+  longestStreak: { days: number; startDate: string; endDate: string } | null
+  busiestDay: { date: string; count: number } | null
+  promptsPerActiveDay: number | null
+}
+
+export interface HistoryMonth {
+  month: number
+  count: number
+  coverage: HistoryCoverage
+}
+
+export interface HistoryProject {
+  project: string
+  total: number
+  byMonth: number[]
+}
+
 export interface UsageCalendar {
   year: number
   years: number[]
@@ -704,6 +725,9 @@ export interface UsageCalendar {
   thresholds: number[]
   prompts: number
   activeDays: number
+  summary: HistoryYearSummary
+  months: HistoryMonth[]
+  byProject: HistoryProject[]
 }
 
 export interface UsageDayDetails extends ActivityDay {

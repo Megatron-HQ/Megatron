@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import {
   Activity,
@@ -11,7 +11,11 @@ import {
   CalendarDays
 } from 'lucide-react'
 import { TokensSection } from '@/components/usage/TokensSection'
-import { ContributionGraph } from '@/components/usage/ContributionGraph'
+import {
+  HistorySection,
+  HistorySkeleton,
+  HistoryYearToggle
+} from '@/components/usage/HistorySection'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/relative-time'
@@ -94,6 +98,12 @@ export function UsageView({
     queryFn: () => window.api.getUsageOverview(),
     refetchInterval: (query) => (query.state.data?.scanComplete ? false : 750)
   })
+  const calendar = useQuery({
+    queryKey: ['usage', 'calendar', calendarYear],
+    queryFn: () => window.api.getUsageCalendar(calendarYear),
+    enabled: panel === 'history' && data?.scanComplete === true,
+    placeholderData: keepPreviousData
+  })
 
   useEffect(() => {
     scrollContainerRef.current?.scrollTo({ top: 0 })
@@ -147,7 +157,14 @@ export function UsageView({
           <ResidentTaxRefresh />
         ) : (
           !loading && (
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              {panel === 'history' && (
+                <HistoryYearToggle
+                  year={calendarYear}
+                  years={calendar.data?.years ?? [calendarYear]}
+                  onChange={onCalendarYearChange}
+                />
+              )}
               {panel === 'activity' && (
                 <ActivityWindowToggle value={activityWindow} onChange={onActivityWindowChange} />
               )}
@@ -177,7 +194,10 @@ export function UsageView({
               )}
               {data?.activity && (
                 <span
-                  className={cn('text-[11px] text-muted-foreground', isFetching && 'animate-pulse')}
+                  className={cn(
+                    'shrink-0 text-[11px] text-muted-foreground',
+                    isFetching && 'animate-pulse'
+                  )}
                 >
                   Updated {formatRelativeTime(data.activity.generatedAt)}
                 </span>
@@ -219,7 +239,13 @@ export function UsageView({
                   resolveProjectLabel={resolveProjectLabel}
                 />
               ) : panel === 'history' ? (
-                <ContributionGraph year={calendarYear} onYearChange={onCalendarYearChange} />
+                <HistorySection
+                  key={calendarYear}
+                  data={calendar.data}
+                  pending={calendar.isPending || calendar.isPlaceholderData}
+                  loadError={calendar.isError}
+                  onRetry={() => void calendar.refetch()}
+                />
               ) : panel === 'tokens' ? (
                 <TokensSection
                   stats={data.tokens}
@@ -485,13 +511,7 @@ function ModelsEmpty(): React.JSX.Element {
 
 function UsageSkeleton({ panel }: { panel: UsagePanel }): React.JSX.Element {
   if (panel === 'history') {
-    return (
-      <div className="flex flex-col gap-3 py-6">
-        <Skeleton className="h-4 w-32" />
-        <Skeleton className="h-3 w-64" />
-        <Skeleton className="h-[110px] w-full" />
-      </div>
-    )
+    return <HistorySkeleton />
   }
   if (panel === 'cost') {
     return (

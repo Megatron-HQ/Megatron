@@ -1,5 +1,36 @@
 # Usage view — resolved UI spec (Phase 2a)
 
+## History year-in-review amendment (2026-11-04)
+
+History is an annual retrospective. Its year selector moves from the contribution graph to the
+pinned History header and controls the entire panel. Selection still survives navigation and remains
+independent of rolling windows. Current-year values are year to date; future activity is excluded.
+
+Above the contribution graph, four flat readouts use the existing Usage numeral step: **Active
+days**, **Longest streak**, **Busiest day**, and **Prompts / active day**. Prompt counts exclude bare
+slash commands. Streaks are consecutive local calendar days within the selected year, including
+partially observed days with recorded prompts; unavailable or known-empty days end a verified run.
+The streak shows its dates. Busiest day shows its date and opens the existing day-details dialog,
+including keyboard activation and focus restoration. Equal records select the earliest date/run.
+The average divides recorded prompts by active days, with one decimal at most; no active days means
+unavailable. Empty observed history can show zero active days/streak; unobserved history uses dashes.
+
+A compact coverage line reports observed, partial, and unavailable days through today. Records and
+totals describe retained activity; missing days never imply inactivity. Percentage comparisons with
+previous years are omitted. Calendar intensity, hover cards, arrow navigation, local-day details,
+loading/error/retry feedback, and reduced-motion behavior retain their prior contracts.
+
+Below the calendar, **Project timeline** has project rows, January–December columns, and annual
+prompt totals. Sort projects by their annual recorded prompts; show eight initially with an expand/
+collapse control. Labels use existing project disambiguation and full-path tooltips. All project-month
+cells share a neutral positive-count quantile scale within the selected year, including collapsed
+projects. Known-empty cells have the muted fill, unavailable months have dashed outlines, future
+months are blank, and partial coverage is disclosed on inspection. Hover/focus reveals the project,
+month, exact recorded prompts, and share of all recorded prompts that month. Cells are inspection-only;
+one cell takes Tab, arrow keys move among cells. Expansion is local to the mounted year. The timeline
+has no entrance animation or new hue. Both sections use the same annual archive response; a year
+switch shows loading feedback until all displayed values belong to that year.
+
 ## Tokens and annual contributions amendment (2026-11-03)
 
 Add **Tokens** immediately after Activity in the existing Usage sidebar. Preserve the sidebar's
