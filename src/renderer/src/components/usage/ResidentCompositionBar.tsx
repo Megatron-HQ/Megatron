@@ -5,15 +5,37 @@ import { cn } from '@/lib/utils'
 import type { ContextCategory, ContextUsage } from '../../../../shared/ipc'
 import { resolveDrillTarget, type DrillTarget } from './resident-drill'
 
-type Fill = { kind: 'ink'; opacity: number } | { kind: 'buffer' } | { kind: 'free' }
+type Fill = { kind: 'ink'; opacity: number; color: string } | { kind: 'buffer' } | { kind: 'free' }
 
-// Monochrome (usage-view-ui-spec §4.1): used categories step down an ink ramp in /context's own
-// order; the autocompact buffer is quiet stripes; free space is the bare track.
+const CATEGORY_COLORS: Record<string, string> = {
+  skills: 'var(--resident-skills)',
+  'mcp tools': 'var(--resident-mcp)',
+  'mcp server instructions': 'var(--resident-mcp)',
+  'memory files': 'var(--resident-memory)',
+  'custom agents': 'var(--resident-agents)'
+}
+
+function categoryColor(category: ContextCategory): string | undefined {
+  const key = category.name
+    .trim()
+    .toLowerCase()
+    .replace(/\s*\(deferred\)$/, '')
+  return Object.hasOwn(CATEGORY_COLORS, key) ? CATEGORY_COLORS[key] : undefined
+}
+
+// Configurable categories carry a fixed identity; system overhead retains the quiet ink ramp.
+// Buffer stripes and the bare free-space track stay outside the category palette.
 function fillOf(category: ContextCategory, used: ContextCategory[]): Fill {
   if (category.group === 'buffer') return { kind: 'buffer' }
   if (category.group === 'free') return { kind: 'free' }
+  const color = categoryColor(category)
+  if (color !== undefined) return { kind: 'ink', opacity: 1, color }
   const index = used.indexOf(category)
-  return { kind: 'ink', opacity: used.length <= 1 ? 1 : 1 - (index / (used.length - 1)) * 0.7 }
+  return {
+    kind: 'ink',
+    opacity: used.length <= 1 ? 1 : 1 - (index / (used.length - 1)) * 0.7,
+    color: 'var(--usage-bar)'
+  }
 }
 
 function percentOfWindow(tokens: number, windowTokens: number): string {
@@ -81,11 +103,16 @@ export function ResidentCompositionBar({
           className={cn(
             'size-2 shrink-0 rounded-full',
             fill === null && 'border border-usage-bar-quiet',
-            fill?.kind === 'ink' && 'bg-usage-bar',
             fill?.kind === 'buffer' && 'usage-fill-unrecorded border border-usage-bar-quiet',
             fill?.kind === 'free' && 'border border-usage-bar-quiet bg-muted'
           )}
-          style={fill?.kind === 'ink' ? { opacity: fill.opacity } : undefined}
+          style={
+            fill?.kind === 'ink'
+              ? { backgroundColor: fill.color, opacity: fill.opacity }
+              : fill === null
+                ? { borderColor: categoryColor(category) }
+                : undefined
+          }
         />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-foreground">{displayName(category)}</span>
@@ -142,11 +169,11 @@ export function ResidentCompositionBar({
                 aria-label={`${category.name}, ${category.display} tokens, ${percentOfWindow(category.tokens, usage.windowTokens)} of the context window`}
                 className={cn(
                   'h-full min-w-px origin-left outline-none transition-opacity duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
-                  fill.kind === 'ink' && 'bg-usage-bar',
                   fill.kind === 'buffer' && 'usage-fill-unrecorded'
                 )}
                 style={{
                   width: `${(category.tokens / Math.max(usage.windowTokens, 1)) * 100}%`,
+                  backgroundColor: fill.kind === 'ink' ? fill.color : undefined,
                   opacity: dimmed ? opacity * 0.35 : opacity
                 }}
                 {...highlight(category.name)}

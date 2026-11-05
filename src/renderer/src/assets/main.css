@@ -58,6 +58,11 @@
   --usage-series-2: #eb6834; /* opus */
   --usage-series-3: #1baf7a; /* haiku */
   --usage-series-4: #4a3aa7; /* fable */
+  /* Resident Tax category identity only; never applied to text or row surfaces. */
+  --resident-skills: #8064b5;
+  --resident-mcp: #427db3;
+  --resident-memory: #328779;
+  --resident-agents: #b56887;
 }
 
 .dark {
@@ -69,6 +74,10 @@
   --usage-series-2: #d95926; /* opus */
   --usage-series-3: #199e70; /* haiku */
   --usage-series-4: #7b3fe4; /* fable — not dataviz's #9085e9, which collides with slot 1 (protan ΔE 1.9) */
+  --resident-skills: #ad94d8;
+  --resident-mcp: #7eafe0;
+  --resident-memory: #6bb8a8;
+  --resident-agents: #d798b1;
   --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);

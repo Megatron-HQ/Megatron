@@ -1418,14 +1418,17 @@ panel.
   printed them (window suffix upper-cased). **This reverses the earlier no-percentage rule** — the
   user chose `/context`'s framing over a used-only total. Caption: "In context before your first
   message".
-- **The bar spans the whole window:** used categories in `/context`'s order on a monochrome ink
-  ramp (1 → 0.3 opacity), then the **autocompact buffer** in quiet stripes (`.usage-fill-unrecorded`),
+- **The bar spans the whole window:** used categories in `/context`'s order. Configurable
+  categories use fixed `--resident-*` colors: Skills violet, MCP tools and MCP server instructions
+  blue, Memory files teal, Custom agents muted rose. System overhead and unknown categories stay
+  on the neutral ink ramp (1 → 0.3 opacity), then the **autocompact buffer** in quiet stripes (`.usage-fill-unrecorded`),
   then **free space** as the bare `bg-muted` track. At a 1M window the used part is a sliver — that
   is the honest proportion.
 - **Ledger:** one row per in-window category (used → buffer → free), each with tokens as printed
   plus `% of window`, and a second line saying where its detail lives (`N items`, "Detail from your
   latest session", "Reserved for auto-compaction", "Unused"). Deferred categories sit in a separate
-  **"Deferred, not loaded"** group below, outlined swatch, no bar segment, no percentage, the
+  **"Deferred, not loaded"** group below, outlined swatch in the same category color (neutral for
+  unmapped categories), no bar segment, no percentage, the
   "(deferred)" suffix dropped from the label.
 - **Drill-ins** (chevron + click → dialog modeled on `CostDetailsDialog`, focus lands on Close):
   - Categories `/context` itemizes (MCP tools, Custom agents, Memory files, Skills — deferred or
@@ -1441,6 +1444,11 @@ panel.
   - With no interactive 2.1.300+ transcript: "No interactive Claude Code 2.1.300+ session yet".
 - Hovering or keyboard-focusing a segment or ledger row dims its siblings (segments ×0.35, rows
   `opacity-40`). Staggered `scaleX` entrance (0.3 s, 0.05 s step), instant under reduced motion.
+- **Color scope (approved 2026-11-05):** bar segments and matching row dots only, with dedicated
+  light/dark values. Labels, numbers, backgrounds, dividers, and drill-ins remain neutral. Category
+  colors never change with rank or refresh; labels and linked hover/focus preserve identification
+  without relying on hue. This explicitly extends the monochrome rule for Resident Tax only;
+  the model-series palette, lime stamp, and status flags retain their existing meanings.
 - **Error state:** the CLI's message (e.g. not found, timeout, not logged in), the raw `/context`
   output when it no longer parses, and Retry.
 - The context-budget dialog distinguishes its configured skill-listing estimate from this panel:
