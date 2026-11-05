@@ -1,7 +1,8 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as permissions from '../permissions'
 import { grantPath, resetGrantedPaths, revokePath } from '../permissions'
 import { discoverProjects } from './project-discovery'
 import type { ProjectFolder } from '../../shared/ipc'
@@ -12,11 +13,82 @@ beforeEach(() => {
   grantPath(root)
 })
 afterEach(() => {
+  vi.restoreAllMocks()
   resetGrantedPaths()
   rmSync(root, { recursive: true, force: true })
 })
 
 describe('project discovery continuity', () => {
+  it('does not retain an unrelated obsolete repository because another child is unreadable', () => {
+    const blocked = join(root, 'blocked')
+    const obsolete = join(root, 'obsolete')
+    for (const repository of [blocked, obsolete])
+      mkdirSync(join(repository, '.git'), { recursive: true })
+    const before = discoverProjects([root])
+    rmSync(join(obsolete, '.git'), { recursive: true })
+    const read = permissions.readAllowedDirectoryEntries
+    vi.spyOn(permissions, 'readAllowedDirectoryEntries').mockImplementation((path, limit) =>
+      path === blocked ? { status: 'unavailable', entries: [] } : read(path, limit)
+    )
+
+    const after = discoverProjects([root], before.projects)
+
+    expect(after.projects.some((entry) => entry.path === obsolete)).toBe(false)
+    expect(after.projects).toContainEqual({
+      path: blocked,
+      kind: 'repository',
+      status: 'unavailable'
+    })
+  })
+
+  it('drops a deleted discovered child while retaining its readable parent and sibling', () => {
+    const removed = join(root, 'removed')
+    const remaining = join(root, 'remaining')
+    for (const repository of [removed, remaining])
+      mkdirSync(join(repository, '.git'), { recursive: true })
+    const before = discoverProjects([root])
+    rmSync(removed, { recursive: true })
+
+    const after = discoverProjects([root], before.projects)
+
+    expect(after.projects).toEqual([
+      { path: root, kind: 'folder', status: 'available' },
+      { path: remaining, kind: 'repository', status: 'available' }
+    ])
+    expect(after.skillRoots.some((entry) => entry.projectRoot === removed)).toBe(false)
+  })
+
+  it('keeps an unreadable child without marking its readable parent or siblings unavailable', () => {
+    const blocked = join(root, 'blocked')
+    const healthy = join(root, 'healthy')
+    for (const repository of [blocked, healthy])
+      mkdirSync(join(repository, '.git'), { recursive: true })
+    const before = discoverProjects([root])
+    const readEntries = permissions.readAllowedDirectoryEntries
+    const readDirectory = permissions.readAllowedDirectory
+    vi.spyOn(permissions, 'readAllowedDirectoryEntries').mockImplementation((path, limit) =>
+      path === blocked ? { entries: [], status: 'unavailable' } : readEntries(path, limit)
+    )
+    vi.spyOn(permissions, 'readAllowedDirectory').mockImplementation((path, limit) =>
+      path === blocked ? { entries: [], status: 'unavailable' } : readDirectory(path, limit)
+    )
+
+    const after = discoverProjects([root], before.projects)
+
+    expect(after.projects).toContainEqual({ path: root, kind: 'folder', status: 'available' })
+    expect(after.projects).toContainEqual({
+      path: healthy,
+      kind: 'repository',
+      status: 'available'
+    })
+    expect(after.projects).toContainEqual({
+      path: blocked,
+      kind: 'repository',
+      status: 'unavailable'
+    })
+    expect(after.incomplete).toBe(true)
+  })
+
   it.each(process.platform === 'win32' ? ['.tmp', '.temp', '.TMP'] : ['.tmp', '.temp'])(
     'ignores automatically discovered repositories under %s',
     (temporaryName) => {

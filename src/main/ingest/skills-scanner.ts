@@ -13,6 +13,7 @@ import { readPluginEnablement, readSkillOverrides } from './claude-settings'
 import { parseSkillDirectory } from './skill-parser'
 import {
   discoverProjects,
+  createMissingProjectCheck,
   isProjectDiscoveryExcluded,
   PROJECT_DISCOVERY_LIMITS
 } from './project-discovery'
@@ -161,6 +162,7 @@ export function scanSkills(
     roots === undefined ? discoverProjects(getGrantedPaths(), previousProjects) : undefined
   roots ??= defaultSkillRoots(discovery)
   let partial = roots.some((root) => root.discoveryIncomplete === true)
+  const unavailableProjects = new Set<string>()
   const issues = new Map<string, ScanIssue>()
   const rowsBySourceType = new Map<SkillRoot['sourceType'], SkillScanRow[]>()
   const rootDirsBySourceType = new Map<SkillRoot['sourceType'], string[]>()
@@ -175,12 +177,32 @@ export function scanSkills(
     project_root: string | null
   }[]
   if (discovery) {
+    const isMissingProject = createMissingProjectCheck()
+    const missingProjects = new Map<string, boolean>()
+    const readableProjects = new Map<string, boolean>()
+    const shouldDiscardProject = (path: string): boolean => {
+      let missing = missingProjects.get(path)
+      if (missing === undefined) {
+        missing = isProjectDiscoveryExcluded(path) || isMissingProject(path)
+        missingProjects.set(path, missing)
+      }
+      return missing
+    }
+    const isRemovedSkillDirectory = (projectRoot: string, sourcePath: string): boolean => {
+      let readable = readableProjects.get(projectRoot)
+      if (readable === undefined) {
+        readable = readAllowedDirectory(projectRoot).status === 'ok'
+        readableProjects.set(projectRoot, readable)
+      }
+      return readable && readAllowedDirectory(dirname(sourcePath)).status === 'missing'
+    }
     const excludedRootDirectories = previous
       .filter(
         (skill) =>
           skill.source_type === 'project' &&
           skill.project_root !== null &&
-          isProjectDiscoveryExcluded(skill.project_root)
+          (shouldDiscardProject(skill.project_root) ||
+            isRemovedSkillDirectory(skill.project_root, skill.source_path))
       )
       .map((skill) => dirname(skill.source_path))
     if (excludedRootDirectories.length > 0)
@@ -202,14 +224,18 @@ export function scanSkills(
   }
 
   for (const root of expandedRoots) {
+    const markUnavailable = (): void => {
+      partial = true
+      if (root.projectRoot) unavailableProjects.add(root.projectRoot)
+    }
     const directory = readAllowedDirectory(root.dir)
     if (directory.status === 'unavailable') {
-      partial = true
+      markUnavailable()
       continue
     }
     const enablement = readPluginEnablement(root.projectRoot, userSettingsPath)
     if (!enablement.known) {
-      partial = true
+      markUnavailable()
       for (const issue of enablement.issues) issues.set(`${issue.code}\0${issue.path}`, issue)
       continue
     }
@@ -233,7 +259,7 @@ export function scanSkills(
         const syncedDir = join(root.dir, entryName)
         const syncedEntries = readAllowedDirectory(syncedDir)
         if (syncedEntries.status === 'unavailable') {
-          partial = true
+          markUnavailable()
           continue
         }
         // The stale-row reconciliation below matches on a row's immediate parent dir, so
@@ -254,7 +280,7 @@ export function scanSkills(
           if (row) rows.push(row)
         }
         if (syncedUnavailable) {
-          partial = true
+          markUnavailable()
           rootDirs.splice(rootDirs.indexOf(syncedDir), 1)
         }
         continue
@@ -266,7 +292,7 @@ export function scanSkills(
       if (row) rows.push(row)
     }
     if (rootUnavailable) {
-      partial = true
+      markUnavailable()
       rootDirs.splice(rootDirs.indexOf(root.dir), 1)
     }
   }
@@ -295,6 +321,14 @@ export function scanSkills(
   return {
     status: partial ? 'partial' : 'complete',
     ...(issues.size > 0 ? { issues: [...issues.values()] } : {}),
-    ...(discovery ? { projects: discovery.projects } : {})
+    ...(discovery
+      ? {
+          projects: discovery.projects.map((project) =>
+            project.status === 'available' && unavailableProjects.has(project.path)
+              ? { ...project, status: 'unavailable' as const }
+              : project
+          )
+        }
+      : {})
   }
 }

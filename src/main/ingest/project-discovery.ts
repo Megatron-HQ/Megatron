@@ -71,6 +71,18 @@ export function isProjectDiscoveryExcluded(
   return covered && !grants.some((grant) => isDiscoverableFromGrant(projectPath, grant))
 }
 
+export function createMissingProjectCheck(
+  grants: string[] = getGrantedPaths()
+): (path: string) => boolean {
+  const explicit = new Set(grants.map(pathKey))
+  // An offline or unreadable grant is not evidence that its children were deleted.
+  const readable = grants.filter((grant) => readAllowedDirectory(grant).status === 'ok')
+  return (path) =>
+    !explicit.has(pathKey(path)) &&
+    readable.some((grant) => isDiscoverableFromGrant(path, grant)) &&
+    readAllowedDirectory(path).status === 'missing'
+}
+
 export function discoverProjects(
   grants: string[] = getGrantedPaths(),
   previous: ProjectFolder[] = [],
@@ -83,6 +95,18 @@ export function discoverProjects(
   const nestedGitRepositories = new Set<string>()
   const claudeContentOwners = new Set<string>()
   let incomplete = false
+  const uncertainPaths: string[] = []
+  const isDiscoveryUncertain = (path: string): boolean =>
+    uncertainPaths.some((uncertain) => {
+      const key = pathKey(path)
+      const uncertainKey = pathKey(uncertain)
+      return (
+        key === uncertainKey ||
+        key.startsWith(uncertainKey + sep) ||
+        uncertainKey.startsWith(key + sep)
+      )
+    })
+  const isMissingProject = createMissingProjectCheck(grants)
   const addRoot = (dir: string, projectRoot: string): void => {
     if (!roots.has(pathKey(dir)))
       roots.set(pathKey(dir), { dir, sourceType: 'project', projectRoot })
@@ -94,19 +118,20 @@ export function discoverProjects(
     (first, second) => pathKey(first).length - pathKey(second).length
   )) {
     let grantIncomplete = false
-    const unavailable = (): void => {
+    const unavailable = (path: string): void => {
       incomplete = true
       grantIncomplete = true
+      uncertainPaths.push(path)
     }
     function walk(directoryPath: string, depth: number, owner?: string): void {
       if (depth > limits.maxDepth || visited.size >= limits.maxDirectories) {
-        unavailable()
+        unavailable(directoryPath)
         return
       }
       const directory = readAllowedDirectoryEntries(directoryPath)
       const isGrant = pathKey(directoryPath) === pathKey(grant)
       if (directory.status !== 'ok') {
-        if (directory.status === 'unavailable') unavailable()
+        if (directory.status === 'unavailable') unavailable(directoryPath)
         if (isGrant)
           projects.set(pathKey(grant), {
             path: grant,
@@ -117,7 +142,7 @@ export function discoverProjects(
       }
       const canonical = allowedRealpathSync(directoryPath)
       if (canonical === null) {
-        unavailable()
+        unavailable(directoryPath)
         return
       }
       const key = pathKey(canonical)
@@ -132,7 +157,7 @@ export function discoverProjects(
       const claude = names.has('.claude')
         ? readAllowedDirectory(join(directoryPath, '.claude'))
         : { status: 'missing' as const, entries: [] }
-      if (claude.status === 'unavailable') unavailable()
+      if (claude.status === 'unavailable') unavailable(join(directoryPath, '.claude'))
       const hasSkills =
         claude.entries.includes('skills') &&
         allowedStatSync(join(directoryPath, '.claude', 'skills'))?.isDirectory() === true
@@ -166,7 +191,7 @@ export function discoverProjects(
         }
         const stats = allowedStatSync(child)
         if (stats === null) {
-          unavailable()
+          unavailable(child)
           continue
         }
         if (stats.isDirectory()) walk(child, depth + 1, owningProject)
@@ -177,8 +202,6 @@ export function discoverProjects(
     if (grantIncomplete) {
       const root = roots.get(pathKey(join(grant, '.claude', 'skills')))
       if (root) root.discoveryIncomplete = true
-      const folder = projects.get(pathKey(grant))
-      if (folder && folder.status === 'available') folder.status = 'unavailable'
     }
   }
 
@@ -197,7 +220,11 @@ export function discoverProjects(
   for (const entry of sanitizeProjectFolders(previous)) {
     const key = pathKey(entry.path)
     const covered = grants.some((grant) => isDiscoverableFromGrant(entry.path, grant))
-    if (!covered || (entry.kind === 'folder' && !grants.some((grant) => key === pathKey(grant))))
+    if (
+      !covered ||
+      isMissingProject(entry.path) ||
+      (entry.kind === 'folder' && !grants.some((grant) => key === pathKey(grant)))
+    )
       continue
     const current = projects.get(key)
     if (current) {
@@ -205,11 +232,12 @@ export function discoverProjects(
       continue
     }
     const directory = readAllowedDirectory(entry.path)
-    if (!incomplete && directory.status === 'ok') continue
+    const uncertain = isDiscoveryUncertain(entry.path)
+    if (!uncertain && directory.status === 'ok') continue
     const status =
       directory.status === 'missing'
         ? 'missing'
-        : directory.status === 'unavailable' || incomplete
+        : directory.status === 'unavailable' || uncertain
           ? 'unavailable'
           : 'available'
     projects.set(key, { path: entry.path, kind: entry.kind, status })

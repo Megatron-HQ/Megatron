@@ -23,6 +23,25 @@ const api = scans as typeof scans & {
 }
 
 describe('isolated scans', () => {
+  it('runs an inventory-only snapshot after a full scan without losing its queued request', async () => {
+    const starts: string[] = []
+    const finishes: ((summary: ScanSummary) => void)[] = []
+    const controller = scans.createScanController((scope) => {
+      starts.push(scope)
+      return {
+        result: new Promise<ScanSummary>((resolve) => finishes.push(resolve)),
+        cancel: async () => undefined
+      }
+    })
+    const full = controller.request()
+    const inventory = controller.request({ scope: 'inventory', fresh: true })
+    finishes[0](summary)
+    await full
+    expect(starts).toEqual(['all', 'inventory'])
+    finishes[1](summary)
+    expect(await inventory).toEqual(summary)
+  })
+
   it('waits for the final summary after source progress messages', async () => {
     const task = api.startScanWorker(
       workerUrl(`

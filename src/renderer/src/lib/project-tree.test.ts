@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { buildProjectTree, createProjectLabelResolver, projectDisplayLabels } from './project-tree'
+import {
+  buildProjectTree,
+  createProjectLabelResolver,
+  projectDisplayLabels,
+  resolveProjectSelection
+} from './project-tree'
 import type { ProjectFolder } from '../../../shared/ipc'
 
 const grants = [
@@ -54,6 +59,24 @@ describe('project label resolver', () => {
   })
 })
 describe('project tree', () => {
+  it('keeps an unavailable child warning scoped to that child', () => {
+    const tree = buildProjectTree(
+      [grants[0]],
+      [catalog[0], { ...catalog[1], status: 'unavailable' }],
+      []
+    )
+    expect(tree[0].status).toBe('available')
+    expect(tree[0].children[0].status).toBe('unavailable')
+  })
+
+  it('recovers removed selections to the closest available ancestor with path boundaries', () => {
+    expect(resolveProjectSelection('c:/hq/first/deleted', catalog)).toBe('C:\\HQ\\first')
+    expect(resolveProjectSelection('C:\\HQ\\removed', catalog)).toBe('C:\\HQ')
+    expect(resolveProjectSelection('C:\\HQ-other\\removed', catalog)).toBeUndefined()
+    expect(resolveProjectSelection('C:\\HQ\\first', [{ ...catalog[1], status: 'missing' }])).toBe(
+      'C:\\HQ\\first'
+    )
+  })
   it('keeps discovered folder casing when the registry spells the same path differently', () => {
     expect([...projectDisplayLabels(['C:\\HQ\\Megatron', 'c:/hq/megatron']).values()]).toEqual([
       'HQ/Megatron'
@@ -105,11 +128,11 @@ describe('project tree', () => {
     expect(repo.children[1].children[0].path).toBe(paths[2])
     expect(repo.children[1].count).toBe(2)
   })
-  it('marks an aggregate unavailable when a child uses cached data', () => {
+  it('retains a parent folder’s own unavailable status independently of its children', () => {
     const tree = buildProjectTree(
       grants,
       catalog.map((entry) =>
-        entry.path.endsWith('second') ? { ...entry, status: 'missing' } : entry
+        entry.path === 'C:\\HQ' ? { ...entry, status: 'unavailable' } : entry
       ),
       []
     )

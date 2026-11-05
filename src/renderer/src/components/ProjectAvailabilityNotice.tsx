@@ -18,7 +18,7 @@ export function ProjectAvailabilityNotice({
           ? 'Folder access is required. Grant this project or a parent folder in Settings.'
           : status === 'missing'
             ? 'This project folder is missing. Showing its last available data. Check its location if it moved.'
-            : 'This folder could not be fully refreshed. Showing the last available data.'}
+            : 'This folder could not be refreshed. Showing its last available data. Megatron will retry automatically.'}
       </span>
     </p>
   )

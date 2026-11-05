@@ -59,6 +59,59 @@ function writeInstalledPlugins(content: unknown): void {
   writeFileSync(join(pluginsDir, 'installed_plugins.json'), JSON.stringify(content))
 }
 
+describe('removed project installs', () => {
+  it('prunes a deleted discovered project install without changing Claude registry files', () => {
+    const repository = join(tmpDir, 'removed')
+    const installPath = join(tmpDir, 'cache', 'plugin-a')
+    mkdirSync(repository)
+    writePluginSkill(installPath, 'example', '---\nname: example\n---\nBody')
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          { scope: 'project', projectPath: repository, installPath, version: '1.0.0' }
+        ]
+      }
+    })
+    const registryFile = join(pluginsDir, 'installed_plugins.json')
+    const original = readFileSync(registryFile, 'utf8')
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+    rmSync(repository, { recursive: true })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(allRegistry()).toEqual([])
+    expect(pluginSkills()).toEqual([])
+    expect(readFileSync(registryFile, 'utf8')).toBe(original)
+  })
+
+  it('retains missing individually granted installs and shared user installs', () => {
+    const repository = join(tmpDir, 'direct')
+    const installPath = join(tmpDir, 'cache', 'plugin-a')
+    mkdirSync(repository)
+    grantPath(repository)
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          { scope: 'project', projectPath: repository, installPath, version: '1.0.0' },
+          { scope: 'user', installPath, version: '1.0.0' }
+        ]
+      }
+    })
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+    rmSync(repository, { recursive: true })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(
+      allRegistry()
+        .map((row) => row.scope)
+        .sort()
+    ).toEqual(['project', 'user'])
+  })
+})
+
 function writeMarketplaces(content: unknown): void {
   writeFileSync(join(pluginsDir, 'known_marketplaces.json'), JSON.stringify(content))
 }

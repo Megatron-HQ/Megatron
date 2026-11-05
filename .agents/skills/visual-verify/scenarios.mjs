@@ -55,6 +55,26 @@ async function openManageFolders(window) {
   await window.getByRole('dialog', { name: 'Project Folders', exact: true }).waitFor()
 }
 
+async function removeSelectedFixtureProject(window, app, section) {
+  await app.evaluate(({ BrowserWindow }) => {
+    for (const channel of [
+      'folders:list',
+      'projects:list',
+      'plugins:list',
+      'skills:list',
+      'plugins:detail'
+    ]) {
+      globalThis.megatronVisualFixtures.set(channel, 'project-tree-live-removed')
+    }
+    BrowserWindow.getAllWindows()[0].webContents.send('scan:complete', {
+      id: 900001,
+      summary: { outcome: 'complete', completedAt: new Date().toISOString(), sources: [] }
+    })
+  })
+  const label = section === 'Skills' ? 'Project' : 'Projects'
+  await window.getByText(`${label} / Megatron HQ ${section}`).waitFor()
+}
+
 /** Row click → SkillDetail, the common opening move for several scenarios below. */
 async function openFirstSkillDetail(window) {
   await window.locator('tbody tr').first().click()
@@ -430,6 +450,49 @@ export const scenarios = [
     }
   },
   {
+    name: 'skills-unreadable-child',
+    screen: ['skill-inventory', 'sidebar'],
+    async run(window, app) {
+      await enableProjectHierarchy(window, app, 'project-tree-child-unavailable')
+      await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
+      await window.getByRole('button', { name: /^Megatron(?:\s|Unavailable)*3$/ }).click()
+      await window.getByText(/Megatron will retry automatically/).waitFor()
+    }
+  },
+  {
+    name: 'plugins-healthy-parent-with-unreadable-child',
+    screen: ['plugin-inventory', 'sidebar'],
+    async run(window, app) {
+      await enableProjectHierarchy(window, app, 'project-tree-child-unavailable')
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
+      await window.getByText('Projects / Megatron HQ Plugins').waitFor()
+    }
+  },
+  {
+    name: 'skills-selected-child-removed',
+    screen: ['skill-inventory', 'sidebar'],
+    async run(window, app) {
+      await enableProjectHierarchy(window, app, 'project-tree-live')
+      await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
+      await window.getByRole('button', { name: /^Megatron\s*3$/ }).click()
+      await removeSelectedFixtureProject(window, app, 'Skills')
+    }
+  },
+  {
+    name: 'plugins-selected-child-detail-removed',
+    screen: ['plugin-inventory', 'plugin-detail', 'sidebar'],
+    async run(window, app) {
+      await enableProjectHierarchy(window, app, 'project-tree-live')
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
+      await window.getByRole('button', { name: /^Megatron\s*3$/ }).click()
+      await window.locator('tbody tr').first().click()
+      await window.getByRole('button', { name: 'Back to plugins' }).waitFor()
+      await removeSelectedFixtureProject(window, app, 'Plugins')
+    }
+  },
+  {
     name: 'plugin-detail-missing-project',
     screen: 'plugin-detail',
     async run(window, app) {
@@ -542,6 +605,60 @@ export const scenarios = [
       )
       await window.reload()
       await window.getByText(/Refreshing Claude Code data|Scanning Claude Code data/).waitFor()
+    }
+  },
+  {
+    name: 'settings-manual-result-survives-background-refresh',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() => {
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-missing')
+        globalThis.megatronVisualFixtures.set('app:rescan', 'scan-missing')
+      })
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
+      await window.getByText('Scan complete.', { exact: true }).waitFor()
+      for (const [index, full] of [false, true].entries()) {
+        const path = `C:\\Projects\\Temporarily unreadable ${full ? 'full' : 'inventory'}\\.claude\\settings.json`
+        await app.evaluate(
+          ({ BrowserWindow }, { index, full, path }) => {
+            const contents = BrowserWindow.getAllWindows()[0].webContents
+            contents.send('scan:started', {
+              id: 9003 + index,
+              startedAt: Date.now(),
+              isStartup: false,
+              revealMs: 8000
+            })
+            contents.send('scan:complete', {
+              id: 9003 + index,
+              summary: {
+                outcome: 'partial',
+                isStartup: false,
+                completedAt: new Date().toISOString(),
+                sources: [
+                  ...(full ? [{ name: 'scanTranscripts', status: 'complete' }] : []),
+                  { name: 'scanSkills', status: 'complete' },
+                  {
+                    name: 'scanPluginRegistry',
+                    status: 'partial',
+                    issues: [
+                      {
+                        code: 'source_unavailable',
+                        path
+                      }
+                    ]
+                  },
+                  { name: 'runLinter', status: 'complete' }
+                ]
+              }
+            })
+          },
+          { index, full, path }
+        )
+        await window.getByText(path, { exact: true }).waitFor()
+        await window.getByText('Scan complete.', { exact: true }).waitFor()
+      }
     }
   },
   {

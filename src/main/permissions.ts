@@ -10,6 +10,8 @@ import {
   opendirSync,
   realpathSync,
   statSync,
+  watch,
+  type FSWatcher,
   type Stats
 } from 'fs'
 import { homedir } from 'os'
@@ -316,6 +318,35 @@ export function allowedRealpathSync(path: string): string | null {
   } catch {
     return null
   }
+}
+
+export function watchAllowedPath(
+  path: string,
+  onChange: (event: string, filename: string | null) => void,
+  onError: (error: Error) => void
+): FSWatcher {
+  if (!isPathAllowed(path))
+    throw Object.assign(new Error('Path is not approved'), { code: 'EACCES' })
+  const canonical = realpathSync(path)
+  if (!isPathAllowed(canonical))
+    throw Object.assign(new Error('Path is not approved'), { code: 'EACCES' })
+  const watcher = watch(
+    canonical,
+    { recursive: statSync(canonical).isDirectory() },
+    (event, filename) => {
+      if (allowedRealpathSync(path) !== canonical) {
+        watcher.close()
+        onChange(event, null)
+        return
+      }
+      onChange(event, filename?.toString() ?? null)
+    }
+  )
+  watcher.on('error', (error) => {
+    watcher.close()
+    onError(error)
+  })
+  return watcher
 }
 
 export function allowedReadFileSync(path: string): Buffer | null {

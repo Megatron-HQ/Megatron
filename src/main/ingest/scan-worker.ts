@@ -9,7 +9,7 @@ import { scanPromptHistory as runPromptScan } from './prompt-history-scanner'
 import { openUsageArchive } from '../db/usage-archive'
 import { createUsageScanTasks } from './usage-scan-tasks'
 import { runLinter } from '../linter'
-import { runAllScans, type ScanScope } from './scan-all'
+import { runAllScans, selectScanTasks, type ScanScope } from './scan-all'
 
 const {
   databasePath,
@@ -39,14 +39,12 @@ let sourceStartedAt = 0
 try {
   const summary = runAllScans(
     database,
-    scope === 'plugins'
-      ? [{ name: 'scanPluginRegistry', run: scanPluginRegistry }]
-      : [
-          ...usageScans,
-          { name: 'scanSkills', run: scanSkills },
-          { name: 'scanPluginRegistry', run: scanPluginRegistry },
-          { name: 'runLinter', run: runLinter }
-        ],
+    selectScanTasks(scope, [
+      ...usageScans,
+      { name: 'scanSkills', run: scanSkills },
+      { name: 'scanPluginRegistry', run: scanPluginRegistry },
+      { name: 'runLinter', run: runLinter }
+    ]),
     (error) => {
       console.error('[ingest] scan failed', error)
     },

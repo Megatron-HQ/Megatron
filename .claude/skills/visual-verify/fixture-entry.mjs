@@ -1,11 +1,13 @@
 // Test-only entry point. Production continues to launch out/main/index.js directly.
-import { ipcMain } from 'electron'
+import { app, ipcMain } from 'electron'
 import { projectTreeFixture } from './project-tree-fixture.mjs'
 import { usageHistoryFixture } from './usage-history-fixture.mjs'
 import { contextBaselineFixture } from './context-baseline-fixture.mjs'
 
 const registeredHandlers = new Map()
 const overriddenChannels = new Set()
+const SCAN_NOTIFICATION_CHANNELS = new Set(['scan:started', 'scan:progress', 'scan:complete'])
+const MIN_FIXTURE_SCAN_ID = 9000
 const PROJECT_SCAN_MODES = ['scan-permission', 'scan-missing', 'scan-mixed', 'scan-manual-partial']
 let projectScanCompletedAt
 const registerHandler = ipcMain.handle.bind(ipcMain)
@@ -13,6 +15,17 @@ ipcMain.handle = (channel, handler) => {
   registeredHandlers.set(channel, handler)
   registerHandler(channel, handler)
 }
+
+app.on('web-contents-created', (_event, contents) => {
+  const send = contents.send.bind(contents)
+  contents.send = (channel, ...args) => {
+    const fixtureEvent = typeof args[0]?.id === 'number' && args[0].id >= MIN_FIXTURE_SCAN_ID
+    // Simulated screens own their event timeline; real scans may still update the private index.
+    if (overriddenChannels.size > 0 && SCAN_NOTIFICATION_CHANNELS.has(channel) && !fixtureEvent)
+      return
+    send(channel, ...args)
+  }
+})
 
 globalThis.megatronVisualFixtures = {
   reset() {

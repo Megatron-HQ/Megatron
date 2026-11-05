@@ -12,6 +12,7 @@ import {
 import { isRecord, readJson, readPluginEnablement } from './claude-settings'
 import { parseSkillDirectory } from './skill-parser'
 import { isSemanticVersion } from '../../shared/version'
+import { createMissingProjectCheck } from './project-discovery'
 
 interface PluginInstallEntry {
   scope?: unknown
@@ -232,6 +233,8 @@ export function scanPluginRegistry(
   // a project with several plugins would otherwise re-read the same two settings files each time.
   const enablementCache = new Map<string, Set<string>>()
   const unknownProjects = new Set<string>()
+  const isMissingProject = createMissingProjectCheck()
+  const missingProjects = new Map<string, boolean>()
   const issues = new Map<string, ScanIssue>()
   function disabledPluginsFor(projectPath: string): Set<string> {
     const cached = enablementCache.get(projectPath)
@@ -366,6 +369,15 @@ export function scanPluginRegistry(
         // plugin — record it without project context rather than dropping it.
         const projectPath =
           scope !== 'user' && typeof entry.projectPath === 'string' ? entry.projectPath : ''
+
+        if (projectPath !== '') {
+          let missing = missingProjects.get(projectPath)
+          if (missing === undefined) {
+            missing = isMissingProject(projectPath)
+            missingProjects.set(projectPath, missing)
+          }
+          if (missing) continue
+        }
 
         installs.push({
           scope,

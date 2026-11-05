@@ -1,5 +1,6 @@
 import { app, shell, BrowserWindow, dialog, ipcMain, net, protocol, session } from 'electron'
 import { join } from 'path'
+import { homedir } from 'os'
 import { pathToFileURL } from 'url'
 import {
   canManagePluginInstall,
@@ -56,7 +57,13 @@ import {
   setStoredTheme,
   type ThemeStore
 } from './theme'
-import { createScanController, ScanWorkerError, startScanWorker } from './ingest/scan-all'
+import {
+  createScanController,
+  ScanWorkerError,
+  startScanWorker,
+  type ScanScope
+} from './ingest/scan-all'
+import { createInventoryWatcher } from './inventory-watcher'
 import { findNewestRecordedRequest } from './ingest/recorded-request'
 import { measureContextBaseline } from './context-usage'
 import { USAGE_ARCHIVE_FILENAME } from './db/usage-archive'
@@ -100,6 +107,7 @@ let scanSummary: ScanSummary | undefined
 const scanSession = createScanSession()
 let lastScanFinished: ScanFinished | null = null
 const trustedWindows = new Map<Electron.WebContents, string>()
+let inventoryWatcher: ReturnType<typeof createInventoryWatcher> | undefined
 
 function assertRequest(
   event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent,
@@ -185,14 +193,15 @@ const scans = createScanController((scope) =>
 
 async function scanAndNotify(
   urgency: ScanUrgency = 'announce',
-  fresh = false
+  fresh = false,
+  scope: ScanScope = 'all'
 ): Promise<ScanSummary> {
   const previousSuccess = scanSummary?.lastSuccessfulAt ?? null
   const { run, started, promoted } = scanSession.begin(Date.now(), urgency)
   if (started || promoted) notifyScanStarted(run)
   try {
     try {
-      scanSummary = await scans.request({ fresh })
+      scanSummary = await scans.request({ fresh, scope })
     } catch (error) {
       console.error('[ingest] scan failed', error)
       scanSummary =
@@ -403,6 +412,7 @@ app.whenReady().then(() => {
         addAllowedPath(db, grantPath(filePath))
       }
     } finally {
+      inventoryWatcher?.update()
       void scanAndNotify()
     }
     return listAllowedPaths(db)
@@ -416,6 +426,7 @@ app.whenReady().then(() => {
       removeAllowedPath(db, path)
       deleteSkillsForProjectRoot(db, path, isPathAllowed)
     } finally {
+      inventoryWatcher?.update()
       void scanAndNotify()
     }
     return listAllowedPaths(db)
@@ -529,6 +540,19 @@ app.whenReady().then(() => {
     for (const row of allowed) {
       restoreGrantedPath(row.path)
     }
+    inventoryWatcher = createInventoryWatcher({
+      getRoots: () => [
+        ...getGrantedPaths().map((path) => ({ path, kind: 'project' as const })),
+        ...[
+          join(homedir(), '.claude', 'skills'),
+          join(homedir(), '.claude', 'plugins'),
+          join(homedir(), '.claude', 'settings.json'),
+          join(homedir(), '.claude.json')
+        ].map((path) => ({ path, kind: 'inventory' as const }))
+      ],
+      refresh: () => scanAndNotify('quiet', true, 'inventory'),
+      reportError: (error) => console.error('[inventory] watch or refresh failed', error)
+    })
     void scanAndNotify('startup')
   })
 
@@ -557,6 +581,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  inventoryWatcher?.close()
   void scans.cancel()
 })
 

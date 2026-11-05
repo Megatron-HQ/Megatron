@@ -1,10 +1,30 @@
 import type Database from 'better-sqlite3'
 import { describe, expect, it, vi } from 'vitest'
-import { runAllScans, type ScanTask } from './scan-all'
+import { runAllScans, selectScanTasks, type ScanTask } from './scan-all'
 
 const database = {} as Database.Database
 
 describe('runAllScans', () => {
+  it('limits live inventory refreshes to inventory and linting sources', () => {
+    const tasks = [
+      'scanTranscripts',
+      'archiveTokens',
+      'scanPromptHistory',
+      'archivePrompts',
+      'scanSkills',
+      'scanPluginRegistry',
+      'runLinter'
+    ].map((name) => ({ name, run: () => undefined }))
+    expect(selectScanTasks('inventory', tasks).map((task) => task.name)).toEqual([
+      'scanSkills',
+      'scanPluginRegistry',
+      'runLinter'
+    ])
+    expect(selectScanTasks('plugins', tasks).map((task) => task.name)).toEqual([
+      'scanPluginRegistry'
+    ])
+    expect(selectScanTasks('all', tasks)).toEqual(tasks)
+  })
   it('keeps source identifiers stable when the bundle renames its callback functions', () => {
     const result = runAllScans(database, [
       { name: 'scanTranscripts', run: () => ({ status: 'complete' }) }

@@ -95,7 +95,7 @@ export function startScanWorker(
   }
 }
 
-export type ScanScope = 'all' | 'plugins'
+export type ScanScope = 'all' | 'inventory' | 'plugins'
 
 export function createScanController(start: (scope: ScanScope) => ScanWorkerTask): {
   request: (options?: { fresh?: boolean; scope?: ScanScope }) => Promise<ScanSummary>
@@ -121,7 +121,10 @@ export function createScanController(start: (scope: ScanScope) => ScanWorkerTask
 
   function startNext(): void {
     if (current !== null || cancellation !== null) return
-    const scope = completions.has('plugins') ? 'plugins' : 'all'
+    const scope = (['plugins', 'all', 'inventory'] as const).find((candidate) =>
+      completions.has(candidate)
+    )
+    if (scope === undefined) return
     const pending = completions.get(scope)
     if (!pending) return
     try {
@@ -213,7 +216,7 @@ export function createScanController(start: (scope: ScanScope) => ScanWorkerTask
         startNext()
       } else if (current !== null && !current.superseded) {
         if (current.scope === scope && options?.fresh) current.refreshRequested = true
-        if (scope === 'plugins' && current.scope === 'all') prioritizePlugins()
+        if (scope === 'plugins' && current.scope !== 'plugins') prioritizePlugins()
       }
       return pending.result
     },
@@ -230,6 +233,15 @@ export type ScanTask =
       name: string
       run: (db: Database.Database) => unknown
     }
+
+const INVENTORY_SOURCES = new Set(['scanSkills', 'scanPluginRegistry', 'runLinter'])
+
+export function selectScanTasks(scope: ScanScope, tasks: ScanTask[]): ScanTask[] {
+  if (scope === 'all') return tasks
+  return tasks.filter((task) =>
+    scope === 'plugins' ? task.name === 'scanPluginRegistry' : INVENTORY_SOURCES.has(task.name)
+  )
+}
 export type ScanErrorReporter = (error: unknown) => void
 
 export function runAllScans(

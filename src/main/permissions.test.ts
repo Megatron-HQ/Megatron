@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { homedir, tmpdir } from 'os'
 import { join, resolve } from 'path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as permissions from './permissions'
 import {
   allowedExistsSync,
@@ -15,11 +15,64 @@ import {
   readAllowedDirectory,
   resetGrantedPaths,
   visitAllowedUtf8LinesSync,
-  revokePath
+  revokePath,
+  watchAllowedPath
 } from './permissions'
 
 beforeEach(() => {
   resetGrantedPaths()
+})
+
+describe('permission-bound filesystem watching', () => {
+  it('rejects unapproved roots before opening a filesystem watcher', () => {
+    expect(() =>
+      watchAllowedPath(
+        resolve(tmpdir(), 'unapproved-watch'),
+        () => undefined,
+        () => undefined
+      )
+    ).toThrow('Path is not approved')
+  })
+
+  it('observes nested inventory changes inside an approved root', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'megatron-watch-'))
+    grantPath(root)
+    const changes: (string | null)[] = []
+    const errors: Error[] = []
+    const watcher = watchAllowedPath(
+      root,
+      (_event, filename) => changes.push(filename),
+      (error) => errors.push(error)
+    )
+    try {
+      mkdirSync(join(root, 'repo', '.claude', 'skills'), { recursive: true })
+      await vi.waitFor(() => expect(changes.length).toBeGreaterThan(0))
+      expect(errors).toEqual([])
+    } finally {
+      watcher.close()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('does not follow a link to an unapproved watch target', () => {
+    const root = mkdtempSync(join(tmpdir(), 'megatron-watch-link-'))
+    const target = mkdtempSync(join(tmpdir(), 'megatron-watch-target-'))
+    grantPath(root)
+    try {
+      const link = join(root, 'linked')
+      symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir')
+      expect(() =>
+        watchAllowedPath(
+          link,
+          () => undefined,
+          () => undefined
+        )
+      ).toThrow('Path is not approved')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+      rmSync(target, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('bounded status-bearing reads', () => {

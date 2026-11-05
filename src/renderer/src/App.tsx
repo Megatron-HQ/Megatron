@@ -20,7 +20,11 @@ import { TREE_WIDTH_DEFAULT } from '@/lib/file-tree'
 import { createPluginRows, type PluginContext, type PluginFilter } from '@/lib/plugin-filter'
 import { isWithinProjectPath, normalizeProjectPath } from '../../shared/project-path'
 import { matchesFilter, type SourceFilter } from '@/lib/source-filter'
-import { createProjectLabelResolver, projectDisplayLabels } from '@/lib/project-tree'
+import {
+  createProjectLabelResolver,
+  projectDisplayLabels,
+  resolveProjectSelection
+} from '@/lib/project-tree'
 import { ProjectLabelContext } from '@/lib/use-project-label'
 import { SkillDetail } from './views/SkillDetail'
 import { SkillInventory } from './views/SkillInventory'
@@ -34,7 +38,10 @@ import type {
   CostWindowKey,
   SkillStatsWindowKey,
   ThemePreference,
-  PluginUpdateProgress
+  PluginUpdateProgress,
+  ProjectFolder,
+  PluginRow,
+  SkillsListResult
 } from '../../shared/ipc'
 
 type View =
@@ -132,8 +139,65 @@ function App(): React.JSX.Element {
 
   useEffect(
     () =>
-      window.api.onScanComplete(() => {
-        void refreshScanQueries(queryClient)
+      window.api.onScanComplete(({ summary }) => {
+        const previousProjects = queryClient.getQueryData<ProjectFolder[]>(['projects']) ?? []
+        const previousSkills = queryClient.getQueryData<SkillsListResult>(['skills'])?.skills ?? []
+        void refreshScanQueries(queryClient, false, summary).then(() => {
+          const projects = queryClient.getQueryData<ProjectFolder[]>(['projects']) ?? []
+          const skills = queryClient.getQueryData<SkillsListResult>(['skills'])?.skills
+          const plugins = queryClient.getQueryData<PluginRow[]>(['plugins'])
+          const disappeared = (path: string): boolean =>
+            previousProjects.some(
+              (entry) => normalizeProjectPath(entry.path) === normalizeProjectPath(path)
+            ) &&
+            !projects.some(
+              (entry) => normalizeProjectPath(entry.path) === normalizeProjectPath(path)
+            )
+          setFilter((current) =>
+            current.kind === 'project' && current.projectRoot && disappeared(current.projectRoot)
+              ? {
+                  kind: 'project',
+                  projectRoot: resolveProjectSelection(current.projectRoot, projects)
+                }
+              : current
+          )
+          setPluginFilter((current) =>
+            current.kind === 'projects' && current.projectPath && disappeared(current.projectPath)
+              ? {
+                  kind: 'projects',
+                  projectPath: resolveProjectSelection(current.projectPath, projects)
+                }
+              : current
+          )
+          setView((current) => {
+            if (current.kind === 'list' || skills === undefined) return current
+            const previousRoot = previousSkills.find(
+              (skill) => skill.id === current.skillId
+            )?.project_root
+            return !skills.some((skill) => skill.id === current.skillId) ||
+              (previousRoot && disappeared(previousRoot))
+              ? { kind: 'list' }
+              : current
+          })
+          setPluginView((current) => {
+            if (current.kind === 'list' || plugins === undefined) return current
+            const plugin = plugins.find(
+              (plugin) => plugin.name === current.name && plugin.marketplace === current.marketplace
+            )
+            const context = current.context
+            return !plugin ||
+              (context?.kind === 'project' &&
+                (disappeared(context.path) ||
+                  !plugin.installs.some(
+                    (install) =>
+                      install.project_path !== null &&
+                      normalizeProjectPath(install.project_path) ===
+                        normalizeProjectPath(context.path)
+                  )))
+              ? { kind: 'list' }
+              : current
+          })
+        })
       }),
     [queryClient]
   )
@@ -189,8 +253,7 @@ function App(): React.JSX.Element {
     [projectCatalog]
   )
   const projectAvailability = (
-    path: string | undefined,
-    aggregate = false
+    path: string | undefined
   ): import('../../shared/ipc').ProjectFolder['status'] | undefined => {
     if (path === undefined) return undefined
     const status =
@@ -198,14 +261,6 @@ function App(): React.JSX.Element {
       (folders.some((folder) => isWithinProjectPath(path, folder.path))
         ? 'unavailable'
         : 'needs_access')
-    if (
-      aggregate &&
-      status === 'available' &&
-      projectCatalog.some(
-        (project) => isWithinProjectPath(project.path, path) && project.status !== 'available'
-      )
-    )
-      return 'unavailable'
     return status
   }
   const plugins = useMemo(() => pluginsData ?? [], [pluginsData])
@@ -460,9 +515,7 @@ function App(): React.JSX.Element {
               ) : (
                 <SkillInventory
                   availability={
-                    filter.kind === 'project'
-                      ? projectAvailability(filter.projectRoot, !filter.exact)
-                      : undefined
+                    filter.kind === 'project' ? projectAvailability(filter.projectRoot) : undefined
                   }
                   skills={filteredSkills}
                   loading={!skills.length && !scanComplete}
@@ -522,7 +575,7 @@ function App(): React.JSX.Element {
                 <PluginInventory
                   availability={
                     pluginFilter.kind === 'projects'
-                      ? projectAvailability(pluginFilter.projectPath, !pluginFilter.exact)
+                      ? projectAvailability(pluginFilter.projectPath)
                       : undefined
                   }
                   plugins={filteredPlugins}

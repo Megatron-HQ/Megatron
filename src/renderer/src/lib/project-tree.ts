@@ -25,6 +25,17 @@ interface ProjectLabelEntry {
 
 export type ProjectLabelResolver = (path: string) => string
 
+export function resolveProjectSelection(
+  path: string,
+  catalog: ProjectFolder[]
+): string | undefined {
+  if (catalog.some((entry) => normalizeProjectPath(entry.path) === normalizeProjectPath(path)))
+    return path
+  return catalog
+    .filter((entry) => entry.status === 'available' && isWithinProjectPath(path, entry.path))
+    .sort((first, second) => second.path.length - first.path.length)[0]?.path
+}
+
 export function createProjectLabelResolver(
   labels: ReadonlyMap<string, string>,
   grants: AllowedPathRow[] = []
@@ -143,11 +154,6 @@ export function buildProjectTree(
     for (const node of siblings) {
       summarize(node.children, node)
       node.count = node.directCount + node.children.reduce((sum, child) => sum + child.count, 0)
-      if (
-        node.status === 'available' &&
-        node.children.some((child) => child.status !== 'available')
-      )
-        node.status = 'unavailable'
       if (parent || labelCounts.get(node.label)! > 1) {
         const fullPath = node.path.replace(/\\/g, '/')
         node.label = parent

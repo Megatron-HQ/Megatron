@@ -44,8 +44,6 @@ export function SettingsDialog({
   const latestSummary = preferScanSummary(rescanSummary, scanSummary)
   const isRescanning = rescanPhase !== 'idle'
   const busy = scanning || isRescanning
-  const currentRescanMessage =
-    rescanSummary === null || latestSummary === rescanSummary ? rescanMessage : null
 
   async function handleRescan(): Promise<void> {
     setRescanPhase('scanning')
@@ -123,9 +121,9 @@ export function SettingsDialog({
                 : 'Scanning Claude Code data…'}
             </p>
           ) : (
-            currentRescanMessage && (
+            rescanMessage && (
               <p role="status" className="py-2 text-xs text-muted-foreground">
-                {currentRescanMessage}
+                {rescanMessage}
               </p>
             )
           )}

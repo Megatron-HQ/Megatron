@@ -1,5 +1,29 @@
 # Skill scanner — sources, symlinks, and real `~/.claude` data notes
 
+## Live inventory reconciliation (2026-11-05)
+
+Approved project folders, global skills, plugin stores, and user configuration are watched through
+the permission boundary. Changes settle for one second before a quiet inventory-only scan; a
+five-second cap avoids starvation during continuous file operations. Source-file edits outside
+Claude content and generated/dependency directories are ignored. A 30-second reconciliation pass
+reattaches watches and recovers missed events or temporarily inaccessible sources. Startup,
+focus, and manual full scans keep their existing behavior; live scans do not ingest Usage again
+or refetch open Usage and historical-activity queries.
+Settings retains the result of the user's requested rescan through later automatic refreshes;
+current source details still show the newest scan, and another requested rescan clears the message.
+
+A discovered child confirmed missing beneath a readable grant is removed from the catalog and
+derived skill/plugin inventory. Deleting only its `.claude` directory also reconciles stale skills.
+Individually granted missing folders remain saved with cached data. An unreadable grant is not
+evidence that its children were deleted. Unreadable projects retain their cached entries and retry;
+their warnings do not mark readable parents or siblings unavailable. Incomplete discovery preserves
+only cached locations whose traversal was affected, rather than every unrelated old catalog entry.
+
+When the selected project disappears, Skills and Plugins return to the nearest available ancestor
+and close details for removed items. The active section and sidebar interactions are preserved.
+Moves within approved folders are rediscovered at their new paths; this never grants a new location,
+rewrites Claude's plugin registry, or moves historical usage to a guessed project identity.
+
 ## Repository catalog and parent navigation (2026-10-15)
 
 `project-discovery.ts` owns the shared bounded walk used by skill scanning and both project
@@ -12,14 +36,14 @@ each one. Directory targets and links still cross the canonical permission bound
 and repository ownership are unchanged.
 
 The catalog is derived metadata in the private preferences cache, independent of folder grants.
-It preserves known missing/unavailable repository entries across scans and restarts. Cached
+It preserves individually granted missing repositories and unavailable repository entries across scans and restarts. Cached
 entries never grant access, and removing a grant drops entries no longer covered by another grant.
 Automatic discovery skips `.tmp` and `.temp`, along with the existing generated/dependency
 directories. Windows skip names are case-insensitive. Cached entries and derived skill rows under
 excluded project locations are discarded rather than rediscovered on every scan. A direct grant
 inside an excluded directory, including a grant of that directory itself, remains supported.
 Existing skill and plugin rows provide cached counts; a complete scan of a readable empty source
-reconciles its contents normally. A missing whole repository retains its cached data.
+reconciles its contents normally. Missing discovered children are reconciled as described above.
 
 Skills and Plugins share a granted-folder → repository tree. A parent selects its aggregate and
 expands its children; its chevron only expands/collapses. Intermediate directories are omitted
