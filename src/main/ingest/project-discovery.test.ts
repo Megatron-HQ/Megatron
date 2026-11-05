@@ -1,10 +1,10 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as permissions from '../permissions'
 import { grantPath, resetGrantedPaths, revokePath } from '../permissions'
-import { discoverProjects } from './project-discovery'
+import { createMissingProjectCheck, discoverProjects } from './project-discovery'
 import type { ProjectFolder } from '../../shared/ipc'
 
 let root: string
@@ -16,6 +16,55 @@ afterEach(() => {
   vi.restoreAllMocks()
   resetGrantedPaths()
   rmSync(root, { recursive: true, force: true })
+})
+
+describe('missing project paths through aliases', () => {
+  let workspace: string
+  let selected: string
+  beforeEach(() => {
+    workspace = join(root, 'workspace')
+    selected = join(root, 'selected')
+    mkdirSync(workspace)
+    symlinkSync(workspace, selected, process.platform === 'win32' ? 'junction' : 'dir')
+    resetGrantedPaths()
+    grantPath(selected)
+  })
+
+  it('recognizes deleted descendants recorded through the selected alias', () => {
+    const repository = join(selected, 'packages', 'removed')
+    mkdirSync(repository, { recursive: true })
+    const isMissing = createMissingProjectCheck()
+    expect(isMissing(repository)).toBe(false)
+    rmSync(join(workspace, 'packages'), { recursive: true })
+
+    expect(isMissing(repository)).toBe(true)
+  })
+
+  it('retains explicitly granted missing children recorded through an alias', () => {
+    const repository = join(selected, 'direct')
+    mkdirSync(repository)
+    grantPath(repository)
+    rmSync(join(workspace, 'direct'), { recursive: true })
+
+    expect(createMissingProjectCheck()(repository)).toBe(false)
+  })
+
+  it('keeps excluded descendants outside automatic deletion reconciliation', () => {
+    expect(createMissingProjectCheck()(join(selected, '.tmp', 'removed'))).toBe(false)
+  })
+
+  it('does not infer deletion after the selected grant is revoked', () => {
+    const isMissing = createMissingProjectCheck()
+    revokePath(workspace)
+
+    expect(isMissing(join(selected, 'removed'))).toBe(false)
+  })
+
+  it('does not infer child deletion when the granted target is missing', () => {
+    rmSync(workspace, { recursive: true })
+
+    expect(createMissingProjectCheck()(join(selected, 'removed'))).toBe(false)
+  })
 })
 
 describe('project discovery continuity', () => {

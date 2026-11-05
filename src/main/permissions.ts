@@ -15,7 +15,7 @@ import {
   type Stats
 } from 'fs'
 import { homedir } from 'os'
-import { isAbsolute, join, resolve, sep } from 'path'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'path'
 import { StringDecoder } from 'string_decoder'
 import { execFileSync } from 'child_process'
 
@@ -318,6 +318,30 @@ export function allowedRealpathSync(path: string): string | null {
   } catch {
     return null
   }
+}
+
+// Resolve descriptive locations after deletion, without treating a denied or broken link as absent.
+export function allowedPathLocationSync(path: string): string | null {
+  let ancestor = resolve(path)
+  const missingSegments: string[] = []
+  while (isPathAllowed(ancestor)) {
+    try {
+      lstatSync(ancestor)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return null
+      const parent = dirname(ancestor)
+      if (parent === ancestor) return null
+      missingSegments.unshift(basename(ancestor))
+      ancestor = parent
+      continue
+    }
+    const canonical = allowedRealpathSync(ancestor)
+    if (canonical === null) return null
+    if (missingSegments.length > 0 && allowedStatSync(ancestor)?.isDirectory() !== true) return null
+    const location = join(canonical, ...missingSegments)
+    return isPathAllowed(location) ? location : null
+  }
+  return null
 }
 
 export function watchAllowedPath(

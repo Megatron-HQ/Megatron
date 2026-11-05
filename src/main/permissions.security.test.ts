@@ -11,6 +11,7 @@ import {
   revokePath
 } from './permissions'
 import { readSkillFiles } from './skill-files'
+import { createMissingProjectCheck } from './ingest/project-discovery'
 import * as permissions from './permissions'
 
 let root: string
@@ -35,6 +36,26 @@ afterEach(() => {
 })
 
 describe('canonical file permissions', () => {
+  it('does not infer deletion beneath a link to an unapproved target', () => {
+    expect(createMissingProjectCheck()(join(linked, 'removed'))).toBe(false)
+  })
+
+  it('does not infer deletion beneath a dangling link', () => {
+    rmSync(external, { recursive: true })
+    expect(createMissingProjectCheck()(join(linked, 'removed'))).toBe(false)
+  })
+
+  it('does not infer deletion after an approved link is retargeted', () => {
+    grantPath(external)
+    const isMissing = createMissingProjectCheck()
+    const other = join(root, 'other')
+    mkdirSync(other)
+    rmSync(linked)
+    symlinkSync(other, linked, process.platform === 'win32' ? 'junction' : 'dir')
+
+    expect(isMissing(join(linked, 'removed'))).toBe(false)
+  })
+
   it('keeps the selected alias usable while anchoring its approved target', () => {
     const alias = join(root, 'selected')
     symlinkSync(external, alias, process.platform === 'win32' ? 'junction' : 'dir')

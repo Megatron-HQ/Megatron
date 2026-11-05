@@ -47,6 +47,14 @@ notifications only; scanning and file contents still use guarded reads. Missing 
 projects are pruned only beneath a readable grant. Explicitly granted missing roots and unavailable
 sources retain cached data. Registry cleanup changes only the derived index, never Claude files.
 
+Deletion reconciliation compares permitted canonical locations, including when recorded paths use
+macOS `/var` aliases or Windows junctions. A missing descendant is resolved through its nearest
+existing approved ancestor; denied, dangling, or retargeted links cannot establish deletion.
+This location lookup grants no access and does not replace guarded reads. Regression tests exercise
+real aliases on both platforms, project/local plugin cleanup without source-file writes, explicit
+missing grants, revoked access, and broken or retargeted links. The CI matrix completes both operating
+systems independently so a failing platform cannot cancel the other platform's validation.
+
 Complete scans reconcile deleted nested and synced skill roots. Partial scans retain cached name
 qualification and plugin disablement. Invocation and turn recovery consider unchanged replay
 sessions when their canonical owner changes or disappears, inside the scan transaction.

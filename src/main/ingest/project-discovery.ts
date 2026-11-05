@@ -1,6 +1,7 @@
 import { isAbsolute, join, relative, resolve, sep } from 'path'
 import type { ProjectFolder } from '../../shared/ipc'
 import {
+  allowedPathLocationSync,
   allowedRealpathSync,
   allowedStatSync,
   getGrantedPaths,
@@ -74,13 +75,21 @@ export function isProjectDiscoveryExcluded(
 export function createMissingProjectCheck(
   grants: string[] = getGrantedPaths()
 ): (path: string) => boolean {
-  const explicit = new Set(grants.map(pathKey))
+  const locations = grants.map((grant) => ({ grant, location: allowedPathLocationSync(grant) }))
+  const explicit = new Set(locations.map(({ grant, location }) => pathKey(location ?? grant)))
   // An offline or unreadable grant is not evidence that its children were deleted.
-  const readable = grants.filter((grant) => readAllowedDirectory(grant).status === 'ok')
-  return (path) =>
-    !explicit.has(pathKey(path)) &&
-    readable.some((grant) => isDiscoverableFromGrant(path, grant)) &&
-    readAllowedDirectory(path).status === 'missing'
+  const readable = locations.flatMap(({ grant, location }) =>
+    location !== null && readAllowedDirectory(grant).status === 'ok' ? [location] : []
+  )
+  return (path) => {
+    const location = allowedPathLocationSync(path)
+    return (
+      location !== null &&
+      !explicit.has(pathKey(location)) &&
+      readable.some((grant) => isDiscoverableFromGrant(location, grant)) &&
+      readAllowedDirectory(path).status === 'missing'
+    )
+  }
 }
 
 export function discoverProjects(
