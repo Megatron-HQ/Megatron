@@ -68,11 +68,11 @@ describe('removed project installs', () => {
       mkdirSync(workspace)
       symlinkSync(workspace, selected, process.platform === 'win32' ? 'junction' : 'dir')
       resetGrantedPaths()
-      grantPath(selected)
+      const approvedWorkspace = grantPath(selected)
       grantPath(pluginsDir)
       grantPath(userSettingsPath)
       const repository = join(selected, 'removed')
-      const installPath = join(workspace, 'cache', 'plugin-a')
+      const installPath = join(approvedWorkspace, 'cache', 'plugin-a')
       mkdirSync(repository)
       writePluginSkill(installPath, 'example', '---\nname: example\n---\nBody')
       writeInstalledPlugins({
