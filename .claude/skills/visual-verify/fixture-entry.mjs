@@ -37,6 +37,8 @@ globalThis.megatronVisualFixtures = {
     projectScanCompletedAt = undefined
   },
   set(channel, mode) {
+    if (channel !== 'usage:projects' && mode.startsWith('usage-history'))
+      globalThis.megatronVisualFixtures.set('usage:projects', mode)
     const original = registeredHandlers.get(channel)
     if (!original) throw new Error(`Unknown fixture channel: ${channel}`)
     ipcMain.removeHandler(channel)

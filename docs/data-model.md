@@ -1,5 +1,32 @@
 # Megatron: Data model
 
+## Usage project identities amendment (2026-11-05)
+
+Usage keeps a persistent location registry in private `preferences.json` (`usageProjects`),
+independent of the disposable inventory index and live folder catalog. Each location has a stable
+ID, original root path, repository/folder kind, availability, and optional link to another location.
+Confirmed links combine Usage identity only; they never rewrite source records, change skill or
+plugin ownership, or grant filesystem access. Unlinking a confirmed location restores its separate
+totals without deleting records. The target is the primary location and supplies the display name.
+
+Windows casing, separators, and trailing separators share one identity; POSIX paths remain
+case-sensitive. Working directories belong to the deepest retained repository root. Inferred
+subfolder ownership follows subsequently discovered nested repositories and cannot be unlinked as
+though it were an independent repository. Parent-folder activity remains a separate workspace
+when no repository owns that folder. Separate clones and worktrees remain independent until linked.
+
+Missing folders and revoked grants retain their Usage identities and links. Current availability
+uses the existing guarded filesystem capability; ungranted locations are never probed. Rediscovery
+at a known location retains its ID. A changed path or matching name alone does not prove a move:
+similar names produce suggestions in Manage projects, and users confirm ambiguous associations,
+including renamed locations with different names. No identifier is written into user repositories.
+
+Activity now reads retained prompt multiplicities from `usage-history.db`, sharing History's source
+and coverage ranges. All Usage project aggregates apply the registry at query time, including
+Activity/Cost bucket details, archived day details, token categories, and every timeline month.
+Their grand totals and source attribution remain unchanged. Project labels are disambiguated from
+the entire retained registry, rather than whichever period or panel happens to be loaded.
+
 ## Persistent usage history amendment (2026-11-03)
 
 `usage-history.db` is a deliberate exception to the derived-cache invariant. It is a private,

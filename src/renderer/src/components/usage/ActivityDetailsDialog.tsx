@@ -15,7 +15,7 @@ import type {
 import { TokenReadout } from './TokenReadout'
 import { TokenValue } from './TokenValue'
 import { ChartBlock } from './ChartBlock'
-import { RankedList } from './RankedList'
+import { ProjectRankedList } from './ProjectRankedList'
 import { formatCount } from './chart-utils'
 
 function formatDateLabel(date: Date): string {
@@ -78,6 +78,9 @@ export function ActivityDetailsDialog({
 }): React.JSX.Element | null {
   if (!bucket && !open) return null
   const partial = bucket !== null && 'date' in bucket && bucket.partial
+  const missingPrompts =
+    coverage === 'unavailable' && bucket?.count === 0 && bucket.slashCommands === 0
+  const intervalLabel = bucket !== null && 'key' in bucket ? 'interval' : 'day'
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -121,32 +124,43 @@ export function ActivityDetailsDialog({
         )}
         {coverage === 'partial' && (
           <p className="text-[12px] text-muted-foreground">
-            Only part of this day’s history is available. The counts reflect recorded activity.
+            Only part of this {intervalLabel}’s history is available. The counts reflect recorded
+            activity.
           </p>
         )}
         {coverage === 'unavailable' && (
           <p className="text-[12px] text-muted-foreground">
-            Prompt history is unavailable for this day. Any token figures come from separately
-            recorded session data.
+            Prompt history is unavailable for this {intervalLabel}. Any token figures come from
+            separately recorded session data.
           </p>
         )}
         {bucket && (
           <>
             <div className="flex flex-col gap-3">
               <div className="flex flex-wrap items-start gap-x-10 gap-y-4">
-                <DetailStat label="Sessions" value={bucket.sessions} />
+                <DetailStat label="Sessions" value={missingPrompts ? null : bucket.sessions} />
                 <span aria-hidden className="mt-1 hidden h-9 w-px bg-border sm:block" />
-                <DetailStat label="Prompts" value={bucket.count} />
+                <DetailStat label="Prompts" value={missingPrompts ? null : bucket.count} />
               </div>
-              <p className="text-[13px] text-muted-foreground">
-                + {formatCount(bucket.slashCommands)} bare slash-command
-                {bucket.slashCommands === 1 ? '' : 's'} (
-                <span className="font-mono text-[12px]">/clear</span>,{' '}
-                <span className="font-mono text-[12px]">/quit</span>) — not counted as prompts
-              </p>
+              {!missingPrompts && (
+                <p className="text-[13px] text-muted-foreground">
+                  + {formatCount(bucket.slashCommands)} bare slash-command
+                  {bucket.slashCommands === 1 ? '' : 's'} (
+                  <span className="font-mono text-[12px]">/clear</span>,{' '}
+                  <span className="font-mono text-[12px]">/quit</span>) — not counted as prompts
+                </p>
+              )}
             </div>
-            <ChartBlock label="By project">
-              <RankedList
+            <ChartBlock
+              label="By project"
+              empty={missingPrompts || bucket.byProject.length === 0}
+              emptyMessage={
+                missingPrompts
+                  ? 'Project prompt history is unavailable for this interval.'
+                  : 'No project prompts recorded in this interval.'
+              }
+            >
+              <ProjectRankedList
                 key={bucket.startAt}
                 items={bucket.byProject.map((project) => ({
                   label: resolveProjectLabel(project.project),
@@ -187,10 +201,15 @@ export function ActivityDetailsDialog({
   )
 }
 
-function DetailStat({ label, value }: { label: string; value: number }): React.JSX.Element {
+function DetailStat({ label, value }: { label: string; value: number | null }): React.JSX.Element {
   return (
     <div className="flex min-w-[72px] flex-col gap-1">
-      <span className="text-usage-stat text-foreground">{formatCount(value)}</span>
+      <span
+        className="text-usage-stat text-foreground"
+        aria-label={value === null ? 'Unavailable' : undefined}
+      >
+        {value === null ? '—' : formatCount(value)}
+      </span>
       <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground">
         {label}
       </span>

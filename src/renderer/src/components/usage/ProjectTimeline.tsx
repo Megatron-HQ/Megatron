@@ -5,6 +5,9 @@ import type { ProjectLabelResolver } from '@/lib/project-tree'
 import type { UsageCalendar } from '../../../../shared/ipc'
 import { formatCount, quantileOpacity } from './chart-utils'
 import { percentLabel } from './share-bars'
+import { useUsageProjects } from '@/lib/use-usage-projects'
+import { ProjectSearch } from './ProjectSearch'
+import { matchesUsageProjectSearch } from '../../../../shared/usage-projects'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const VISIBLE_PROJECTS = 8
@@ -17,13 +20,22 @@ export function ProjectTimeline({
   resolveProjectLabel: ProjectLabelResolver
 }): React.JSX.Element {
   const [expanded, setExpanded] = useState(false)
+  const [search, setSearch] = useState('')
+  const { projectTooltip } = useUsageProjects()
   const [focusedCell, setFocusedCell] = useState<string | null>(null)
   const cells = useRef(new Map<string, HTMLSpanElement>())
   const opacity = useMemo(
     () => quantileOpacity(data.byProject.flatMap((project) => project.byMonth)),
     [data.byProject]
   )
-  const projects = expanded ? data.byProject : data.byProject.slice(0, VISIBLE_PROJECTS)
+  const needle = search.trim().toLowerCase()
+  const matching = data.byProject.filter((project) =>
+    matchesUsageProjectSearch(needle, [
+      resolveProjectLabel(project.project),
+      ...projectTooltip(project.project).split('\n')
+    ])
+  )
+  const projects = expanded || needle ? matching : matching.slice(0, VISIBLE_PROJECTS)
   const firstMonth = data.months.findIndex((month) => month.coverage !== 'future')
   const tabCell =
     focusedCell !== null && Number(focusedCell.split(':')[0]) < projects.length
@@ -38,11 +50,25 @@ export function ProjectTimeline({
           Where your attention went, month by month · recorded prompts
         </p>
       </div>
+      {data.byProject.length > 0 && (
+        <ProjectSearch
+          value={search}
+          onChange={(value) => {
+            setSearch(value)
+            setFocusedCell(null)
+          }}
+          visible={projects.length}
+          total={data.byProject.length}
+          label="Search project timeline"
+        />
+      )}
       {projects.length === 0 ? (
         <p className="py-8 text-center text-[13px] text-muted-foreground">
-          {data.summary.observedDays === 0
-            ? 'Project activity is unavailable for this year.'
-            : 'No project prompts recorded in this year.'}
+          {needle
+            ? 'No matching projects.'
+            : data.summary.observedDays === 0
+              ? 'Project activity is unavailable for this year.'
+              : 'No project prompts recorded in this year.'}
         </p>
       ) : (
         <>
@@ -83,7 +109,9 @@ export function ProjectTimeline({
                           {resolveProjectLabel(project.project)}
                         </span>
                       </TooltipTrigger>
-                      <TooltipContent>{project.project}</TooltipContent>
+                      <TooltipContent className="whitespace-pre-line">
+                        {projectTooltip(project.project)}
+                      </TooltipContent>
                     </Tooltip>
                   </th>
                   {data.months.map((month, monthIndex) => {
@@ -177,7 +205,7 @@ export function ProjectTimeline({
           </table>
           <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
             <span>Stronger shading means more prompts · dashed cells: unavailable history</span>
-            {data.byProject.length > VISIBLE_PROJECTS && (
+            {!needle && data.byProject.length > VISIBLE_PROJECTS && (
               <button
                 type="button"
                 onClick={() => setExpanded((value) => !value)}

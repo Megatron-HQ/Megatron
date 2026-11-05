@@ -10,7 +10,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/relative-time'
-import { useProjectLabel } from '@/lib/use-project-label'
+import { useUsageProjects } from '@/lib/use-usage-projects'
 import type {
   ContextSection,
   RecordedCacheControl,
@@ -154,7 +154,7 @@ function RecordedDetails({
   open: boolean
 }): React.JSX.Element {
   const [view, setView] = useState(initialView)
-  const resolveProjectLabel = useProjectLabel()
+  const { resolveProjectLabel } = useUsageProjects()
   // Re-read on every open: the newest session changes as the user works, and nothing is kept.
   const { data, isPending, isError } = useQuery({
     queryKey: ['recorded-request'],

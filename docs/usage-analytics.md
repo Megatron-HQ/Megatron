@@ -1,5 +1,24 @@
 # Megatron: Usage analytics
 
+## Unified Usage projects amendment (2026-11-05)
+
+All Usage project representations use the persistent identity and location-link rules in
+`data-model.md`. Activity, History, Tokens, Cost, their detail dialogs, and Usage's skill invocation
+dialog share the same project labels. Nearest-repository ownership and confirmed moved-location
+links apply to project aggregates without altering metric totals or source records. Each panel
+continues to show only projects represented in its selected period and metric; missing measurements
+are never synthesized as zeros to force identical lists.
+
+Activity now uses the same retained prompt archive as History, including maximum observed prompt
+multiplicities and bare-slash exclusion. Their results reconcile for identical intervals; rolling
+cutoffs still differ from whole-day/year bounds. Archive coverage is shown for Activity windows
+and their day/hour details. Removing source files or rebuilding the derived index does not erase
+archived prompts. Cost, Models, and Skills keep their existing metric sources and allocation rules.
+
+Manage projects offers reversible, explicit location linking and non-blocking same-name suggestions.
+Project rankings and the timeline search all rows, including collapsed rows and historical linked
+paths, while shares and timeline intensities remain relative to the complete selected dataset.
+
 ## Token history and contribution calendar amendment (2026-11-03)
 
 Usage now includes a Tokens panel and an annual contribution calendar in History, backed by the

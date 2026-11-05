@@ -20,19 +20,24 @@ import icon from '../../resources/icon.png?asset'
 // The .ico, not the PNG, so Windows can pick the hand-tuned no-sparkle art at 16/24 px.
 import windowsIcon from '../../resources/icon.ico?asset'
 import { getDb, getUsageArchive } from './db'
-import { getTokenStats, getUsageCalendar, getUsageDay } from './db/usage-history-queries'
+import {
+  getUsageOverviewData,
+  getProjectUsageCalendar,
+  getProjectUsageDay,
+  readUsageProjectLocations,
+  usageProjectCatalog,
+  linkUsageProjects,
+  unlinkUsageProject
+} from './usage-projects'
+import type { UsageProjectLocation } from '../shared/usage-projects'
 import { createScanSession, type ScanUrgency } from './scan-session'
 import { disableChromiumHttpCache } from './chromium-cache'
 import {
   addAllowedPath,
   deleteSkillsForProjectRoot,
-  getActivityStats,
   getContextBudget,
-  getCostStats,
   getLintFindingsForSkill,
-  getModelStats,
   getPluginDetail,
-  getSkillStats,
   getSkillById,
   getSkillInvocationLog,
   getSkillInvocationSlice,
@@ -101,6 +106,21 @@ const APP_CONTENT_SECURITY_POLICY =
 
 securePrivateDataDirectory(app.getPath('userData'), join(app.getPath('appData'), app.getName()))
 const themeStore: ThemeStore = new Store({ name: 'preferences' })
+
+function usageProjectLocations(): UsageProjectLocation[] {
+  const saved = themeStore.get('usageProjects')
+  const locations = readUsageProjectLocations(
+    getDb(),
+    getUsageArchive(),
+    saved,
+    sanitizeProjectFolders(themeStore.get('projectFolders')).filter((project) =>
+      isPathAllowed(project.path)
+    )
+  )
+  if (JSON.stringify(locations) !== JSON.stringify(saved))
+    themeStore.set('usageProjects', locations)
+  return locations
+}
 let scanComplete = false
 let usageComplete = false
 let scanSummary: ScanSummary | undefined
@@ -483,11 +503,7 @@ app.whenReady().then(() => {
     const now = new Date()
     const db = getDb()
     return {
-      activity: getActivityStats(db, now),
-      tokens: getTokenStats(getUsageArchive(), now),
-      cost: getCostStats(db, now),
-      models: getModelStats(db, now),
-      skills: getSkillStats(db, now),
+      ...getUsageOverviewData(db, getUsageArchive(), usageProjectLocations(), now),
       scanComplete: usageComplete || scanComplete,
       scanSummary
     }
@@ -501,11 +517,25 @@ app.whenReady().then(() => {
   secureIpc.handle(IPC_CHANNELS.usageRecordedRequest, () => findNewestRecordedRequest())
 
   secureIpc.handle(IPC_CHANNELS.usageCalendar, (_event, year: number) =>
-    getUsageCalendar(getUsageArchive(), year)
+    getProjectUsageCalendar(getUsageArchive(), year, usageProjectLocations())
   )
   secureIpc.handle(IPC_CHANNELS.usageDay, (_event, date: string) =>
-    getUsageDay(getUsageArchive(), date)
+    getProjectUsageDay(getUsageArchive(), date, usageProjectLocations())
   )
+  secureIpc.handle(IPC_CHANNELS.usageProjects, () => usageProjectCatalog(usageProjectLocations()))
+  secureIpc.handle(
+    IPC_CHANNELS.usageLinkProjects,
+    (_event, input: { sourceId: string; targetId: string }) => {
+      const locations = linkUsageProjects(usageProjectLocations(), input.sourceId, input.targetId)
+      themeStore.set('usageProjects', locations)
+      return usageProjectCatalog(locations)
+    }
+  )
+  secureIpc.handle(IPC_CHANNELS.usageUnlinkProject, (_event, locationId: string) => {
+    const locations = unlinkUsageProject(usageProjectLocations(), locationId)
+    themeStore.set('usageProjects', locations)
+    return usageProjectCatalog(locations)
+  })
 
   secureIpc.handle(
     IPC_CHANNELS.usageSkillInvocations,

@@ -1,4 +1,36 @@
 import type Database from 'better-sqlite3'
+import type { ActivityStats } from '../../shared/ipc'
+import { getActivityStats } from './queries'
+
+export function getArchivedActivityStats(
+  db: Database.Database,
+  now: Date = new Date()
+): ActivityStats {
+  const activity = getActivityStats(db, now, 'archive')
+  const ranges = db
+    .prepare('SELECT * FROM history_coverage ORDER BY start_at')
+    .all() as CoverageRange[]
+  const end = new Date(now.getTime() + 1)
+  const coverage = (start: string, finish: string): HistoryCoverage =>
+    historyCoverage(new Date(start), new Date(finish), ranges, now)
+  for (const window of [activity.last24h, activity.last7d, activity.last30d]) {
+    window.coverage = historyCoverage(
+      new Date(now.getTime() - window.days * DAY_MS),
+      end,
+      ranges,
+      now
+    )
+    window.byDay = window.byDay.map((day) => ({
+      ...day,
+      coverage: coverage(day.startAt, day.endAt)
+    }))
+  }
+  activity.last24h.hourlyTrend = activity.last24h.hourlyTrend.map((hour) => ({
+    ...hour,
+    coverage: coverage(hour.startAt, hour.endAt)
+  }))
+  return activity
+}
 import type {
   ContributionDay,
   HistoryCoverage,

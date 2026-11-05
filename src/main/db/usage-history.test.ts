@@ -6,7 +6,18 @@ import { join } from 'path'
 import { applySchema } from './schema'
 import { openUsageArchive } from './usage-archive'
 import { archiveUsageHistory } from '../ingest/usage-history'
-import { getTokenStats, getUsageCalendar, getUsageDay } from './usage-history-queries'
+import {
+  getTokenStats,
+  getUsageCalendar,
+  getUsageDay,
+  getArchivedActivityStats
+} from './usage-history-queries'
+import {
+  getUsageOverviewData,
+  getProjectUsageCalendar,
+  getProjectUsageDay,
+  readUsageProjectLocations
+} from '../usage-projects'
 import { scanTranscripts } from '../ingest/transcript-scanner'
 import { scanPromptHistory } from '../ingest/prompt-history-scanner'
 import { grantPath, resetGrantedPaths } from '../permissions'
@@ -65,6 +76,73 @@ afterEach(() => {
 })
 
 describe('persistent usage history', () => {
+  it('keeps Activity aligned with retained History after source pruning, including prompt multiplicity', () => {
+    const insert = archive.prepare('INSERT INTO history_prompts VALUES (?, ?, ?, ?, ?)')
+    insert.run('first', '/repo/src', at(3), 0, 3)
+    insert.run('second', '/repo', at(3, 11), 0, 2)
+    insert.run('slash', '/repo', at(3, 11), 1, 4)
+    insert.run('future', '/repo', at(4), 0, 100)
+    archive
+      .prepare('INSERT INTO history_coverage VALUES (?, ?)')
+      .run(at(1, 0), new Date(now.getTime() + 1).toISOString())
+    const activity = getArchivedActivityStats(archive, now)
+    expect(activity.last24h).toMatchObject({
+      prompts: 5,
+      sessions: 2,
+      slashCommands: 4,
+      coverage: 'available'
+    })
+    expect(activity.last24h.hourlyTrend.reduce((sum, hour) => sum + hour.count, 0)).toBe(5)
+    expect(activity.last7d.byHour.reduce((sum, count) => sum + count, 0)).toBe(5)
+    expect(activity.last7d.byDay.find((day) => day.date === '2026-11-03')).toMatchObject({
+      count: 5,
+      slashCommands: 4,
+      coverage: 'available'
+    })
+    expect(activity.last7d.coverage).toBe('partial')
+    expect(activity.last7d.byDay[0].coverage).toBe('unavailable')
+    expect(activity.last30d.prompts).toBe(getUsageCalendar(archive, 2026, now).prompts)
+    expect(getUsageDay(archive, '2026-11-03', now).count).toBe(5)
+  })
+
+  it('uses identical project ownership for overview metrics, timeline, and day details', () => {
+    session()
+    index.prepare("UPDATE sessions_meta SET cwd='/repo/src'").run()
+    totals()
+    index
+      .prepare(
+        "INSERT INTO timed_skill_cost (session_id, skill_name, model, allocated_at, est_cost_usd) VALUES ('session', NULL, 'claude-sonnet-5', ?, 1)"
+      )
+      .run(at(3))
+    turn('turn', 3, 1)
+    prompt()
+    index.prepare("UPDATE prompt_history SET project='/repo/prompts'").run()
+    sync()
+    const locations = readUsageProjectLocations(
+      index,
+      archive,
+      [],
+      [{ path: '/repo', kind: 'repository', status: 'available' }]
+    )
+    expect(locations).toHaveLength(1)
+    const overview = getUsageOverviewData(index, archive, locations, now)
+    expect(overview.activity.last30d.byProject).toEqual([{ project: '/repo', count: 1 }])
+    expect(overview.tokens.last30d.byProject).toEqual([
+      {
+        key: '/repo',
+        tokens: { input: 100, output: 200, cacheRead: 300, cacheWrite: 400, total: 1000 }
+      }
+    ])
+    expect(overview.cost?.last30d.byProject).toEqual([{ project: '/repo', costUsd: 1 }])
+    expect(getProjectUsageCalendar(archive, 2026, locations, now).byProject[0]).toMatchObject({
+      project: '/repo',
+      total: 1
+    })
+    expect(getProjectUsageDay(archive, '2026-11-03', locations, now).byProject).toEqual([
+      { project: '/repo', count: 1 }
+    ])
+  })
+
   it('summarizes recorded activity within the selected local year', () => {
     const insert = archive.prepare('INSERT INTO history_prompts VALUES (?, ?, ?, ?, ?)')
     insert.run('previous', '/repo', new Date(2025, 11, 31, 23).toISOString(), 0, 100)

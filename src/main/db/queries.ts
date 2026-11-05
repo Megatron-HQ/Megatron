@@ -750,6 +750,7 @@ interface PromptHistoryQueryRow {
   project: string
   typed_at: string
   is_slash_command: number
+  copies: number
 }
 
 function localDateKey(d: Date): string {
@@ -769,11 +770,11 @@ function summarizeActivityRows(rows: PromptHistoryQueryRow[]): ActivityRowSummar
 
   for (const row of rows) {
     if (row.is_slash_command === 1) {
-      slashCommands += 1
+      slashCommands += row.copies
       continue
     }
     sessions.add(row.session_id)
-    projectCounts.set(row.project, (projectCounts.get(row.project) ?? 0) + 1)
+    projectCounts.set(row.project, (projectCounts.get(row.project) ?? 0) + row.copies)
   }
 
   const byProject = [...projectCounts.entries()]
@@ -781,7 +782,7 @@ function summarizeActivityRows(rows: PromptHistoryQueryRow[]): ActivityRowSummar
     .sort((a, b) => b.count - a.count || a.project.localeCompare(b.project))
 
   return {
-    count: rows.length - slashCommands,
+    count: rows.reduce((sum, row) => sum + row.copies, 0) - slashCommands,
     sessions: sessions.size,
     slashCommands,
     byProject
@@ -843,7 +844,7 @@ function reduceActivityWindow(
 
   for (const row of real) {
     const at = new Date(row.typed_at)
-    byHourWeekday[at.getDay()][at.getHours()] += 1
+    byHourWeekday[at.getDay()][at.getHours()] += row.copies
     activeDays.add(localDateKey(at))
   }
 
@@ -896,11 +897,16 @@ function buildActivityHourlyTrend(
 // count are reduced from it in JS (plan decision 5). Electron main runs on the user's machine,
 // so JS .getHours()/.getDay() are the user's local time — identical to a
 // datetime(col, 'localtime') bucket in production and deterministic under a pinned TZ in tests.
-export function getActivityStats(db: Database.Database, now: Date = new Date()): ActivityStats {
+export function getActivityStats(
+  db: Database.Database,
+  now: Date = new Date(),
+  source: 'index' | 'archive' = 'index'
+): ActivityStats {
   const rows = db
     .prepare(
-      `SELECT session_id, project, typed_at, is_slash_command
-       FROM prompt_history WHERE typed_at >= ?`
+      source === 'archive'
+        ? `SELECT session_id, project, typed_at, is_slash_command, copies FROM history_prompts WHERE typed_at >= ?`
+        : `SELECT session_id, project, typed_at, is_slash_command, 1 AS copies FROM prompt_history WHERE typed_at >= ?`
     )
     .all(new Date(now.getTime() - 30 * DAY_MS).toISOString()) as PromptHistoryQueryRow[]
 

@@ -4,6 +4,7 @@ import { seriesColor, type ModelIdentity } from '@/lib/model-identity'
 import type { SkillStatsWindowKey, TokenStats, TokenWindow } from '../../../../shared/ipc'
 import { ChartBlock } from './ChartBlock'
 import { RankedList } from './RankedList'
+import { ProjectRankedList } from './ProjectRankedList'
 import { TokenReadout } from './TokenReadout'
 import { TokenValue } from './TokenValue'
 import { formatExactTokenCount, formatTokenCount } from '../../../../shared/token-format'
@@ -94,7 +95,7 @@ export function TokensSection({
         empty={selected.byProject.length === 0}
         emptyMessage="No tracked projects in this period"
       >
-        <RankedList
+        <ProjectRankedList
           items={selected.byProject.map((row) => ({
             label: resolveProjectLabel(row.key),
             fullLabel: row.key,

@@ -1,3 +1,4 @@
+import type { UsageProjectCatalog } from '../shared/usage-projects'
 import type {
   AllowedPathRow,
   AppSection,
@@ -45,6 +46,9 @@ interface Api {
   updatePlugin: (input: PluginActionInput) => Promise<PluginActionResult>
   uninstallPlugin: (input: PluginActionInput) => Promise<PluginActionResult>
   getUsageOverview: () => Promise<UsageOverview>
+  getUsageProjects: () => Promise<UsageProjectCatalog>
+  linkUsageProjects: (input: { sourceId: string; targetId: string }) => Promise<UsageProjectCatalog>
+  unlinkUsageProject: (locationId: string) => Promise<UsageProjectCatalog>
   getUsageCalendar: (year: number) => Promise<UsageCalendar>
   getUsageDay: (date: string) => Promise<UsageDayDetails>
   getUsageSkillInvocations: (input: SkillInvocationSliceInput) => Promise<SkillInvocationRecord[]>

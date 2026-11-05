@@ -16,6 +16,10 @@ export interface RankedItem {
 }
 
 interface RankedListProps {
+  totalValue?: number
+  expanded?: boolean
+  onExpandedChange?: (expanded: boolean) => void
+  hideDisclosure?: boolean
   items: RankedItem[] // pre-sorted: descending by value, or family-grouped for model lists
   formatValue: (value: number) => string
   formatExactValue?: (value: number) => string
@@ -31,12 +35,18 @@ export function RankedList({
   items,
   formatValue,
   formatExactValue,
-  noun
+  noun,
+  totalValue,
+  expanded: controlledExpanded,
+  onExpandedChange,
+  hideDisclosure
 }: RankedListProps): React.JSX.Element {
   const reduceMotion = useReducedMotion() === true
-  const [expanded, setExpanded] = useState(false)
+  const [localExpanded, setLocalExpanded] = useState(false)
+  const expanded = controlledExpanded ?? localExpanded
+  const setExpanded = onExpandedChange ?? setLocalExpanded
 
-  const total = items.reduce((sum, item) => sum + item.value, 0)
+  const total = totalValue ?? items.reduce((sum, item) => sum + item.value, 0)
   const head = items.slice(0, TOP_N)
   const rest = items.slice(TOP_N)
   const restTotal = rest.reduce((sum, item) => sum + item.value, 0)
@@ -79,7 +89,7 @@ export function RankedList({
               <span className="relative flex-1 truncate pr-3 text-[13px]">{item.label}</span>
             )}
           </TooltipTrigger>
-          <TooltipContent>{item.fullLabel}</TooltipContent>
+          <TooltipContent className="whitespace-pre-line">{item.fullLabel}</TooltipContent>
         </Tooltip>
         <span className="relative flex w-[110px] shrink-0 justify-end gap-2 font-mono text-[12px] tabular-nums text-muted-foreground">
           {formatExactValue ? (
@@ -107,7 +117,7 @@ export function RankedList({
   const disclosureButton = (
     <button
       type="button"
-      onClick={() => setExpanded((value) => !value)}
+      onClick={() => setExpanded(!expanded)}
       className="mt-1 self-start text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground hover:text-foreground"
       aria-label={
         formatExactValue
@@ -139,7 +149,8 @@ export function RankedList({
         )}
       </AnimatePresence>
 
-      {rest.length > 0 &&
+      {!hideDisclosure &&
+        rest.length > 0 &&
         (formatExactValue ? (
           <Tooltip>
             <TooltipTrigger asChild>{disclosureButton}</TooltipTrigger>

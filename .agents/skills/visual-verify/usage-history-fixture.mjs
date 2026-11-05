@@ -1,4 +1,16 @@
 const DAY_MS = 86400000
+const HISTORY_PROJECT_NAMES = [
+  'Megatron',
+  'Client\\Atlas',
+  'Website',
+  'Data pipeline',
+  'Research',
+  'CLI',
+  'Docs',
+  'Sandbox',
+  'Orchard',
+  'Internal\\Atlas'
+]
 
 function counts(multiplier = 1) {
   return {
@@ -77,6 +89,28 @@ function formatWindow(days) {
 
 export function usageHistoryFixture(channel, args, original, mode) {
   const now = new Date()
+  if (channel === 'usage:projects') {
+    const names = [
+      ...HISTORY_PROJECT_NAMES,
+      ...Array.from({ length: 10 }, (_, index) => `repo-${index + 1}`)
+    ]
+    const locations = names.map((name, index) => ({
+      id: `visual-project:${index}`,
+      path: `C:\\Projects\\${name}`,
+      kind: 'repository',
+      status: 'available'
+    }))
+    return {
+      locations,
+      projects: locations.map((location, index) => ({
+        id: location.id,
+        path: location.path,
+        label: names[index].replace(/\\/g, '/'),
+        locations: [location],
+        possibleMatches: []
+      }))
+    }
+  }
   if (channel === 'usage:overview' && mode === 'usage-history-format') {
     return {
       ...original,
@@ -146,18 +180,7 @@ export function usageHistoryFixture(channel, args, original, mode) {
                 : 'partial'
       }
     })
-    const projectNames = [
-      'Megatron',
-      'Client\\Atlas',
-      'Website',
-      'Data pipeline',
-      'Research',
-      'CLI',
-      'Docs',
-      'Sandbox',
-      'Orchard',
-      'Internal\\Atlas'
-    ]
+    const projectNames = HISTORY_PROJECT_NAMES
     const byProject = projectNames
       .map((name, index) => {
         const byMonth = months.map((month) => {

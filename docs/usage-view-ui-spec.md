@@ -1,5 +1,31 @@
 # Usage view — resolved UI spec (Phase 2a)
 
+## Unified Usage projects amendment (2026-11-05)
+
+Usage uses one retained project catalog for labels across Activity, History, Tokens, Cost, their
+detail dialogs, and the Usage skill invocation dialog. Names use the primary location's basename,
+adding only enough parent folders to distinguish all retained identities. Confirmed location links
+combine rows and keep every linked root visible in path tooltips and Manage projects. Parent
+workspace activity remains distinct; each metric/period still determines which projects have rows.
+
+The common Usage header has **Manage projects**, opening a searchable dialog with primary and linked
+locations, availability, possible same-name matches, explicit linking, and unlinking. Inferred
+working-directory ownership is not a user-created link and cannot be undone there. Links affect
+Usage only and confer no filesystem permission. Pending operations disable mutation controls;
+loading, errors, retry, keyboard controls, and dialog dismissal remain explicit.
+
+Every By project ranking and the Project timeline has a search field and an **8 of 19 projects**
+style count reflecting the visible rows. Search matches labels and all linked root paths, includes
+collapsed projects, and shows every match. An empty match set has its own message. Clearing search
+restores the prior expansion state. Ranked shares continue to use the complete selected-period
+total, and timeline quantiles continue to include every project. Model/skill rankings retain their
+existing behavior. Row fills, tooltips, expansion motion, calendar/timeline inspection, arrow
+navigation, focus restoration, and reduced motion retain their prior contracts.
+
+Activity uses retained prompt history shared with History and discloses incomplete or unavailable
+window coverage. Detail dialogs retain coverage disclosure. Time controls and metric sources for
+Cost, Models, and Skills retain their existing semantics.
+
 ## History year-in-review amendment (2026-11-04)
 
 History is an annual retrospective. Its year selector moves from the contribution graph to the

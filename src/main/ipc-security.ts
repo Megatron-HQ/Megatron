@@ -61,6 +61,24 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
     !input.includes('\0')
   let valid: boolean
   switch (channel) {
+    case IPC_CHANNELS.usageLinkProjects: {
+      const input = value as Record<string, unknown> | null
+      valid =
+        args.length === 1 &&
+        input !== null &&
+        typeof input === 'object' &&
+        !Array.isArray(input) &&
+        Object.keys(input).length === 2 &&
+        text(input.sourceId) &&
+        text(input.targetId) &&
+        input.sourceId.length <= 128 &&
+        input.targetId.length <= 128 &&
+        input.sourceId !== input.targetId
+      break
+    }
+    case IPC_CHANNELS.usageUnlinkProject:
+      valid = args.length === 1 && text(value) && value.length <= 128
+      break
     case IPC_CHANNELS.usageCalendar:
       valid =
         args.length === 1 &&

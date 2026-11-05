@@ -1,9 +1,8 @@
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import { useProjectLabel } from '@/lib/use-project-label'
-import { createUsageProjectLabelResolver } from '@/lib/usage-project-label'
+import { useUsageProjects } from '@/lib/use-usage-projects'
 import type { UsageCalendar } from '../../../../shared/ipc'
 import { ActivityDetailsDialog } from './ActivityDetailsDialog'
 import { ContributionGraph } from './ContributionGraph'
@@ -91,18 +90,7 @@ export function HistorySection({
     queryFn: () => window.api.getUsageDay(selectedDate!),
     enabled: selectedDate !== null
   })
-  const resolveHierarchy = useProjectLabel()
-  const resolveProjectLabel = useMemo(
-    () =>
-      createUsageProjectLabelResolver(
-        [
-          ...(data?.byProject ?? []).map((project) => project.project),
-          ...(details.data?.byProject ?? []).map((project) => project.project)
-        ],
-        resolveHierarchy
-      ),
-    [data?.byProject, details.data?.byProject, resolveHierarchy]
-  )
+  const { resolveProjectLabel } = useUsageProjects()
 
   if (loadError) {
     return (

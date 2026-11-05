@@ -1697,6 +1697,143 @@ export const scenarios = [
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
+  ...['light', 'dark'].map((theme) => ({
+    name: `usage-project-manager-${theme}`,
+    screen: 'usage',
+    async run(window) {
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window
+        .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
+        .click()
+      await window.keyboard.press('Escape')
+      await openUsageSection(window)
+      await window.getByRole('button', { name: 'Manage projects', exact: true }).click()
+      await window
+        .getByRole('dialog', { name: 'Manage projects', exact: true })
+        .getByRole('searchbox')
+        .fill('Megatron')
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  })),
+  {
+    name: 'usage-project-manager-linked',
+    screen: 'usage',
+    async shouldSkip(window) {
+      const catalog = await window.evaluate(async () => {
+        let current = await window.api.getUsageProjects()
+        for (const location of current.locations.filter(
+          (entry) => entry.linkedTo && !entry.inferredOwner
+        ))
+          current = await window.api.unlinkUsageProject(location.id)
+        return current
+      })
+      return catalog.projects.some((project) => project.possibleMatches.length > 0)
+        ? null
+        : 'no similar-name project locations to link'
+    },
+    async run(window) {
+      const pair = await window.evaluate(async () => {
+        const catalog = await window.api.getUsageProjects()
+        const source = catalog.projects.find((project) => project.possibleMatches.length > 0)
+        return {
+          source,
+          target: catalog.projects.find((project) => project.id === source.possibleMatches[0])
+        }
+      })
+      await openUsageSection(window)
+      await window.getByRole('button', { name: 'Manage projects', exact: true }).click()
+      const dialog = window.getByRole('dialog', { name: 'Manage projects', exact: true })
+      const source = dialog.getByRole('article', { name: pair.source.label, exact: true })
+      await source.getByRole('combobox').selectOption(pair.target.id)
+      await source.getByRole('button', { name: 'Link locations', exact: true }).click()
+      await dialog
+        .getByRole('button', { name: `Unlink ${pair.source.path}`, exact: true })
+        .waitFor()
+      await dialog.getByRole('searchbox').fill(pair.target.label)
+    }
+  },
+  {
+    name: 'usage-project-manager-error',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('usage:projects', 'error'))
+      await openUsageSection(window)
+      await window.getByRole('button', { name: 'Manage projects', exact: true }).click()
+      await window
+        .getByRole('dialog', { name: 'Manage projects', exact: true })
+        .getByText(/Could not load projects/)
+        .waitFor()
+    }
+  },
+  {
+    name: 'usage-project-manager-loading',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('usage:projects', 'pending'))
+      await openUsageSection(window)
+      await window.getByRole('button', { name: 'Manage projects', exact: true }).click()
+      await window
+        .getByRole('dialog', { name: 'Manage projects', exact: true })
+        .getByText('Loading projects…', { exact: true })
+        .waitFor()
+    }
+  },
+  ...['pending', 'error'].map((mode) => ({
+    name: `usage-project-manager-link-${mode}`,
+    screen: 'usage',
+    async shouldSkip(window) {
+      const catalog = await window.evaluate(() => window.api.getUsageProjects())
+      return catalog.projects.length > 1 ? null : 'fewer than two recorded projects'
+    },
+    async run(window, app) {
+      await app.evaluate(
+        (_, selectedMode) =>
+          globalThis.megatronVisualFixtures.set('usage:projects:link', selectedMode),
+        mode
+      )
+      const catalog = await window.evaluate(() => window.api.getUsageProjects())
+      await openUsageSection(window)
+      await window.getByRole('button', { name: 'Manage projects', exact: true }).click()
+      const dialog = window.getByRole('dialog', { name: 'Manage projects', exact: true })
+      const source = dialog.getByRole('article', { name: catalog.projects[0].label, exact: true })
+      await source.getByRole('combobox').selectOption(catalog.projects[1].id)
+      await source.getByRole('button', { name: 'Link locations', exact: true }).click()
+      await dialog
+        .getByText(
+          mode === 'pending' ? /Updating project history/ : /Could not update project locations/
+        )
+        .waitFor()
+    }
+  })),
+  {
+    name: 'usage-project-search-collapsed',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:overview', 'usage-history-format')
+      )
+      await openUsagePanel(window, 'Tokens')
+      await window.getByRole('searchbox', { name: 'Search projects', exact: true }).fill('repo-10')
+      await window.getByText('repo-10', { exact: true }).scrollIntoViewIfNeeded()
+    }
+  },
+  {
+    name: 'usage-history-project-search',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
+      )
+      await openUsagePanel(window, 'History')
+      await window
+        .getByRole('searchbox', { name: 'Search project timeline', exact: true })
+        .fill('Internal')
+      await window
+        .getByRole('region', { name: 'Project timeline' })
+        .getByRole('rowheader')
+        .scrollIntoViewIfNeeded()
+    }
+  },
   {
     // The page-global 7d/30d toggle switched to "7 days" — every windowed figure retunes.
     name: 'usage-activity-7-day',

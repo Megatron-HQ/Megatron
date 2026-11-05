@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { UsageProjectCatalog } from '../shared/usage-projects'
 import {
   IPC_CHANNELS,
   type AllowedPathRow,
@@ -59,6 +60,14 @@ const api = {
   uninstallPlugin: (input: PluginActionInput): Promise<PluginActionResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.uninstallPlugin, input),
   getUsageOverview: (): Promise<UsageOverview> => ipcRenderer.invoke(IPC_CHANNELS.usageOverview),
+  getUsageProjects: (): Promise<UsageProjectCatalog> =>
+    ipcRenderer.invoke(IPC_CHANNELS.usageProjects),
+  linkUsageProjects: (input: {
+    sourceId: string
+    targetId: string
+  }): Promise<UsageProjectCatalog> => ipcRenderer.invoke(IPC_CHANNELS.usageLinkProjects, input),
+  unlinkUsageProject: (locationId: string): Promise<UsageProjectCatalog> =>
+    ipcRenderer.invoke(IPC_CHANNELS.usageUnlinkProject, locationId),
   getUsageCalendar: (year: number): Promise<UsageCalendar> =>
     ipcRenderer.invoke(IPC_CHANNELS.usageCalendar, year),
   getUsageDay: (date: string): Promise<UsageDayDetails> =>

@@ -3,6 +3,29 @@ import * as security from './ipc-security'
 import { IPC_CHANNELS, type PluginActionInput, type PluginRow } from '../shared/ipc'
 
 describe('renderer trust boundary', () => {
+  it('accepts project linking by IDs and rejects renderer-supplied paths or incomplete requests', () => {
+    expect(() =>
+      security.validateIpcArguments(IPC_CHANNELS.usageLinkProjects, [
+        { sourceId: 'old', targetId: 'current' }
+      ])
+    ).not.toThrow()
+    expect(() =>
+      security.validateIpcArguments(IPC_CHANNELS.usageUnlinkProject, ['old'])
+    ).not.toThrow()
+    for (const args of [
+      [],
+      [{ sourceId: 'old' }],
+      [{ sourceId: '', targetId: 'current' }],
+      [{ sourceId: 'old', targetId: 'old' }],
+      [{ sourceId: 'old', targetId: 'current', path: 'C:\\arbitrary' }]
+    ]) {
+      expect(() => security.validateIpcArguments(IPC_CHANNELS.usageLinkProjects, args)).toThrow()
+    }
+    expect(() => security.validateIpcArguments(IPC_CHANNELS.usageUnlinkProject, [])).toThrow()
+    expect(() =>
+      security.validateIpcArguments(IPC_CHANNELS.usageProjects, ['C:\\arbitrary'])
+    ).toThrow()
+  })
   it('requires a matching indexed installation with known enablement', () => {
     const input = { name: 'demo', marketplace: 'market', scope: 'user', projectPath: null }
     const plugin = {

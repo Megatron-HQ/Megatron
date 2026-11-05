@@ -28,6 +28,9 @@ export const IPC_CHANNELS = {
   usageOverview: 'usage:overview',
   usageCalendar: 'usage:calendar',
   usageDay: 'usage:day',
+  usageProjects: 'usage:projects',
+  usageLinkProjects: 'usage:projects:link',
+  usageUnlinkProject: 'usage:projects:unlink',
   usageSkillInvocations: 'usage:skillInvocations',
   usageContextBaseline: 'usage:contextBaseline',
   usageRecordedRequest: 'usage:recordedRequest'
@@ -328,12 +331,13 @@ export const APP_SECTIONS = ['skills', 'plugins', 'usage'] as const
 export type AppSection = (typeof APP_SECTIONS)[number]
 
 export interface ActivityProjectCount {
-  project: string // raw cwd string, matches sessions_meta.cwd
+  project: string // raw cwd in reducers; primary project location in Usage IPC
   count: number
 }
 
 // One bar's drill-down, precomputed in the overview payload like CostDay/CostHour.
 export interface ActivityBucketDetails {
+  coverage?: HistoryCoverage
   startAt: string // clipped, inclusive ISO boundary
   endAt: string // clipped ISO boundary
   count: number // prompts, excluding bare slash commands
@@ -353,6 +357,7 @@ export interface ActivityHour extends ActivityBucketDetails {
 }
 
 export interface ActivityWindow {
+  coverage?: HistoryCoverage
   days: 1 | 7 | 30
   activeDays: number
   sessions: number
@@ -390,7 +395,7 @@ export interface CostModelSpend {
 }
 
 export interface CostProjectSpend {
-  project: string // raw cwd path, matches sessions_meta.cwd
+  project: string // raw cwd in reducers; primary project location in Usage IPC
   costUsd: number
 }
 
