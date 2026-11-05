@@ -449,6 +449,54 @@ export const scenarios = [
       await window.getByText(/This project folder is missing/).waitFor()
     }
   },
+  ...['Skills', 'Plugins'].flatMap((section) =>
+    ['pending', 'discovered', 'failed-retry'].map((state) => ({
+      name: `${section.toLowerCase()}-added-folder-${state}`,
+      screen: [section === 'Skills' ? 'skill-inventory' : 'plugin-inventory', 'sidebar'],
+      async run(window, app) {
+        await enableProjectHierarchy(window, app, 'project-tree-pending')
+        if (section === 'Plugins') await openPluginsSection(window)
+        await window.getByRole('button', { name: /Megatron HQ.*6/ }).click()
+        const label = section === 'Skills' ? 'Project' : 'Projects'
+        await window.getByText(`${label} / Megatron HQ ${section}`).waitFor()
+        if (state !== 'pending') {
+          await app.evaluate(({ BrowserWindow }, failed) => {
+            for (const channel of ['folders:list', 'projects:list', 'plugins:list', 'skills:list'])
+              globalThis.megatronVisualFixtures.set(
+                channel,
+                failed ? 'project-tree-unavailable' : 'project-tree'
+              )
+            const contents = BrowserWindow.getAllWindows()[0].webContents
+            contents.send('scan:complete', {
+              id: 9001,
+              summary: {
+                outcome: failed ? 'partial' : 'complete',
+                completedAt: new Date().toISOString(),
+                sources: [{ name: 'scanSkills', status: failed ? 'partial' : 'complete' }]
+              }
+            })
+          }, state === 'failed-retry')
+          if (state === 'failed-retry') {
+            await window.getByText(/This folder could not be refreshed/).waitFor()
+            await app.evaluate(({ BrowserWindow }) => {
+              BrowserWindow.getAllWindows()[0].webContents.send('scan:started', {
+                id: 9002,
+                startedAt: Date.now() - 60_000,
+                isStartup: false,
+                revealMs: 500
+              })
+            })
+          } else {
+            await window.waitForFunction(async () => (await window.api.listProjects()).length > 0)
+          }
+        }
+        await window.getByText(/This folder could not be refreshed/).waitFor({
+          state: state === 'failed-retry' ? 'visible' : 'hidden',
+          timeout: 5_000
+        })
+      }
+    }))
+  ),
   {
     name: 'skills-unreadable-child',
     screen: ['skill-inventory', 'sidebar'],

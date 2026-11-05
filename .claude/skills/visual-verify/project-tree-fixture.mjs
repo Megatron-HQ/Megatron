@@ -59,6 +59,7 @@ function fixtureSkill(name, repository, id) {
 }
 
 export function projectTreeFixture(channel, args, original, mode) {
+  const pending = mode === 'project-tree-pending'
   const unavailable = mode === 'project-tree-unavailable'
   const childUnavailable = mode === 'project-tree-child-unavailable'
   const removed = mode === 'project-tree-live-removed'
@@ -123,7 +124,7 @@ export function projectTreeFixture(channel, args, original, mode) {
         .filter((plugin) => plugin.installs.length > 0)
     : plugins
   if (channel === 'projects:list')
-    return removed ? projects.filter((project) => project.path !== first) : projects
+    return pending ? [] : removed ? projects.filter((project) => project.path !== first) : projects
   if (channel === 'plugins:list') return currentPlugins
   if (channel === 'skills:list')
     return {
@@ -133,6 +134,9 @@ export function projectTreeFixture(channel, args, original, mode) {
         ...skills.filter((skill) => !removed || skill.project_root !== first)
       ],
       scanComplete: true,
+      scanActivity: pending
+        ? { id: 9001, startedAt: Date.now() - 60_000, isStartup: false, revealMs: 500 }
+        : null,
       scanSummary: { outcome: 'complete', completedAt: '2026-10-15T12:00:00.000Z', sources: [] }
     }
   if (channel === 'plugins:detail')

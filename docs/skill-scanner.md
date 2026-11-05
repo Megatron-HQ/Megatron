@@ -19,6 +19,12 @@ evidence that its children were deleted. Unreadable projects retain their cached
 their warnings do not mark readable parents or siblings unavailable. Incomplete discovery preserves
 only cached locations whose traversal was affected, rather than every unrelated old catalog entry.
 
+A granted folder absent from the discovery catalog has an unknown availability until scanning
+establishes its status. Skills and Plugins keep that state quiet in both the inventory and sidebar;
+permission alone never implies a failed refresh. Confirmed unavailable, missing, or access-required
+statuses remain visible during retries and clear when a subsequent scan reports recovery. This
+also covers folders removed and re-added through Project Folders settings.
+
 When the selected project disappears, Skills and Plugins return to the nearest available ancestor
 and close details for removed items. The active section and sidebar interactions are preserved.
 Moves within approved folders are rediscovered at their new paths; this never grants a new location,

@@ -59,6 +59,32 @@ describe('project label resolver', () => {
   })
 })
 describe('project tree', () => {
+  it('does not label a newly granted folder as failed before discovery finishes', () => {
+    const tree = buildProjectTree([grants[0]], [], [])
+
+    expect(tree).toHaveLength(1)
+    expect(tree[0].path).toBe('C:\\HQ')
+    expect(tree[0].status).toBeUndefined()
+    expect(tree[0].count).toBe(0)
+  })
+
+  it('keeps cached counts quiet for covered projects awaiting discovery', () => {
+    const tree = buildProjectTree([grants[0]], [], [{ path: 'C:\\HQ\\first', count: 3 }])
+
+    expect(tree[0].count).toBe(3)
+    expect(tree[0].children[0].count).toBe(3)
+    expect(tree[0].children[0].status).toBeUndefined()
+  })
+
+  it.each(['available', 'unavailable', 'missing', 'needs_access'] as const)(
+    'preserves a confirmed %s result while a later scan is pending',
+    (status) => {
+      const tree = buildProjectTree([grants[0]], [{ ...catalog[0], status }], [])
+
+      expect(tree[0].status).toBe(status)
+    }
+  )
+
   it('keeps an unavailable child warning scoped to that child', () => {
     const tree = buildProjectTree(
       [grants[0]],

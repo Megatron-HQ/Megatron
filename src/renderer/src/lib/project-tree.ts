@@ -9,7 +9,7 @@ export interface ProjectTreeNode {
   count: number
   directCount: number
   kind: ProjectFolder['kind']
-  status: ProjectFolder['status']
+  status: ProjectFolder['status'] | undefined
   children: ProjectTreeNode[]
 }
 
@@ -24,6 +24,24 @@ interface ProjectLabelEntry {
 }
 
 export type ProjectLabelResolver = (path: string) => string
+
+export function createProjectAvailabilityResolver(
+  catalog: ProjectFolder[],
+  grants: AllowedPathRow[]
+): (path: string | undefined) => ProjectFolder['status'] | undefined {
+  const statuses = new Map(
+    catalog.map((project) => [normalizeProjectPath(project.path), project.status])
+  )
+  return (path) => {
+    if (path === undefined) return undefined
+    const confirmed = statuses.get(normalizeProjectPath(path))
+    if (confirmed !== undefined) return confirmed
+    // A grant permits discovery; it does not establish that a scan has failed.
+    return grants.some((grant) => isWithinProjectPath(path, grant.path))
+      ? undefined
+      : 'needs_access'
+  }
+}
 
 export function resolveProjectSelection(
   path: string,
@@ -109,8 +127,9 @@ export function buildProjectTree(
   counts: ProjectCountEntry[]
 ): ProjectTreeNode[] {
   const nodes = new Map<string, ProjectTreeNode>()
+  const availability = createProjectAvailabilityResolver(catalog, grants)
   const grantKeys = new Set(grants.map((grant) => normalizeProjectPath(grant.path)))
-  const insert = (project: ProjectFolder): ProjectTreeNode => {
+  const insert = (project: Pick<ProjectTreeNode, 'path' | 'kind' | 'status'>): ProjectTreeNode => {
     const key = normalizeProjectPath(project.path)
     const node = nodes.get(key) ?? {
       ...project,
@@ -127,13 +146,13 @@ export function buildProjectTree(
     if (project.kind === 'repository' || grantKeys.has(normalizeProjectPath(project.path)))
       insert(project)
   }
-  for (const grant of grants) insert({ path: grant.path, kind: 'folder', status: 'unavailable' })
+  for (const grant of grants)
+    insert({ path: grant.path, kind: 'folder', status: availability(grant.path) })
   for (const entry of counts) {
-    const covered = grants.some((grant) => isWithinProjectPath(entry.path, grant.path))
     const node = insert({
       path: entry.path,
       kind: 'repository',
-      status: covered ? 'unavailable' : 'needs_access'
+      status: availability(entry.path)
     })
     node.directCount += entry.count
   }

@@ -21,6 +21,7 @@ import { createPluginRows, type PluginContext, type PluginFilter } from '@/lib/p
 import { isWithinProjectPath, normalizeProjectPath } from '../../shared/project-path'
 import { matchesFilter, type SourceFilter } from '@/lib/source-filter'
 import {
+  createProjectAvailabilityResolver,
   createProjectLabelResolver,
   projectDisplayLabels,
   resolveProjectSelection
@@ -245,24 +246,10 @@ function App(): React.JSX.Element {
   const skills = useMemo(() => data?.skills ?? [], [data])
   const folders = useMemo(() => foldersData ?? [], [foldersData])
   const projectCatalog = useMemo(() => projectsData ?? [], [projectsData])
-  const projectStatusByPath = useMemo(
-    () =>
-      new Map(
-        projectCatalog.map((project) => [normalizeProjectPath(project.path), project.status])
-      ),
-    [projectCatalog]
+  const projectAvailability = useMemo(
+    () => createProjectAvailabilityResolver(projectCatalog, folders),
+    [projectCatalog, folders]
   )
-  const projectAvailability = (
-    path: string | undefined
-  ): import('../../shared/ipc').ProjectFolder['status'] | undefined => {
-    if (path === undefined) return undefined
-    const status =
-      projectStatusByPath.get(normalizeProjectPath(path)) ??
-      (folders.some((folder) => isWithinProjectPath(path, folder.path))
-        ? 'unavailable'
-        : 'needs_access')
-    return status
-  }
   const plugins = useMemo(() => pluginsData ?? [], [pluginsData])
   const projectLabels = useMemo(
     () =>
