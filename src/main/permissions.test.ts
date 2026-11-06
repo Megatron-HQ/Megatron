@@ -36,6 +36,10 @@ describe('permission-bound filesystem watching', () => {
 
   it('observes nested inventory changes inside an approved root', async () => {
     const root = mkdtempSync(join(tmpdir(), 'megatron-watch-'))
+    const skillDirectory = join(root, 'repo', '.claude', 'skills', 'example')
+    const skillFile = join(skillDirectory, 'SKILL.md')
+    mkdirSync(skillDirectory, { recursive: true })
+    writeFileSync(skillFile, '# Watched skill')
     grantPath(root)
     const changes: (string | null)[] = []
     const errors: Error[] = []
@@ -45,9 +49,17 @@ describe('permission-bound filesystem watching', () => {
       (error) => errors.push(error)
     )
     try {
-      mkdirSync(join(root, 'repo', '.claude', 'skills'), { recursive: true })
-      await vi.waitFor(() => expect(changes.length).toBeGreaterThan(0))
-      expect(errors).toEqual([])
+      let revision = 0
+      // Allow native startup/coalescing delays instead of relying on one immediate mkdir event.
+      // Editing an existing nested file also requires recursive watching to be enabled.
+      await vi.waitFor(
+        () => {
+          writeFileSync(skillFile, `# Watched skill ${++revision}`)
+          expect(errors).toEqual([])
+          expect(changes.length).toBeGreaterThan(0)
+        },
+        { timeout: 5_000, interval: 100 }
+      )
     } finally {
       watcher.close()
       rmSync(root, { recursive: true, force: true })
