@@ -65,6 +65,8 @@ Exceptions: pure type definitions, constants, thin IPC pass-through wiring. `src
 
 Renderer changes are verified by running the app (`npm run dev`) or the `visual-verify` skill — a rendering/regression smoke check, not an assertion suite. Behavioral E2E assertions are **not built** (see `docs/mvp-build-spec.md`, "Deferred, on purpose"); don't claim an automated gate that doesn't exist.
 
+Before each push, complete applicable local verification. After every push, monitor GitHub Actions for the exact pushed commit SHA and wait for **both** `check (macos-latest)` and `check (windows-latest)` to finish successfully. Do not report the commit/push task complete while either job is queued, running, failed, cancelled, or unverified. Investigate failures, fix and revalidate locally, push the correction, and verify both jobs again. Include the final commit SHA and successful CI run link in the completion report. If CI cannot be checked, state that verification is incomplete.
+
 ## Lint hygiene
 
 A pre-existing lint error surfaced during verification gets fixed in the same session, not stepped around — the lint gate stays green. Generated output (`out/`, `dist/`) is excluded from ESLint config, never left to error.
