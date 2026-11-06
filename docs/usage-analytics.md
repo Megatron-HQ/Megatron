@@ -15,7 +15,9 @@ cutoffs still differ from whole-day/year bounds. Archive coverage is shown for A
 and their day/hour details. Removing source files or rebuilding the derived index does not erase
 archived prompts. Cost, Models, and Skills keep their existing metric sources and allocation rules.
 
-Manage projects offers reversible, explicit location linking and non-blocking same-name suggestions.
+The Manage projects interface is deferred: its header button and dialog entry point are removed.
+The retained project catalog and existing location links continue to resolve labels and aggregates;
+manual linking and unlinking are unavailable in the UI until that interaction is revisited.
 Project rankings and the timeline search all rows, including collapsed rows and historical linked
 paths, while shares and timeline intensities remain relative to the complete selected dataset.
 

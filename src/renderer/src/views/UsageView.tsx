@@ -22,7 +22,6 @@ import { formatRelativeTime } from '@/lib/relative-time'
 import { buildModelIdentity } from '@/lib/model-identity'
 import { useUsageProjects } from '@/lib/use-usage-projects'
 import type { ProjectLabelResolver } from '@/lib/project-tree'
-import { ManageUsageProjectsDialog } from '@/components/usage/ManageUsageProjectsDialog'
 import { ActivityDetailsDialog } from '@/components/usage/ActivityDetailsDialog'
 import { ChartBlock } from '@/components/usage/ChartBlock'
 import { StatCells } from '@/components/usage/StatCells'
@@ -92,7 +91,6 @@ export function UsageView({
 }): React.JSX.Element {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const reduceMotion = useReducedMotion() === true
-  const [projectsOpen, setProjectsOpen] = useState(false)
   const projects = useUsageProjects()
 
   const { data, isPending, isFetching, isError, refetch } = useQuery({
@@ -135,13 +133,6 @@ export function UsageView({
           {label}
         </span>
         <div className="flex min-w-0 items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setProjectsOpen(true)}
-            className="shrink-0 rounded-sm text-[11px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            Manage projects
-          </button>
           {/* Resident tax reads Claude Code's /context, not the index, so it never waits on a scan
             and its freshness is its own measurement, not the overview's. */}
           {panel === 'resident-tax' ? (
@@ -198,7 +189,6 @@ export function UsageView({
           )}
         </div>
       </header>
-      <ManageUsageProjectsDialog open={projectsOpen} onOpenChange={setProjectsOpen} />
 
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
         <div className="w-full px-6">

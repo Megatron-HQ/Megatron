@@ -18,8 +18,10 @@ when no repository owns that folder. Separate clones and worktrees remain indepe
 Missing folders and revoked grants retain their Usage identities and links. Current availability
 uses the existing guarded filesystem capability; ungranted locations are never probed. Rediscovery
 at a known location retains its ID. A changed path or matching name alone does not prove a move:
-similar names produce suggestions in Manage projects, and users confirm ambiguous associations,
-including renamed locations with different names. No identifier is written into user repositories.
+similar names alone never combine projects. The Manage projects UI is deferred, so manual linking
+and unlinking are not currently exposed. Existing confirmed links and the persistent registry
+remain intact; no source records or preferences are deleted by removing the entry point.
+No identifier is written into user repositories.
 
 Activity now reads retained prompt multiplicities from `usage-history.db`, sharing History's source
 and coverage ranges. All Usage project aggregates apply the registry at query time, including

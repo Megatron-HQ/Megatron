@@ -5,14 +5,15 @@
 Usage uses one retained project catalog for labels across Activity, History, Tokens, Cost, their
 detail dialogs, and the Usage skill invocation dialog. Names use the primary location's basename,
 adding only enough parent folders to distinguish all retained identities. Confirmed location links
-combine rows and keep every linked root visible in path tooltips and Manage projects. Parent
+combine rows and keep every linked root visible in path tooltips. Parent
 workspace activity remains distinct; each metric/period still determines which projects have rows.
 
-The common Usage header has **Manage projects**, opening a searchable dialog with primary and linked
-locations, availability, possible same-name matches, explicit linking, and unlinking. Inferred
-working-directory ownership is not a user-created link and cannot be undone there. Links affect
-Usage only and confer no filesystem permission. Pending operations disable mutation controls;
-loading, errors, retry, keyboard controls, and dialog dismissal remain explicit.
+**Manage projects is deferred (2026-11-05):** the common Usage header no longer exposes its button
+or mounts the dialog. Manual location linking and unlinking are unavailable in the UI while the
+interaction is reconsidered. The retained project catalog, existing confirmed links, inferred
+working-directory ownership, and project labels continue to work. Links affect Usage only and
+confer no filesystem permission. Time controls, freshness labels, and Resident tax Refresh retain
+their behavior; removing this entry point changes no scanning or Usage data.
 
 Every By project ranking and the Project timeline has a search field and an **8 of 19 projects**
 style count reflecting the visible rows. Search matches labels and all linked root paths, includes
