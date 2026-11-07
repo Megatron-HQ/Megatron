@@ -50,6 +50,24 @@ ranges remain unavailable, and incomplete days are explicitly partial. Deleted h
 the first observation cannot be recovered. The archive accumulates only when Megatron scans;
 closing the app does not run a collector in the background.
 
+### `usage-history.db` is additive-only (decided 2026-11-04)
+
+Shipped builds update in place, so every archive a user has ever written must open under every
+later build. The archive has no migration framework and no downgrade guard; instead its shape only
+grows:
+
+- **Allowed:** new tables; new columns added by a guarded `ALTER TABLE ... ADD COLUMN` that is
+  nullable or has a default, run from `openUsageArchive()` after its `CREATE TABLE IF NOT EXISTS`
+  block. (Adding a column to the `CREATE TABLE` text alone does nothing for an existing file —
+  `IF NOT EXISTS` skips it.) The guarded helper gets written with the first column that needs it.
+- **Forbidden:** renaming or dropping a table or column, changing a column's type or nullability,
+  and changing a primary key or `CHECK`.
+- **Enforced by** `src/main/db/usage-archive.test.ts`, which freezes the shipped DDL as a literal:
+  current code must keep every shipped column unchanged, and a shipped archive must open into the
+  same shape as a fresh one. Never edit that literal to make a test pass.
+- **Revisit trigger:** the first time a forbidden change is genuinely needed, switch to numbered
+  `PRAGMA user_version` migrations for this file — not before.
+
 Owns the SQLite index — driver choice, table shapes, and the plugin-identity decisions the
 schema encodes. `CLAUDE.md` stays authoritative for repo-wide decisions; the decisions below
 are locked here, and this doc is where they are argued.
@@ -78,12 +96,12 @@ paths retain case sensitivity. No schema change or user registry rewrite is requ
 | Plugin identity          | Key on the composite `name@marketplace`, not bare name                                                     | `installed_plugins.json` keys this way; also handles `"version": "unknown"` (non-semver)                                                                                                                                  |
 | Plugin → install         | One-to-**many** (array), with a `scope` field (`user` / `project` / `local`) and the owning `project_path` | `installed_plugins.json` values are arrays, not single objects. See "Plugin install identity" below for why `install_path` alone can't key them                                                                           |
 | Marketplace repo         | Read from `known_marketplaces.json` (separate file), not `installed_plugins.json`                          | This is what makes the plugin-remediation milestone's "Report" deep-link to the marketplace's GitHub repo resolvable — see `docs/mvp-build-spec.md` for milestone numbering                                               |
-| Schema changes           | Delete the local index and let it rebuild — no migration code                                              | The index is 100% derived from `~/.claude/`; nothing in it is user-authored. See "Schema changes: delete, don't migrate" below                                                                                            |
+| Schema changes           | The index rebuilds itself when `schema.sql` changes — no migration code                                    | The index is 100% derived from `~/.claude/`; nothing in it is user-authored (folder grants live in `preferences.json`). See "Schema changes: delete, don't migrate" below                                                 |
 
 ## Index schema
 
 No upfront sketch — each table was added by the milestone that knew its real shape. The core
-four below plus `allowed_paths` (Tier-2 folder grants), `lint_findings` (linter output),
+four below plus `lint_findings` (linter output),
 `prompt_history` (Usage view PR1), and `session_cost` / `session_model_cost` (Usage view PR2),
 each added once its feature needed it. (`resident_context_sample`, PR5's table, was deleted on
 2026-11-03: Resident tax now reads Claude Code's `/context` and keeps nothing in the index — see
@@ -154,11 +172,6 @@ CREATE TABLE IF NOT EXISTS plugin_registry (
   project_path TEXT NOT NULL DEFAULT '',  -- owning project root; '' for user scope
   available_version TEXT,             -- resolved from marketplace cache; NULL if absent
   PRIMARY KEY (name, marketplace, scope, install_path, project_path)
-);
-
-CREATE TABLE IF NOT EXISTS allowed_paths (
-  path TEXT PRIMARY KEY,              -- resolved repository root
-  granted_at TEXT NOT NULL            -- ISO8601
 );
 
 CREATE TABLE IF NOT EXISTS lint_findings (
@@ -242,9 +255,11 @@ model/project breakdowns, preserving terminal-session project ownership. Untimed
 lineage has no usable priced terminal are counted separately in each window and omitted from dollar
 attribution; they do not become General work.
 
-`allowed_paths` is the Tier-2 grant list the folder picker persists to (`folders:list` /
-`folders:pickAndAdd` / `folders:revoke`) — no separate restart-persistence mechanism, the table
-itself is the persistence. `lint_findings` is rebuilt whole on each lint pass —
+Tier-2 folder grants are not in the index. They live under `grantedFolders` in `preferences.json`
+(`src/main/folder-grants.ts`), behind the same `folders:list` / `folders:pickAndAdd` /
+`folders:revoke` channels, so rebuilding the index never costs a re-grant. Entries that aren't an
+absolute path with a timestamp are dropped on read, since each one widens file access.
+`lint_findings` is rebuilt whole on each lint pass —
 `replaceAllLintFindings` (`src/main/db/queries.ts`) deletes every row and bulk-reinserts findings
 for every skill in one transaction, rather than diffing per skill; `skill_id ON DELETE CASCADE`
 separately means a rescan that drops a skill row drops its findings too. See
@@ -386,12 +401,16 @@ transcript re-read. But that re-read is measured at 0.066s per ~80MB of transcri
 runs after the window is shown, never blocking startup — and every row in this index is derived
 from `~/.claude/`, so nothing is lost by deleting the file outright. ~100 lines of the
 highest-risk code in the data layer, buying a sub-second saving nobody has felt yet: not worth it.
-Current policy: whoever changes `schema.sql` runs `npm run db:reset` and relaunches; the startup
-scan (`main/index.ts`) repopulates everything. The one table this doesn't cover is `allowed_paths`
-(Tier-2 folder grants — no scan can rediscover a folder the user picked by hand), which means a
-reset means re-granting. Acceptable while the only two people with a `megatron.db` are the two
-developers; revisit before the first distributed release, where a shipped user can't be told to
-`rm` a file.
+**Automatic rebuild (revised 2026-11-04, for distribution):** a shipped user can't be told to run
+`npm run db:reset`, so `openIndex()` (`src/main/db/schema.ts`) stamps a fingerprint of
+`schema.sql` (sha256, cut to a positive 31-bit int) into `PRAGMA user_version`. On a mismatch it
+deletes `megatron.db` and its `-wal`/`-shm`/`-journal` siblings, recreates the schema, and the
+startup scan (`main/index.ts`) repopulates everything. Any edit to `schema.sql` triggers it,
+comments included — deliberately: a false rebuild costs one sub-second rescan, a missed one ships
+an index that no longer matches the code. Main always opens the index before the scan worker
+does (the worker gets its path from `getDb().name`), so the worker never sees a half-rebuilt file.
+The one table that used to resist this, `allowed_paths`, moved to `preferences.json` (see above),
+which makes the index 100% derived. `npm run db:reset` remains for a clean slate.
 
 **SKILL.md metadata capture (added 2026-08-18)**: `skills` gained four columns beyond the M1
 snippet above — `license` and `metadata_json` (frontmatter `license:` / `metadata:` block,
@@ -474,11 +493,10 @@ two carry a `projectPath`, captured as `project_path`.
   rather than `'unavailable'` (`isPathAllowed()` gates `allowedExistsSync()` as well as the read),
   so `readJson`'s status can't tell "no settings file" apart from "not allowed to look"; the
   permission check is the only honest signal. The scanner refuses to guess and leaves
-  `disabled_reason` NULL, and `listPlugins` reports `installs[].enablement_known` from a
-  `LEFT JOIN allowed_paths ON allowed_paths.path = plugin_registry.project_path`. That's derived
-  at read time rather than stamped at scan time so it can't go stale when a grant changes between
-  scans — `permissions.ts` seeds its in-memory grant set from that same table at startup, so the
-  two always agree. `folders:pickAndAdd` and `folders:revoke` now run `scanPluginRegistry`
+  `disabled_reason` NULL, and `listPlugins` derives `installs[].enablement_known` at read time
+  from `readPluginEnablement()`, which goes through `isPathAllowed()`. It's derived rather than
+  stamped at scan time so it can't go stale when a grant changes between scans; `permissions.ts`
+  seeds its in-memory grant set from the stored grants (`preferences.json`) at startup. `folders:pickAndAdd` and `folders:revoke` now run `scanPluginRegistry`
   alongside `scanSkills` for the same reason: the grant is what makes the settings readable.
 - **Actions run from the install's own project directory.** `claude plugin <verb>` resolves a
   project/local install entirely from its working directory — verified against the real CLI, where

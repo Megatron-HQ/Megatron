@@ -33,8 +33,23 @@ export const IPC_CHANNELS = {
   usageUnlinkProject: 'usage:projects:unlink',
   usageSkillInvocations: 'usage:skillInvocations',
   usageContextBaseline: 'usage:contextBaseline',
-  usageRecordedRequest: 'usage:recordedRequest'
+  usageRecordedRequest: 'usage:recordedRequest',
+  getUpdateState: 'updates:getState',
+  checkForUpdates: 'updates:check',
+  installUpdate: 'updates:install',
+  setAutoUpdateCheck: 'updates:setAutoCheck',
+  openUpdateDownload: 'updates:openDownload',
+  updateState: 'updates:state'
 } as const
+
+export type UpdateStatus =
+  'unsupported' | 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'ready' | 'error'
+
+export interface UpdateState {
+  status: UpdateStatus
+  version: string | null
+  autoCheck: boolean
+}
 
 export interface AllowedPathRow {
   path: string

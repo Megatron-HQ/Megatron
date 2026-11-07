@@ -29,7 +29,7 @@ jobs:
       - run: npm run test
       - run: npm run test:package-security
       - run: npm run build
-      - run: npx electron-builder --dir
+      - run: npx electron-builder --dir --publish never
       - if: runner.os == 'Windows'
         run: npm run verify:package -- dist/win-unpacked
       - if: runner.os == 'macOS'

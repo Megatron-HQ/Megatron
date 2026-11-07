@@ -115,10 +115,9 @@ is required.
 
 Runtime packaging uses a positive allowlist. Electron fuses disable RunAsNode, Node startup and
 inspector injection, and extra file-protocol privileges. ASAR integrity and ASAR-only loading are
-enabled. macOS retains only the JIT entitlement. Windows uses per-user NSIS with elevation disabled.
-The manual release workflow requires platform-specific credentials, timestamped Windows signatures
-with the expected publisher, Developer ID validation, and app/DMG notarization and stapling. It
-creates artifacts without publishing a release.
+enabled. Signed macOS builds retain only the JIT entitlement; ad-hoc release builds add
+`disable-library-validation` (see Release and updates). Windows uses per-user NSIS with elevation
+disabled.
 
 The index contains plaintext prompt excerpts, skill arguments, repository paths and usage metadata.
 Megatron has no automatic upload of the index. Default macOS cache directories/files use modes
@@ -130,12 +129,64 @@ files are protected separately. These permissions do not encrypt data or protect
 the same user. Prompt history mirrors Claude retention; transcript cache rows reconcile after a
 successful authoritative scan. Failed reads can retain older rows until the next successful scan.
 To erase the derived cache, quit Megatron and remove `megatron.db`, `megatron.db-wal` and
-`megatron.db-shm` from the data folder revealed in Settings. No schema migration or real Claude file
-modification is part of this work.
+`megatron.db-shm` from the data folder revealed in Settings; folder grants live in `preferences.json`
+and survive. No schema migration or real Claude file modification is part of this work.
 
 Validation uses failing backend regressions followed by full tests, both type checks, lint,
 build, a lockfile install, and actual Electron checks in temporary profiles. Windows execution
 does not establish macOS packaging correctness; macOS CI and release checks remain required.
+
+## Release and updates (2026-11-04)
+
+**Unsigned by default.** There is no Developer ID or paid Windows signing yet.
+`scripts/release-build.mjs` builds macOS ad-hoc signed (`mac.identity: "-"`, not notarized) and
+Windows unsigned. The Developer ID / Authenticode path (credential validation,
+`forceCodeSigning`, app and DMG notarization, stapling, `trusted`-level verification) runs only
+when the repository variable `MEGATRON_SIGNED_RELEASE` is exactly `true`; any value other than
+`true`, `false` or unset fails the build. The switch is explicit rather than "sign if secrets
+exist" so an expired or deleted secret fails loudly instead of quietly shipping an unsigned
+release. Unsigned builds strip `CSC_*` secrets from the build environment, because electron-builder
+signs Windows whenever `CSC_LINK` is set.
+
+**Ad-hoc entitlements.** `build/entitlements.mac.adhoc.plist` adds `disable-library-validation` to
+`allow-jit`: hardened runtime otherwise refuses Electron's frameworks, which carry Apple's Team ID
+while an ad-hoc app carries none. That relaxes library validation for the unsigned build only;
+signed builds keep `build/entitlements.mac.plist`.
+
+**The Windows `.pfx` path is likely obsolete.** Since June 2023, CAs issue code-signing keys only on
+hardware tokens or cloud HSMs, so a new certificate can't be exported as the `.pfx` that
+`CSC_LINK`/`CSC_KEY_PASSWORD` expect. Turning Windows signing on will need a cloud-signing
+integration (for example SignPath Foundation or Azure Trusted Signing) wired into
+`release-build.mjs`, not just new secrets.
+
+**Release flow.** A `v*` tag must equal `v` + `package.json`'s version (`release-check.mjs tag`).
+CI then creates a **draft** GitHub Release and uploads the DMG, `-mac.zip`, NSIS installer,
+blockmaps and `latest*.yml`. Nothing reaches users until a maintainer publishes the draft.
+
+**Update trust model.** Only the main process talks to the network for updates; the renderer CSP
+(`connect-src 'none'`) is unchanged. electron-updater reads `Megatron-HQ/Megatron`'s releases over
+HTTPS, downloads the artifact named in `latest*.yml`, and checks its sha512. With no code signature,
+nothing beyond that authenticates the publisher: **whoever can publish a release on
+Megatron-HQ/Megatron can ship code to every Windows install**, and to every Mac install through the
+tap. Keep release-capable accounts few and 2FA-protected. The macOS build never installs updates
+itself (Squirrel.Mac requires a Developer ID). Its Download button opens a
+`github.com/Megatron-HQ/Megatron/releases/tag/v<version>` URL that main builds from the updater's
+version, accepting plain semver only; the renderer never supplies the URL.
+
+**What a check discloses.** A check runs 10 s after launch, then every 6 hours, unless turned off
+in Settings; "Check now" always works. Each check is a request to github.com, which sees the IP
+address and which platform's feed (`latest-mac.yml` / `latest.yml`) is fetched; the User-Agent is
+electron-builder's generic `electron-builder`. Downloading an update also reveals the version being
+fetched. No skills, usage data or paths are sent. electron-updater keeps a random staging ID in
+`.updaterId` in the data folder; it is used locally only.
+
+**Homebrew tap.** Publishing a release runs `homebrew-tap.yml`, which hashes the published
+`-mac.zip` and pushes `Casks/megatron.rb` to `Megatron-HQ/homebrew-tap` with `HOMEBREW_TAP_TOKEN`:
+a fine-grained token scoped to Contents read/write on the tap only, stored in the `release`
+environment (deployment rule: tags `v*`). The cask's `postflight_steps` removes
+`com.apple.quarantine` from the installed app so Gatekeeper doesn't block the ad-hoc build;
+installing from the tap is the user's explicit trust decision. Because the token can change what
+Mac users install, rotate it if it is ever exposed.
 
 ## Verification evidence (2026-10-02)
 

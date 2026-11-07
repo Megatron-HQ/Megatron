@@ -35,6 +35,6 @@ local quirk, CI should catch it on a clean install before anyone hits it manuall
 ## CI coverage
 
 CI runs the full `typecheck`/`lint`/`test` suite on both `macos-latest` and `windows-latest`
-(packaging is only configured for macOS so far, unrelated to catching dev-environment breakage). This
+(plus an unpacked `electron-builder --dir` package check; release packaging runs in `release.yml`). This
 exists specifically because the team develops across both platforms — it's the safety net for
 anything platform-specific slipping through.

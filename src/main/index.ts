@@ -15,6 +15,8 @@ import {
 // disk there), not this app's.
 import { version as appVersion } from '../../package.json'
 import Store from 'electron-store'
+// electron-updater is CommonJS; its named exports are lazy getters, so take the default.
+import electronUpdater from 'electron-updater'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 // The .ico, not the PNG, so Windows can pick the hand-tuned no-sparkle art at 16/24 px.
@@ -32,8 +34,9 @@ import {
 import type { UsageProjectLocation } from '../shared/usage-projects'
 import { createScanSession, type ScanUrgency } from './scan-session'
 import { disableChromiumHttpCache } from './chromium-cache'
+import { addAllowedPath, listAllowedPaths, removeAllowedPath } from './folder-grants'
+import { createUpdater, type Updates } from './updater'
 import {
-  addAllowedPath,
   deleteSkillsForProjectRoot,
   getContextBudget,
   getLintFindingsForSkill,
@@ -42,10 +45,8 @@ import {
   getSkillInvocationLog,
   getSkillInvocationSlice,
   getSkillUsageDetail,
-  listAllowedPaths,
   listPlugins,
-  listSkills,
-  removeAllowedPath
+  listSkills
 } from './db/queries'
 import {
   getGrantedPaths,
@@ -126,6 +127,7 @@ let usageComplete = false
 let scanSummary: ScanSummary | undefined
 const scanSession = createScanSession()
 let lastScanFinished: ScanFinished | null = null
+let updates: Updates | null = null
 const trustedWindows = new Map<Electron.WebContents, string>()
 let inventoryWatcher: ReturnType<typeof createInventoryWatcher> | undefined
 
@@ -307,6 +309,7 @@ function createWindow(): void {
     } else if (lastScanFinished) {
       mainWindow.webContents.send(IPC_CHANNELS.scanComplete, lastScanFinished)
     }
+    if (updates) mainWindow.webContents.send(IPC_CHANNELS.updateState, updates.getState())
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -346,7 +349,9 @@ app.whenReady().then(() => {
     return new Response(response.body, { status: response.status, headers })
   })
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron')
+  // Must match electron-builder's appId, which the NSIS installer stamps on the Start menu
+  // shortcut; a mismatch splits taskbar pinning and notifications from the installed app.
+  electronApp.setAppUserModelId('com.megatron.app')
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
@@ -405,7 +410,7 @@ app.whenReady().then(() => {
   })
 
   secureIpc.handle(IPC_CHANNELS.listAllowedPaths, () => {
-    return listAllowedPaths(getDb())
+    return listAllowedPaths(themeStore)
   })
   secureIpc.handle(IPC_CHANNELS.listProjects, () =>
     sanitizeProjectFolders(themeStore.get('projectFolders')).filter((project) =>
@@ -423,19 +428,18 @@ app.whenReady().then(() => {
       ? await dialog.showOpenDialog(window, options)
       : await dialog.showOpenDialog(options)
     if (result.canceled || result.filePaths.length === 0) {
-      return listAllowedPaths(getDb())
+      return listAllowedPaths(themeStore)
     }
-    const db = getDb()
     await scans.cancel()
     try {
       for (const filePath of result.filePaths) {
-        addAllowedPath(db, grantPath(filePath))
+        addAllowedPath(themeStore, grantPath(filePath))
       }
     } finally {
       inventoryWatcher?.update()
       void scanAndNotify()
     }
-    return listAllowedPaths(db)
+    return listAllowedPaths(themeStore)
   })
 
   secureIpc.handle(IPC_CHANNELS.revokeAllowedPath, async (_event, path: string) => {
@@ -443,13 +447,13 @@ app.whenReady().then(() => {
     await scans.cancel()
     try {
       revokePath(path)
-      removeAllowedPath(db, path)
+      removeAllowedPath(themeStore, path)
       deleteSkillsForProjectRoot(db, path, isPathAllowed)
     } finally {
       inventoryWatcher?.update()
       void scanAndNotify()
     }
-    return listAllowedPaths(db)
+    return listAllowedPaths(themeStore)
   })
 
   secureIpc.handle(IPC_CHANNELS.openExternal, (_event, url: string) => {
@@ -563,10 +567,35 @@ app.whenReady().then(() => {
     event.returnValue = appVersion
   })
 
+  const updateService = createUpdater({
+    updater: electronUpdater.autoUpdater,
+    platform: process.platform,
+    isPackaged: app.isPackaged,
+    store: themeStore,
+    broadcast: (state) => {
+      for (const window of BrowserWindow.getAllWindows())
+        window.webContents.send(IPC_CHANNELS.updateState, state)
+    },
+    openExternal: (url) => {
+      openSafeExternal(url, (safeUrl) => {
+        void shell.openExternal(safeUrl)
+      })
+    }
+  })
+  updates = updateService
+  secureIpc.handle(IPC_CHANNELS.getUpdateState, () => updateService.getState())
+  secureIpc.handle(IPC_CHANNELS.checkForUpdates, () => updateService.check())
+  secureIpc.handle(IPC_CHANNELS.installUpdate, () => updateService.install())
+  secureIpc.handle(IPC_CHANNELS.setAutoUpdateCheck, (_event, enabled: boolean) =>
+    updateService.setAutoCheck(enabled)
+  )
+  secureIpc.handle(IPC_CHANNELS.openUpdateDownload, () => updateService.openDownload())
+
   createWindow()
+  updateService.start()
 
   setImmediate(() => {
-    const allowed = listAllowedPaths(getDb())
+    const allowed = listAllowedPaths(themeStore)
     for (const row of allowed) {
       restoreGrantedPath(row.path)
     }

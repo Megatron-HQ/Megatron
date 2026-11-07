@@ -55,6 +55,9 @@ globalThis.megatronVisualFixtures = {
         return new Promise(() => {})
       }
       if (mode === 'empty-folders') return []
+      // Dev builds are always 'unsupported'; this is the only way to render the update states.
+      if (channel === 'updates:getState' && mode.startsWith('update-'))
+        return { status: mode.slice('update-'.length), version: '0.1.1', autoCheck: true }
       // Before `original`: the real handler would spawn the Claude Code CLI.
       if (mode.startsWith('context-baseline')) return contextBaselineFixture(mode)
       const fixtureProjectRescan = channel === 'app:rescan' && PROJECT_SCAN_MODES.includes(mode)

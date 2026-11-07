@@ -1,0 +1,46 @@
+name: Homebrew tap
+
+# Publishing a release (by hand, from the draft release.yml made) writes its cask to
+# Megatron-HQ/homebrew-tap, so `brew upgrade --cask megatron` picks it up.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  cask:
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    # HOMEBREW_TAP_TOKEN lives here: a fine-grained token with Contents read/write on the tap only.
+    environment: release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Render the cask from the published zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="${TAG#v}"
+          zip="megatron-${version}-mac.zip"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$zip" --dir "$RUNNER_TEMP"
+          sha256=$(sha256sum "$RUNNER_TEMP/$zip" | cut -d' ' -f1)
+          sed -e "s/@VERSION@/${version}/" -e "s/@SHA256@/${sha256}/" \
+            .github/homebrew/megatron.rb > "$RUNNER_TEMP/megatron.rb"
+      - name: Push the cask to Megatron-HQ/homebrew-tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        # A plain clone, not actions/checkout: the tap starts empty and the first push creates main.
+        run: |
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/Megatron-HQ/homebrew-tap.git" "$RUNNER_TEMP/tap"
+          cd "$RUNNER_TEMP/tap"
+          mkdir -p Casks
+          cp "$RUNNER_TEMP/megatron.rb" Casks/megatron.rb
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Casks/megatron.rb
+          if git diff --cached --quiet; then echo 'Cask already current'; exit 0; fi
+          git commit -m "megatron ${TAG#v}"
+          git push origin HEAD:main

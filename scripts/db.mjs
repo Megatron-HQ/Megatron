@@ -27,7 +27,7 @@ function reset() {
     rmSync(dbPath + suffix, { force: true })
   }
   console.log(`Deleted ${dbPath} — relaunch the app to rebuild the index.`)
-  console.log('Tier-2 folder grants (allowed_paths) are gone too; re-grant them in the app.')
+  console.log('Folder grants live in preferences.json and are kept.')
 }
 
 function open() {

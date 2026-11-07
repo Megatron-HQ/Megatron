@@ -142,7 +142,8 @@ main-session rows). `applySchema` rebuilds legacy `skill_invocations` safely whe
 `trigger_type` CHECK doesn't admit all three values, preserving existing rows; its session-cache
 migrations also add `source_size_bytes` and `transcript_parser_version` for pre-existing local
 indexes. Consistent with `docs/data-model.md`'s "delete, don't migrate" policy — the standard
-move for a schema change here is `npm run db:reset` + relaunch, not an in-place migration.
+move for a schema change here is editing `schema.sql`; the index rebuilds itself on the next launch,
+with no in-place migration.
 
 ## Not in scope
 

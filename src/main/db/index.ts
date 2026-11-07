@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { join } from 'path'
-import Database from 'better-sqlite3'
-import { applySchema } from './schema'
+import type Database from 'better-sqlite3'
+import { openIndex } from './schema'
 import { securePrivateDataDirectory } from '../permissions'
 import { openUsageArchive, USAGE_ARCHIVE_FILENAME } from './usage-archive'
 
@@ -22,9 +22,7 @@ export function getUsageArchive(): Database.Database {
 export function getDb(): Database.Database {
   if (!db) {
     securePrivateDataDirectory(app.getPath('userData'), join(app.getPath('appData'), app.getName()))
-    db = new Database(join(app.getPath('userData'), 'megatron.db'))
-    db.pragma('journal_mode = WAL')
-    applySchema(db)
+    db = openIndex(join(app.getPath('userData'), 'megatron.db'))
     securePrivateDataDirectory(app.getPath('userData'), join(app.getPath('appData'), app.getName()))
   }
   return db

@@ -1,25 +1,53 @@
-name: Signed release build
+name: Release
 
+# Pushing a v* tag builds both platforms into a DRAFT GitHub Release. Nothing reaches users until
+# someone reviews the draft and clicks Publish, which also triggers homebrew-tap.yml.
 on:
-  workflow_dispatch:
+  push:
+    tags: ['v*']
 
 permissions:
   contents: read
 
 jobs:
+  draft:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Require the tag to match package.json
+        run: node scripts/release-check.mjs tag "$GITHUB_REF_NAME"
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Skipped on a re-run, so retrying a failed platform reuses the same draft.
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --draft --generate-notes --title "Megatron $GITHUB_REF_NAME"
+
   package:
+    needs: draft
     environment: release
+    permissions:
+      contents: write
     strategy:
       matrix:
         include:
           - os: macos-latest
+            platform: mac
             signing_certificate: MAC_CSC_LINK
             signing_password: MAC_CSC_KEY_PASSWORD
           - os: windows-latest
+            platform: win
             signing_certificate: WINDOWS_CSC_LINK
             signing_password: WINDOWS_CSC_KEY_PASSWORD
     runs-on: ${{ matrix.os }}
     env:
+      # One value drives both the build and the staple step. Unset or 'false' builds unsigned;
+      # anything other than 'true'/'false' fails the build (scripts/release-build.mjs).
+      MEGATRON_SIGNED_RELEASE: ${{ vars.MEGATRON_SIGNED_RELEASE }}
       CSC_LINK: ${{ secrets[matrix.signing_certificate] }}
       CSC_KEY_PASSWORD: ${{ secrets[matrix.signing_password] }}
       APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -32,17 +60,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Require signing credentials
-        shell: pwsh
-        run: |
-          $required = @('CSC_LINK', 'CSC_KEY_PASSWORD')
-          if ($IsMacOS) { $required += @('APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID') }
-          else { $required += @('MEGATRON_WINDOWS_PUBLISHER') }
-          foreach ($name in $required) {
-            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
-              throw "Missing release setting: $name"
-            }
-          }
       - run: npm ci
       - run: npm run audit:deps
       - run: node .githooks/pre-commit --check
@@ -50,16 +67,10 @@ jobs:
       - run: npm test
       - run: npm run test:package-security
       - run: npm run build
-      - if: runner.os == 'Windows'
-        run: npx electron-builder --win --publish never -c.forceCodeSigning=true
-      - if: runner.os == 'macOS'
-        run: npx electron-builder --mac dmg --publish never -c.forceCodeSigning=true
-      - if: runner.os == 'Windows'
-        run: npm run verify:package -- dist/win-unpacked --require-signed
-      - if: runner.os == 'macOS'
-        run: npm run verify:package -- dist --require-signed
+      # Validates signing credentials first when the switch is on, then packages and verifies.
+      - run: node scripts/release-build.mjs ${{ matrix.platform }}
       - name: Staple and validate the DMG
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && env.MEGATRON_SIGNED_RELEASE == 'true'
         shell: pwsh
         run: |
           $images = Get-ChildItem -LiteralPath dist -Filter '*.dmg'
@@ -74,10 +85,14 @@ jobs:
             & /usr/bin/xcrun stapler validate $image.FullName
             if ($LASTEXITCODE -ne 0) { throw 'DMG staple validation failed' }
           }
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: signed-${{ runner.os }}
-          path: |
-            dist/*.exe
-            dist/*.dmg
-          if-no-files-found: error
+      # After stapling, so a signed DMG is uploaded in its final form. latest*.yml is the update
+      # feed electron-updater reads; the blockmaps enable differential downloads on Windows.
+      - name: Upload to the draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          files=(dist/*.dmg dist/*.zip dist/*.exe dist/*.blockmap dist/latest*.yml)
+          if [ ${#files[@]} -eq 0 ]; then echo 'No release artifacts in dist/'; exit 1; fi
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber

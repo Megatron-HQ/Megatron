@@ -2,6 +2,7 @@ import type Store from 'electron-store'
 import type { UsageProjectLocation } from '../shared/usage-projects'
 import {
   APP_SECTIONS,
+  type AllowedPathRow,
   type AppSection,
   type ProjectFolder,
   type ThemePreference
@@ -12,6 +13,8 @@ export type ThemeStore = Store<{
   lastSection?: AppSection
   projectFolders?: ProjectFolder[]
   usageProjects?: UsageProjectLocation[]
+  grantedFolders?: AllowedPathRow[]
+  autoUpdateCheck?: boolean
 }>
 
 export function getStoredTheme(store: ThemeStore): ThemePreference | undefined {

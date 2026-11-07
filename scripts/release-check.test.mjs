@@ -1,6 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { validateReleaseEnvironment } from './release-check.mjs'
+import { validateReleaseEnvironment, validateReleaseTag } from './release-check.mjs'
+
+test('accepts only a tag that names the version being packaged', () => {
+  assert.doesNotThrow(() => validateReleaseTag('v0.1.0', '0.1.0'))
+  assert.doesNotThrow(() => validateReleaseTag('v0.2.0-beta.1', '0.2.0-beta.1'))
+  for (const tag of ['0.1.0', 'v0.1.1', 'v0.1', 'release-0.1.0', '', undefined])
+    assert.throws(() => validateReleaseTag(tag, '0.1.0'), /tag/)
+})
 
 test('fails before packaging when a required signing setting is missing', () => {
   assert.throws(() => validateReleaseEnvironment('win', {}), /CSC_LINK/)

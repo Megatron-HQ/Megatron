@@ -24,7 +24,8 @@ import {
   type UsageCalendar,
   type UsageDayDetails,
   type ContextBaselineResult,
-  type RecordedRequest
+  type RecordedRequest,
+  type UpdateState
 } from '../shared/ipc'
 
 // Custom APIs for renderer
@@ -84,6 +85,12 @@ const api = {
   rescan: (): Promise<ScanSummary> => ipcRenderer.invoke(IPC_CHANNELS.rescan),
   revealDataFolder: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.revealDataFolder),
   getVersion: (): string => ipcRenderer.sendSync(IPC_CHANNELS.getVersion),
+  getUpdateState: (): Promise<UpdateState> => ipcRenderer.invoke(IPC_CHANNELS.getUpdateState),
+  checkForUpdates: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.checkForUpdates),
+  installUpdate: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.installUpdate),
+  setAutoUpdateCheck: (enabled: boolean): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.setAutoUpdateCheck, enabled),
+  openUpdateDownload: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.openUpdateDownload),
   onPluginUpdateProgress: (callback: (progress: PluginUpdateProgress) => void): (() => void) => {
     const listener = (_event: unknown, progress: PluginUpdateProgress): void => callback(progress)
     ipcRenderer.on(IPC_CHANNELS.pluginUpdateProgress, listener)
@@ -103,6 +110,11 @@ const api = {
     const listener = (_event: unknown, progress: ScanProgress): void => callback(progress)
     ipcRenderer.on(IPC_CHANNELS.scanProgress, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.scanProgress, listener)
+  },
+  onUpdateState: (callback: (state: UpdateState) => void): (() => void) => {
+    const listener = (_event: unknown, state: UpdateState): void => callback(state)
+    ipcRenderer.on(IPC_CHANNELS.updateState, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.updateState, listener)
   }
 }
 

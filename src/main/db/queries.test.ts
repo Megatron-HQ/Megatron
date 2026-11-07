@@ -10,7 +10,6 @@ import { grantPath, isPathAllowed, resetGrantedPaths } from '../permissions'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { applySchema } from './schema'
 import {
-  addAllowedPath,
   deleteSkillsForProjectRoot,
   getActivityStats,
   getContextBudget,
@@ -23,10 +22,8 @@ import {
   getSkillStats,
   getSkillUsageDetail,
   insertLintFindings,
-  listAllowedPaths,
   listPlugins,
   listSkills,
-  removeAllowedPath,
   writeSkillScan,
   writeSkillScanAuthoritative
 } from './queries'
@@ -578,60 +575,6 @@ describe('writeSkillScan', () => {
     writeSkillScan(db, 'global', [], ['/roots/global'])
 
     expect(allSkills()).toHaveLength(0)
-  })
-})
-
-describe('listAllowedPaths', () => {
-  it('returns an empty array when no paths are allowed', () => {
-    expect(listAllowedPaths(db)).toEqual([])
-  })
-
-  it('returns allowed paths with path and granted_at', () => {
-    const now = new Date().toISOString()
-    const p = resolve('/path/to/repo')
-    db.prepare('INSERT INTO allowed_paths (path, granted_at) VALUES (?, ?)').run(p, now)
-
-    const rows = listAllowedPaths(db)
-    expect(rows).toEqual([{ path: p, granted_at: now }])
-  })
-})
-
-describe('addAllowedPath', () => {
-  it('inserts a new path with an ISO8601 timestamp', () => {
-    const p = resolve('/path/to/repo')
-    addAllowedPath(db, p)
-    const rows = listAllowedPaths(db)
-    expect(rows).toHaveLength(1)
-    expect(rows[0].path).toBe(p)
-    expect(new Date(rows[0].granted_at).toISOString()).toBe(rows[0].granted_at)
-  })
-
-  it('is idempotent on conflict', () => {
-    const p = resolve('/path/to/repo')
-    addAllowedPath(db, p)
-    expect(() => addAllowedPath(db, p)).not.toThrow()
-    expect(listAllowedPaths(db)).toHaveLength(1)
-  })
-})
-
-describe('removeAllowedPath', () => {
-  it('deletes a path from allowed_paths', () => {
-    const pA = resolve('/path/to/repo-a')
-    const pB = resolve('/path/to/repo-b')
-    addAllowedPath(db, pA)
-    addAllowedPath(db, pB)
-
-    removeAllowedPath(db, pA)
-    const paths = listAllowedPaths(db).map((r) => r.path)
-    expect(paths).toEqual([pB])
-  })
-
-  it('no-ops when removing a path not in allowed_paths', () => {
-    const pA = resolve('/path/to/repo-a')
-    const pB = resolve('/path/to/repo-b')
-    addAllowedPath(db, pA)
-    expect(() => removeAllowedPath(db, pB)).not.toThrow()
-    expect(listAllowedPaths(db)).toHaveLength(1)
   })
 })
 
@@ -1638,7 +1581,6 @@ describe('listPlugins', () => {
     try {
       const projectRoot = join(parent, 'child')
       mkdirSync(projectRoot)
-      addAllowedPath(db, parent)
       grantPath(parent)
       insertPluginRegistry({
         name: 'demo',
@@ -1850,7 +1792,6 @@ describe('listPlugins', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'megatron-project-grant-'))
     try {
       grantPath(projectRoot)
-      addAllowedPath(db, projectRoot)
       insertPluginRegistry({
         name: 'plugin-a',
         marketplace: 'market-1',
@@ -1901,7 +1842,6 @@ describe('listPlugins', () => {
   it('reports a granted project install whose folder is gone as missing, not as ungranted', () => {
     const projectRoot = join(tmpdir(), 'megatron-missing-plugin-project')
     grantPath(projectRoot)
-    addAllowedPath(db, projectRoot)
     insertPluginRegistry({
       name: 'plugin-a',
       marketplace: 'market-1',

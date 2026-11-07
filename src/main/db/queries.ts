@@ -8,7 +8,6 @@ import type {
   ActivityBucketDetails,
   ActivityStats,
   ActivityWindow,
-  AllowedPathRow,
   ContextBudget,
   LintFindingRow,
   LintSeverity,
@@ -338,29 +337,6 @@ export function writeSkillScan(
   writeSkillRows(db, sourceType, rows, (existingPaths) =>
     existingPaths.filter((path) => rootDirSet.has(dirname(path)) && !seenPaths.has(path))
   )
-}
-
-export function listAllowedPaths(db: Database.Database): AllowedPathRow[] {
-  return db
-    .prepare('SELECT path, granted_at FROM allowed_paths ORDER BY granted_at ASC')
-    .all() as AllowedPathRow[]
-}
-
-export function addAllowedPath(db: Database.Database, path: string): void {
-  const resolved = resolve(path)
-  const now = new Date().toISOString()
-  db.prepare(
-    `
-    INSERT INTO allowed_paths (path, granted_at)
-    VALUES (?, ?)
-    ON CONFLICT(path) DO UPDATE SET granted_at = excluded.granted_at
-  `
-  ).run(resolved, now)
-}
-
-export function removeAllowedPath(db: Database.Database, path: string): void {
-  const resolved = resolve(path)
-  db.prepare('DELETE FROM allowed_paths WHERE path = ?').run(resolved)
 }
 
 export function deleteSkillsForProjectRoot(

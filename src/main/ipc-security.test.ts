@@ -79,6 +79,16 @@ describe('renderer trust boundary', () => {
     expect(() => security.validateIpcArguments(channel, args)).not.toThrow()
   })
   it.each([
+    [IPC_CHANNELS.setAutoUpdateCheck, [true]],
+    [IPC_CHANNELS.setAutoUpdateCheck, [false]],
+    [IPC_CHANNELS.getUpdateState, []],
+    [IPC_CHANNELS.checkForUpdates, []],
+    [IPC_CHANNELS.installUpdate, []],
+    [IPC_CHANNELS.openUpdateDownload, []]
+  ])('accepts valid update requests for %s', (channel, args) => {
+    expect(() => security.validateIpcArguments(channel, args)).not.toThrow()
+  })
+  it.each([
     [IPC_CHANNELS.usageCalendar, ['2026']],
     [IPC_CHANNELS.usageCalendar, [10000]],
     [IPC_CHANNELS.usageCalendar, [2026, 'extra']],
@@ -97,7 +107,13 @@ describe('renderer trust boundary', () => {
     [IPC_CHANNELS.listSkills, ['unexpected']],
     // These two spawn the CLI and read transcripts; their cwd and paths are fixed in main.
     [IPC_CHANNELS.usageContextBaseline, ['/tmp']],
-    [IPC_CHANNELS.usageRecordedRequest, ['/etc']]
+    [IPC_CHANNELS.usageRecordedRequest, ['/etc']],
+    [IPC_CHANNELS.setAutoUpdateCheck, []],
+    [IPC_CHANNELS.setAutoUpdateCheck, ['true']],
+    [IPC_CHANNELS.setAutoUpdateCheck, [1]],
+    [IPC_CHANNELS.setAutoUpdateCheck, [true, false]],
+    // The release URL is built in main from the updater's version; the renderer never supplies one.
+    [IPC_CHANNELS.openUpdateDownload, ['https://evil.example/']]
   ])('rejects malformed arguments for %s', (channel, args) => {
     expect(() => security.validateIpcArguments(channel, args)).toThrow()
   })

@@ -138,6 +138,21 @@ function App(): React.JSX.Element {
     queryFn: () => window.api.listPlugins()
   })
 
+  const { data: updateState } = useQuery({
+    queryKey: ['updates'],
+    queryFn: () => window.api.getUpdateState()
+  })
+  useEffect(
+    () => window.api.onUpdateState((state) => queryClient.setQueryData(['updates'], state)),
+    [queryClient]
+  )
+  const updateNotice =
+    updateState?.status === 'ready'
+      ? 'Update ready'
+      : updateState?.status === 'available'
+        ? 'Update available'
+        : null
+
   useEffect(
     () =>
       window.api.onScanComplete(({ summary }) => {
@@ -455,6 +470,7 @@ function App(): React.JSX.Element {
             section={section}
             onSectionChange={handleSectionChange}
             onOpenSettings={() => setSettingsOpen(true)}
+            updateNotice={updateNotice}
           />
           {section === 'skills' ? (
             <>
@@ -628,6 +644,7 @@ function App(): React.JSX.Element {
           setSettingsOpen(false)
           setFoldersDialogOpen(true)
         }}
+        updateState={updateState}
       />
       <ManageFoldersDialog
         open={foldersDialogOpen}

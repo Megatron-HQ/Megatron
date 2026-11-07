@@ -4,7 +4,8 @@ import { tmpdir } from 'os'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { applySchema } from './db/schema'
 import { openUsageArchive } from './db/usage-archive'
-import { addAllowedPath, listAllowedPaths } from './db/queries'
+import { addAllowedPath, listAllowedPaths } from './folder-grants'
+import type { ThemeStore } from './theme'
 import { grantPath, isPathAllowed, resetGrantedPaths } from './permissions'
 import { IPC_CHANNELS, type ScanSummary } from '../shared/ipc'
 
@@ -25,7 +26,9 @@ const runtime = vi.hoisted(() => ({
   failProjectCatalogSave: false,
   startupUsageReady: [] as boolean[],
   database: undefined as Database.Database | undefined,
-  archive: undefined as Database.Database | undefined
+  archive: undefined as Database.Database | undefined,
+  stores: [] as unknown[],
+  failGrantWrites: false
 }))
 
 vi.mock('electron', () => {
@@ -70,14 +73,24 @@ vi.mock('electron', () => {
 vi.mock('electron-store', () => ({
   default: class {
     values = new Map()
+    constructor() {
+      runtime.stores.push(this)
+    }
     get(key: string): unknown {
       return this.values.get(key)
     }
     set(key: string, value: unknown): void {
+      if (key === 'grantedFolders' && runtime.failGrantWrites)
+        throw new Error('Fixture: grant could not be saved')
       if (key === 'projectFolders' && runtime.failProjectCatalogSave)
         throw new Error('Catalog could not be saved')
       this.values.set(key, value)
     }
+  }
+}))
+vi.mock('electron-updater', () => ({
+  default: {
+    autoUpdater: { on: vi.fn(), checkForUpdates: vi.fn(), quitAndInstall: vi.fn() }
   }
 }))
 vi.mock('@electron-toolkit/utils', () => ({
@@ -111,6 +124,7 @@ const summary: ScanSummary = {
   sources: []
 }
 const folder = resolve(tmpdir(), 'megatron-folder-access-test')
+const preferences = (): ThemeStore => runtime.stores[0] as ThemeStore
 const event = { sender: runtime.contents, senderFrame: runtime.contents.mainFrame }
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
@@ -158,7 +172,7 @@ beforeEach(() => {
     result: Promise.resolve(summary),
     cancel: async () => undefined
   }))
-  runtime.database!.prepare('DELETE FROM allowed_paths').run()
+  preferences().set('grantedFolders', [])
   resetGrantedPaths()
   runtime.contents.send.mockClear()
   runtime.pickFolders.mockReset()
@@ -217,11 +231,8 @@ describe('folder access IPC', () => {
         cancel: async () => interrupt(new Error('Scan cancelled after folder permissions changed'))
       })
       .mockReturnValueOnce({ result: replacement.promise, cancel: async () => undefined })
-    addAllowedPath(runtime.database!, grantPath(folder))
-    runtime.database!.exec(`
-      CREATE TRIGGER fail_grant BEFORE INSERT ON allowed_paths
-      BEGIN SELECT RAISE(ABORT, 'Fixture: grant could not be saved'); END;
-    `)
+    addAllowedPath(preferences(), grantPath(folder))
+    runtime.failGrantWrites = true
     runtime.pickFolders.mockResolvedValueOnce({ canceled: false, filePaths: [folder] })
     let completed = false
     const scanning = invoke(IPC_CHANNELS.rescan).then(() => (completed = true))
@@ -231,9 +242,9 @@ describe('folder access IPC', () => {
       )
       replacement.resolve(summary)
       await vi.waitFor(() => expect(completed).toBe(true), { timeout: 500 })
-      expect(listAllowedPaths(runtime.database!)).toHaveLength(1)
+      expect(listAllowedPaths(preferences())).toHaveLength(1)
     } finally {
-      runtime.database!.exec('DROP TRIGGER fail_grant')
+      runtime.failGrantWrites = false
       replacement.resolve(summary)
       await invoke(IPC_CHANNELS.rescan)
       await scanning
@@ -254,7 +265,7 @@ describe('folder access IPC', () => {
             interrupt(new Error('Scan cancelled after folder permissions changed'))
         })
         .mockReturnValueOnce({ result: replacement.promise, cancel: async () => undefined })
-      addAllowedPath(runtime.database!, grantPath(folder))
+      addAllowedPath(preferences(), grantPath(folder))
       runtime.pickFolders.mockResolvedValueOnce({ canceled: false, filePaths: [folder] })
       const scanning = invoke(IPC_CHANNELS.rescan)
       try {
@@ -292,7 +303,7 @@ describe('folder access IPC', () => {
   it('returns a persisted revocation before the replacement scan completes', async () => {
     const scan = deferred<ScanSummary>()
     runtime.startWorker.mockReturnValueOnce({ result: scan.promise, cancel: async () => undefined })
-    addAllowedPath(runtime.database!, grantPath(folder))
+    addAllowedPath(preferences(), grantPath(folder))
     let result: unknown
     const operation = invoke(IPC_CHANNELS.revokeAllowedPath, folder).then(
       (value) => (result = value)
@@ -300,7 +311,7 @@ describe('folder access IPC', () => {
     try {
       await vi.waitFor(() => expect(result).toEqual([]), { timeout: 500 })
       expect(isPathAllowed(join(folder, 'SKILL.md'))).toBe(false)
-      expect(listAllowedPaths(runtime.database!)).toEqual([])
+      expect(listAllowedPaths(preferences())).toEqual([])
       expect(
         runtime.contents.send.mock.calls.some(([channel]) => channel === 'scan:complete')
       ).toBe(false)
@@ -345,16 +356,16 @@ describe('folder access IPC', () => {
         oldScan.resolve(summary)
       }
     })
-    addAllowedPath(runtime.database!, grantPath(folder))
+    addAllowedPath(preferences(), grantPath(folder))
     const scanning = invoke(IPC_CHANNELS.rescan)
     const revoking = invoke(IPC_CHANNELS.revokeAllowedPath, folder)
     await Promise.resolve()
     expect(isPathAllowed(folder)).toBe(true)
-    expect(listAllowedPaths(runtime.database!)).toHaveLength(1)
+    expect(listAllowedPaths(preferences())).toHaveLength(1)
     stopped.resolve()
     await Promise.all([scanning, revoking])
     expect(isPathAllowed(folder)).toBe(false)
-    expect(listAllowedPaths(runtime.database!)).toEqual([])
+    expect(listAllowedPaths(preferences())).toEqual([])
   })
 
   it('keeps access intact if the old worker cannot be stopped', async () => {
@@ -365,14 +376,14 @@ describe('folder access IPC', () => {
         throw new Error('Worker termination failed')
       }
     })
-    addAllowedPath(runtime.database!, grantPath(folder))
+    addAllowedPath(preferences(), grantPath(folder))
     const scanning = invoke(IPC_CHANNELS.rescan)
     try {
       await expect(invoke(IPC_CHANNELS.revokeAllowedPath, folder)).rejects.toThrow(
         'Worker termination failed'
       )
       expect(isPathAllowed(folder)).toBe(true)
-      expect(listAllowedPaths(runtime.database!)).toHaveLength(1)
+      expect(listAllowedPaths(preferences())).toHaveLength(1)
     } finally {
       scan.resolve(summary)
       await scanning
@@ -384,10 +395,10 @@ describe('folder access IPC', () => {
     const failedScan = new Promise<ScanSummary>((_resolve, reject) => (fail = reject))
     const reportError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     runtime.startWorker.mockReturnValueOnce({ result: failedScan, cancel: async () => undefined })
-    addAllowedPath(runtime.database!, grantPath(folder))
+    addAllowedPath(preferences(), grantPath(folder))
     const operation = invoke(IPC_CHANNELS.revokeAllowedPath, folder)
     try {
-      await vi.waitFor(() => expect(listAllowedPaths(runtime.database!)).toEqual([]))
+      await vi.waitFor(() => expect(listAllowedPaths(preferences())).toEqual([]))
       fail(new Error('Unreadable inventory'))
       await expect(operation).resolves.toEqual([])
       await vi.waitFor(() =>
