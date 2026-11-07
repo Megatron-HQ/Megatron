@@ -1,23 +1,34 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { Activity, BrainCircuit, CircleDollarSign, Cpu, Layers3, Binary } from 'lucide-react'
+import {
+  Activity,
+  BrainCircuit,
+  CircleDollarSign,
+  Cpu,
+  Layers3,
+  Binary,
+  CalendarDays
+} from 'lucide-react'
 import { TokensSection } from '@/components/usage/TokensSection'
-import { ContributionGraph } from '@/components/usage/ContributionGraph'
+import {
+  HistorySection,
+  HistorySkeleton,
+  HistoryYearToggle
+} from '@/components/usage/HistorySection'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/relative-time'
 import { buildModelIdentity } from '@/lib/model-identity'
-import { useProjectLabel } from '@/lib/use-project-label'
+import { useUsageProjects } from '@/lib/use-usage-projects'
 import type { ProjectLabelResolver } from '@/lib/project-tree'
-import { createUsageProjectLabelResolver } from '@/lib/usage-project-label'
 import { ActivityDetailsDialog } from '@/components/usage/ActivityDetailsDialog'
 import { ChartBlock } from '@/components/usage/ChartBlock'
 import { StatCells } from '@/components/usage/StatCells'
 import { DayStrip } from '@/components/usage/DayStrip'
 import { InvocationTrend } from '@/components/usage/InvocationTrend'
 import { Punchcard } from '@/components/usage/Punchcard'
-import { RankedList } from '@/components/usage/RankedList'
+import { ProjectRankedList } from '@/components/usage/ProjectRankedList'
 import { CostSection } from '@/components/usage/CostSection'
 import { SkillsSection, SkillWindowToggle } from '@/components/usage/SkillsSection'
 import type { SkillInvocationSelection } from '@/components/usage/SkillInvocationDialog'
@@ -37,6 +48,7 @@ export type ActivityWindowKey = '24h' | '7d' | '30d'
 
 const PANEL_META = {
   activity: { label: 'Activity', Icon: Activity },
+  history: { label: 'History', Icon: CalendarDays },
   tokens: { label: 'Tokens', Icon: Binary },
   cost: { label: 'Cost', Icon: CircleDollarSign },
   models: { label: 'Models', Icon: Cpu },
@@ -79,11 +91,18 @@ export function UsageView({
 }): React.JSX.Element {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const reduceMotion = useReducedMotion() === true
+  const projects = useUsageProjects()
 
   const { data, isPending, isFetching, isError, refetch } = useQuery({
     queryKey: ['usage'],
     queryFn: () => window.api.getUsageOverview(),
     refetchInterval: (query) => (query.state.data?.scanComplete ? false : 750)
+  })
+  const calendar = useQuery({
+    queryKey: ['usage', 'calendar', calendarYear],
+    queryFn: () => window.api.getUsageCalendar(calendarYear),
+    enabled: panel === 'history' && data?.scanComplete === true,
+    placeholderData: keepPreviousData
   })
 
   useEffect(() => {
@@ -101,28 +120,9 @@ export function UsageView({
     [data?.cost, data?.models, data?.tokens]
   )
 
-  const resolveHierarchyLabel = useProjectLabel()
-  const resolveProjectLabel = useMemo(
-    () =>
-      createUsageProjectLabelResolver(
-        [
-          ...(data?.activity
-            ? [data.activity.last24h, data.activity.last7d, data.activity.last30d]
-            : []),
-          ...(data?.cost ? [data.cost.last24h, data.cost.last7d, data.cost.last30d] : [])
-        ]
-          .flatMap((window) => window.byProject.map((entry) => entry.project))
-          .concat(
-            [data?.tokens?.last24h, data?.tokens?.last7d, data?.tokens?.last30d].flatMap(
-              (window) => window?.byProject.map((entry) => entry.key) ?? []
-            )
-          ),
-        resolveHierarchyLabel
-      ),
-    [data, resolveHierarchyLabel]
-  )
+  const { resolveProjectLabel } = projects
 
-  const loading = isPending || !data?.scanComplete
+  const loading = isPending || !data?.scanComplete || projects.isPending
   const { label, Icon } = PANEL_META[panel]
 
   return (
@@ -132,50 +132,62 @@ export function UsageView({
           <Icon className="size-3.5" />
           {label}
         </span>
-        {/* Resident tax reads Claude Code's /context, not the index, so it never waits on a scan
+        <div className="flex min-w-0 items-center gap-3">
+          {/* Resident tax reads Claude Code's /context, not the index, so it never waits on a scan
             and its freshness is its own measurement, not the overview's. */}
-        {panel === 'resident-tax' ? (
-          <ResidentTaxRefresh />
-        ) : (
-          !loading && (
-            <div className="flex items-center gap-3">
-              {panel === 'activity' && (
-                <ActivityWindowToggle value={activityWindow} onChange={onActivityWindowChange} />
-              )}
-              {panel === 'tokens' && (
-                <SkillWindowToggle
-                  value={tokenWindow}
-                  onChange={onTokenWindowChange}
-                  ariaLabel="Token usage window"
-                />
-              )}
-              {panel === 'cost' && (
-                <ActivityWindowToggle
-                  value={costWindow}
-                  onChange={onCostWindowChange}
-                  ariaLabel="Cost window"
-                />
-              )}
-              {panel === 'skills' && (
-                <SkillWindowToggle value={skillWindow} onChange={onSkillWindowChange} />
-              )}
-              {panel === 'models' && (
-                <SkillWindowToggle
-                  value={modelWindow}
-                  onChange={onModelWindowChange}
-                  ariaLabel="Model activity window"
-                />
-              )}
-              {data?.activity && (
-                <span
-                  className={cn('text-[11px] text-muted-foreground', isFetching && 'animate-pulse')}
-                >
-                  Updated {formatRelativeTime(data.activity.generatedAt)}
-                </span>
-              )}
-            </div>
-          )
-        )}
+          {panel === 'resident-tax' ? (
+            <ResidentTaxRefresh />
+          ) : (
+            !loading && (
+              <div className="flex min-w-0 items-center gap-3">
+                {panel === 'history' && (
+                  <HistoryYearToggle
+                    year={calendarYear}
+                    years={calendar.data?.years ?? [calendarYear]}
+                    onChange={onCalendarYearChange}
+                  />
+                )}
+                {panel === 'activity' && (
+                  <ActivityWindowToggle value={activityWindow} onChange={onActivityWindowChange} />
+                )}
+                {panel === 'tokens' && (
+                  <SkillWindowToggle
+                    value={tokenWindow}
+                    onChange={onTokenWindowChange}
+                    ariaLabel="Token usage window"
+                  />
+                )}
+                {panel === 'cost' && (
+                  <ActivityWindowToggle
+                    value={costWindow}
+                    onChange={onCostWindowChange}
+                    ariaLabel="Cost window"
+                  />
+                )}
+                {panel === 'skills' && (
+                  <SkillWindowToggle value={skillWindow} onChange={onSkillWindowChange} />
+                )}
+                {panel === 'models' && (
+                  <SkillWindowToggle
+                    value={modelWindow}
+                    onChange={onModelWindowChange}
+                    ariaLabel="Model activity window"
+                  />
+                )}
+                {data?.activity && (
+                  <span
+                    className={cn(
+                      'shrink-0 text-[11px] text-muted-foreground',
+                      isFetching && 'animate-pulse'
+                    )}
+                  >
+                    Updated {formatRelativeTime(data.activity.generatedAt)}
+                  </span>
+                )}
+              </div>
+            )
+          )}
+        </div>
       </header>
 
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
@@ -190,13 +202,16 @@ export function UsageView({
             >
               {panel === 'resident-tax' ? (
                 <ResidentTaxSection />
-              ) : isError ? (
+              ) : isError || projects.isError ? (
                 <div role="alert" className="py-6 text-sm text-muted-foreground">
                   <p>Could not load usage data.</p>
                   <button
                     type="button"
                     className="mt-2 underline underline-offset-2 hover:text-foreground"
-                    onClick={() => void refetch()}
+                    onClick={() => {
+                      void refetch()
+                      void projects.refetch()
+                    }}
                   >
                     Retry
                   </button>
@@ -204,14 +219,19 @@ export function UsageView({
               ) : loading ? (
                 <UsageSkeleton panel={panel} />
               ) : panel === 'activity' ? (
-                <>
-                  <ContributionGraph year={calendarYear} onYearChange={onCalendarYearChange} />
-                  <ActivityPanel
-                    activity={data?.activity ?? null}
-                    windowKey={activityWindow}
-                    resolveProjectLabel={resolveProjectLabel}
-                  />
-                </>
+                <ActivityPanel
+                  activity={data?.activity ?? null}
+                  windowKey={activityWindow}
+                  resolveProjectLabel={resolveProjectLabel}
+                />
+              ) : panel === 'history' ? (
+                <HistorySection
+                  key={calendarYear}
+                  data={calendar.data}
+                  pending={calendar.isPending || calendar.isPlaceholderData}
+                  loadError={calendar.isError}
+                  onRetry={() => void calendar.refetch()}
+                />
               ) : panel === 'tokens' ? (
                 <TokensSection
                   stats={data.tokens}
@@ -316,7 +336,7 @@ function ActivityPanel({
     activity === null ||
     (activity.last30d.prompts === 0 && activity.last30d.slashCommands === 0)
   ) {
-    return <NoHistory />
+    return <NoHistory unavailable={activity?.last30d.coverage === 'unavailable'} />
   }
 
   const window = selectActivityWindow(activity, windowKey)
@@ -358,8 +378,18 @@ function ActivitySection({
         ? selectedBucket.hour
         : null
 
+  if (win.coverage === 'unavailable' && windowEmpty) return <NoHistory unavailable />
+
   return (
     <section className="flex flex-col gap-6 py-8">
+      {win.coverage && win.coverage !== 'available' && (
+        <p className="text-[11px] text-muted-foreground">
+          {win.coverage === 'unavailable'
+            ? 'Prompt history is unavailable for this period.'
+            : 'Partial prompt history for this period.'}{' '}
+          Counts describe retained records.
+        </p>
+      )}
       <StatCells
         activeDays={win.activeDays}
         sessions={win.sessions}
@@ -414,7 +444,7 @@ function ActivitySection({
       )}
 
       <ChartBlock label="By project" empty={win.byProject.length === 0} emptyMessage={emptyMessage}>
-        <RankedList
+        <ProjectRankedList
           items={win.byProject.map((project) => ({
             label: resolveProjectLabel(project.project),
             value: project.count,
@@ -430,20 +460,24 @@ function ActivitySection({
         onOpenChange={setDialogOpen}
         onRestoreFocus={() => triggerRef.current?.focus()}
         resolveProjectLabel={resolveProjectLabel}
+        coverage={selectedDetails?.coverage}
       />
     </section>
   )
 }
 
-function NoHistory(): React.JSX.Element {
+function NoHistory({ unavailable = false }: { unavailable?: boolean }): React.JSX.Element {
   return (
     <div className="flex flex-col items-center gap-2 py-24 text-center">
       <Activity className="size-8 text-muted-foreground" />
-      <p className="text-[13px] font-medium">No activity yet</p>
+      <p className="text-[13px] font-medium">
+        {unavailable
+          ? 'Prompt history unavailable for this period'
+          : 'No recorded activity in the last 30 days'}
+      </p>
       <p className="max-w-[380px] text-[13px] text-muted-foreground">
-        Megatron reads your prompt history from{' '}
-        <span className="font-mono text-[12px]">~/.claude/history.jsonl</span>. It&apos;ll show up
-        here after your next Claude Code session and a rescan.
+        Activity and History share your retained Claude Code prompt history. New prompts appear
+        after a rescan; History may contain earlier activity.
       </p>
     </div>
   )
@@ -476,6 +510,9 @@ function ModelsEmpty(): React.JSX.Element {
 }
 
 function UsageSkeleton({ panel }: { panel: UsagePanel }): React.JSX.Element {
+  if (panel === 'history') {
+    return <HistorySkeleton />
+  }
   if (panel === 'cost') {
     return (
       <div className="flex flex-col gap-6 py-8">

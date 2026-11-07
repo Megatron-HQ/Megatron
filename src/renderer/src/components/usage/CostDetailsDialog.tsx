@@ -9,7 +9,7 @@ import type { ProjectLabelResolver } from '@/lib/project-tree'
 import type { ModelIdentity } from '@/lib/model-identity'
 import type { CostDay, CostHour } from '../../../../shared/ipc'
 import { ChartBlock } from './ChartBlock'
-import { RankedList } from './RankedList'
+import { ProjectRankedList } from './ProjectRankedList'
 import { SpendBar } from './SpendBar'
 import { formatUsd } from './chart-utils'
 
@@ -94,7 +94,7 @@ export function CostDetailsDialog({
           </p>
         )}
         <ChartBlock label="By project">
-          <RankedList
+          <ProjectRankedList
             key={bucket.startAt}
             items={bucket.byProject.map((project) => ({
               label: resolveProjectLabel(project.project),

@@ -8,7 +8,7 @@ import { CostDetailsDialog, COST_ATTRIBUTION_NOTE } from './CostDetailsDialog'
 import { CostHourStrip } from './CostHourStrip'
 import { DayStrip } from './DayStrip'
 import { Punchcard } from './Punchcard'
-import { RankedList } from './RankedList'
+import { ProjectRankedList } from './ProjectRankedList'
 import { SpendBar } from './SpendBar'
 import { formatModelName, formatUsd } from './chart-utils'
 
@@ -138,7 +138,7 @@ export function CostSection({
         </>
       )}
       <ChartBlock label="By project" empty={empty} emptyMessage={emptyMessage}>
-        <RankedList
+        <ProjectRankedList
           items={window.byProject.map((project) => ({
             label: resolveProjectLabel(project.project),
             fullLabel: project.project,

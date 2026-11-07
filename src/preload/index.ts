@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { UsageProjectCatalog } from '../shared/usage-projects'
 import {
   IPC_CHANNELS,
   type AllowedPathRow,
@@ -17,6 +18,7 @@ import {
   type ThemePreference,
   type ScanActivity,
   type ScanFinished,
+  type ScanProgress,
   type ScanSummary,
   type UsageOverview,
   type UsageCalendar,
@@ -59,6 +61,14 @@ const api = {
   uninstallPlugin: (input: PluginActionInput): Promise<PluginActionResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.uninstallPlugin, input),
   getUsageOverview: (): Promise<UsageOverview> => ipcRenderer.invoke(IPC_CHANNELS.usageOverview),
+  getUsageProjects: (): Promise<UsageProjectCatalog> =>
+    ipcRenderer.invoke(IPC_CHANNELS.usageProjects),
+  linkUsageProjects: (input: {
+    sourceId: string
+    targetId: string
+  }): Promise<UsageProjectCatalog> => ipcRenderer.invoke(IPC_CHANNELS.usageLinkProjects, input),
+  unlinkUsageProject: (locationId: string): Promise<UsageProjectCatalog> =>
+    ipcRenderer.invoke(IPC_CHANNELS.usageUnlinkProject, locationId),
   getUsageCalendar: (year: number): Promise<UsageCalendar> =>
     ipcRenderer.invoke(IPC_CHANNELS.usageCalendar, year),
   getUsageDay: (date: string): Promise<UsageDayDetails> =>
@@ -95,6 +105,11 @@ const api = {
     const listener = (_event: unknown, finished: ScanFinished): void => callback(finished)
     ipcRenderer.on(IPC_CHANNELS.scanComplete, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.scanComplete, listener)
+  },
+  onScanProgress: (callback: (progress: ScanProgress) => void): (() => void) => {
+    const listener = (_event: unknown, progress: ScanProgress): void => callback(progress)
+    ipcRenderer.on(IPC_CHANNELS.scanProgress, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.scanProgress, listener)
   },
   onUpdateState: (callback: (state: UpdateState) => void): (() => void) => {
     const listener = (_event: unknown, state: UpdateState): void => callback(state)

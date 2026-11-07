@@ -7,6 +7,7 @@ export const IPC_CHANNELS = {
   setTheme: 'theme:set',
   scanStarted: 'scan:started',
   scanComplete: 'scan:complete',
+  scanProgress: 'scan:progress',
   listAllowedPaths: 'folders:list',
   listProjects: 'projects:list',
   pickAndAddFolders: 'folders:pickAndAdd',
@@ -27,6 +28,9 @@ export const IPC_CHANNELS = {
   usageOverview: 'usage:overview',
   usageCalendar: 'usage:calendar',
   usageDay: 'usage:day',
+  usageProjects: 'usage:projects',
+  usageLinkProjects: 'usage:projects:link',
+  usageUnlinkProject: 'usage:projects:unlink',
   usageSkillInvocations: 'usage:skillInvocations',
   usageContextBaseline: 'usage:contextBaseline',
   usageRecordedRequest: 'usage:recordedRequest',
@@ -140,6 +144,22 @@ export interface ScanFinished {
   summary: ScanSummary
 }
 
+export interface ScanSourceSummary {
+  name: string
+  status: 'complete' | 'partial' | 'failed'
+  issues?: ScanIssue[]
+  failureReason?: 'timeout' | 'worker_crash' | 'scan_error'
+}
+
+export type ScanWorkerProgress =
+  | { type: 'source-started'; name: string }
+  | { type: 'source-complete'; source: ScanSourceSummary; projects?: ProjectFolder[] }
+
+export interface ScanProgress {
+  id: number
+  source: ScanSourceSummary
+}
+
 export interface SkillsListResult {
   skills: SkillRow[]
   scanComplete: boolean
@@ -168,7 +188,8 @@ export interface ScanTaskResult {
 export interface ScanSummary {
   outcome: 'complete' | 'partial' | 'failed'
   completedAt: string
-  sources: { name: string; status: 'complete' | 'partial' | 'failed'; issues?: ScanIssue[] }[]
+  sources: ScanSourceSummary[]
+  isStartup?: boolean
   lastSuccessfulAt?: string | null
   projects?: ProjectFolder[]
 }
@@ -325,12 +346,13 @@ export const APP_SECTIONS = ['skills', 'plugins', 'usage'] as const
 export type AppSection = (typeof APP_SECTIONS)[number]
 
 export interface ActivityProjectCount {
-  project: string // raw cwd string, matches sessions_meta.cwd
+  project: string // raw cwd in reducers; primary project location in Usage IPC
   count: number
 }
 
 // One bar's drill-down, precomputed in the overview payload like CostDay/CostHour.
 export interface ActivityBucketDetails {
+  coverage?: HistoryCoverage
   startAt: string // clipped, inclusive ISO boundary
   endAt: string // clipped ISO boundary
   count: number // prompts, excluding bare slash commands
@@ -350,6 +372,7 @@ export interface ActivityHour extends ActivityBucketDetails {
 }
 
 export interface ActivityWindow {
+  coverage?: HistoryCoverage
   days: 1 | 7 | 30
   activeDays: number
   sessions: number
@@ -387,7 +410,7 @@ export interface CostModelSpend {
 }
 
 export interface CostProjectSpend {
-  project: string // raw cwd path, matches sessions_meta.cwd
+  project: string // raw cwd in reducers; primary project location in Usage IPC
   costUsd: number
 }
 
@@ -694,6 +717,27 @@ export interface ContributionDay {
   tokens: TokenCounts | null
 }
 
+export interface HistoryYearSummary {
+  observedDays: number
+  partialDays: number
+  elapsedDays: number
+  longestStreak: { days: number; startDate: string; endDate: string } | null
+  busiestDay: { date: string; count: number } | null
+  promptsPerActiveDay: number | null
+}
+
+export interface HistoryMonth {
+  month: number
+  count: number
+  coverage: HistoryCoverage
+}
+
+export interface HistoryProject {
+  project: string
+  total: number
+  byMonth: number[]
+}
+
 export interface UsageCalendar {
   year: number
   years: number[]
@@ -701,6 +745,9 @@ export interface UsageCalendar {
   thresholds: number[]
   prompts: number
   activeDays: number
+  summary: HistoryYearSummary
+  months: HistoryMonth[]
+  byProject: HistoryProject[]
 }
 
 export interface UsageDayDetails extends ActivityDay {

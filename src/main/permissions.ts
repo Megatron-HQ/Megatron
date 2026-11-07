@@ -10,10 +10,12 @@ import {
   opendirSync,
   realpathSync,
   statSync,
+  watch,
+  type FSWatcher,
   type Stats
 } from 'fs'
 import { homedir } from 'os'
-import { isAbsolute, join, resolve, sep } from 'path'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'path'
 import { StringDecoder } from 'string_decoder'
 import { execFileSync } from 'child_process'
 
@@ -237,31 +239,59 @@ export interface AllowedDirectoryRead {
   status: 'ok' | 'missing' | 'unavailable'
 }
 
+export interface AllowedDirectoryEntry {
+  name: string
+  type: 'directory' | 'file' | 'symlink' | 'other'
+}
+
 export function readAllowedDirectory(
   dirPath: string,
   maximumEntries = MAX_DIRECTORY_ENTRIES
 ): AllowedDirectoryRead {
+  const result = readAllowedDirectoryEntries(dirPath, maximumEntries)
+  return { status: result.status, entries: result.entries.map((entry) => entry.name) }
+}
+
+export function readAllowedDirectoryEntries(
+  dirPath: string,
+  maximumEntries = MAX_DIRECTORY_ENTRIES
+): { entries: AllowedDirectoryEntry[]; status: AllowedDirectoryRead['status'] } {
   if (!isPathAllowed(dirPath)) return { entries: [], status: 'unavailable' }
   try {
     const canonical = realpathSync(dirPath)
     if (!isPathAllowed(canonical)) return { entries: [], status: 'unavailable' }
     const directory = opendirSync(canonical)
-    const entries: string[] = []
+    const entries: AllowedDirectoryEntry[] = []
+    const sorted = (): AllowedDirectoryEntry[] =>
+      entries.sort((first, second) =>
+        first.name < second.name ? -1 : first.name > second.name ? 1 : 0
+      )
     // Replay ownership must not depend on the filesystem's enumeration order.
     try {
       for (let entry = directory.readSync(); entry !== null; entry = directory.readSync()) {
-        if (entries.length >= maximumEntries)
-          return { entries: entries.sort(), status: 'unavailable' }
-        entries.push(entry.name)
+        if (entries.length >= maximumEntries) return { entries: sorted(), status: 'unavailable' }
+        entries.push({
+          name: entry.name,
+          type: entry.isSymbolicLink()
+            ? 'symlink'
+            : entry.isDirectory()
+              ? 'directory'
+              : entry.isFile()
+                ? 'file'
+                : 'other'
+        })
       }
-      return { entries: entries.sort(), status: 'ok' }
+      return { entries: sorted(), status: 'ok' }
     } finally {
       directory.closeSync()
     }
   } catch (error) {
     const code =
       error instanceof Error && 'code' in error ? (error as NodeJS.ErrnoException).code : undefined
-    return { entries: [], status: code === 'ENOENT' ? 'missing' : 'unavailable' }
+    return {
+      entries: [],
+      status: code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : 'unavailable'
+    }
   }
 }
 
@@ -288,6 +318,59 @@ export function allowedRealpathSync(path: string): string | null {
   } catch {
     return null
   }
+}
+
+// Resolve descriptive locations after deletion, without treating a denied or broken link as absent.
+export function allowedPathLocationSync(path: string): string | null {
+  let ancestor = resolve(path)
+  const missingSegments: string[] = []
+  while (isPathAllowed(ancestor)) {
+    try {
+      lstatSync(ancestor)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return null
+      const parent = dirname(ancestor)
+      if (parent === ancestor) return null
+      missingSegments.unshift(basename(ancestor))
+      ancestor = parent
+      continue
+    }
+    const canonical = allowedRealpathSync(ancestor)
+    if (canonical === null) return null
+    if (missingSegments.length > 0 && allowedStatSync(ancestor)?.isDirectory() !== true) return null
+    const location = join(canonical, ...missingSegments)
+    return isPathAllowed(location) ? location : null
+  }
+  return null
+}
+
+export function watchAllowedPath(
+  path: string,
+  onChange: (event: string, filename: string | null) => void,
+  onError: (error: Error) => void
+): FSWatcher {
+  if (!isPathAllowed(path))
+    throw Object.assign(new Error('Path is not approved'), { code: 'EACCES' })
+  const canonical = realpathSync(path)
+  if (!isPathAllowed(canonical))
+    throw Object.assign(new Error('Path is not approved'), { code: 'EACCES' })
+  const watcher = watch(
+    canonical,
+    { recursive: statSync(canonical).isDirectory() },
+    (event, filename) => {
+      if (allowedRealpathSync(path) !== canonical) {
+        watcher.close()
+        onChange(event, null)
+        return
+      }
+      onChange(event, filename?.toString() ?? null)
+    }
+  )
+  watcher.on('error', (error) => {
+    watcher.close()
+    onError(error)
+  })
+  return watcher
 }
 
 export function allowedReadFileSync(path: string): Buffer | null {
@@ -382,7 +465,7 @@ export function visitAllowedUtf8LinesSync(
   } catch (error) {
     const code =
       error instanceof Error && 'code' in error ? (error as NodeJS.ErrnoException).code : undefined
-    return code === 'ENOENT' ? 'missing' : 'unavailable'
+    return code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : 'unavailable'
   }
 
   const buffer = Buffer.allocUnsafe(STREAM_READ_CHUNK_BYTES)

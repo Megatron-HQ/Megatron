@@ -14,7 +14,8 @@ import { TextLink } from '@/components/TextLink'
 import { InvocationRow } from '@/components/InvocationRow'
 import { parseInvocationPrompt } from '@/lib/invocation-prompt'
 import { getSkillDisplayName } from '@/lib/source-name'
-import { useProjectLabel } from '@/lib/use-project-label'
+import { useUsageProjects } from '@/lib/use-usage-projects'
+import { matchesUsageProjectSearch } from '../../../../shared/usage-projects'
 import type { ProjectLabelResolver } from '@/lib/project-tree'
 import { TRIGGER_META } from '@/lib/trigger-meta'
 import { cn } from '@/lib/utils'
@@ -47,7 +48,7 @@ function matchesSearch(
   const project = resolveProjectLabel(entry.cwd).toLowerCase()
   return (
     prompt.includes(needle) ||
-    project.includes(needle) ||
+    matchesUsageProjectSearch(needle, [project, entry.cwd]) ||
     entry.skillName.toLowerCase().includes(needle)
   )
 }
@@ -63,7 +64,7 @@ export function SkillInvocationDialog({
   selection: SkillInvocationSelection
   onSelectSkill: (skillId: number) => void
 }): React.JSX.Element {
-  const resolveProjectLabel = useProjectLabel()
+  const { resolveProjectLabel } = useUsageProjects()
   const [search, setSearch] = useState('')
   const [triggerFilter, setTriggerFilter] = useState<TriggerFilter>('all')
   const {

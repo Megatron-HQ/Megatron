@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { homedir, tmpdir } from 'os'
 import { join, resolve } from 'path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as permissions from './permissions'
 import {
   allowedExistsSync,
@@ -15,11 +15,76 @@ import {
   readAllowedDirectory,
   resetGrantedPaths,
   visitAllowedUtf8LinesSync,
-  revokePath
+  revokePath,
+  watchAllowedPath
 } from './permissions'
 
 beforeEach(() => {
   resetGrantedPaths()
+})
+
+describe('permission-bound filesystem watching', () => {
+  it('rejects unapproved roots before opening a filesystem watcher', () => {
+    expect(() =>
+      watchAllowedPath(
+        resolve(tmpdir(), 'unapproved-watch'),
+        () => undefined,
+        () => undefined
+      )
+    ).toThrow('Path is not approved')
+  })
+
+  it('observes nested inventory changes inside an approved root', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'megatron-watch-'))
+    const skillDirectory = join(root, 'repo', '.claude', 'skills', 'example')
+    const skillFile = join(skillDirectory, 'SKILL.md')
+    mkdirSync(skillDirectory, { recursive: true })
+    writeFileSync(skillFile, '# Watched skill')
+    grantPath(root)
+    const changes: (string | null)[] = []
+    const errors: Error[] = []
+    const watcher = watchAllowedPath(
+      root,
+      (_event, filename) => changes.push(filename),
+      (error) => errors.push(error)
+    )
+    try {
+      let revision = 0
+      // Allow native startup/coalescing delays instead of relying on one immediate mkdir event.
+      // Editing an existing nested file also requires recursive watching to be enabled.
+      await vi.waitFor(
+        () => {
+          writeFileSync(skillFile, `# Watched skill ${++revision}`)
+          expect(errors).toEqual([])
+          expect(changes.length).toBeGreaterThan(0)
+        },
+        { timeout: 5_000, interval: 100 }
+      )
+    } finally {
+      watcher.close()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('does not follow a link to an unapproved watch target', () => {
+    const root = mkdtempSync(join(tmpdir(), 'megatron-watch-link-'))
+    const target = mkdtempSync(join(tmpdir(), 'megatron-watch-target-'))
+    grantPath(root)
+    try {
+      const link = join(root, 'linked')
+      symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir')
+      expect(() =>
+        watchAllowedPath(
+          link,
+          () => undefined,
+          () => undefined
+        )
+      ).toThrow('Path is not approved')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+      rmSync(target, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('bounded status-bearing reads', () => {
@@ -251,6 +316,70 @@ describe('readAllowedDirectory', () => {
     resetGrantedPaths()
     expect(readAllowedDirectory(tmpDir)).toEqual({ entries: [], status: 'unavailable' })
   })
+
+  it('reports a former directory replaced by an ordinary file as missing', () => {
+    grantPath(tmpDir)
+    const directory = join(tmpDir, 'removed-project')
+    mkdirSync(directory)
+    rmSync(directory, { recursive: true })
+    writeFileSync(directory, 'replacement file')
+
+    expect(readAllowedDirectory(directory)).toEqual({ entries: [], status: 'missing' })
+    expect(readAllowedDirectory(join(directory, '.claude'))).toEqual({
+      entries: [],
+      status: 'missing'
+    })
+  })
+})
+
+describe('directory entry types', () => {
+  it('identifies directories and links without treating ordinary files as traversal targets', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'megatron-directory-types-'))
+    try {
+      grantPath(directory)
+      mkdirSync(join(directory, 'repo'))
+      writeFileSync(join(directory, 'ordinary-file'), 'not a directory')
+      symlinkSync(
+        join(directory, 'repo'),
+        join(directory, 'linked-repo'),
+        process.platform === 'win32' ? 'junction' : 'dir'
+      )
+      const read = permissions.readAllowedDirectoryEntries
+      expect(read(directory)).toEqual({
+        status: 'ok',
+        entries: [
+          { name: 'linked-repo', type: 'symlink' },
+          { name: 'ordinary-file', type: 'file' },
+          { name: 'repo', type: 'directory' }
+        ]
+      })
+      expect(read(directory, 1)).toMatchObject({ status: 'unavailable' })
+      expect(read(directory, 1).entries).toHaveLength(1)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('requires approval of a linked directory target as well as its discovered path', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'megatron-directory-link-'))
+    try {
+      const approved = join(directory, 'approved')
+      const outside = join(directory, 'outside')
+      mkdirSync(approved)
+      mkdirSync(outside)
+      const linked = join(approved, 'linked')
+      symlinkSync(outside, linked, process.platform === 'win32' ? 'junction' : 'dir')
+      grantPath(approved)
+      expect(permissions.readAllowedDirectoryEntries(linked)).toEqual({
+        status: 'unavailable',
+        entries: []
+      })
+      grantPath(outside)
+      expect(permissions.readAllowedDirectoryEntries(linked)).toEqual({ status: 'ok', entries: [] })
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('allowedExistsSync', () => {
@@ -407,5 +536,19 @@ describe('visitAllowedUtf8LinesSync', () => {
   it('reports a missing allowed file without throwing', () => {
     grantPath(tmpDir)
     expect(visitAllowedUtf8LinesSync(join(tmpDir, 'missing.txt'), () => undefined)).toBe('missing')
+  })
+
+  it('reports a transcript under a replaced parent directory as missing', () => {
+    grantPath(tmpDir)
+    const directory = join(tmpDir, 'removed-transcripts')
+    mkdirSync(directory)
+    rmSync(directory, { recursive: true })
+    writeFileSync(directory, 'replacement file')
+    const lines: string[] = []
+
+    expect(
+      visitAllowedUtf8LinesSync(join(directory, 'session.jsonl'), (line) => lines.push(line))
+    ).toBe('missing')
+    expect(lines).toEqual([])
   })
 })

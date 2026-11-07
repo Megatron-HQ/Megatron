@@ -1,5 +1,6 @@
 import { app, shell, BrowserWindow, dialog, ipcMain, net, protocol, session } from 'electron'
 import { join } from 'path'
+import { homedir } from 'os'
 import { pathToFileURL } from 'url'
 import {
   canManagePluginInstall,
@@ -21,20 +22,25 @@ import icon from '../../resources/icon.png?asset'
 // The .ico, not the PNG, so Windows can pick the hand-tuned no-sparkle art at 16/24 px.
 import windowsIcon from '../../resources/icon.ico?asset'
 import { getDb, getUsageArchive } from './db'
-import { getTokenStats, getUsageCalendar, getUsageDay } from './db/usage-history-queries'
+import {
+  getUsageOverviewData,
+  getProjectUsageCalendar,
+  getProjectUsageDay,
+  readUsageProjectLocations,
+  usageProjectCatalog,
+  linkUsageProjects,
+  unlinkUsageProject
+} from './usage-projects'
+import type { UsageProjectLocation } from '../shared/usage-projects'
 import { createScanSession, type ScanUrgency } from './scan-session'
 import { disableChromiumHttpCache } from './chromium-cache'
 import { addAllowedPath, listAllowedPaths, removeAllowedPath } from './folder-grants'
 import { createUpdater, type Updates } from './updater'
 import {
   deleteSkillsForProjectRoot,
-  getActivityStats,
   getContextBudget,
-  getCostStats,
   getLintFindingsForSkill,
-  getModelStats,
   getPluginDetail,
-  getSkillStats,
   getSkillById,
   getSkillInvocationLog,
   getSkillInvocationSlice,
@@ -57,9 +63,16 @@ import {
   setStoredTheme,
   type ThemeStore
 } from './theme'
-import { createScanController, startScanWorker } from './ingest/scan-all'
+import {
+  createScanController,
+  ScanWorkerError,
+  startScanWorker,
+  type ScanScope
+} from './ingest/scan-all'
+import { createInventoryWatcher } from './inventory-watcher'
 import { findNewestRecordedRequest } from './ingest/recorded-request'
 import { measureContextBaseline } from './context-usage'
+import { USAGE_ARCHIVE_FILENAME } from './db/usage-archive'
 import { sanitizeProjectFolders } from './ingest/project-discovery'
 import { readSkillFiles, readSkillMd } from './skill-files'
 import { openSafeExternal } from './shell'
@@ -94,12 +107,29 @@ const APP_CONTENT_SECURITY_POLICY =
 
 securePrivateDataDirectory(app.getPath('userData'), join(app.getPath('appData'), app.getName()))
 const themeStore: ThemeStore = new Store({ name: 'preferences' })
+
+function usageProjectLocations(): UsageProjectLocation[] {
+  const saved = themeStore.get('usageProjects')
+  const locations = readUsageProjectLocations(
+    getDb(),
+    getUsageArchive(),
+    saved,
+    sanitizeProjectFolders(themeStore.get('projectFolders')).filter((project) =>
+      isPathAllowed(project.path)
+    )
+  )
+  if (JSON.stringify(locations) !== JSON.stringify(saved))
+    themeStore.set('usageProjects', locations)
+  return locations
+}
 let scanComplete = false
+let usageComplete = false
 let scanSummary: ScanSummary | undefined
 const scanSession = createScanSession()
 let lastScanFinished: ScanFinished | null = null
 let updates: Updates | null = null
 const trustedWindows = new Map<Electron.WebContents, string>()
+let inventoryWatcher: ReturnType<typeof createInventoryWatcher> | undefined
 
 function assertRequest(
   event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent,
@@ -158,36 +188,66 @@ function notifyScanFinished(finished: ScanFinished): void {
 }
 
 const scans = createScanController((scope) =>
-  startScanWorker(join(import.meta.dirname, 'scan-worker.js'), {
-    scope,
-    databasePath: getDb().name,
-    archivePath: getUsageArchive().name,
-    grantedPaths: getGrantedPaths(),
-    previousProjects: sanitizeProjectFolders(themeStore.get('projectFolders'))
-  })
+  startScanWorker(
+    join(import.meta.dirname, 'scan-worker.js'),
+    {
+      scope,
+      databasePath: getDb().name,
+      archivePath: join(app.getPath('userData'), USAGE_ARCHIVE_FILENAME),
+      grantedPaths: getGrantedPaths(),
+      previousProjects: sanitizeProjectFolders(themeStore.get('projectFolders'))
+    },
+    undefined,
+    (progress) => {
+      if (progress.type !== 'source-complete') return
+      if (progress.source.name === 'archivePrompts') usageComplete = true
+      const activity = scanSession.current()
+      if (!activity) return
+      for (const window of BrowserWindow.getAllWindows()) {
+        window.webContents.send(IPC_CHANNELS.scanProgress, {
+          id: activity.id,
+          source: progress.source
+        })
+      }
+    }
+  )
 )
 
 async function scanAndNotify(
   urgency: ScanUrgency = 'announce',
-  fresh = false
+  fresh = false,
+  scope: ScanScope = 'all'
 ): Promise<ScanSummary> {
   const previousSuccess = scanSummary?.lastSuccessfulAt ?? null
   const { run, started, promoted } = scanSession.begin(Date.now(), urgency)
   if (started || promoted) notifyScanStarted(run)
   try {
     try {
-      scanSummary = await scans.request({ fresh })
-      if (scanSummary.projects) themeStore.set('projectFolders', scanSummary.projects)
+      scanSummary = await scans.request({ fresh, scope })
     } catch (error) {
       console.error('[ingest] scan failed', error)
-      scanSummary = {
-        outcome: 'failed',
-        completedAt: new Date().toISOString(),
-        sources: [{ name: 'scanWorker', status: 'failed' }]
+      scanSummary =
+        error instanceof ScanWorkerError
+          ? error.summary
+          : {
+              outcome: 'failed',
+              completedAt: new Date().toISOString(),
+              sources: [{ name: 'scanWorker', status: 'failed', failureReason: 'worker_crash' }]
+            }
+    }
+    scanSummary = {
+      ...scanSummary,
+      isStartup: run.isStartup,
+      lastSuccessfulAt:
+        scanSummary.outcome === 'complete' ? scanSummary.completedAt : previousSuccess
+    }
+    if (scanSummary.projects) {
+      try {
+        themeStore.set('projectFolders', scanSummary.projects)
+      } catch (error) {
+        console.error('[ingest] could not save project catalog', error)
       }
     }
-    scanSummary.lastSuccessfulAt =
-      scanSummary.outcome === 'complete' ? scanSummary.completedAt : previousSuccess
     scanComplete = true
     return scanSummary
   } finally {
@@ -376,6 +436,7 @@ app.whenReady().then(() => {
         addAllowedPath(themeStore, grantPath(filePath))
       }
     } finally {
+      inventoryWatcher?.update()
       void scanAndNotify()
     }
     return listAllowedPaths(themeStore)
@@ -389,6 +450,7 @@ app.whenReady().then(() => {
       removeAllowedPath(themeStore, path)
       deleteSkillsForProjectRoot(db, path, isPathAllowed)
     } finally {
+      inventoryWatcher?.update()
       void scanAndNotify()
     }
     return listAllowedPaths(themeStore)
@@ -445,12 +507,8 @@ app.whenReady().then(() => {
     const now = new Date()
     const db = getDb()
     return {
-      activity: getActivityStats(db, now),
-      tokens: getTokenStats(getUsageArchive(), now),
-      cost: getCostStats(db, now),
-      models: getModelStats(db, now),
-      skills: getSkillStats(db, now),
-      scanComplete,
+      ...getUsageOverviewData(db, getUsageArchive(), usageProjectLocations(), now),
+      scanComplete: usageComplete || scanComplete,
       scanSummary
     }
   })
@@ -463,11 +521,25 @@ app.whenReady().then(() => {
   secureIpc.handle(IPC_CHANNELS.usageRecordedRequest, () => findNewestRecordedRequest())
 
   secureIpc.handle(IPC_CHANNELS.usageCalendar, (_event, year: number) =>
-    getUsageCalendar(getUsageArchive(), year)
+    getProjectUsageCalendar(getUsageArchive(), year, usageProjectLocations())
   )
   secureIpc.handle(IPC_CHANNELS.usageDay, (_event, date: string) =>
-    getUsageDay(getUsageArchive(), date)
+    getProjectUsageDay(getUsageArchive(), date, usageProjectLocations())
   )
+  secureIpc.handle(IPC_CHANNELS.usageProjects, () => usageProjectCatalog(usageProjectLocations()))
+  secureIpc.handle(
+    IPC_CHANNELS.usageLinkProjects,
+    (_event, input: { sourceId: string; targetId: string }) => {
+      const locations = linkUsageProjects(usageProjectLocations(), input.sourceId, input.targetId)
+      themeStore.set('usageProjects', locations)
+      return usageProjectCatalog(locations)
+    }
+  )
+  secureIpc.handle(IPC_CHANNELS.usageUnlinkProject, (_event, locationId: string) => {
+    const locations = unlinkUsageProject(usageProjectLocations(), locationId)
+    themeStore.set('usageProjects', locations)
+    return usageProjectCatalog(locations)
+  })
 
   secureIpc.handle(
     IPC_CHANNELS.usageSkillInvocations,
@@ -484,7 +556,7 @@ app.whenReady().then(() => {
   })
 
   // Await the isolated scan; the completion broadcast invalidates renderer queries.
-  secureIpc.handle(IPC_CHANNELS.rescan, () => scanAndNotify())
+  secureIpc.handle(IPC_CHANNELS.rescan, () => scanAndNotify('announce', true))
 
   // openPath on the data folder rather than showItemInFolder on the db file: the folder
   // always exists (the index may have been deleted), and the documented recovery path also
@@ -527,6 +599,19 @@ app.whenReady().then(() => {
     for (const row of allowed) {
       restoreGrantedPath(row.path)
     }
+    inventoryWatcher = createInventoryWatcher({
+      getRoots: () => [
+        ...getGrantedPaths().map((path) => ({ path, kind: 'project' as const })),
+        ...[
+          join(homedir(), '.claude', 'skills'),
+          join(homedir(), '.claude', 'plugins'),
+          join(homedir(), '.claude', 'settings.json'),
+          join(homedir(), '.claude.json')
+        ].map((path) => ({ path, kind: 'inventory' as const }))
+      ],
+      refresh: () => scanAndNotify('quiet', true, 'inventory'),
+      reportError: (error) => console.error('[inventory] watch or refresh failed', error)
+    })
     void scanAndNotify('startup')
   })
 
@@ -555,6 +640,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  inventoryWatcher?.close()
   void scans.cancel()
 })
 

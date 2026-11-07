@@ -1,9 +1,10 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as permissions from '../permissions'
 import { grantPath, resetGrantedPaths, revokePath } from '../permissions'
-import { discoverProjects } from './project-discovery'
+import { createMissingProjectCheck, discoverProjects } from './project-discovery'
 import type { ProjectFolder } from '../../shared/ipc'
 
 let root: string
@@ -12,11 +13,214 @@ beforeEach(() => {
   grantPath(root)
 })
 afterEach(() => {
+  vi.restoreAllMocks()
   resetGrantedPaths()
   rmSync(root, { recursive: true, force: true })
 })
 
+describe('missing project paths through aliases', () => {
+  let workspace: string
+  let selected: string
+  beforeEach(() => {
+    workspace = join(root, 'workspace')
+    selected = join(root, 'selected')
+    mkdirSync(workspace)
+    symlinkSync(workspace, selected, process.platform === 'win32' ? 'junction' : 'dir')
+    resetGrantedPaths()
+    grantPath(selected)
+  })
+
+  it('recognizes deleted descendants recorded through the selected alias', () => {
+    const repository = join(selected, 'packages', 'removed')
+    mkdirSync(repository, { recursive: true })
+    const isMissing = createMissingProjectCheck()
+    expect(isMissing(repository)).toBe(false)
+    rmSync(join(workspace, 'packages'), { recursive: true })
+
+    expect(isMissing(repository)).toBe(true)
+  })
+
+  it('retains explicitly granted missing children recorded through an alias', () => {
+    const repository = join(selected, 'direct')
+    mkdirSync(repository)
+    grantPath(repository)
+    rmSync(join(workspace, 'direct'), { recursive: true })
+
+    expect(createMissingProjectCheck()(repository)).toBe(false)
+  })
+
+  it('keeps excluded descendants outside automatic deletion reconciliation', () => {
+    expect(createMissingProjectCheck()(join(selected, '.tmp', 'removed'))).toBe(false)
+  })
+
+  it('does not infer deletion after the selected grant is revoked', () => {
+    const isMissing = createMissingProjectCheck()
+    revokePath(workspace)
+
+    expect(isMissing(join(selected, 'removed'))).toBe(false)
+  })
+
+  it('does not infer child deletion when the granted target is missing', () => {
+    rmSync(workspace, { recursive: true })
+
+    expect(createMissingProjectCheck()(join(selected, 'removed'))).toBe(false)
+  })
+})
+
 describe('project discovery continuity', () => {
+  it('does not retain an unrelated obsolete repository because another child is unreadable', () => {
+    const blocked = join(root, 'blocked')
+    const obsolete = join(root, 'obsolete')
+    for (const repository of [blocked, obsolete])
+      mkdirSync(join(repository, '.git'), { recursive: true })
+    const before = discoverProjects([root])
+    rmSync(join(obsolete, '.git'), { recursive: true })
+    const read = permissions.readAllowedDirectoryEntries
+    vi.spyOn(permissions, 'readAllowedDirectoryEntries').mockImplementation((path, limit) =>
+      path === blocked ? { status: 'unavailable', entries: [] } : read(path, limit)
+    )
+
+    const after = discoverProjects([root], before.projects)
+
+    expect(after.projects.some((entry) => entry.path === obsolete)).toBe(false)
+    expect(after.projects).toContainEqual({
+      path: blocked,
+      kind: 'repository',
+      status: 'unavailable'
+    })
+  })
+
+  it('drops a deleted discovered child while retaining its readable parent and sibling', () => {
+    const removed = join(root, 'removed')
+    const remaining = join(root, 'remaining')
+    for (const repository of [removed, remaining])
+      mkdirSync(join(repository, '.git'), { recursive: true })
+    const before = discoverProjects([root])
+    rmSync(removed, { recursive: true })
+
+    const after = discoverProjects([root], before.projects)
+
+    expect(after.projects).toEqual([
+      { path: root, kind: 'folder', status: 'available' },
+      { path: remaining, kind: 'repository', status: 'available' }
+    ])
+    expect(after.skillRoots.some((entry) => entry.projectRoot === removed)).toBe(false)
+  })
+
+  it('keeps an unreadable child without marking its readable parent or siblings unavailable', () => {
+    const blocked = join(root, 'blocked')
+    const healthy = join(root, 'healthy')
+    for (const repository of [blocked, healthy])
+      mkdirSync(join(repository, '.git'), { recursive: true })
+    const before = discoverProjects([root])
+    const readEntries = permissions.readAllowedDirectoryEntries
+    const readDirectory = permissions.readAllowedDirectory
+    vi.spyOn(permissions, 'readAllowedDirectoryEntries').mockImplementation((path, limit) =>
+      path === blocked ? { entries: [], status: 'unavailable' } : readEntries(path, limit)
+    )
+    vi.spyOn(permissions, 'readAllowedDirectory').mockImplementation((path, limit) =>
+      path === blocked ? { entries: [], status: 'unavailable' } : readDirectory(path, limit)
+    )
+
+    const after = discoverProjects([root], before.projects)
+
+    expect(after.projects).toContainEqual({ path: root, kind: 'folder', status: 'available' })
+    expect(after.projects).toContainEqual({
+      path: healthy,
+      kind: 'repository',
+      status: 'available'
+    })
+    expect(after.projects).toContainEqual({
+      path: blocked,
+      kind: 'repository',
+      status: 'unavailable'
+    })
+    expect(after.incomplete).toBe(true)
+  })
+
+  it.each(process.platform === 'win32' ? ['.tmp', '.temp', '.TMP'] : ['.tmp', '.temp'])(
+    'ignores automatically discovered repositories under %s',
+    (temporaryName) => {
+      const temporaryRepo = join(root, temporaryName, 'fixture-project')
+      const repository = join(root, 'real-project')
+      for (const directory of [temporaryRepo, repository]) {
+        mkdirSync(join(directory, '.git'), { recursive: true })
+        mkdirSync(join(directory, '.claude', 'skills'), { recursive: true })
+      }
+
+      const result = discoverProjects([root])
+
+      expect(result.incomplete).toBe(false)
+      expect(result.projects.map((entry) => entry.path).sort()).toEqual([root, repository].sort())
+      expect(result.skillRoots.some((entry) => entry.projectRoot === temporaryRepo)).toBe(false)
+    }
+  )
+
+  it.each(['.tmp', '.temp', 'node_modules'])(
+    'does not resurrect cached projects under an excluded %s directory',
+    (excludedName) => {
+      const excludedRepo = join(root, excludedName, 'deleted-fixture')
+      const previous: ProjectFolder[] = [
+        { path: excludedRepo, kind: 'repository', status: 'available' }
+      ]
+
+      const result = discoverProjects([root], previous)
+
+      expect(result.projects).toEqual([{ path: root, kind: 'folder', status: 'available' }])
+      expect(result.skillRoots.some((entry) => entry.projectRoot === excludedRepo)).toBe(false)
+    }
+  )
+
+  it('honors an explicit repository grant inside a temporary folder after deletion', () => {
+    const repository = join(root, '.tmp', 'selected-project')
+    mkdirSync(join(repository, '.git'), { recursive: true })
+    grantPath(repository)
+    const before = discoverProjects([root, repository])
+    expect(before.projects).toContainEqual({
+      path: repository,
+      kind: 'repository',
+      status: 'available'
+    })
+
+    rmSync(repository, { recursive: true })
+    const after = discoverProjects([root, repository], before.projects)
+
+    expect(after.incomplete).toBe(false)
+    expect(after.projects).toContainEqual({
+      path: repository,
+      kind: 'repository',
+      status: 'missing'
+    })
+    expect(after.skillRoots).toContainEqual({
+      dir: join(repository, '.claude', 'skills'),
+      sourceType: 'project',
+      projectRoot: repository
+    })
+  })
+
+  it('does not restore excluded projects when an unrelated discovery limit is reached', () => {
+    const excludedRepo = join(root, '.tmp', 'old-fixture')
+    const repository = join(root, 'real-project')
+    mkdirSync(repository)
+    const result = discoverProjects(
+      [root],
+      [
+        { path: excludedRepo, kind: 'repository', status: 'missing' },
+        { path: repository, kind: 'repository', status: 'available' }
+      ],
+      { maxDepth: 64, maxDirectories: 1 }
+    )
+
+    expect(result.incomplete).toBe(true)
+    expect(result.projects).toContainEqual({
+      path: repository,
+      kind: 'repository',
+      status: 'unavailable'
+    })
+    expect(result.projects.some((entry) => entry.path === excludedRepo)).toBe(false)
+    expect(result.skillRoots.some((entry) => entry.projectRoot === excludedRepo)).toBe(false)
+  })
+
   it('preserves monorepo ownership with overlapping package grants in either order', () => {
     const repo = join(root, 'repo')
     const packagePath = join(repo, 'packages', 'web')

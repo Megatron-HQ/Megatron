@@ -5,12 +5,58 @@ import {
   type ProjectLabelResolver
 } from './project-tree'
 import { createUsageProjectLabelResolver } from './usage-project-label'
+import type { UsageProjectCatalog } from '../../../shared/usage-projects'
 
 function hierarchyResolver(paths: string[]): ProjectLabelResolver {
   return createProjectLabelResolver(projectDisplayLabels(paths))
 }
 
 describe('usage project labels', () => {
+  it('does not attribute an unknown working directory to a registered filesystem root', () => {
+    const root = {
+      id: 'root',
+      path: '/',
+      kind: 'repository' as const,
+      status: 'available' as const
+    }
+    const catalog: UsageProjectCatalog = {
+      locations: [root],
+      projects: [{ id: root.id, path: '/', label: '/', locations: [root], possibleMatches: [] }]
+    }
+    expect(createUsageProjectLabelResolver([], hierarchyResolver([]), catalog)('')).toBe(
+      'Unknown project'
+    )
+  })
+  it('uses the complete retained catalog for renamed locations and stable disambiguation', () => {
+    const old = {
+      id: 'old',
+      path: '/archive/PreviousName',
+      kind: 'repository' as const,
+      status: 'missing' as const,
+      linkedTo: 'current'
+    }
+    const current = {
+      id: 'current',
+      path: '/work/clients/Megatron',
+      kind: 'repository' as const,
+      status: 'available' as const
+    }
+    const catalog: UsageProjectCatalog = {
+      locations: [old, current],
+      projects: [
+        {
+          id: 'current',
+          path: current.path,
+          label: 'clients/Megatron',
+          locations: [old, current],
+          possibleMatches: []
+        }
+      ]
+    }
+    const resolve = createUsageProjectLabelResolver([], hierarchyResolver([]), catalog)
+    expect(resolve('/archive/PreviousName/src')).toBe('clients/Megatron')
+    expect(resolve('/work/clients/Megatron')).toBe('clients/Megatron')
+  })
   it('uses names for both catalog projects and granted folders without changing shared labels', () => {
     const paths = ['C:\\HQ', 'C:\\HQ\\Megatron', 'C:\\HQ\\Site']
     const grants = [{ path: paths[0], granted_at: '' }]

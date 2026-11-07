@@ -4,7 +4,10 @@ import { seriesColor, type ModelIdentity } from '@/lib/model-identity'
 import type { SkillStatsWindowKey, TokenStats, TokenWindow } from '../../../../shared/ipc'
 import { ChartBlock } from './ChartBlock'
 import { RankedList } from './RankedList'
+import { ProjectRankedList } from './ProjectRankedList'
 import { TokenReadout } from './TokenReadout'
+import { TokenValue } from './TokenValue'
+import { formatExactTokenCount, formatTokenCount } from '../../../../shared/token-format'
 import { formatCount, formatModelName } from './chart-utils'
 
 export function TokensSection({
@@ -24,11 +27,15 @@ export function TokensSection({
     <section className="flex flex-col gap-6 py-8">
       <div className="flex flex-col gap-4">
         <div>
-          <p
-            className="text-usage-stat text-foreground"
-            title={selected.tokens ? `${formatCount(selected.tokens.total)} tokens` : undefined}
-          >
-            {selected.tokens ? formatCount(selected.tokens.total) : '—'}
+          <p className="text-usage-stat text-foreground">
+            {selected.tokens ? (
+              <TokenValue
+                value={selected.tokens.total}
+                hint="Estimated share of recorded session totals"
+              />
+            ) : (
+              '—'
+            )}
           </p>
           <p className="mt-1 text-[11px] uppercase tracking-[0.04em] text-muted-foreground">
             Total tokens processed · estimated
@@ -49,8 +56,12 @@ export function TokensSection({
           <p className="text-[12px] text-muted-foreground">
             {stats.missingSessionCount > 0 &&
               `${formatCount(stats.missingSessionCount)} archived sessions have no usable token totals. `}
-            {stats.undatedTokens.total > 0 &&
-              `${formatCount(stats.undatedTokens.total)} recorded tokens have no response timestamp and cannot be assigned to a period. `}
+            {stats.undatedTokens.total > 0 && (
+              <>
+                <TokenValue value={stats.undatedTokens.total} /> recorded tokens have no response
+                timestamp and cannot be assigned to a period.{' '}
+              </>
+            )}
             These gaps are excluded from the figures above.
           </p>
         )}
@@ -74,7 +85,8 @@ export function TokensSection({
             value: row.tokens.total,
             swatch: seriesColor(identifyModel(row.key))
           }))}
-          formatValue={formatCount}
+          formatValue={formatTokenCount}
+          formatExactValue={(value) => `${formatExactTokenCount(value)} tokens`}
           noun="models"
         />
       </ChartBlock>
@@ -83,13 +95,14 @@ export function TokensSection({
         empty={selected.byProject.length === 0}
         emptyMessage="No tracked projects in this period"
       >
-        <RankedList
+        <ProjectRankedList
           items={selected.byProject.map((row) => ({
             label: resolveProjectLabel(row.key),
             fullLabel: row.key,
             value: row.tokens.total
           }))}
-          formatValue={formatCount}
+          formatValue={formatTokenCount}
+          formatExactValue={(value) => `${formatExactTokenCount(value)} tokens`}
           noun="projects"
         />
       </ChartBlock>
@@ -115,7 +128,7 @@ function TokenTrend({
       ...(hourly ? { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' } : {})
     })
     const partial = !hourly && (start.getHours() !== 0 || new Date(bucket.endAt).getHours() !== 0)
-    return `${date} · ${bucket.tokens ? `${formatCount(bucket.tokens.total)} estimated tokens` : 'No recorded token data'}${partial ? ' · partial day' : ''}`
+    return `${date} · ${bucket.tokens ? `${formatTokenCount(bucket.tokens.total)} estimated tokens` : 'No recorded token data'}${partial ? ' · partial day' : ''}`
   }
   return (
     <div>
@@ -127,7 +140,7 @@ function TokenTrend({
           <button
             key={bucket.key}
             type="button"
-            aria-label={label(index)}
+            aria-label={`${label(index)}${bucket.tokens ? ` · ${formatExactTokenCount(bucket.tokens.total)} exact tokens` : ''}`}
             onMouseEnter={() => setFocused(index)}
             onFocus={() => setFocused(index)}
             onBlur={() => setFocused(null)}
@@ -144,9 +157,16 @@ function TokenTrend({
           </button>
         ))}
       </div>
-      <div className="mt-2 min-h-8 text-[11px] text-muted-foreground" aria-live="polite">
+      <div className="mt-2 min-h-10 text-[11px] text-muted-foreground" aria-live="polite">
         {focused !== null ? (
-          label(focused)
+          <>
+            <p>{label(focused)}</p>
+            {window.trend[focused].tokens && (
+              <p className="mt-1 opacity-75">
+                {formatExactTokenCount(window.trend[focused].tokens.total)} exact tokens
+              </p>
+            )}
+          </>
         ) : (
           <div className="flex justify-between gap-4">
             <span>

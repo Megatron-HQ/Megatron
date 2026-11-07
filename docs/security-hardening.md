@@ -41,6 +41,20 @@ Unavailable reads differ from confirmed missing sources. Unavailable skill docum
 registries, transcript reads, and transcript metadata checks preserve the last usable index.
 Readable siblings can still refresh. An invalid registry structure is not an empty registry.
 
+Live inventory watches validate both the requested root and canonical target before attaching,
+and close when a root no longer resolves inside the permission boundary. They expose change
+notifications only; scanning and file contents still use guarded reads. Missing discovered child
+projects are pruned only beneath a readable grant. Explicitly granted missing roots and unavailable
+sources retain cached data. Registry cleanup changes only the derived index, never Claude files.
+
+Deletion reconciliation compares permitted canonical locations, including when recorded paths use
+macOS `/var` aliases or Windows junctions. A missing descendant is resolved through its nearest
+existing approved ancestor; denied, dangling, or retargeted links cannot establish deletion.
+This location lookup grants no access and does not replace guarded reads. Regression tests exercise
+real aliases on both platforms, project/local plugin cleanup without source-file writes, explicit
+missing grants, revoked access, and broken or retargeted links. The CI matrix completes both operating
+systems independently so a failing platform cannot cancel the other platform's validation.
+
 Complete scans reconcile deleted nested and synced skill roots. Partial scans retain cached name
 qualification and plugin disablement. Invocation and turn recovery consider unchanged replay
 sessions when their canonical owner changes or disappears, inside the scan transaction.
@@ -220,3 +234,21 @@ were modified during verification.
 
 Finding coverage, commands and remaining release requirements are recorded in
 [security-fix-status-2026-10-10.md](security-fix-status-2026-10-10.md).
+
+## Live inventory verification (2026-11-05)
+
+- Vitest: 1,202 passed and four skipped across 70 files. Type checks, lint, build, and generated
+  mirror checks passed.
+- An isolated Windows Electron check disabled focus refreshes and exercised real additions,
+  edits, deletions, directory moves, plugin settings, and deletion of a project's `.claude`
+  directory. Typical live updates completed in 1.2–1.4 seconds. Selection recovery, retention of
+  an explicitly granted missing project, and unchanged Claude registry contents were verified.
+  No renderer errors were observed. These timings are local observations, not guarantees.
+- The completed full visual sweep produced 338 captures and 16 explicit local-data skips,
+  with no horizontal overflow or renderer console/page errors. All 119 new/changed captures
+  were reviewed at the actual default and minimum window sizes; live-data differences were
+  not promoted. This includes ten new captures for scoped warnings, removed-project recovery,
+  and retention of the manual rescan result through inventory-only and full background scans.
+- Simulated scan screens isolate their notification timeline from real background scans in
+  the test-only entry point. A separate Electron check confirmed the source-badge tooltip at
+  both sizes after one capture missed its hover timing; that capture was not promoted.

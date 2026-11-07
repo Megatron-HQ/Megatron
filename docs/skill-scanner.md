@@ -1,5 +1,35 @@
 # Skill scanner — sources, symlinks, and real `~/.claude` data notes
 
+## Live inventory reconciliation (2026-11-05)
+
+Approved project folders, global skills, plugin stores, and user configuration are watched through
+the permission boundary. Changes settle for one second before a quiet inventory-only scan; a
+five-second cap avoids starvation during continuous file operations. Source-file edits outside
+Claude content and generated/dependency directories are ignored. A 30-second reconciliation pass
+reattaches watches and recovers missed events or temporarily inaccessible sources. Startup,
+focus, and manual full scans keep their existing behavior; live scans do not ingest Usage again
+or refetch open Usage and historical-activity queries.
+Settings retains the result of the user's requested rescan through later automatic refreshes;
+current source details still show the newest scan, and another requested rescan clears the message.
+
+A discovered child confirmed missing beneath a readable grant is removed from the catalog and
+derived skill/plugin inventory. Deleting only its `.claude` directory also reconciles stale skills.
+Individually granted missing folders remain saved with cached data. An unreadable grant is not
+evidence that its children were deleted. Unreadable projects retain their cached entries and retry;
+their warnings do not mark readable parents or siblings unavailable. Incomplete discovery preserves
+only cached locations whose traversal was affected, rather than every unrelated old catalog entry.
+
+A granted folder absent from the discovery catalog has an unknown availability until scanning
+establishes its status. Skills and Plugins keep that state quiet in both the inventory and sidebar;
+permission alone never implies a failed refresh. Confirmed unavailable, missing, or access-required
+statuses remain visible during retries and clear when a subsequent scan reports recovery. This
+also covers folders removed and re-added through Project Folders settings.
+
+When the selected project disappears, Skills and Plugins return to the nearest available ancestor
+and close details for removed items. The active section and sidebar interactions are preserved.
+Moves within approved folders are rediscovered at their new paths; this never grants a new location,
+rewrites Claude's plugin registry, or moves historical usage to a guessed project identity.
+
 ## Repository catalog and parent navigation (2026-10-15)
 
 `project-discovery.ts` owns the shared bounded walk used by skill scanning and both project
@@ -7,12 +37,19 @@ sidebars. It records empty Git repositories and worktrees as well as unversioned
 with `.claude/skills` or project settings. A Claude package inside an identified repository keeps
 that repository's ownership; a new Git boundary always starts another repository. Discovery
 retains the existing skip list, canonical permission checks, cycle guard, depth and directory limits.
+Traversal uses guarded directory-entry types to skip ordinary files without resolving and statting
+each one. Directory targets and links still cross the canonical permission boundary; discovery scope
+and repository ownership are unchanged.
 
 The catalog is derived metadata in the private preferences cache, independent of folder grants.
-It preserves known missing/unavailable repository entries across scans and restarts. Cached
+It preserves individually granted missing repositories and unavailable repository entries across scans and restarts. Cached
 entries never grant access, and removing a grant drops entries no longer covered by another grant.
+Automatic discovery skips `.tmp` and `.temp`, along with the existing generated/dependency
+directories. Windows skip names are case-insensitive. Cached entries and derived skill rows under
+excluded project locations are discarded rather than rediscovered on every scan. A direct grant
+inside an excluded directory, including a grant of that directory itself, remains supported.
 Existing skill and plugin rows provide cached counts; a complete scan of a readable empty source
-reconciles its contents normally. A missing whole repository retains its cached data.
+reconciles its contents normally. Missing discovered children are reconciled as described above.
 
 Skills and Plugins share a granted-folder → repository tree. A parent selects its aggregate and
 expands its children; its chevron only expands/collapses. Intermediate directories are omitted
@@ -53,6 +90,13 @@ Scan summaries include actionable settings diagnostics. An unapproved project re
 access; an approved but absent project reports a missing location, including moved-project
 records. Settings failures preserve cached rows and disablement. Megatron does not guess a
 replacement project path or rewrite Claude's plugin registry during scans.
+
+Confirmed missing projects retain their cached state and appear as informational details in
+Settings. A scan whose only incomplete sources report `project_missing` does not raise an app-wide
+refresh warning; a manual rescan completes with the missing locations listed below it. Permission
+errors, invalid settings, read failures, scan limits, worker failures, and unexplained partial results
+still require attention, including when they occur alongside a missing project. A directory replaced
+by a regular file is treated as an absent directory, not as denied access.
 
 ## Scan integrity amendment (2026-10-02)
 

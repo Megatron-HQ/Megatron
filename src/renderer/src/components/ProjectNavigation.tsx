@@ -137,7 +137,7 @@ function ProjectNode({
   const exact = !hasChildren && node.kind === 'repository'
   const samePath = selection.path !== undefined && normalizeProjectPath(selection.path) === node.key
   const isSelected = selected && samePath && !!selection.exact === exact
-  const unavailable = node.status !== 'available'
+  const unavailable = node.status !== undefined && node.status !== 'available'
   return (
     <div className="flex min-w-0 flex-col">
       {hasChildren ? (

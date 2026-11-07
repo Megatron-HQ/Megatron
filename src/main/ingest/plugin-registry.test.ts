@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -58,6 +58,95 @@ function pluginSkills(): SkillRow[] {
 function writeInstalledPlugins(content: unknown): void {
   writeFileSync(join(pluginsDir, 'installed_plugins.json'), JSON.stringify(content))
 }
+
+describe('removed project installs', () => {
+  it.each(['project', 'local'])(
+    'prunes a deleted %s install recorded through a selected directory alias',
+    (scope) => {
+      const workspace = join(tmpDir, 'workspace')
+      const selected = join(tmpDir, 'selected')
+      mkdirSync(workspace)
+      symlinkSync(workspace, selected, process.platform === 'win32' ? 'junction' : 'dir')
+      resetGrantedPaths()
+      const approvedWorkspace = grantPath(selected)
+      grantPath(pluginsDir)
+      grantPath(userSettingsPath)
+      const repository = join(selected, 'removed')
+      const installPath = join(approvedWorkspace, 'cache', 'plugin-a')
+      mkdirSync(repository)
+      writePluginSkill(installPath, 'example', '---\nname: example\n---\nBody')
+      writeInstalledPlugins({
+        version: 2,
+        plugins: {
+          'plugin-a@market-1': [{ scope, projectPath: repository, installPath, version: '1.0.0' }]
+        }
+      })
+      const registryFile = join(pluginsDir, 'installed_plugins.json')
+      const original = readFileSync(registryFile, 'utf8')
+      scanPluginRegistry(db, pluginsDir, userSettingsPath)
+      expect(allRegistry()).toHaveLength(1)
+      expect(pluginSkills()).toHaveLength(1)
+      rmSync(repository, { recursive: true })
+
+      scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+      expect(allRegistry()).toEqual([])
+      expect(pluginSkills()).toEqual([])
+      expect(readFileSync(registryFile, 'utf8')).toBe(original)
+    }
+  )
+
+  it('prunes a deleted discovered project install without changing Claude registry files', () => {
+    const repository = join(tmpDir, 'removed')
+    const installPath = join(tmpDir, 'cache', 'plugin-a')
+    mkdirSync(repository)
+    writePluginSkill(installPath, 'example', '---\nname: example\n---\nBody')
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          { scope: 'project', projectPath: repository, installPath, version: '1.0.0' }
+        ]
+      }
+    })
+    const registryFile = join(pluginsDir, 'installed_plugins.json')
+    const original = readFileSync(registryFile, 'utf8')
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+    rmSync(repository, { recursive: true })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(allRegistry()).toEqual([])
+    expect(pluginSkills()).toEqual([])
+    expect(readFileSync(registryFile, 'utf8')).toBe(original)
+  })
+
+  it('retains missing individually granted installs and shared user installs', () => {
+    const repository = join(tmpDir, 'direct')
+    const installPath = join(tmpDir, 'cache', 'plugin-a')
+    mkdirSync(repository)
+    grantPath(repository)
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          { scope: 'project', projectPath: repository, installPath, version: '1.0.0' },
+          { scope: 'user', installPath, version: '1.0.0' }
+        ]
+      }
+    })
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+    rmSync(repository, { recursive: true })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(
+      allRegistry()
+        .map((row) => row.scope)
+        .sort()
+    ).toEqual(['project', 'user'])
+  })
+})
 
 function writeMarketplaces(content: unknown): void {
   writeFileSync(join(pluginsDir, 'known_marketplaces.json'), JSON.stringify(content))

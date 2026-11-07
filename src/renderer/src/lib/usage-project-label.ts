@@ -1,6 +1,8 @@
 import { normalizeProjectPath } from '../../../shared/project-path'
 import type { ProjectLabelResolver } from './project-tree'
 import { getFolderBasename } from './source-name'
+import type { UsageProjectCatalog } from '../../../shared/usage-projects'
+import { resolveUsageProjectPath } from '../../../shared/usage-projects'
 
 interface UsageProjectLabel {
   parts: string[]
@@ -28,8 +30,19 @@ function displayLabel(entry: UsageProjectLabel): string {
 
 export function createUsageProjectLabelResolver(
   paths: Iterable<string>,
-  resolveHierarchyLabel: ProjectLabelResolver
+  resolveHierarchyLabel: ProjectLabelResolver,
+  catalog?: UsageProjectCatalog
 ): ProjectLabelResolver {
+  if (catalog) {
+    const labels = new Map(
+      catalog.projects.map((project) => [normalizeProjectPath(project.path), project.label])
+    )
+    return (path) =>
+      !path
+        ? 'Unknown project'
+        : (labels.get(normalizeProjectPath(resolveUsageProjectPath(path, catalog.locations))) ??
+          (getFolderBasename(resolveHierarchyLabel(path)) || getFolderBasename(path)))
+  }
   const projects = new Map<string, UsageProjectLabel>()
   const projectKeys = new Map<string, string>()
 

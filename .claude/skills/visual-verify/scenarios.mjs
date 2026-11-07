@@ -55,6 +55,26 @@ async function openManageFolders(window) {
   await window.getByRole('dialog', { name: 'Project Folders', exact: true }).waitFor()
 }
 
+async function removeSelectedFixtureProject(window, app, section) {
+  await app.evaluate(({ BrowserWindow }) => {
+    for (const channel of [
+      'folders:list',
+      'projects:list',
+      'plugins:list',
+      'skills:list',
+      'plugins:detail'
+    ]) {
+      globalThis.megatronVisualFixtures.set(channel, 'project-tree-live-removed')
+    }
+    BrowserWindow.getAllWindows()[0].webContents.send('scan:complete', {
+      id: 900001,
+      summary: { outcome: 'complete', completedAt: new Date().toISOString(), sources: [] }
+    })
+  })
+  const label = section === 'Skills' ? 'Project' : 'Projects'
+  await window.getByText(`${label} / Megatron HQ ${section}`).waitFor()
+}
+
 /** Row click → SkillDetail, the common opening move for several scenarios below. */
 async function openFirstSkillDetail(window) {
   await window.locator('tbody tr').first().click()
@@ -429,6 +449,97 @@ export const scenarios = [
       await window.getByText(/This project folder is missing/).waitFor()
     }
   },
+  ...['Skills', 'Plugins'].flatMap((section) =>
+    ['pending', 'discovered', 'failed-retry'].map((state) => ({
+      name: `${section.toLowerCase()}-added-folder-${state}`,
+      screen: [section === 'Skills' ? 'skill-inventory' : 'plugin-inventory', 'sidebar'],
+      async run(window, app) {
+        await enableProjectHierarchy(window, app, 'project-tree-pending')
+        if (section === 'Plugins') await openPluginsSection(window)
+        await window.getByRole('button', { name: /Megatron HQ.*6/ }).click()
+        const label = section === 'Skills' ? 'Project' : 'Projects'
+        await window.getByText(`${label} / Megatron HQ ${section}`).waitFor()
+        if (state !== 'pending') {
+          await app.evaluate(({ BrowserWindow }, failed) => {
+            for (const channel of ['folders:list', 'projects:list', 'plugins:list', 'skills:list'])
+              globalThis.megatronVisualFixtures.set(
+                channel,
+                failed ? 'project-tree-unavailable' : 'project-tree'
+              )
+            const contents = BrowserWindow.getAllWindows()[0].webContents
+            contents.send('scan:complete', {
+              id: 9001,
+              summary: {
+                outcome: failed ? 'partial' : 'complete',
+                completedAt: new Date().toISOString(),
+                sources: [{ name: 'scanSkills', status: failed ? 'partial' : 'complete' }]
+              }
+            })
+          }, state === 'failed-retry')
+          if (state === 'failed-retry') {
+            await window.getByText(/This folder could not be refreshed/).waitFor()
+            await app.evaluate(({ BrowserWindow }) => {
+              BrowserWindow.getAllWindows()[0].webContents.send('scan:started', {
+                id: 9002,
+                startedAt: Date.now() - 60_000,
+                isStartup: false,
+                revealMs: 500
+              })
+            })
+          } else {
+            await window.waitForFunction(async () => (await window.api.listProjects()).length > 0)
+          }
+        }
+        await window.getByText(/This folder could not be refreshed/).waitFor({
+          state: state === 'failed-retry' ? 'visible' : 'hidden',
+          timeout: 5_000
+        })
+      }
+    }))
+  ),
+  {
+    name: 'skills-unreadable-child',
+    screen: ['skill-inventory', 'sidebar'],
+    async run(window, app) {
+      await enableProjectHierarchy(window, app, 'project-tree-child-unavailable')
+      await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
+      await window.getByRole('button', { name: /^Megatron(?:\s|Unavailable)*3$/ }).click()
+      await window.getByText(/Megatron will retry automatically/).waitFor()
+    }
+  },
+  {
+    name: 'plugins-healthy-parent-with-unreadable-child',
+    screen: ['plugin-inventory', 'sidebar'],
+    async run(window, app) {
+      await enableProjectHierarchy(window, app, 'project-tree-child-unavailable')
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
+      await window.getByText('Projects / Megatron HQ Plugins').waitFor()
+    }
+  },
+  {
+    name: 'skills-selected-child-removed',
+    screen: ['skill-inventory', 'sidebar'],
+    async run(window, app) {
+      await enableProjectHierarchy(window, app, 'project-tree-live')
+      await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
+      await window.getByRole('button', { name: /^Megatron\s*3$/ }).click()
+      await removeSelectedFixtureProject(window, app, 'Skills')
+    }
+  },
+  {
+    name: 'plugins-selected-child-detail-removed',
+    screen: ['plugin-inventory', 'plugin-detail', 'sidebar'],
+    async run(window, app) {
+      await enableProjectHierarchy(window, app, 'project-tree-live')
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
+      await window.getByRole('button', { name: /^Megatron\s*3$/ }).click()
+      await window.locator('tbody tr').first().click()
+      await window.getByRole('button', { name: 'Back to plugins' }).waitFor()
+      await removeSelectedFixtureProject(window, app, 'Plugins')
+    }
+  },
   {
     name: 'plugin-detail-missing-project',
     screen: 'plugin-detail',
@@ -529,7 +640,7 @@ export const scenarios = [
       await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
       await window
         .getByRole('status')
-        .filter({ hasText: /^Scan / })
+        .filter({ hasText: /^(Scan complete|Some sources could not|The scan could not)/ })
         .waitFor()
     }
   },
@@ -541,11 +652,133 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('skills:list', 'scan-updating')
       )
       await window.reload()
-      await window
-        .getByText(
-          /Updating your index\. This is the last saved snapshot\.|Reading your Claude Code files\./
+      await window.getByText(/Refreshing Claude Code data|Scanning Claude Code data/).waitFor()
+    }
+  },
+  {
+    name: 'settings-manual-result-survives-background-refresh',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() => {
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-missing')
+        globalThis.megatronVisualFixtures.set('app:rescan', 'scan-missing')
+      })
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
+      await window.getByText('Scan complete.', { exact: true }).waitFor()
+      for (const [index, full] of [false, true].entries()) {
+        const path = `C:\\Projects\\Temporarily unreadable ${full ? 'full' : 'inventory'}\\.claude\\settings.json`
+        await app.evaluate(
+          ({ BrowserWindow }, { index, full, path }) => {
+            const contents = BrowserWindow.getAllWindows()[0].webContents
+            contents.send('scan:started', {
+              id: 9003 + index,
+              startedAt: Date.now(),
+              isStartup: false,
+              revealMs: 8000
+            })
+            contents.send('scan:complete', {
+              id: 9003 + index,
+              summary: {
+                outcome: 'partial',
+                isStartup: false,
+                completedAt: new Date().toISOString(),
+                sources: [
+                  ...(full ? [{ name: 'scanTranscripts', status: 'complete' }] : []),
+                  { name: 'scanSkills', status: 'complete' },
+                  {
+                    name: 'scanPluginRegistry',
+                    status: 'partial',
+                    issues: [
+                      {
+                        code: 'source_unavailable',
+                        path
+                      }
+                    ]
+                  },
+                  { name: 'runLinter', status: 'complete' }
+                ]
+              }
+            })
+          },
+          { index, full, path }
         )
-        .waitFor()
+        await window.getByText(path, { exact: true }).waitFor()
+        await window.getByText('Scan complete.', { exact: true }).waitFor()
+      }
+    }
+  },
+  {
+    name: 'scan-retrying-hides-old-failure',
+    screen: 'skill-inventory',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-retrying')
+      )
+      await window.reload()
+      await window.getByText(/Refreshing Claude Code data|Scanning Claude Code data/).waitFor()
+      await window
+        .getByRole('status')
+        .filter({ hasText: /could not finish/ })
+        .waitFor({ state: 'hidden' })
+    }
+  },
+  {
+    name: 'settings-manual-partial-without-top-banner',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-manual-partial')
+      )
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('button', { name: 'Manage folder access', exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'settings-scan-newer-run-finishes-before-snapshot',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'scan-manual'))
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByText('Scanning Claude Code data…', { exact: true }).waitFor()
+      await app.evaluate(({ BrowserWindow }) => {
+        const contents = BrowserWindow.getAllWindows()[0].webContents
+        contents.send('scan:started', {
+          id: 9002,
+          startedAt: Date.now(),
+          isStartup: false,
+          revealMs: 500
+        })
+        contents.send('scan:complete', {
+          id: 9002,
+          summary: {
+            outcome: 'complete',
+            isStartup: false,
+            completedAt: new Date().toISOString(),
+            sources: []
+          }
+        })
+      })
+      await window
+        .getByText('Scanning Claude Code data…', { exact: true })
+        .waitFor({ state: 'hidden' })
+    }
+  },
+  {
+    name: 'settings-timeout-retains-usage',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() => {
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-timeout')
+        globalThis.megatronVisualFixtures.set('app:rescan', 'scan-timeout')
+      })
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
+      await window.getByText('This stage exceeded its time limit. Try rescanning.').waitFor()
     }
   },
   {
@@ -559,7 +792,7 @@ export const scenarios = [
       await window.getByRole('button', { name: 'Settings', exact: true }).waitFor()
       await window
         .getByRole('status')
-        .filter({ hasText: /Updating your index|Reading your Claude Code files/ })
+        .filter({ hasText: /Refreshing Claude Code data|Scanning Claude Code data/ })
         .waitFor({ state: 'hidden' })
     }
   },
@@ -601,13 +834,70 @@ export const scenarios = [
     }
   },
   {
+    name: 'scan-missing-project-without-top-warning',
+    screen: 'skill-inventory',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'scan-missing'))
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).waitFor()
+      await window
+        .getByRole('button', { name: 'Scan details', exact: true })
+        .waitFor({ state: 'hidden' })
+    }
+  },
+  {
     name: 'settings-moved-project-details',
     screen: 'settings-dialog',
     async run(window, app) {
       await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'scan-missing'))
       await window.reload()
-      await window.getByRole('button', { name: 'Scan details', exact: true }).click()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByText('Missing project folders', { exact: true }).waitFor()
       await window.getByText('C:\\Old Projects\\Megatron', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'settings-missing-project-rescan',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() => {
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-missing')
+        globalThis.megatronVisualFixtures.set('app:rescan', 'scan-missing')
+      })
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
+      await window.getByText('Scan complete.', { exact: true }).waitFor()
+      await window.getByText('Missing project folders', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'settings-missing-project-rescan-dark',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() => {
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-missing')
+        globalThis.megatronVisualFixtures.set('app:rescan', 'scan-missing')
+      })
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('radio', { name: 'Dark', exact: true }).click()
+      await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
+      await window.getByText('Scan complete.', { exact: true }).waitFor()
+      await window.getByText('Missing project folders', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'settings-missing-project-and-read-failure',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'scan-mixed'))
+      await window.reload()
+      await window.getByRole('button', { name: 'Scan details', exact: true }).click()
+      await window.getByText('Scan needs attention', { exact: true }).waitFor()
+      await window
+        .getByText('The source could not be read. Check file access and try rescanning.')
+        .waitFor()
     }
   },
   {
@@ -1437,6 +1727,35 @@ export const scenarios = [
     }
   },
   {
+    name: 'usage-project-search-collapsed',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:overview', 'usage-history-format')
+      )
+      await openUsagePanel(window, 'Tokens')
+      await window.getByRole('searchbox', { name: 'Search projects', exact: true }).fill('repo-10')
+      await window.getByText('repo-10', { exact: true }).scrollIntoViewIfNeeded()
+    }
+  },
+  {
+    name: 'usage-history-project-search',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
+      )
+      await openUsagePanel(window, 'History')
+      await window
+        .getByRole('searchbox', { name: 'Search project timeline', exact: true })
+        .fill('Internal')
+      await window
+        .getByRole('region', { name: 'Project timeline' })
+        .getByRole('rowheader')
+        .scrollIntoViewIfNeeded()
+    }
+  },
+  {
     // The page-global 7d/30d toggle switched to "7 days" — every windowed figure retunes.
     name: 'usage-activity-7-day',
     screen: 'usage',
@@ -1492,10 +1811,93 @@ export const scenarios = [
           .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
           .click()
         await window.keyboard.press('Escape')
-        await openUsageSection(window)
+        await openUsagePanel(window, 'History')
         await window.getByRole('group', { name: /Daily activity calendar/ }).waitFor()
       }
-    }
+    },
+    ...['hover', 'details'].map((state) => ({
+      name: `usage-contributions-token-only-${state}-${theme}`,
+      screen: 'usage',
+      async run(window, app) {
+        await app.evaluate(() => {
+          globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-token-only')
+          globalThis.megatronVisualFixtures.set('usage:day', 'usage-history-token-only')
+        })
+        await window.getByRole('button', { name: 'Settings', exact: true }).click()
+        await window
+          .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
+          .click()
+        await window.keyboard.press('Escape')
+        await openUsagePanel(window, 'History')
+        const day = window
+          .getByRole('group', { name: /Daily activity calendar/ })
+          .getByRole('button', { name: /Prompt history unavailable/ })
+          .and(window.locator('[aria-haspopup="dialog"]'))
+          .first()
+        await day.focus()
+        if (state === 'hover') {
+          await day.hover()
+          await window
+            .getByRole('tooltip')
+            .getByText(/Tokens: .*estimated/)
+            .waitFor()
+        } else {
+          await window.keyboard.press('Enter')
+          const dialog = window.getByRole('dialog')
+          await dialog.getByText(/Prompt history is unavailable for this day/).waitFor()
+          await dialog.getByText(/estimated tokens processed/).waitFor()
+        }
+      }
+    })),
+    {
+      name: `usage-history-prompts-and-tokens-${theme}`,
+      screen: 'usage',
+      async run(window, app) {
+        await app.evaluate(() =>
+          globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
+        )
+        await window.getByRole('button', { name: 'Settings', exact: true }).click()
+        await window
+          .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
+          .click()
+        await window.keyboard.press('Escape')
+        await openUsagePanel(window, 'History')
+        const day = window
+          .getByRole('group', { name: /Daily activity calendar/ })
+          .locator('button[aria-haspopup="dialog"]')
+          .first()
+        await day.hover()
+        await window.getByRole('tooltip').getByText('Prompts: 10', { exact: true }).waitFor()
+        await window
+          .getByRole('tooltip')
+          .getByText('9,120,000 exact tokens', { exact: true })
+          .waitFor()
+      }
+    },
+    ...['tokens', 'token-exact'].map((state) => ({
+      name: `usage-compact-${state}-${theme}`,
+      screen: 'usage',
+      async run(window, app) {
+        await app.evaluate(() =>
+          globalThis.megatronVisualFixtures.set('usage:overview', 'usage-history-format')
+        )
+        await window.getByRole('button', { name: 'Settings', exact: true }).click()
+        await window
+          .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
+          .click()
+        await window.keyboard.press('Escape')
+        await openUsagePanel(window, 'Tokens')
+        const headline = window.locator('p.text-usage-stat span[tabindex="0"]')
+        await headline.waitFor()
+        if (state === 'token-exact') {
+          await headline.focus()
+          await window
+            .getByRole('tooltip')
+            .getByText('2,501,251,250 exact tokens', { exact: true })
+            .waitFor()
+        }
+      }
+    }))
   ]),
   {
     name: 'usage-tokens-24-hour',
@@ -1512,6 +1914,84 @@ export const scenarios = [
       await window.getByText('By hour', { exact: true }).waitFor()
     }
   },
+  ...['light', 'dark'].map((theme) => ({
+    name: `usage-history-project-inspection-${theme}`,
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
+      )
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window
+        .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
+        .click()
+      await window.keyboard.press('Escape')
+      await openUsagePanel(window, 'History')
+      const cell = window
+        .getByRole('region', { name: 'Project timeline' })
+        .getByRole('img', { name: /of this month/ })
+        .first()
+      await cell.focus()
+      await window.keyboard.press('ArrowRight')
+      await window
+        .getByRole('tooltip')
+        .getByText(/of this month/)
+        .waitFor()
+    }
+  })),
+  {
+    name: 'usage-history-projects-expanded',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
+      )
+      await openUsagePanel(window, 'History')
+      await window.getByRole('button', { name: /more projects/ }).click()
+      await window.getByRole('button', { name: 'Show fewer', exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'usage-history-busiest-day-keyboard-return',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() => {
+        globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
+        globalThis.megatronVisualFixtures.set('usage:day', 'usage-history-sample')
+      })
+      await openUsagePanel(window, 'History')
+      await window.getByRole('button', { name: /^Busiest day:/ }).focus()
+      for (const key of ['Enter', 'Space']) {
+        await window.keyboard.press(key)
+        await window
+          .getByRole('dialog')
+          .getByText(/estimated tokens processed/)
+          .waitFor()
+        await window.keyboard.press('Escape')
+        await window.getByRole('dialog').waitFor({ state: 'hidden' })
+      }
+    }
+  },
+  ...['empty', 'unavailable'].map((mode) => ({
+    name: `usage-history-${mode}`,
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(
+        (_electron, mode) =>
+          globalThis.megatronVisualFixtures.set('usage:calendar', `usage-history-${mode}`),
+        mode
+      )
+      await openUsagePanel(window, 'History')
+      await window
+        .getByText(
+          mode === 'empty'
+            ? 'No project prompts recorded in this year.'
+            : 'Project activity is unavailable for this year.',
+          { exact: true }
+        )
+        .waitFor()
+    }
+  })),
   {
     name: 'usage-tokens-unavailable',
     screen: 'usage',
@@ -1530,7 +2010,7 @@ export const scenarios = [
       await app.evaluate(() =>
         globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
       )
-      await openUsageSection(window)
+      await openUsagePanel(window, 'History')
       const previous = new Date().getFullYear() - 1
       await window
         .getByRole('navigation', { name: 'Contribution year' })
@@ -1547,7 +2027,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
         globalThis.megatronVisualFixtures.set('usage:day', 'usage-history-sample')
       })
-      await openUsageSection(window)
+      await openUsagePanel(window, 'History')
       const day = window
         .getByRole('group', { name: /Daily activity calendar/ })
         .locator('button[aria-haspopup="dialog"]')
@@ -1568,7 +2048,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
         globalThis.megatronVisualFixtures.set('usage:day', 'usage-history-sample')
       })
-      await openUsageSection(window)
+      await openUsagePanel(window, 'History')
       const day = window
         .getByRole('group', { name: /Daily activity calendar/ })
         .locator('button[aria-haspopup="dialog"]')
@@ -1584,6 +2064,59 @@ export const scenarios = [
         await window.keyboard.press('Escape')
         await window.getByRole('dialog').waitFor({ state: 'hidden' })
       }
+    }
+  },
+  {
+    name: 'usage-history-year-persists',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-sample')
+      )
+      await openUsagePanel(window, 'History')
+      const previous = new Date().getFullYear() - 1
+      await window
+        .getByRole('navigation', { name: 'Contribution year' })
+        .getByRole('button', { name: String(previous) })
+        .click()
+      await openUsagePanel(window, 'Tokens')
+      await window
+        .getByRole('radiogroup', { name: 'Token usage window' })
+        .getByRole('radio', { name: '7 days' })
+        .click()
+      await openUsagePanel(window, 'History')
+      await window.getByRole('group', { name: `Daily activity calendar for ${previous}` }).waitFor()
+    }
+  },
+  ...['pending', 'error'].map((mode) => ({
+    name: `usage-history-calendar-${mode}`,
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(
+        (_electron, mode) => globalThis.megatronVisualFixtures.set('usage:calendar', mode),
+        mode
+      )
+      await openUsagePanel(window, 'History')
+      if (mode === 'error') await window.getByText(/Could not load contribution history/).waitFor()
+      else
+        await window
+          .getByRole('region', { name: 'Contribution graph' })
+          .locator('[data-slot="skeleton"]')
+          .last()
+          .waitFor()
+    }
+  })),
+  {
+    name: 'usage-compact-rankings-expanded',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:overview', 'usage-history-format')
+      )
+      await openUsagePanel(window, 'Tokens')
+      await window.getByRole('button', { name: /Show 2 more projects/ }).click()
+      await window.getByText('repo-10', { exact: true }).waitFor()
+      await window.getByRole('button', { name: 'Show fewer', exact: true }).scrollIntoViewIfNeeded()
     }
   },
   {

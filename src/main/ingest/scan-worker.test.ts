@@ -23,6 +23,59 @@ const api = scans as typeof scans & {
 }
 
 describe('isolated scans', () => {
+  it('runs an inventory-only snapshot after a full scan without losing its queued request', async () => {
+    const starts: string[] = []
+    const finishes: ((summary: ScanSummary) => void)[] = []
+    const controller = scans.createScanController((scope) => {
+      starts.push(scope)
+      return {
+        result: new Promise<ScanSummary>((resolve) => finishes.push(resolve)),
+        cancel: async () => undefined
+      }
+    })
+    const full = controller.request()
+    const inventory = controller.request({ scope: 'inventory', fresh: true })
+    finishes[0](summary)
+    await full
+    expect(starts).toEqual(['all', 'inventory'])
+    finishes[1](summary)
+    expect(await inventory).toEqual(summary)
+  })
+
+  it('waits for the final summary after source progress messages', async () => {
+    const task = api.startScanWorker(
+      workerUrl(`
+      import { parentPort, workerData } from 'node:worker_threads';
+      parentPort.postMessage({ type: 'source-started', name: 'scanTranscripts' });
+      parentPort.postMessage({ type: 'source-complete', source: { name: 'scanTranscripts', status: 'complete' } });
+      setTimeout(() => parentPort.postMessage(workerData), 20);
+    `),
+      summary
+    )
+    expect(await task.result).toEqual(summary)
+  })
+
+  it('retains successful source results when a later source times out', async () => {
+    const task = api.startScanWorker(
+      workerUrl(`
+      import { parentPort } from 'node:worker_threads';
+      parentPort.postMessage({ type: 'source-complete', source: { name: 'scanTranscripts', status: 'complete' } });
+      parentPort.postMessage({ type: 'source-started', name: 'scanSkills' });
+      while (true) {}
+    `),
+      {},
+      500
+    )
+    await expect(task.result).rejects.toMatchObject({
+      summary: {
+        outcome: 'partial',
+        sources: [
+          { name: 'scanTranscripts', status: 'complete' },
+          { name: 'scanSkills', status: 'failed', failureReason: 'timeout' }
+        ]
+      }
+    })
+  })
   it('prioritizes a post-update plugin scan and resumes the interrupted full scan afterward', async () => {
     const starts: string[] = []
     const finishes: ((summary: ScanSummary) => void)[] = []

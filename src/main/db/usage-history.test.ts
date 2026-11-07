@@ -6,7 +6,18 @@ import { join } from 'path'
 import { applySchema } from './schema'
 import { openUsageArchive } from './usage-archive'
 import { archiveUsageHistory } from '../ingest/usage-history'
-import { getTokenStats, getUsageCalendar, getUsageDay } from './usage-history-queries'
+import {
+  getTokenStats,
+  getUsageCalendar,
+  getUsageDay,
+  getArchivedActivityStats
+} from './usage-history-queries'
+import {
+  getUsageOverviewData,
+  getProjectUsageCalendar,
+  getProjectUsageDay,
+  readUsageProjectLocations
+} from '../usage-projects'
 import { scanTranscripts } from '../ingest/transcript-scanner'
 import { scanPromptHistory } from '../ingest/prompt-history-scanner'
 import { grantPath, resetGrantedPaths } from '../permissions'
@@ -65,6 +76,147 @@ afterEach(() => {
 })
 
 describe('persistent usage history', () => {
+  it('keeps Activity aligned with retained History after source pruning, including prompt multiplicity', () => {
+    const insert = archive.prepare('INSERT INTO history_prompts VALUES (?, ?, ?, ?, ?)')
+    insert.run('first', '/repo/src', at(3), 0, 3)
+    insert.run('second', '/repo', at(3, 11), 0, 2)
+    insert.run('slash', '/repo', at(3, 11), 1, 4)
+    insert.run('future', '/repo', at(4), 0, 100)
+    archive
+      .prepare('INSERT INTO history_coverage VALUES (?, ?)')
+      .run(at(1, 0), new Date(now.getTime() + 1).toISOString())
+    const activity = getArchivedActivityStats(archive, now)
+    expect(activity.last24h).toMatchObject({
+      prompts: 5,
+      sessions: 2,
+      slashCommands: 4,
+      coverage: 'available'
+    })
+    expect(activity.last24h.hourlyTrend.reduce((sum, hour) => sum + hour.count, 0)).toBe(5)
+    expect(activity.last7d.byHour.reduce((sum, count) => sum + count, 0)).toBe(5)
+    expect(activity.last7d.byDay.find((day) => day.date === '2026-11-03')).toMatchObject({
+      count: 5,
+      slashCommands: 4,
+      coverage: 'available'
+    })
+    expect(activity.last7d.coverage).toBe('partial')
+    expect(activity.last7d.byDay[0].coverage).toBe('unavailable')
+    expect(activity.last30d.prompts).toBe(getUsageCalendar(archive, 2026, now).prompts)
+    expect(getUsageDay(archive, '2026-11-03', now).count).toBe(5)
+  })
+
+  it('uses identical project ownership for overview metrics, timeline, and day details', () => {
+    session()
+    index.prepare("UPDATE sessions_meta SET cwd='/repo/src'").run()
+    totals()
+    index
+      .prepare(
+        "INSERT INTO timed_skill_cost (session_id, skill_name, model, allocated_at, est_cost_usd) VALUES ('session', NULL, 'claude-sonnet-5', ?, 1)"
+      )
+      .run(at(3))
+    turn('turn', 3, 1)
+    prompt()
+    index.prepare("UPDATE prompt_history SET project='/repo/prompts'").run()
+    sync()
+    const locations = readUsageProjectLocations(
+      index,
+      archive,
+      [],
+      [{ path: '/repo', kind: 'repository', status: 'available' }]
+    )
+    expect(locations).toHaveLength(1)
+    const overview = getUsageOverviewData(index, archive, locations, now)
+    expect(overview.activity.last30d.byProject).toEqual([{ project: '/repo', count: 1 }])
+    expect(overview.tokens.last30d.byProject).toEqual([
+      {
+        key: '/repo',
+        tokens: { input: 100, output: 200, cacheRead: 300, cacheWrite: 400, total: 1000 }
+      }
+    ])
+    expect(overview.cost?.last30d.byProject).toEqual([{ project: '/repo', costUsd: 1 }])
+    expect(getProjectUsageCalendar(archive, 2026, locations, now).byProject[0]).toMatchObject({
+      project: '/repo',
+      total: 1
+    })
+    expect(getProjectUsageDay(archive, '2026-11-03', locations, now).byProject).toEqual([
+      { project: '/repo', count: 1 }
+    ])
+  })
+
+  it('summarizes recorded activity within the selected local year', () => {
+    const insert = archive.prepare('INSERT INTO history_prompts VALUES (?, ?, ?, ?, ?)')
+    insert.run('previous', '/repo', new Date(2025, 11, 31, 23).toISOString(), 0, 100)
+    insert.run('first', '/repo', new Date(2026, 0, 1, 10).toISOString(), 0, 3)
+    insert.run('second', '/repo', new Date(2026, 0, 2, 10).toISOString(), 0, 5)
+    insert.run('third', '/repo', new Date(2026, 0, 3, 10).toISOString(), 0, 5)
+    insert.run('slash', '/repo', new Date(2026, 0, 3, 11).toISOString(), 1, 80)
+    insert.run('future', '/repo', at(4), 0, 100)
+    archive
+      .prepare('INSERT INTO history_coverage VALUES (?, ?)')
+      .run(new Date(2026, 0, 1).toISOString(), new Date(2026, 0, 5).toISOString())
+
+    expect(getUsageCalendar(archive, 2026, now)).toMatchObject({
+      prompts: 13,
+      activeDays: 3,
+      summary: {
+        observedDays: 4,
+        partialDays: 0,
+        elapsedDays: 307,
+        longestStreak: { days: 3, startDate: '2026-01-01', endDate: '2026-01-03' },
+        busiestDay: { date: '2026-01-02', count: 5 },
+        promptsPerActiveDay: 13 / 3
+      }
+    })
+  })
+
+  it('keeps verified streaks separate across missing and known-empty days', () => {
+    const insert = archive.prepare('INSERT INTO history_prompts VALUES (?, ?, ?, 0, 1)')
+    for (const day of [1, 2, 4, 5, 7]) insert.run(`day-${day}`, '/repo', at(day))
+    const cover = archive.prepare('INSERT INTO history_coverage VALUES (?, ?)')
+    cover.run(new Date(2026, 10, 1).toISOString(), new Date(2026, 10, 3).toISOString())
+    cover.run(new Date(2026, 10, 4, 9).toISOString(), new Date(2026, 10, 8).toISOString())
+
+    expect(getUsageCalendar(archive, 2026, new Date(2026, 10, 8, 12)).summary).toMatchObject({
+      observedDays: 6,
+      partialDays: 1,
+      longestStreak: { days: 2, startDate: '2026-11-01', endDate: '2026-11-02' }
+    })
+  })
+
+  it('does not invent records or averages when no prompt history is observed', () => {
+    expect(getUsageCalendar(archive, 2026, now).summary).toEqual({
+      observedDays: 0,
+      partialDays: 0,
+      elapsedDays: 307,
+      longestStreak: null,
+      busiestDay: null,
+      promptsPerActiveDay: null
+    })
+  })
+
+  it('groups project months using prompt multiplicity and excludes commands and other years', () => {
+    const insert = archive.prepare('INSERT INTO history_prompts VALUES (?, ?, ?, ?, ?)')
+    insert.run('jan', '/alpha', new Date(2026, 0, 31, 23, 59).toISOString(), 0, 3)
+    insert.run('feb', '/alpha', new Date(2026, 1, 1).toISOString(), 0, 2)
+    insert.run('beta', '/beta', new Date(2026, 1, 2).toISOString(), 0, 7)
+    insert.run('command', '/beta', new Date(2026, 1, 2, 1).toISOString(), 1, 20)
+    insert.run('older', '/beta', new Date(2025, 11, 31).toISOString(), 0, 80)
+    insert.run('future', '/beta', at(4), 0, 80)
+    archive
+      .prepare('INSERT INTO history_coverage VALUES (?, ?)')
+      .run(new Date(2026, 1, 1).toISOString(), new Date(2026, 2, 1).toISOString())
+
+    const calendar = getUsageCalendar(archive, 2026, now)
+    expect(calendar.byProject).toEqual([
+      { project: '/beta', total: 7, byMonth: [0, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+      { project: '/alpha', total: 5, byMonth: [3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }
+    ])
+    expect(calendar.months).toHaveLength(12)
+    expect(calendar.months[0]).toEqual({ month: 1, count: 3, coverage: 'unavailable' })
+    expect(calendar.months[1]).toEqual({ month: 2, count: 9, coverage: 'available' })
+    expect(calendar.months[11]).toEqual({ month: 12, count: 0, coverage: 'future' })
+  })
+
   it('rejects future day-detail requests instead of returning a reversed interval', () => {
     expect(() => getUsageDay(archive, '2026-11-04', now)).toThrow(/future/i)
   })
@@ -283,4 +435,92 @@ describe('persistent usage history', () => {
     expect(getUsageCalendar(archive, 2026, now).prompts).toBe(0)
     expect(getUsageDay(archive, '2026-11-03', now).tokens).toBeNull()
   })
+})
+
+describe('usage history across a skipped local midnight', () => {
+  let previousTimezone: string | undefined
+
+  beforeEach(() => {
+    previousTimezone = process.env.TZ
+    process.env.TZ = 'America/Santiago'
+  })
+
+  afterEach(() => {
+    if (previousTimezone === undefined) delete process.env.TZ
+    else process.env.TZ = previousTimezone
+  })
+
+  it('ends day details and coverage at the following midnight without counting the next day', () => {
+    const insertPrompt = archive.prepare('INSERT INTO history_prompts VALUES (?, ?, ?, 0, 1)')
+    insertPrompt.run('on-day', '/repo', '2026-09-06T13:00:00.000Z')
+    insertPrompt.run('next-day', '/repo', '2026-09-07T03:30:00.000Z')
+    const insertTokens = archive.prepare(
+      "INSERT INTO history_token_shares VALUES (?, '/repo', 'claude-sonnet-5', ?, 10, 20, 30, 40)"
+    )
+    insertTokens.run('on-day', '2026-09-06T13:00:00.000Z')
+    insertTokens.run('next-day', '2026-09-07T03:30:00.000Z')
+    archive
+      .prepare('INSERT INTO history_coverage VALUES (?, ?)')
+      .run('2026-09-06T04:00:00.000Z', '2026-09-07T03:00:00.000Z')
+    const asOf = new Date('2026-09-08T15:00:00.000Z')
+
+    expect(getUsageDay(archive, '2026-09-06', asOf)).toMatchObject({
+      startAt: '2026-09-06T04:00:00.000Z',
+      endAt: '2026-09-07T03:00:00.000Z',
+      count: 1,
+      sessions: 1,
+      byProject: [{ project: '/repo', count: 1 }],
+      coverage: 'available',
+      partial: false,
+      tokens: { input: 10, output: 20, cacheRead: 30, cacheWrite: 40, total: 100 }
+    })
+    expect(
+      getUsageCalendar(archive, 2026, asOf).days.find((day) => day.date === '2026-09-06')
+    ).toMatchObject({ coverage: 'available', tokens: { total: 100 } })
+  })
+
+  it.each(['last7d', 'last30d'] as const)(
+    'keeps %s day buckets at local midnight and includes the current early-morning tokens',
+    (windowKey) => {
+      const insertTokens = archive.prepare(
+        "INSERT INTO history_token_shares VALUES ('session', '/repo', 'claude-sonnet-5', ?, ?, 0, 0, 0)"
+      )
+      insertTokens.run('2026-09-06T13:00:00.000Z', 100)
+      insertTokens.run('2026-09-07T03:30:00.000Z', 200)
+      insertTokens.run('2026-09-08T03:15:00.000Z', 300)
+
+      const window = getTokenStats(archive, new Date('2026-09-08T03:30:00.000Z'))[windowKey]
+      expect(
+        window.trend
+          .filter((bucket) => bucket.key >= '2026-09-06')
+          .map((bucket) => ({
+            date: bucket.key,
+            start: bucket.startAt,
+            end: bucket.endAt,
+            total: bucket.tokens?.total
+          }))
+      ).toEqual([
+        {
+          date: '2026-09-06',
+          start: '2026-09-06T04:00:00.000Z',
+          end: '2026-09-07T03:00:00.000Z',
+          total: 100
+        },
+        {
+          date: '2026-09-07',
+          start: '2026-09-07T03:00:00.000Z',
+          end: '2026-09-08T03:00:00.000Z',
+          total: 200
+        },
+        {
+          date: '2026-09-08',
+          start: '2026-09-08T03:00:00.000Z',
+          end: '2026-09-08T03:30:00.001Z',
+          total: 300
+        }
+      ])
+      expect(window.tokens?.total).toBe(600)
+      expect(window.trend.reduce((sum, bucket) => sum + (bucket.tokens?.total ?? 0), 0)).toBe(600)
+    }
+  )
 })

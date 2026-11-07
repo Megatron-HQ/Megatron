@@ -59,7 +59,11 @@ function fixtureSkill(name, repository, id) {
 }
 
 export function projectTreeFixture(channel, args, original, mode) {
+  const pending = mode === 'project-tree-pending'
   const unavailable = mode === 'project-tree-unavailable'
+  const childUnavailable = mode === 'project-tree-child-unavailable'
+  const removed = mode === 'project-tree-live-removed'
+  const live = mode.startsWith('project-tree-live')
   const own = mode === 'project-tree-own'
   const duplicate = mode === 'project-tree-duplicates'
   const nested = mode === 'project-tree-nested'
@@ -71,7 +75,11 @@ export function projectTreeFixture(channel, args, original, mode) {
       kind: own ? 'repository' : 'folder',
       status: unavailable ? 'unavailable' : 'available'
     },
-    { path: first, kind: 'repository', status: unavailable ? 'missing' : 'available' },
+    {
+      path: first,
+      kind: 'repository',
+      status: unavailable ? 'missing' : childUnavailable ? 'unavailable' : 'available'
+    },
     { path: second, kind: 'repository', status: 'available' },
     { path: `${PARENT}\\Empty-repo`, kind: 'repository', status: 'available' }
   ]
@@ -106,22 +114,34 @@ export function projectTreeFixture(channel, args, original, mode) {
     )
   }
   if (channel === 'folders:list')
-    return [
-      { path: PARENT, granted_at: '' },
-      { path: first, granted_at: '' }
-    ]
-  if (channel === 'projects:list') return projects
-  if (channel === 'plugins:list') return plugins
+    return [{ path: PARENT, granted_at: '' }, ...(!live ? [{ path: first, granted_at: '' }] : [])]
+  const currentPlugins = removed
+    ? plugins
+        .map((plugin) => ({
+          ...plugin,
+          installs: plugin.installs.filter((install) => install.project_path !== first)
+        }))
+        .filter((plugin) => plugin.installs.length > 0)
+    : plugins
+  if (channel === 'projects:list')
+    return pending ? [] : removed ? projects.filter((project) => project.path !== first) : projects
+  if (channel === 'plugins:list') return currentPlugins
   if (channel === 'skills:list')
     return {
       ...original,
-      skills: [...original.skills.filter((skill) => skill.source_type !== 'project'), ...skills],
+      skills: [
+        ...original.skills.filter((skill) => skill.source_type !== 'project'),
+        ...skills.filter((skill) => !removed || skill.project_root !== first)
+      ],
       scanComplete: true,
+      scanActivity: pending
+        ? { id: 9001, startedAt: Date.now() - 60_000, isStartup: false, revealMs: 500 }
+        : null,
       scanSummary: { outcome: 'complete', completedAt: '2026-10-15T12:00:00.000Z', sources: [] }
     }
   if (channel === 'plugins:detail')
     return {
-      plugin: plugins.find((plugin) => plugin.name === args[0]),
+      plugin: currentPlugins.find((plugin) => plugin.name === args[0]),
       skills: [],
       totalInvocations: 0,
       errorCount: 0,

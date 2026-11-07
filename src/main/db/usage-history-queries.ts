@@ -1,7 +1,42 @@
 import type Database from 'better-sqlite3'
+import type { ActivityStats } from '../../shared/ipc'
+import { getActivityStats } from './queries'
+
+export function getArchivedActivityStats(
+  db: Database.Database,
+  now: Date = new Date()
+): ActivityStats {
+  const activity = getActivityStats(db, now, 'archive')
+  const ranges = db
+    .prepare('SELECT * FROM history_coverage ORDER BY start_at')
+    .all() as CoverageRange[]
+  const end = new Date(now.getTime() + 1)
+  const coverage = (start: string, finish: string): HistoryCoverage =>
+    historyCoverage(new Date(start), new Date(finish), ranges, now)
+  for (const window of [activity.last24h, activity.last7d, activity.last30d]) {
+    window.coverage = historyCoverage(
+      new Date(now.getTime() - window.days * DAY_MS),
+      end,
+      ranges,
+      now
+    )
+    window.byDay = window.byDay.map((day) => ({
+      ...day,
+      coverage: coverage(day.startAt, day.endAt)
+    }))
+  }
+  activity.last24h.hourlyTrend = activity.last24h.hourlyTrend.map((hour) => ({
+    ...hour,
+    coverage: coverage(hour.startAt, hour.endAt)
+  }))
+  return activity
+}
 import type {
   ContributionDay,
   HistoryCoverage,
+  HistoryMonth,
+  HistoryProject,
+  HistoryYearSummary,
   TokenBreakdown,
   TokenBucket,
   TokenCounts,
@@ -13,6 +48,7 @@ import type {
 
 const HOUR_MS = 60 * 60 * 1000
 const DAY_MS = 24 * HOUR_MS
+const MONTHS_PER_YEAR = 12
 const TOKEN_SELECT =
   'input_tokens AS input, output_tokens AS output, cache_read_tokens AS cacheRead, cache_creation_tokens AS cacheWrite'
 type TokenValues = Omit<TokenCounts, 'total'>
@@ -30,12 +66,15 @@ function localDate(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
+function nextLocalMidnight(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1)
+}
+
 function dayBounds(key: string, now: Date): { start: Date; end: Date; next: Date } {
   const start = new Date(`${key}T00:00:00`)
   if (!Number.isFinite(start.getTime()) || localDate(start) !== key)
     throw new Error('Invalid history date')
-  const next = new Date(start)
-  next.setDate(next.getDate() + 1)
+  const next = nextLocalMidnight(start)
   return { start, next, end: new Date(Math.min(next.getTime(), now.getTime() + 1)) }
 }
 
@@ -91,9 +130,9 @@ function tokenWindow(allRows: TokenRow[], start: Date, end: Date, hourly: boolea
   if (!hourly) cursor.setHours(0, 0, 0, 0)
   let index = 0
   while (cursor < end && (!hourly || index < 24)) {
-    const next = new Date(cursor)
-    if (hourly) next.setTime(index === 23 ? end.getTime() : cursor.getTime() + HOUR_MS)
-    else next.setDate(next.getDate() + 1)
+    const next = hourly
+      ? new Date(index === 23 ? end.getTime() : cursor.getTime() + HOUR_MS)
+      : nextLocalMidnight(cursor)
     const key = hourly ? cursor.toISOString() : localDate(cursor)
     const group = buckets.get(hourly ? String(index) : key) ?? []
     trend.push({
@@ -154,6 +193,83 @@ function historyCoverage(
     if (range.end_at > coveredTo) coveredTo = range.end_at
   }
   return coveredTo >= end.toISOString() ? 'available' : 'partial'
+}
+
+function summarizeHistory(days: ContributionDay[]): HistoryYearSummary {
+  let longestStreak: HistoryYearSummary['longestStreak'] = null
+  let busiestDay: HistoryYearSummary['busiestDay'] = null
+  let streakDays = 0
+  let streakStart = ''
+  for (const day of days) {
+    if (day.count > (busiestDay?.count ?? 0)) busiestDay = { date: day.date, count: day.count }
+    if (day.count === 0 || day.coverage === 'unavailable' || day.coverage === 'future') {
+      streakDays = 0
+      continue
+    }
+    if (streakDays === 0) streakStart = day.date
+    streakDays++
+    if (streakDays > (longestStreak?.days ?? 0)) {
+      longestStreak = { days: streakDays, startDate: streakStart, endDate: day.date }
+    }
+  }
+  const activeDays = days.filter((day) => day.count > 0)
+  return {
+    observedDays: days.filter((day) => day.coverage === 'available' || day.coverage === 'partial')
+      .length,
+    partialDays: days.filter((day) => day.coverage === 'partial').length,
+    elapsedDays: days.filter((day) => day.coverage !== 'future').length,
+    longestStreak,
+    busiestDay,
+    promptsPerActiveDay:
+      activeDays.length > 0
+        ? activeDays.reduce((sum, day) => sum + day.count, 0) / activeDays.length
+        : null
+  }
+}
+
+function historyMonths(days: ContributionDay[]): HistoryMonth[] {
+  return Array.from({ length: MONTHS_PER_YEAR }, (_, index) => {
+    const monthDays = days.filter((day) => Number(day.date.slice(5, 7)) === index + 1)
+    const elapsed = monthDays.filter((day) => day.coverage !== 'future')
+    const coverage =
+      elapsed.length === 0
+        ? 'future'
+        : elapsed.every((day) => day.coverage === 'unavailable')
+          ? 'unavailable'
+          : elapsed.every((day) => day.coverage === 'available')
+            ? 'available'
+            : 'partial'
+    return { month: index + 1, count: monthDays.reduce((sum, day) => sum + day.count, 0), coverage }
+  })
+}
+
+function historyProjects(db: Database.Database, start: Date, end: Date): HistoryProject[] {
+  const rows = db
+    .prepare(
+      `SELECT project, CAST(strftime('%m',typed_at,'localtime') AS INTEGER) AS month,
+      SUM(copies) AS count FROM history_prompts
+      WHERE typed_at >= ? AND typed_at < ? AND is_slash_command=0
+      GROUP BY project, month`
+    )
+    .all(start.toISOString(), end.toISOString()) as Array<{
+    project: string
+    month: number
+    count: number
+  }>
+  const projects = new Map<string, HistoryProject>()
+  for (const row of rows) {
+    const project = projects.get(row.project) ?? {
+      project: row.project,
+      total: 0,
+      byMonth: Array<number>(MONTHS_PER_YEAR).fill(0)
+    }
+    project.byMonth[row.month - 1] = row.count
+    project.total += row.count
+    projects.set(row.project, project)
+  }
+  return [...projects.values()].sort(
+    (a, b) => b.total - a.total || a.project.localeCompare(b.project)
+  )
 }
 
 export function getUsageCalendar(
@@ -223,7 +339,10 @@ export function getUsageCalendar(
     days,
     thresholds,
     prompts: days.reduce((sum, day) => sum + day.count, 0),
-    activeDays: days.filter((day) => day.count > 0).length
+    activeDays: days.filter((day) => day.count > 0).length,
+    summary: summarizeHistory(days),
+    months: historyMonths(days),
+    byProject: historyProjects(db, start, asOf)
   }
 }
 

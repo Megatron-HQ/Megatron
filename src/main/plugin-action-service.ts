@@ -8,7 +8,6 @@ import type {
 } from '../shared/ipc'
 import { normalizeProjectPath } from '../shared/project-path'
 import { isUpdateAvailable } from '../shared/version'
-import type { ScanScope } from './ingest/scan-all'
 
 export type PluginActionVerb = 'enable' | 'disable' | 'update' | 'uninstall'
 const FOCUSED_VERIFICATION_ATTEMPTS = 2
@@ -19,7 +18,7 @@ type PluginCommand = (
 
 interface PluginActionDependencies {
   execute: Record<PluginActionVerb, PluginCommand>
-  refresh: (scope: ScanScope) => Promise<ScanSummary>
+  refresh: (scope: 'all' | 'plugins') => Promise<ScanSummary>
   readDetail: (input: PluginActionInput) => PluginDetailResult | null
   scheduleBackground: () => void
   reportError: (verb: PluginActionVerb, error: unknown) => void

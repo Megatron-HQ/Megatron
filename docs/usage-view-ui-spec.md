@@ -1,5 +1,63 @@
 # Usage view — resolved UI spec (Phase 2a)
 
+## Unified Usage projects amendment (2026-11-05)
+
+Usage uses one retained project catalog for labels across Activity, History, Tokens, Cost, their
+detail dialogs, and the Usage skill invocation dialog. Names use the primary location's basename,
+adding only enough parent folders to distinguish all retained identities. Confirmed location links
+combine rows and keep every linked root visible in path tooltips. Parent
+workspace activity remains distinct; each metric/period still determines which projects have rows.
+
+**Manage projects is deferred (2026-11-05):** the common Usage header no longer exposes its button
+or mounts the dialog. Manual location linking and unlinking are unavailable in the UI while the
+interaction is reconsidered. The retained project catalog, existing confirmed links, inferred
+working-directory ownership, and project labels continue to work. Links affect Usage only and
+confer no filesystem permission. Time controls, freshness labels, and Resident tax Refresh retain
+their behavior; removing this entry point changes no scanning or Usage data.
+
+Every By project ranking and the Project timeline has a search field and an **8 of 19 projects**
+style count reflecting the visible rows. Search matches labels and all linked root paths, includes
+collapsed projects, and shows every match. An empty match set has its own message. Clearing search
+restores the prior expansion state. Ranked shares continue to use the complete selected-period
+total, and timeline quantiles continue to include every project. Model/skill rankings retain their
+existing behavior. Row fills, tooltips, expansion motion, calendar/timeline inspection, arrow
+navigation, focus restoration, and reduced motion retain their prior contracts.
+
+Activity uses retained prompt history shared with History and discloses incomplete or unavailable
+window coverage. Detail dialogs retain coverage disclosure. Time controls and metric sources for
+Cost, Models, and Skills retain their existing semantics.
+
+## History year-in-review amendment (2026-11-04)
+
+History is an annual retrospective. Its year selector moves from the contribution graph to the
+pinned History header and controls the entire panel. Selection still survives navigation and remains
+independent of rolling windows. Current-year values are year to date; future activity is excluded.
+
+Above the contribution graph, four flat readouts use the existing Usage numeral step: **Active
+days**, **Longest streak**, **Busiest day**, and **Prompts / active day**. Prompt counts exclude bare
+slash commands. Streaks are consecutive local calendar days within the selected year, including
+partially observed days with recorded prompts; unavailable or known-empty days end a verified run.
+The streak shows its dates. Busiest day shows its date and opens the existing day-details dialog,
+including keyboard activation and focus restoration. Equal records select the earliest date/run.
+The average divides recorded prompts by active days, with one decimal at most; no active days means
+unavailable. Empty observed history can show zero active days/streak; unobserved history uses dashes.
+
+A compact coverage line reports observed, partial, and unavailable days through today. Records and
+totals describe retained activity; missing days never imply inactivity. Percentage comparisons with
+previous years are omitted. Calendar intensity, hover cards, arrow navigation, local-day details,
+loading/error/retry feedback, and reduced-motion behavior retain their prior contracts.
+
+Below the calendar, **Project timeline** has project rows, January–December columns, and annual
+prompt totals. Sort projects by their annual recorded prompts; show eight initially with an expand/
+collapse control. Labels use existing project disambiguation and full-path tooltips. All project-month
+cells share a neutral positive-count quantile scale within the selected year, including collapsed
+projects. Known-empty cells have the muted fill, unavailable months have dashed outlines, future
+months are blank, and partial coverage is disclosed on inspection. Hover/focus reveals the project,
+month, exact recorded prompts, and share of all recorded prompts that month. Cells are inspection-only;
+one cell takes Tab, arrow keys move among cells. Expansion is local to the mounted year. The timeline
+has no entrance animation or new hue. Both sections use the same annual archive response; a year
+switch shows loading feedback until all displayed values belong to that year.
+
 ## Tokens and annual contributions amendment (2026-11-03)
 
 Add **Tokens** immediately after Activity in the existing Usage sidebar. Preserve the sidebar's
@@ -10,8 +68,9 @@ hourly (24h) or daily (7d/30d) trend, and By model / By project ranked lists. Ti
 are estimated; show missing data as unavailable and explain excluded untracked/undated records.
 Model dots retain existing family colors; trend fills and category readouts stay neutral.
 
-At the top of Activity, above the unchanged rolling-window charts, show a GitHub-style annual
-contribution grid. Display one calendar year, initially the current year, with buttons for all
+History follows Activity in the Usage sidebar and owns the annual contribution grid and day
+details. Activity contains only its rolling-window charts; History has a year selector instead of
+a rolling-window control. Display one calendar year, initially the current year, with buttons for all
 retained years. Year selection survives panel/section navigation and does not alter period filters.
 The grid uses Sunday-first week columns, month labels, weekday labels, four positive intensity
 levels plus a known-empty fill, and a Less–More legend. Intensity is prompt count; one shared
@@ -27,6 +86,14 @@ days; unavailable prompt days may open when token records exist. Escape/Close re
 trigger's focus. Details include sessions, prompts, slash commands, projects and available token
 categories, with explicit loading/error/retry states. Existing Activity day/hour dialogs retain their
 previous behavior. The grid has no per-cell entrance animation and respects existing reduced motion.
+
+All token amounts throughout Usage use one compact formatter: uppercase K/M/B, up to two decimal
+places, and ordinary numbers below 1,000. Exact counts remain available on hover and keyboard focus;
+prompt, session, turn, and item counts retain their ordinary formatting. Calendar hover/focus cards
+separate date, **Prompts**, and **Tokens**, with the full token figure as secondary text. Missing
+prompt history says **Unavailable**, including days with token records; it never implies zero.
+Existing model colors, effort selection, resident-tax highlighting, ranking expansion, and navigation
+motion stay intact. Formatting does not change the recorded data or aggregation rules.
 
 ## Activity details amendment (2026-10-19)
 
@@ -187,8 +254,13 @@ wherever they conflict. Logic lives in `lib/model-identity.ts` (unit-tested).
 
 ## Scan and query feedback amendment (2026-10-02)
 
-A completed scan attempt can be complete, partial, or failed. Partial and failed attempts show a
-status message while preserving available data; Settings reports the explicit rescan outcome.
+A completed scan attempt can be complete, partial, or failed. App-wide progress and terminal
+warnings belong only to the launch scan after a full quit/reopen. Settings rescans, focus refreshes,
+folder changes, and plugin actions never add a top banner. An active scan hides earlier failure
+messages. Settings owns manual progress, outcomes, and source details independently of the banner;
+it waits for active queries to refresh before reporting completion and distinguishes a reload error
+from an ingestion failure. Source timeouts name the affected stage and preserve completed results.
+Usage can render once its scan/archive stages have finished, while inventory scanning continues.
 Query errors show recovery controls rather than an indefinite loading state. Activity dialogs
 distinguish loading, unavailable data, and empty history. Rescans refresh open history and usage
 invocation dialogs. Existing navigation, chart interactions, focus behavior, and motion remain.
@@ -1347,14 +1419,17 @@ panel.
   printed them (window suffix upper-cased). **This reverses the earlier no-percentage rule** — the
   user chose `/context`'s framing over a used-only total. Caption: "In context before your first
   message".
-- **The bar spans the whole window:** used categories in `/context`'s order on a monochrome ink
-  ramp (1 → 0.3 opacity), then the **autocompact buffer** in quiet stripes (`.usage-fill-unrecorded`),
+- **The bar spans the whole window:** used categories in `/context`'s order. Configurable
+  categories use fixed `--resident-*` colors: Skills violet, MCP tools and MCP server instructions
+  blue, Memory files teal, Custom agents muted rose. System overhead and unknown categories stay
+  on the neutral ink ramp (1 → 0.3 opacity), then the **autocompact buffer** in quiet stripes (`.usage-fill-unrecorded`),
   then **free space** as the bare `bg-muted` track. At a 1M window the used part is a sliver — that
   is the honest proportion.
 - **Ledger:** one row per in-window category (used → buffer → free), each with tokens as printed
   plus `% of window`, and a second line saying where its detail lives (`N items`, "Detail from your
   latest session", "Reserved for auto-compaction", "Unused"). Deferred categories sit in a separate
-  **"Deferred, not loaded"** group below, outlined swatch, no bar segment, no percentage, the
+  **"Deferred, not loaded"** group below, outlined swatch in the same category color (neutral for
+  unmapped categories), no bar segment, no percentage, the
   "(deferred)" suffix dropped from the label.
 - **Drill-ins** (chevron + click → dialog modeled on `CostDetailsDialog`, focus lands on Close):
   - Categories `/context` itemizes (MCP tools, Custom agents, Memory files, Skills — deferred or
@@ -1370,6 +1445,11 @@ panel.
   - With no interactive 2.1.300+ transcript: "No interactive Claude Code 2.1.300+ session yet".
 - Hovering or keyboard-focusing a segment or ledger row dims its siblings (segments ×0.35, rows
   `opacity-40`). Staggered `scaleX` entrance (0.3 s, 0.05 s step), instant under reduced motion.
+- **Color scope (approved 2026-11-05):** bar segments and matching row dots only, with dedicated
+  light/dark values. Labels, numbers, backgrounds, dividers, and drill-ins remain neutral. Category
+  colors never change with rank or refresh; labels and linked hover/focus preserve identification
+  without relying on hue. This explicitly extends the monochrome rule for Resident Tax only;
+  the model-series palette, lime stamp, and status flags retain their existing meanings.
 - **Error state:** the CLI's message (e.g. not found, timeout, not logged in), the raw `/context`
   output when it no longer parses, and Retry.
 - The context-budget dialog distinguishes its configured skill-listing estimate from this panel:

@@ -1,10 +1,66 @@
 import type Database from 'better-sqlite3'
 import { describe, expect, it, vi } from 'vitest'
-import { runAllScans, type ScanTask } from './scan-all'
+import { runAllScans, selectScanTasks, type ScanTask } from './scan-all'
 
 const database = {} as Database.Database
 
 describe('runAllScans', () => {
+  it('limits live inventory refreshes to inventory and linting sources', () => {
+    const tasks = [
+      'scanTranscripts',
+      'archiveTokens',
+      'scanPromptHistory',
+      'archivePrompts',
+      'scanSkills',
+      'scanPluginRegistry',
+      'runLinter'
+    ].map((name) => ({ name, run: () => undefined }))
+    expect(selectScanTasks('inventory', tasks).map((task) => task.name)).toEqual([
+      'scanSkills',
+      'scanPluginRegistry',
+      'runLinter'
+    ])
+    expect(selectScanTasks('plugins', tasks).map((task) => task.name)).toEqual([
+      'scanPluginRegistry'
+    ])
+    expect(selectScanTasks('all', tasks)).toEqual(tasks)
+  })
+  it('keeps source identifiers stable when the bundle renames its callback functions', () => {
+    const result = runAllScans(database, [
+      { name: 'scanTranscripts', run: () => ({ status: 'complete' }) }
+    ])
+    expect(result.sources).toEqual([{ name: 'scanTranscripts', status: 'complete' }])
+  })
+  it('publishes committed source results before beginning the next source', () => {
+    const progress: unknown[] = []
+    let beforeSkills: unknown[] = []
+    function transcripts(): unknown {
+      return { status: 'complete' }
+    }
+    function skills(): never {
+      beforeSkills = [...progress]
+      throw new Error('Skills unavailable')
+    }
+    const result = runAllScans(database, [transcripts, skills], undefined, (event) =>
+      progress.push(event)
+    )
+    expect(beforeSkills).toEqual([
+      { type: 'source-started', name: 'transcripts' },
+      { type: 'source-complete', source: { name: 'transcripts', status: 'complete' } },
+      { type: 'source-started', name: 'skills' }
+    ])
+    expect(result).toMatchObject({
+      outcome: 'partial',
+      sources: [
+        { name: 'transcripts', status: 'complete' },
+        { name: 'skills', status: 'failed', failureReason: 'scan_error' }
+      ]
+    })
+    expect(progress.at(-1)).toEqual({
+      type: 'source-complete',
+      source: { name: 'skills', status: 'failed', failureReason: 'scan_error' }
+    })
+  })
   it('carries discovered empty projects through the worker summary', () => {
     const projects = [{ path: '/HQ/empty', kind: 'repository', status: 'available' }]
     expect(runAllScans(database, [() => ({ status: 'complete', projects })])).toMatchObject({

@@ -1,3 +1,4 @@
+import type { UsageProjectCatalog } from '../shared/usage-projects'
 import type {
   AllowedPathRow,
   AppSection,
@@ -21,6 +22,7 @@ import type {
   RecordedRequest,
   ScanActivity,
   ScanFinished,
+  ScanProgress,
   ScanSummary,
   UpdateState
 } from '../shared/ipc'
@@ -45,6 +47,9 @@ interface Api {
   updatePlugin: (input: PluginActionInput) => Promise<PluginActionResult>
   uninstallPlugin: (input: PluginActionInput) => Promise<PluginActionResult>
   getUsageOverview: () => Promise<UsageOverview>
+  getUsageProjects: () => Promise<UsageProjectCatalog>
+  linkUsageProjects: (input: { sourceId: string; targetId: string }) => Promise<UsageProjectCatalog>
+  unlinkUsageProject: (locationId: string) => Promise<UsageProjectCatalog>
   getUsageCalendar: (year: number) => Promise<UsageCalendar>
   getUsageDay: (date: string) => Promise<UsageDayDetails>
   getUsageSkillInvocations: (input: SkillInvocationSliceInput) => Promise<SkillInvocationRecord[]>
@@ -63,6 +68,7 @@ interface Api {
   onPluginUpdateProgress: (callback: (progress: PluginUpdateProgress) => void) => () => void
   onScanStarted: (callback: (activity: ScanActivity) => void) => () => void
   onScanComplete: (callback: (finished: ScanFinished) => void) => () => void
+  onScanProgress: (callback: (progress: ScanProgress) => void) => () => void
   onUpdateState: (callback: (state: UpdateState) => void) => () => void
 }
 

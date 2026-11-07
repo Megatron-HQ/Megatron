@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Download, Folder, Monitor, Moon, RefreshCw, RotateCw, Sun } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { TextLink } from '@/components/TextLink'
@@ -6,6 +7,8 @@ import { ScanIssueDetails } from '@/components/ScanStatus'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
+import { refreshScanQueries } from '@/lib/refresh-scan-queries'
+import { isMissingProjectOnlyScan, preferScanSummary } from '../../../shared/scan-banner'
 import type { ScanSummary, ThemePreference, UpdateState } from '../../../shared/ipc'
 
 interface SettingsDialogProps {
@@ -15,6 +18,7 @@ interface SettingsDialogProps {
   onThemeChange: (preference: ThemePreference) => void
   version: string
   scanSummary?: ScanSummary
+  scanning: boolean
   onManageFolders: () => void
   updateState?: UpdateState
 }
@@ -53,29 +57,45 @@ export function SettingsDialog({
   onThemeChange,
   version,
   scanSummary,
+  scanning,
   onManageFolders,
   updateState
 }: SettingsDialogProps): React.JSX.Element {
-  const [isRescanning, setIsRescanning] = useState(false)
+  const queryClient = useQueryClient()
+  const [rescanPhase, setRescanPhase] = useState<'idle' | 'scanning' | 'refreshing'>('idle')
   const [rescanMessage, setRescanMessage] = useState<string | null>(null)
+  const [rescanSummary, setRescanSummary] = useState<ScanSummary | null>(null)
+  const latestSummary = preferScanSummary(rescanSummary, scanSummary)
+  const isRescanning = rescanPhase !== 'idle'
+  const busy = scanning || isRescanning
 
   async function handleRescan(): Promise<void> {
-    setIsRescanning(true)
+    setRescanPhase('scanning')
     setRescanMessage(null)
+    setRescanSummary(null)
     try {
-      // The worker has finished when this resolves; the broadcast refreshes query data.
       const result = await window.api.rescan()
+      setRescanSummary(result)
+      setRescanPhase('refreshing')
+      try {
+        await refreshScanQueries(queryClient, true)
+      } catch {
+        setRescanMessage(
+          'The scan finished, but some displayed data could not be reloaded. Try again.'
+        )
+        return
+      }
       setRescanMessage(
-        result.outcome === 'complete'
+        result.outcome === 'complete' || isMissingProjectOnlyScan(result)
           ? 'Scan complete.'
           : result.outcome === 'partial'
-            ? 'Scan incomplete. Review the source details below.'
-            : 'Scan failed. Try again.'
+            ? 'Some sources could not be refreshed. Review the details below.'
+            : 'The scan could not finish. Review the details below.'
       )
     } catch {
-      setRescanMessage('Could not start the scan. Try again.')
+      setRescanMessage('Could not complete the scan. Try again.')
     } finally {
-      setIsRescanning(false)
+      setRescanPhase('idle')
     }
   }
 
@@ -118,20 +138,27 @@ export function SettingsDialog({
             </div>
           </section>
 
-          {rescanMessage && (
+          {busy ? (
             <p role="status" className="py-2 text-xs text-muted-foreground">
-              {rescanMessage}
+              {rescanPhase === 'refreshing'
+                ? 'Updating displayed data…'
+                : 'Scanning Claude Code data…'}
             </p>
+          ) : (
+            rescanMessage && (
+              <p role="status" className="py-2 text-xs text-muted-foreground">
+                {rescanMessage}
+              </p>
+            )
           )}
-          {scanSummary && (
-            <ScanIssueDetails summary={scanSummary} onManageFolders={onManageFolders} />
+          {!busy && latestSummary && (
+            <ScanIssueDetails summary={latestSummary} onManageFolders={onManageFolders} />
           )}
           <section className="flex items-center justify-between gap-4 border-t border-border py-3">
             <div>
               <p className="text-sm font-medium">Index</p>
               <p className="text-xs text-muted-foreground">
-                Re-scan <code className="font-mono text-[11px]">~/.claude</code> for skills and
-                plugins.
+                Re-scan Claude Code data for skills, plugins, and usage history.
               </p>
             </div>
             <Button

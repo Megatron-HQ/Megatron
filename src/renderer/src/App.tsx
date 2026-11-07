@@ -8,6 +8,7 @@ import { PluginSidebar } from '@/components/PluginSidebar'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { ScanStatusBanner, ScanUpdatingBanner } from '@/components/ScanStatus'
 import { useScanBanner } from '@/lib/use-scan-banner'
+import { refreshScanQueries } from '@/lib/refresh-scan-queries'
 import { Sidebar } from '@/components/Sidebar'
 import { UsageSidebar, type UsagePanel } from '@/components/UsageSidebar'
 import {
@@ -19,7 +20,12 @@ import { TREE_WIDTH_DEFAULT } from '@/lib/file-tree'
 import { createPluginRows, type PluginContext, type PluginFilter } from '@/lib/plugin-filter'
 import { isWithinProjectPath, normalizeProjectPath } from '../../shared/project-path'
 import { matchesFilter, type SourceFilter } from '@/lib/source-filter'
-import { createProjectLabelResolver, projectDisplayLabels } from '@/lib/project-tree'
+import {
+  createProjectAvailabilityResolver,
+  createProjectLabelResolver,
+  projectDisplayLabels,
+  resolveProjectSelection
+} from '@/lib/project-tree'
 import { ProjectLabelContext } from '@/lib/use-project-label'
 import { SkillDetail } from './views/SkillDetail'
 import { SkillInventory } from './views/SkillInventory'
@@ -33,7 +39,10 @@ import type {
   CostWindowKey,
   SkillStatsWindowKey,
   ThemePreference,
-  PluginUpdateProgress
+  PluginUpdateProgress,
+  ProjectFolder,
+  PluginRow,
+  SkillsListResult
 } from '../../shared/ipc'
 
 type View =
@@ -146,17 +155,75 @@ function App(): React.JSX.Element {
 
   useEffect(
     () =>
-      window.api.onScanComplete(() => {
-        void queryClient.invalidateQueries({ queryKey: ['skills'] })
-        void queryClient.invalidateQueries({ queryKey: ['folders'] })
-        void queryClient.invalidateQueries({ queryKey: ['projects'] })
-        void queryClient.invalidateQueries({ queryKey: ['skill-meta'] })
-        void queryClient.invalidateQueries({ queryKey: ['skill-files'] })
-        void queryClient.invalidateQueries({ queryKey: ['plugins'] })
-        void queryClient.invalidateQueries({ queryKey: ['plugin-detail'] })
-        void queryClient.invalidateQueries({ queryKey: ['usage'] })
-        void queryClient.invalidateQueries({ queryKey: ['skill-history'] })
-        void queryClient.invalidateQueries({ queryKey: ['usage-skill-invocations'] })
+      window.api.onScanComplete(({ summary }) => {
+        const previousProjects = queryClient.getQueryData<ProjectFolder[]>(['projects']) ?? []
+        const previousSkills = queryClient.getQueryData<SkillsListResult>(['skills'])?.skills ?? []
+        void refreshScanQueries(queryClient, false, summary).then(() => {
+          const projects = queryClient.getQueryData<ProjectFolder[]>(['projects']) ?? []
+          const skills = queryClient.getQueryData<SkillsListResult>(['skills'])?.skills
+          const plugins = queryClient.getQueryData<PluginRow[]>(['plugins'])
+          const disappeared = (path: string): boolean =>
+            previousProjects.some(
+              (entry) => normalizeProjectPath(entry.path) === normalizeProjectPath(path)
+            ) &&
+            !projects.some(
+              (entry) => normalizeProjectPath(entry.path) === normalizeProjectPath(path)
+            )
+          setFilter((current) =>
+            current.kind === 'project' && current.projectRoot && disappeared(current.projectRoot)
+              ? {
+                  kind: 'project',
+                  projectRoot: resolveProjectSelection(current.projectRoot, projects)
+                }
+              : current
+          )
+          setPluginFilter((current) =>
+            current.kind === 'projects' && current.projectPath && disappeared(current.projectPath)
+              ? {
+                  kind: 'projects',
+                  projectPath: resolveProjectSelection(current.projectPath, projects)
+                }
+              : current
+          )
+          setView((current) => {
+            if (current.kind === 'list' || skills === undefined) return current
+            const previousRoot = previousSkills.find(
+              (skill) => skill.id === current.skillId
+            )?.project_root
+            return !skills.some((skill) => skill.id === current.skillId) ||
+              (previousRoot && disappeared(previousRoot))
+              ? { kind: 'list' }
+              : current
+          })
+          setPluginView((current) => {
+            if (current.kind === 'list' || plugins === undefined) return current
+            const plugin = plugins.find(
+              (plugin) => plugin.name === current.name && plugin.marketplace === current.marketplace
+            )
+            const context = current.context
+            return !plugin ||
+              (context?.kind === 'project' &&
+                (disappeared(context.path) ||
+                  !plugin.installs.some(
+                    (install) =>
+                      install.project_path !== null &&
+                      normalizeProjectPath(install.project_path) ===
+                        normalizeProjectPath(context.path)
+                  )))
+              ? { kind: 'list' }
+              : current
+          })
+        })
+      }),
+    [queryClient]
+  )
+
+  useEffect(
+    () =>
+      window.api.onScanProgress(({ source }) => {
+        if (source.name === 'archiveTokens' || source.name === 'archivePrompts') {
+          void queryClient.invalidateQueries({ queryKey: ['usage'] }, { cancelRefetch: false })
+        }
       }),
     [queryClient]
   )
@@ -194,33 +261,10 @@ function App(): React.JSX.Element {
   const skills = useMemo(() => data?.skills ?? [], [data])
   const folders = useMemo(() => foldersData ?? [], [foldersData])
   const projectCatalog = useMemo(() => projectsData ?? [], [projectsData])
-  const projectStatusByPath = useMemo(
-    () =>
-      new Map(
-        projectCatalog.map((project) => [normalizeProjectPath(project.path), project.status])
-      ),
-    [projectCatalog]
+  const projectAvailability = useMemo(
+    () => createProjectAvailabilityResolver(projectCatalog, folders),
+    [projectCatalog, folders]
   )
-  const projectAvailability = (
-    path: string | undefined,
-    aggregate = false
-  ): import('../../shared/ipc').ProjectFolder['status'] | undefined => {
-    if (path === undefined) return undefined
-    const status =
-      projectStatusByPath.get(normalizeProjectPath(path)) ??
-      (folders.some((folder) => isWithinProjectPath(path, folder.path))
-        ? 'unavailable'
-        : 'needs_access')
-    if (
-      aggregate &&
-      status === 'available' &&
-      projectCatalog.some(
-        (project) => isWithinProjectPath(project.path, path) && project.status !== 'available'
-      )
-    )
-      return 'unavailable'
-    return status
-  }
   const plugins = useMemo(() => pluginsData ?? [], [pluginsData])
   const projectLabels = useMemo(
     () =>
@@ -246,7 +290,11 @@ function App(): React.JSX.Element {
     [projectLabels, folders]
   )
   const contextBudget = data?.contextBudget ?? DEFAULT_CONTEXT_BUDGET
-  const { banner: scanBanner, summary: scanBannerSummary } = useScanBanner({
+  const {
+    banner: scanBanner,
+    summary: scanBannerSummary,
+    scanning
+  } = useScanBanner({
     skillsLoaded: !skillsPending,
     pluginsLoaded: !pluginsPending,
     skillCount: skills.length,
@@ -470,9 +518,7 @@ function App(): React.JSX.Element {
               ) : (
                 <SkillInventory
                   availability={
-                    filter.kind === 'project'
-                      ? projectAvailability(filter.projectRoot, !filter.exact)
-                      : undefined
+                    filter.kind === 'project' ? projectAvailability(filter.projectRoot) : undefined
                   }
                   skills={filteredSkills}
                   loading={!skills.length && !scanComplete}
@@ -532,7 +578,7 @@ function App(): React.JSX.Element {
                 <PluginInventory
                   availability={
                     pluginFilter.kind === 'projects'
-                      ? projectAvailability(pluginFilter.projectPath, !pluginFilter.exact)
+                      ? projectAvailability(pluginFilter.projectPath)
                       : undefined
                   }
                   plugins={filteredPlugins}
@@ -592,7 +638,8 @@ function App(): React.JSX.Element {
         themePreference={themePreference}
         onThemeChange={handleThemeChange}
         version={version}
-        scanSummary={scanBanner.kind === 'warning' ? scanBannerSummary : undefined}
+        scanSummary={scanBannerSummary}
+        scanning={scanning}
         onManageFolders={() => {
           setSettingsOpen(false)
           setFoldersDialogOpen(true)

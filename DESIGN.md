@@ -170,6 +170,17 @@ Four categorical hues — `--usage-series-1/2/3/4` (Sonnet, Opus, Haiku, Fable; 
 **The Flags-Aren't-The-Stamp Rule.** The flag palette reports lint state, disabled state, and the sidebar's context-budget status only. It never substitutes for the lime accent, and a status is never color alone — always paired with an icon, and paired with a label wherever the flag renders as a pill (the disabled flag renders as an icon-only signal with a tooltip instead, since it lives in the table's icon tray, not the Status column). The context-budget dot is a deliberate, narrow exception: a compact, always-visible ambient indicator in the sidebar footer, paired with a tooltip label instead of an icon — not a primary status pill, where icon-pairing stays mandatory.
 **The Data-Series-Stays-In-Its-Lane Rule.** The `--usage-series-*` palette means chart series identity and nothing else — never "active" (that's the stamp), never "status" (that's the flags), never a source-tier or a UI accent. It appears only inside `components/usage/` charts that split by model.
 
+### Resident Tax category color exception
+
+Resident Tax uses a separate, fixed `--resident-*` identity palette in its composition bar and
+matching ledger dots only: Skills violet, MCP tools and server instructions blue, Memory files
+teal, and Custom agents muted rose. Deferred items use an outlined dot in the same family color.
+System overhead and unknown categories remain neutral, the autocompact buffer retains quiet
+stripes, and free space remains the bare track. Text, numbers, row backgrounds, selection, and
+drill-in dialogs retain the ledger's neutral treatment. Both themes have dedicated color values.
+This is a user-authorized exception to the monochrome category treatment, scoped to Resident Tax;
+it does not expand the model-series palette or color the Skills and Plugins inventory surfaces.
+
 ## Typography
 
 **UI Font:** Geist Sans (with `ui-sans-serif, system-ui, sans-serif` fallback)

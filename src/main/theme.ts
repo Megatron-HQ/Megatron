@@ -1,4 +1,5 @@
 import type Store from 'electron-store'
+import type { UsageProjectLocation } from '../shared/usage-projects'
 import {
   APP_SECTIONS,
   type AllowedPathRow,
@@ -11,6 +12,7 @@ export type ThemeStore = Store<{
   theme?: ThemePreference
   lastSection?: AppSection
   projectFolders?: ProjectFolder[]
+  usageProjects?: UsageProjectLocation[]
   grantedFolders?: AllowedPathRow[]
   autoUpdateCheck?: boolean
 }>

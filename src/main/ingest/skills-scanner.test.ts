@@ -3,6 +3,7 @@ import {
   mkdirSync,
   mkdtempSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   utimesSync,
@@ -64,6 +65,94 @@ beforeEach(() => {
   grantPath(tmpDir)
 })
 
+describe('live project reconciliation', () => {
+  it('removes stale skills when only a discovered child’s Claude folder is deleted', () => {
+    const repository = join(tmpDir, 'still-present')
+    writeSkillDir(join(repository, '.claude', 'skills'), 'removed', '---\nname: removed\n---\nBody')
+    const before = scanSkills(db, undefined, userSettingsPath)
+    rmSync(join(repository, '.claude'), { recursive: true })
+
+    const after = scanSkills(db, undefined, userSettingsPath, before.projects)
+
+    expect(allSkills().filter((row) => row.source_type === 'project')).toEqual([])
+    expect(after.projects?.some((entry) => entry.path === repository)).toBe(false)
+  })
+
+  it('marks an unreadable skills folder’s own project unavailable while its parent stays available', () => {
+    const repository = join(tmpDir, 'blocked-skills')
+    const skillsDirectory = join(repository, '.claude', 'skills')
+    writeSkillDir(skillsDirectory, 'saved', '---\nname: saved\n---\nBody')
+    const before = scanSkills(db, undefined, userSettingsPath)
+    const read = permissions.readAllowedDirectory
+    vi.spyOn(permissions, 'readAllowedDirectory').mockImplementation((path, limit) =>
+      path === skillsDirectory ? { status: 'unavailable', entries: [] } : read(path, limit)
+    )
+
+    const after = scanSkills(db, undefined, userSettingsPath, before.projects)
+
+    expect(after.projects).toContainEqual({ path: tmpDir, kind: 'folder', status: 'available' })
+    expect(after.projects).toContainEqual({
+      path: repository,
+      kind: 'repository',
+      status: 'unavailable'
+    })
+    expect(
+      allSkills()
+        .filter((row) => row.source_type === 'project')
+        .map((row) => row.name)
+    ).toEqual(['saved'])
+  })
+
+  it('removes deleted child skills even when the old project catalog is unavailable', () => {
+    const repository = join(tmpDir, 'removed')
+    writeSkillDir(
+      join(repository, '.claude', 'skills'),
+      'old-skill',
+      '---\nname: old-skill\n---\nBody'
+    )
+    scanSkills(db, undefined, userSettingsPath)
+    rmSync(repository, { recursive: true })
+
+    const result = scanSkills(db, undefined, userSettingsPath)
+
+    expect(allSkills().filter((row) => row.source_type === 'project')).toEqual([])
+    expect(result.status).toBe('complete')
+  })
+
+  it('rediscovers moved child skills at their new path without retaining the old project', () => {
+    const oldRoot = join(tmpDir, 'before')
+    const newRoot = join(tmpDir, 'after')
+    writeSkillDir(join(oldRoot, '.claude', 'skills'), 'moving', '---\nname: moving\n---\nBody')
+    const before = scanSkills(db, undefined, userSettingsPath)
+    renameSync(oldRoot, newRoot)
+
+    const after = scanSkills(db, undefined, userSettingsPath, before.projects)
+
+    expect(
+      allSkills()
+        .filter((row) => row.source_type === 'project')
+        .map((row) => row.project_root)
+    ).toEqual([newRoot])
+    expect(after.projects?.some((project) => project.path === oldRoot)).toBe(false)
+  })
+
+  it('retains cached skills for a missing individually granted project', () => {
+    const repository = join(tmpDir, 'direct')
+    writeSkillDir(join(repository, '.claude', 'skills'), 'saved', '---\nname: saved\n---\nBody')
+    grantPath(repository)
+    const before = scanSkills(db, undefined, userSettingsPath)
+    rmSync(repository, { recursive: true })
+
+    scanSkills(db, undefined, userSettingsPath, before.projects)
+
+    expect(
+      allSkills()
+        .filter((row) => row.source_type === 'project')
+        .map((row) => row.name)
+    ).toEqual(['saved'])
+  })
+})
+
 afterEach(() => {
   vi.restoreAllMocks()
   resetGrantedPaths()
@@ -71,6 +160,44 @@ afterEach(() => {
 })
 
 describe('scanSkills', () => {
+  it('removes indexed skills belonging only to an excluded temporary project', () => {
+    const repository = join(tmpDir, '.tmp', 'old-fixture')
+    const skillsDirectory = join(repository, '.claude', 'skills')
+    writeSkillDir(skillsDirectory, 'temporary-demo', '---\nname: temporary-demo\n---\nBody')
+    writeUserSettings({})
+    scanSkills(
+      db,
+      [{ dir: skillsDirectory, sourceType: 'project', projectRoot: repository }],
+      userSettingsPath
+    )
+    expect(allSkills().filter((row) => row.project_root === repository)).toHaveLength(1)
+    rmSync(repository, { recursive: true })
+
+    const result = scanSkills(db, undefined, userSettingsPath, [
+      { path: repository, kind: 'repository', status: 'available' }
+    ])
+
+    expect(result.status).toBe('complete')
+    expect(allSkills().filter((row) => row.project_root === repository)).toEqual([])
+  })
+
+  it('keeps a missing explicitly selected temporary project cached', () => {
+    const repository = join(tmpDir, '.tmp', 'selected-project')
+    const skillsDirectory = join(repository, '.claude', 'skills')
+    writeSkillDir(skillsDirectory, 'selected-demo', '---\nname: selected-demo\n---\nBody')
+    writeUserSettings({})
+    grantPath(repository)
+    const before = scanSkills(db, undefined, userSettingsPath)
+    const indexed = allSkills().find((row) => row.project_root === repository)
+    expect(indexed).toBeDefined()
+    rmSync(repository, { recursive: true })
+
+    const result = scanSkills(db, undefined, userSettingsPath, before.projects)
+
+    expect(result.issues).toContainEqual({ code: 'project_missing', path: repository })
+    expect(allSkills().find((row) => row.project_root === repository)).toEqual(indexed)
+  })
+
   it('reports empty repositories and unversioned projects beneath a parent grant', () => {
     const emptyRepo = join(tmpDir, 'empty')
     const plainProject = join(tmpDir, 'clients', 'plain')
@@ -123,8 +250,8 @@ describe('scanSkills', () => {
   it('reports incomplete nested discovery even before a hidden root has been indexed', () => {
     const hidden = join(tmpDir, 'hidden')
     mkdirSync(hidden)
-    const directory = permissions.readAllowedDirectory
-    vi.spyOn(permissions, 'readAllowedDirectory').mockImplementation((path) =>
+    const directory = permissions.readAllowedDirectoryEntries
+    vi.spyOn(permissions, 'readAllowedDirectoryEntries').mockImplementation((path) =>
       path === hidden ? { status: 'unavailable', entries: [] } : directory(path)
     )
     expect(scanSkills(db, defaultSkillRoots(), userSettingsPath)).toMatchObject({
