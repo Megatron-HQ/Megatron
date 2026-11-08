@@ -1,20 +1,24 @@
 # Security and scan integrity hardening
 
-This work addresses the confirmed codebase audit findings and preserves the original Copilot
-regression fixes. The index remains a derived cache; no schema migration is introduced.
+Owns Megatron's security boundaries, the threats each control defends against, scan-integrity rules
+at the permission boundary, and resource bounds. `docs/releases.md` owns the release decisions; the
+Release and updates section here covers their security consequences.
 
 ## Security boundary
 
 - Only the registered application window's main frame, at its exact trusted renderer URL, may
   invoke application IPC. Navigation and redirects outside that page are blocked.
 - The preload exposes the typed application API and platform name. Raw IPC and environment
-  variables are not exposed. The renderer is sandboxed. Source modules remain ESM; the bundled
-  `out/preload/index.cjs` is the generated-output exception required by Electron.
+  variables are not exposed. The renderer is sandboxed. Threat: a renderer compromise (for example
+  through rendered skill Markdown) must not reach Node or raw IPC. Source modules remain ESM; the
+  bundled `out/preload/index.cjs` is the generated-output exception required by Electron.
 - Plugin actions require validated identifiers, an enumerated scope, a matching indexed install,
   known enablement, and permission for a recorded project directory. Writes use Claude's CLI,
   resolved to an absolute executable outside the project and launched without a shell. Trusted npm
   installs run through an absolute Node executable and CLI entry. Relative, empty, network and
-  project-owned PATH candidates are excluded; Node startup injection variables are removed.
+  project-owned PATH candidates are excluded; Node startup injection variables are removed. Threat:
+  plugin actions run with a repository as their working directory, and a cloned repository can
+  ship its own `claude` executable or poison `PATH` to be run in its place.
 - Cost aggregation uses objects without prototypes, including inner model buckets.
 
 ## Cache preservation
@@ -23,8 +27,10 @@ Linked skill paths and their canonical targets must both be approved. The folder
 the canonical grant; restoring grants never resolves a saved root into a new approved target.
 Explicit target-folder grants preserve legitimate linked skill stores. File reads reject special
 files, use no-follow/nonblocking flags where supported, and compare full-width file identity
-before and after opening. These checks reduce link-swap races; they are not an OS-enforced atomic
-containment guarantee against an actively mutating process running as the same user.
+before and after opening. Threat: a symlink or junction inside a granted folder pointing outside
+it would read files the user never granted. These checks reduce link-swap races; they are not an
+OS-enforced atomic containment guarantee against an actively mutating process running as the same
+user.
 
 Repository discovery metadata in the private preferences cache is descriptive, not an access
 capability. Discovery and catalog restoration retain current grants and canonical target checks.
@@ -36,6 +42,8 @@ User-data reads remain centralized in `permissions.ts`. Separate capabilities se
 discovery, preparation of Electron's private cache, and compiled app assets. None accepts an
 arbitrary renderer filesystem path or broadens the skill permission set. Production assets use
 `megatron://app`, a flat asset whitelist and a restrictive CSP. Browser permissions are denied.
+Threat: a `file://` origin would let the renderer read arbitrary local files, and an unanswered
+browser permission request could reach the camera, microphone, or other devices.
 
 Unavailable reads differ from confirmed missing sources. Unavailable skill documents, settings,
 registries, transcript reads, and transcript metadata checks preserve the last usable index.
@@ -50,10 +58,9 @@ sources retain cached data. Registry cleanup changes only the derived index, nev
 Deletion reconciliation compares permitted canonical locations, including when recorded paths use
 macOS `/var` aliases or Windows junctions. A missing descendant is resolved through its nearest
 existing approved ancestor; denied, dangling, or retargeted links cannot establish deletion.
-This location lookup grants no access and does not replace guarded reads. Regression tests exercise
-real aliases on both platforms, project/local plugin cleanup without source-file writes, explicit
-missing grants, revoked access, and broken or retargeted links. The CI matrix completes both operating
-systems independently so a failing platform cannot cancel the other platform's validation.
+This location lookup grants no access and does not replace guarded reads. The CI matrix runs both
+operating systems independently so a failing platform cannot cancel the other platform's
+validation.
 
 Complete scans reconcile deleted nested and synced skill roots. Partial scans retain cached name
 qualification and plugin disablement. Invocation and turn recovery consider unchanged replay
@@ -64,7 +71,6 @@ metadata is a document finding rather than a process-wide parsing failure.
 
 ## Usage correctness
 
-- Parser version 9 safely reprocesses cached transcripts after the semantic changes.
 - Stored timestamps are validated and normalized; malformed cached cost timestamps cannot crash
   chart reducers.
 - Costs must be finite, nonnegative, and representable in safe integer cents. Counters must be
@@ -79,6 +85,9 @@ metadata is a document finding rather than a process-wide parsing failure.
 
 ## Resource bounds and feedback
 
+Threat: a huge transcript history, directory tree, or payload must not exhaust memory or hang the
+main process or renderer.
+
 Ingestion and linting run in one coalesced worker with a 60-second deadline and a 384 MiB V8 old
 generation limit. Worker termination completes before folder grants change. Focus scans are rate
 limited. Directory enumeration returns at most 20,000 entries; nested discovery allows 64 levels
@@ -88,8 +97,10 @@ partial or failed scans. Transactions preserve consistency on termination; scans
 transaction across every source. Native allocations are outside V8's heap limit.
 
 Frontmatter is capped at 256 KiB, 10,000 AST nodes, 32 levels and 100 aliases. Metadata expansion
-is counted before serialization and capped at 256 KiB. The Markdown link scanner makes one pass
-over each line. Plugins keep their quality-check exemption, but resource-limit and cyclic-metadata
+is counted before serialization and capped at 256 KiB. Threat: YAML alias amplification ("billion
+laughs") or cyclic metadata in one `SKILL.md` exhausting memory. The Markdown link scanner makes one
+pass over each line. Threat: crafted unmatched delimiters triggering catastrophic regex
+backtracking. Plugins keep their quality-check exemption, but resource-limit and cyclic-metadata
 findings apply to every source. History queries return 200 rows per page; dialogs expose Load more
 and identify searches as applying to loaded entries.
 
@@ -105,41 +116,30 @@ Scan attempts report complete, partial, or failed outcomes separately from wheth
 has finished. Partial results show a status message and retain available data. Settings reports
 the rescan result; usage and activity dialogs distinguish loading, errors, and empty results.
 
-## Dependencies and validation
+## Packaging and local data
 
-Electron is updated within major 43, Vitest to a maintained Node 22-compatible release, and
-compatible transitive security fixes are recorded in the lockfile. Install-script approvals are
-explicit for the selected Electron, SQLite, and esbuild packages. The obsolete downloader chain is
-replaced with `@electron/get` 5.1.0; `source-map-js` is pinned to 1.2.2. Node 22.12+ within major 22
-is required.
-
-Runtime packaging uses a positive allowlist. Electron fuses disable RunAsNode, Node startup and
-inspector injection, and extra file-protocol privileges. ASAR integrity and ASAR-only loading are
-enabled. Signed macOS builds retain only the JIT entitlement; ad-hoc release builds add
-`disable-library-validation` (see Release and updates). Windows uses per-user NSIS with elevation
-disabled.
+Runtime packaging uses a positive allowlist. Threat: developer files, fixtures, or secrets shipping
+inside the package. Electron fuses disable RunAsNode, Node startup and inspector injection, and
+extra file-protocol privileges. ASAR integrity and ASAR-only loading are enabled. Threat: the
+installed app being reused as a general Node runtime, or its ASAR modified to run altered code
+under the app's identity. Signed macOS builds retain only the JIT entitlement; ad-hoc release builds
+add `disable-library-validation` (see Release and updates). Windows uses per-user NSIS with
+elevation disabled, so a compromised installer gets no more than the user's own rights.
 
 The index contains plaintext prompt excerpts, skill arguments, repository paths and usage metadata.
 Megatron has no automatic upload of the index. Default macOS cache directories/files use modes
-0700/0600. Windows cache ACLs allow only the current user, SYSTEM and Administrators through a fixed absolute
-Windows PowerShell command with paths passed as environment values. Linked or special cache files
-are rejected, including hardlinks. Existing custom profile parent permissions are preserved;
+0700/0600. Windows cache ACLs allow only the current user, SYSTEM and Administrators through a fixed
+absolute Windows PowerShell command with paths passed as environment values. Linked or special cache
+files are rejected, including hardlinks. Existing custom profile parent permissions are preserved;
 directory changes apply only to a new directory or the exact default app-owned directory. Cache
-files are protected separately. These permissions do not encrypt data or protect against another process running as
-the same user. Prompt history mirrors Claude retention; transcript cache rows reconcile after a
-successful authoritative scan. Failed reads can retain older rows until the next successful scan.
-To erase the derived cache, quit Megatron and remove `megatron.db`, `megatron.db-wal` and
-`megatron.db-shm` from the data folder revealed in Settings; folder grants live in `preferences.json`
-and survive. No schema migration or real Claude file modification is part of this work.
+files are protected separately. These permissions do not encrypt data or protect against another
+process running as the same user. Prompt history mirrors Claude retention; transcript cache rows
+reconcile after a successful authoritative scan. Failed reads can retain older rows until the next
+successful scan. To erase the derived cache, quit Megatron and remove `megatron.db`,
+`megatron.db-wal` and `megatron.db-shm` from the data folder revealed in Settings; folder grants
+live in `preferences.json` and survive.
 
-Validation uses failing backend regressions followed by full tests, both type checks, lint,
-build, a lockfile install, and actual Electron checks in temporary profiles. Windows execution
-does not establish macOS packaging correctness; macOS CI and release checks remain required.
-
-## Release and updates (2026-11-04)
-
-The decisions, their reasons, and upgrade paths live in `docs/releases.md`; this section covers
-their security consequences.
+## Release and updates
 
 **Unsigned by default.** There is no Developer ID or paid Windows signing yet.
 `scripts/release-build.mjs` builds macOS ad-hoc signed (`mac.identity: "-"`, not notarized) and
@@ -149,7 +149,8 @@ when the repository variable `MEGATRON_SIGNED_RELEASE` is exactly `true`; any va
 `true`, `false` or unset fails the build. The switch is explicit rather than "sign if secrets
 exist" so an expired or deleted secret fails loudly instead of quietly shipping an unsigned
 release. Unsigned builds strip `CSC_*` secrets from the build environment, because electron-builder
-signs Windows whenever `CSC_LINK` is set.
+signs Windows whenever `CSC_LINK` is set. Signing, notarization, and clean-machine install checks
+remain open in [#10](https://github.com/Megatron-HQ/Megatron/issues/10).
 
 **Ad-hoc entitlements.** `build/entitlements.mac.adhoc.plist` adds `disable-library-validation` to
 `allow-jit`: hardened runtime otherwise refuses Electron's frameworks, which carry Apple's Team ID
@@ -190,68 +191,3 @@ environment (deployment rule: tags `v*`). The cask's `postflight_steps` removes
 `com.apple.quarantine` from the installed app so Gatekeeper doesn't block the ad-hoc build;
 installing from the tap is the user's explicit trust decision. Because the token can change what
 Mac users install, rotate it if it is ever exposed.
-
-## Verification evidence (2026-10-02)
-
-- Vitest: 848 passed, 4 intentionally skipped, across 41 files.
-- Node and renderer type checks, lint, production build, and lockfile installation passed.
-- `npm audit` reports zero vulnerabilities for the installed lockfile.
-- The full Electron visual sweep captured and reviewed 144 screenshots at the default and
-  minimum window sizes, including ten new error/loading/limit scenarios. No document overflow
-  or renderer console/page errors were detected. Twenty captures were skipped because their
-  required local data was absent; six older baseline files have no matching scenario.
-- Isolated Electron checks verified blocked external navigation, rejected external-page IPC,
-  absence of raw IPC exposure, rolling-total reconciliation, and an open history dialog updating
-  after rescan without reopening. Expected ungranted plugin settings report a partial scan.
-- A 600 MiB synthetic transcript scanned in 3.2 seconds cold and 4 ms unchanged, with 99 MiB
-  peak process RSS. Both scans completed. Long-line probes covered 8, 16, and 32 MiB inputs.
-
-Benchmarks are local observations on this Windows machine, not performance guarantees.
-Visual verification uses temporary profiles; fixture handlers exist only in the verifier's
-entry point and are absent from the production bundle. No real Claude files or plugin installs
-were modified during verification.
-
-## Verification evidence (2026-10-10)
-
-- Vitest: 909 passed, with four platform-specific tests and one opt-in benchmark skipped,
-  across 53 files. Six package/release-security regressions passed separately.
-- Node and renderer type checks, lint, production build, lockfile installation and generated
-  mirror checks passed. The refreshed advisory scan reports zero known vulnerabilities.
-- The full visual sweep produced 164 captures (20 new, 120 changed, 24 unchanged) and 24 explicit
-  local-data skips. Every new/changed capture was reviewed at both sizes; data-drift baselines
-  were retained. No document overflow or renderer console/page errors were detected by the runner.
-  A separate empty/many-folder check found and corrected dialog height clipping at the minimum
-  size; the correction was captured and reviewed once at both sizes.
-- Actual Electron IPC verified an authorized synthetic project plugin action using a trusted
-  native executable. The hostile project-local command marker was absent. Native and npm CLI
-  module fixtures passed too. All fixtures used temporary profiles/projects and never reached
-  the real Claude CLI.
-- Runtime checks verified the sandbox, context bridge, trusted-frame IPC, constrained asset
-  protocol, blocked navigation and worker/SQLite scans. The rebuilt fused Windows executable
-  launched and populated its isolated index from the ASAR worker.
-- The actual Windows package passed inspection of 9,578 archive entries, unpacked file roots and
-  all six required fuses. Per-user NSIS built with elevation and its helper disabled. Signature
-  verification correctly rejected the unsigned local artifact.
-- Actual signed/notarized release artifacts and clean Windows/macOS installation, upgrade and
-  uninstall remain pending. This Windows session does not establish macOS runtime correctness.
-
-Finding coverage, commands and remaining release requirements are recorded in
-[security-fix-status-2026-10-10.md](security-fix-status-2026-10-10.md).
-
-## Live inventory verification (2026-11-05)
-
-- Vitest: 1,202 passed and four skipped across 70 files. Type checks, lint, build, and generated
-  mirror checks passed.
-- An isolated Windows Electron check disabled focus refreshes and exercised real additions,
-  edits, deletions, directory moves, plugin settings, and deletion of a project's `.claude`
-  directory. Typical live updates completed in 1.2–1.4 seconds. Selection recovery, retention of
-  an explicitly granted missing project, and unchanged Claude registry contents were verified.
-  No renderer errors were observed. These timings are local observations, not guarantees.
-- The completed full visual sweep produced 338 captures and 16 explicit local-data skips,
-  with no horizontal overflow or renderer console/page errors. All 119 new/changed captures
-  were reviewed at the actual default and minimum window sizes; live-data differences were
-  not promoted. This includes ten new captures for scoped warnings, removed-project recovery,
-  and retention of the manual rescan result through inventory-only and full background scans.
-- Simulated scan screens isolate their notification timeline from real background scans in
-  the test-only entry point. A separate Electron check confirmed the source-badge tooltip at
-  both sizes after one capture missed its hover timing; that capture was not promoted.

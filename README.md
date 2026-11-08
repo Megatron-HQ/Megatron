@@ -320,16 +320,16 @@ is never deleted by either.
 
 ## Development documentation
 
-| Document                                                  | Covers                                                                         |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| [CLAUDE.md](CLAUDE.md)                                    | Repository rules and locked decisions; source for generated `AGENTS.md`        |
-| [Design system](DESIGN.md)                                | Visual language, components, layouts, and app icons                            |
-| [Skill scanner](docs/skill-scanner.md)                    | Sources, synced/nested skills, symlinks, and precedence                        |
-| [Transcript ingestion](docs/transcript-ingest.md)         | Invocation detection, trigger classification, and deduplication                |
-| [Data model](docs/data-model.md)                          | Index schema, plugin identity, and attribution joins                           |
-| [Usage analytics](docs/usage-analytics.md)                | Data sources, cost accounting, estimates, and deferred analytics               |
-| [Security and scan integrity](docs/security-hardening.md) | IPC boundaries, cache preservation, resource bounds, and verification evidence |
-| [Environment setup](docs/environment-setup.md)            | Electron installation troubleshooting                                          |
+| Document                                                  | Covers                                                                   |
+| --------------------------------------------------------- | ------------------------------------------------------------------------ |
+| [CLAUDE.md](CLAUDE.md)                                    | Repository rules and locked decisions; source for generated `AGENTS.md`  |
+| [Design system](DESIGN.md)                                | Visual language, components, layouts, and app icons                      |
+| [Skill scanner](docs/skill-scanner.md)                    | Sources, synced/nested skills, symlinks, and precedence                  |
+| [Transcript ingestion](docs/transcript-ingest.md)         | Invocation detection, trigger classification, and deduplication          |
+| [Data model](docs/data-model.md)                          | Index schema, plugin identity, and attribution joins                     |
+| [Usage analytics](docs/usage-analytics.md)                | Data sources, cost accounting, estimates, and deferred analytics         |
+| [Security and scan integrity](docs/security-hardening.md) | Security boundaries and threats, cache preservation, and resource bounds |
+| [Environment setup](docs/environment-setup.md)            | Electron installation troubleshooting                                    |
 
 Edit `CLAUDE.md` and `.claude/skills/` as the instruction sources. The pre-commit hook regenerates
 and stages `AGENTS.md` and `.agents/skills/`; CI checks that those mirrors match. Do not hand-edit
