@@ -1,152 +1,95 @@
-# Megatron: Transcript ingest
+# Transcript ingest
 
-## Integrity amendment (2026-10-02)
-
-Unavailable transcript reads or metadata checks make the scan partial and preserve cached rows.
-Corrupt recorded costs reject that session snapshot instead of replacing valid prior costs.
-Parser version 9 normalizes valid timestamps, rejects invalid counters, and prevents sidechain
-users from changing main-chain attribution. Global invocation and turn identities are recovered
-from parsed or unchanged replay sessions after their canonical owner changes. Recovery remains
-transactional; unavailable recovery evidence rolls back the scan.
-
-Owns how `~/.claude/projects/**` transcripts become `skill_invocations` rows — which records
-count, which are skipped, and how an invocation's origin is classified. `CLAUDE.md` stays
+Owns how `~/.claude/projects/**` transcripts become index rows: which records count, which are
+skipped, how an invocation's origin is classified, and when a file is re-read. `CLAUDE.md` stays
 authoritative for repo-wide decisions; the decisions below are locked here.
 
-Implementation: `src/main/ingest/transcript-scanner.ts`. Table shapes live in
-`docs/data-model.md`.
+Implementation: `src/main/ingest/transcript-scanner.ts`; table shapes in `src/main/db/schema.sql`.
+
+## On-disk shapes
+
+Claude Code's own docs disclaim the transcript format as internal and versioned, so it can change
+without notice: each line parses on its own and a malformed line is skipped, never fatal. Verified
+against real transcripts:
+
+- Main transcripts live at `~/.claude/projects/<project-dir>/*.jsonl`. Each subagent's conversation
+  is a separate file at `<project-dir>/<sessionId>/subagents/agent-*.jsonl`, always one level deep,
+  even when a subagent forks further. Its records carry the parent's `sessionId`.
+- Every line carries top-level `timestamp`, `cwd`, `gitBranch`, `isSidechain`, and `sessionId`. Use
+  `sessionId` (camelCase) only: a top-level `session_id` also appears and is not a duplicate.
+- A `Skill` call is a `message.content[]` block with `type: "tool_use"`, `name: "Skill"`,
+  `input.skill`, and `input.args`. Its `caller.type` is `"direct"` on every observed call, so nothing
+  on the block distinguishes a user-explicit invocation from a model-triggered one.
 
 ## Locked decisions
 
-| Area                    | Decision                                                                                                                                                                                                                                                                                                    |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Transcript double-count | Filter `isSidechain === false` on a **main** transcript's own lines; a dedicated `subagents/*.jsonl` file is read in full instead, tagged `trigger_type='subagent'`                                                                                                                                         |
-| Cost is main-only       | `parseTranscript` runs `extractCostState` on the main transcript's records; `parseSubagentInvocations` **never** extracts cost. A subagent's token cost is already inside the parent session's `cost-state` total (`docs/usage-analytics.md` hazard 5) — pricing `subagents/*.jsonl` too would double-count |
+| Area                    | Decision                                                                                                                                                                                                                  | Why                                                                                                                                                                                                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Transcript double-count | Filter `isSidechain === false` on a main transcript's own lines. A `subagents/*.jsonl` file is read in full, tagged `trigger_type = 'subagent'`, under the parent's `session_id` with an `agent_id`                       | `isSidechain` marks sidechain records interleaved in a main transcript, which duplicate subagent work. A subagent file is 100% `isSidechain: true` by construction, so the flat filter would drop it entirely                                                |
+| Cost is main-only       | Cost is extracted from main transcripts only, never from subagent files                                                                                                                                                   | A subagent's tokens are already inside the parent session's `cost-state` total (`docs/usage-analytics.md`, double-counting hazards); pricing subagent files too double-counts                                                                                |
+| Global turn identity    | `turn_usage.logical_turn_key` and `source_uuid` are unique across the whole index, never scoped to `session_id`; a collision keeps one canonical row                                                                      | A resume/continue copies prior assistant records into a new session file without `isSidechain`, and a main/subagent pair can expose the same record twice. Per-session keys store the replay twice and corrupt model/effort counts and skill-cost allocation |
+| One parser version      | `TRANSCRIPT_PARSER_VERSION` covers every consumer of the walk: invocations, session meta, `cost-state`, turns. Any semantic change to any of them, `cost-parser.ts` included, bumps it; there is no separate cost version | A bump forces one reindex of already-indexed history even when mtime and size are unchanged, so a newly supported format applies to old sessions, not just new writes                                                                                        |
 
-**Why**: `isSidechain` marks inline sidechain records interleaved in a main transcript (excluded
-there, to avoid double-counting). Separately, Claude Code writes each subagent's own conversation
-to `<sessionId>/subagents/agent-*.jsonl` — a wholly different file, 100% `isSidechain: true` by
-construction, which the old flat `isSidechain === false` rule would have dropped entirely rather
-than double-counted. `scanTranscripts` walks one level into that directory per session (verified
-flat — no nesting, even when a subagent itself forks further); those files' records inherit the
-parent's `sessionId`, so invocations land under the parent's `session_id` with an `agent_id`
-column identifying the fork.
+## Scan cadence
 
-`parseSubagentInvocations()` parses a subagent file and calls `extractInvocations()` with that
-file's `agentId`, deliberately never calling `extractSession()` — reusing `parseTranscript()`
-naively would upsert a `sessions_meta` row keyed on the parent's id but populated from the
-subagent's own `started_at`/`message_count`, corrupting the parent's real session row.
-`extractInvocations` takes an `agentId: string | null`: when non-null, it skips the `isSidechain`
-guard (nothing to double-count in a dedicated subagent file) and forces `trigger_type:
-'subagent'` regardless of which detection path matched. `scanTranscripts` computes freshness as
-`max(parent mtime, all subagent mtimes)`, so a subagent finishing after the parent's last scan
-still triggers a rescan. Subagent invocations carry the parent's `session_id`, so the existing
-retention sweep (`DELETE ... WHERE session_id NOT IN (...)`) needs no changes to clean them up.
+**Decision: skip a transcript whose mtime and size are unchanged, rather than keep a byte-offset
+cursor.** A session's freshness is the latest mtime across its main file and every subagent file. A
+cursor would need seek logic and truncation/rotation handling for no measurable gain.
+
+Evidence: one full read of 81 MB across 146 transcript files (17,411 lines, 41 `Skill` calls, 0.24%
+signal) took 0.066 s of raw I/O. Cost scales with lifetime history, and most of that history is
+closed sessions whose mtime never changes again.
 
 ## Invocation trigger classification
 
-Origin (`user_invoked` vs `autonomous`) isn't recoverable from the `Skill` tool_use block's own
-fields, but it is recoverable from the **nearest preceding user-role message with string
-content** — "preceding" meaning most-recently-seen `type: 'user'` record with string content
-while walking a transcript in order, not literally the previous line (a triggering message can be
-several turns before the actual `Skill` call). User-role records whose `message.content` is an
-array (tool-result-carrying "user" lines, not typed text) are skipped by this check.
+Origin (`user_invoked` vs `autonomous`) is recovered from the **nearest preceding user-role message
+with string content**: the most recent such record while walking the transcript in order, which can
+be several turns before the `Skill` call. User records whose `message.content` is an array carry
+tool results, not typed text, and are skipped.
 
-Three detection paths, all populating `skill_name`/`trigger_type`/`args_text`:
+Three detection paths:
 
-1. **`Skill` tool_use block.** Classify via the preceding-message rule: if it contains
-   `/<skill-name>` as a word-boundary substring (so `/grill-mean` doesn't false-match
-   `/grill-me`) → `user_invoked`; else → `autonomous`.
-2. **Harness-native slash command.** A plain `user` record whose string content is
-   `<command-message>...</command-message><command-name>/skill-name</command-name>
-<command-args>...</command-args>` never produces a `Skill` tool_use block at all — this shape
-   has no `tool_use` step to attach a classification to, so it needs its own detection path. The
-   reliable signal (verified against all local transcripts, 21 real skill commands / 71 built-ins
-   / 0 false positives): a genuine skill command's own **direct child** (`parentUuid` match, not
-   proximity — proximity misclassifies `/clear` whenever an unrelated record sits between it and
-   a real command) carries the literal text `Base directory for this skill:`; no built-in ever
-   produces that child. `skill_name`/`args_text` come from the command record itself,
-   `trigger_type` is always `user_invoked`.
-3. **Automatic attribution.** Newer transcripts can record a skill the model selected
-   automatically as root-level `attributionSkill` on an `assistant` record, with no `Skill`
-   tool-use block. Indexed generically for any non-empty skill name, using the surrounding user
-   turn to classify `user_invoked` vs `autonomous`. Repeated attribution records for the same
-   skill in one user turn collapse to one row. If a canonical slash-command or `Skill` tool-use
-   record already exists for that same skill and turn, it wins and the attribution record is
-   suppressed.
+1. **`Skill` tool_use block.** `user_invoked` if the preceding message contains `/<skill-name>` as a
+   word-boundary match (so `/grill-mean` doesn't match `/grill-me`); otherwise `autonomous`.
+2. **Harness slash command.** A plain `user` record of the form
+   `<command-message>…</command-message><command-name>/skill-name</command-name><command-args>…</command-args>`
+   produces no `Skill` block at all. It is a real skill, not a built-in like `/clear`, only when its
+   **direct child** (`parentUuid` match) contains `Base directory for this skill:`; no built-in ever
+   produces that child. Verified across all local transcripts: 21 skill commands, 71 built-ins, 0
+   false positives. Proximity instead of `parentUuid` misclassifies `/clear` whenever an unrelated
+   record sits between. Always `user_invoked`.
+3. **Automatic attribution.** Newer transcripts record a model-selected skill as root-level
+   `attributionSkill` on an `assistant` record with no `Skill` block. Classified from the surrounding
+   user turn; a slash-command or `Skill` record for the same skill and turn wins.
 
-`skill_invocations.preceding_user_text` stores the value the first path already computes for
-classification (`NULL` on the slash-command path, since there `precedingMessage` is already the
-command's own content and storing it would duplicate `args_text`). Truncated to 2000 chars on
-capture (observed max ~4200, unbounded by construction — the cap is defensive). Recovers most
-`NULL` `args_text` rows (the model omits `args` entirely when self-triggering — that's the sole
-cause of every observed `NULL`).
+`preceding_user_text` keeps the text classification used. It recovers most `NULL` `args_text`
+rows: the model omits `args` entirely when it self-triggers, which caused every observed `NULL`.
 
-Two known-imprecise properties of `preceding_user_text`, both accepted rather than engineered
-around:
+Accepted, not engineered around:
 
-- **Cascade attribution**: one triggering message can precede several `Skill` calls, so a
-  meaningful share of recovered values are shared across multiple invocations — same category of
-  limitation as the `trigger_type` heuristic above.
-- **Image-caption stubs**: a smaller share of recovered values are placeholders like
-  `[Image: original 2438x1460...]` when the preceding message was an attached image, not text —
-  real and common, not a parsing bug. Filtered with a `NOT LIKE '[Image:%'` predicate at query
-  time (`getSkillUsageDetail` in `src/main/db/queries.ts`), since storage stays raw regardless of
-  whether a given UI surface wants to display it.
+- **Cascade attribution.** One message can precede several `Skill` calls, so they share its text and
+  its classification.
+- **Image-caption stubs.** When the preceding message was an image, the text is a placeholder like
+  `[Image: original 2438x1460...]`. Storage stays raw.
+- **No time-window dedup.** Invocations dedupe on the transcript line's `uuid`. Claude Code's own
+  `skillUsage` counter in `~/.claude.json` applies a 60-second window, so the two can differ by
+  design.
 
-**Validation**: `total_invocations` cross-checked against Claude Code's own internal counter
-(`jq '.skillUsage' ~/.claude.json`) for a handful of skills — matched exactly except one,
-explained by a 60-second dedup window in Claude Code's own counter that Megatron deliberately
-doesn't replicate (`skill_invocations` dedupes on the transcript line's own `uuid`, not a time
-window — a real design difference, not a bug in either counter).
+## Integrity
 
-`sessions_meta.transcript_parser_version` is part of the scan cache — a parser-semantic change
-bumps the named parser version, forcing one safe reindex even when the transcript's mtime/size
-are unchanged, so a newly-supported transcript format applies to already-indexed history, not
-just future writes. This one constant now covers **all four consumers of the walk** — the
-skill-invocation extraction, the session-meta extraction, the Usage view PR2 `cost-state`
-extraction that populates `session_cost` / `session_model_cost`, and the PR4 per-turn extraction
-that populates `turn_usage`. (PR5's resident-context extraction was removed on 2026-11-03; the
-Resident tax drill-in reads recorded requests on demand, outside the walk.) A change to
-`cost-parser.ts`'s semantics bumps `TRANSCRIPT_PARSER_VERSION` just like an invocation-parser
-change does; there is deliberately no separate `cost_parser_version` (`docs/usage-analytics.md`
-§8). PR2 bumped it `3 → 4`, PR4 turn ingestion bumped it `4 → 5`, and cross-file resume-replay
-deduplication bumped it `5 → 6`; PR5 bumped it `6 → 7`.
-
-`turn_usage.logical_turn_key` and `turn_usage.source_uuid` are global deduplication seams. A
-resume/continue may copy prior assistant records into a new session file without `isSidechain`,
-and a main/subagent pair may expose the same logical record twice. Turn insertion uses `ON CONFLICT
-DO NOTHING` so either identity collision retains one canonical row while genuinely new turns in
-the later file still ingest. Do not scope these keys to `session_id`: that avoids the constraint
-error by storing the replay twice, which corrupts model/effort counts and proportional skill-cost
-allocation.
-
-Parser version 8 rejects a non-`ok` streamed read, including a failure after some lines were
-visited. A changed session's main transcript and all subagent files must parse successfully
-before any of its cached metadata, invocations, costs, or turns are replaced. An incomplete
-session leaves its previous rows and freshness markers intact and makes the scan partial.
-
-When a rescan or retention cleanup removes a canonical turn, replay reconciliation checks both
-global identities. It first reuses turns already parsed during that scan, then reads unchanged
-transcripts only if a removed identity is still absent from the index. Only matching replayed
-turns are restored, so unique turns removed from their sole source remain deleted. A failure
-while reading replay evidence rolls back the scan transaction. Normal append-only rescans keep
-unchanged files cached. The version bump also forces one reindex of existing history to repair
-previously lost turns and apply optional cost-timestamp validation; no schema change is needed.
-
-## Schema
-
-`skill_invocations.trigger_type` CHECK: `('user_invoked', 'autonomous', 'subagent')`. Nullable
-`agent_id TEXT` column (the subagent's filename stem, e.g. `agent-a5738f0e768b82c34`; `NULL` for
-main-session rows). `applySchema` rebuilds legacy `skill_invocations` safely when its
-`trigger_type` CHECK doesn't admit all three values, preserving existing rows; its session-cache
-migrations also add `source_size_bytes` and `transcript_parser_version` for pre-existing local
-indexes. Consistent with `docs/data-model.md`'s "delete, don't migrate" policy — the standard
-move for a schema change here is editing `schema.sql`; the index rebuilds itself on the next launch,
-with no in-place migration.
+- A changed session's main transcript and every subagent file must read and parse completely before
+  any of its cached metadata, invocations, costs, or turns are replaced. An incomplete or unavailable
+  read leaves the previous rows and freshness markers intact and makes the scan partial.
+- Corrupt recorded costs reject that session's snapshot rather than overwrite valid prior costs.
+- When a rescan or retention cleanup removes a canonical turn or invocation, a replay of it (parsed
+  this scan, or read from an unchanged transcript) takes its place. Only matching replays are
+  restored, so a turn removed from its sole source stays deleted, and a failure reading replay
+  evidence rolls back the whole scan.
 
 ## Not in scope
 
-No renderer/IPC surface reads `trigger_type` yet, so `'subagent'` doesn't appear in the UI. No
-general recursive directory walk — the one-level-deeper `subagents/` check is sufficient per the
-verified-flat structure above.
+| Item                              | Why not                                                               | Revisit when                                                                      |
+| --------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Recursive walk below `subagents/` | `subagents/` is verified flat                                         | A transcript nests subagent files deeper                                          |
+| Full session content indexing     | It would create a second copy of every prompt and tool call ever made | A feature (replay, journal) needs message-level bodies, with its own privacy pass |
+| Session replay / repo profile UI  | Deliberately cut even though the index makes it near-free             | The skills-first app proves it earns repeat opens                                 |

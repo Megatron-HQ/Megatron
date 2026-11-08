@@ -51,7 +51,9 @@ const PRECEDING_TEXT_MAX_CHARS = 2000
 // cost_parser_version — see docs/usage-analytics.md §8). A bump forces one safe reindex of all
 // already-indexed sessions. 3→4: cost-state; 4→5: turn usage; 5→6: replay dedup;
 // 6→7: independent lineage plus numeric resident-context samples;
-// 7→8: reject incomplete reads and reconcile replayed turns after owner changes.
+// 7→8: reject incomplete reads and reconcile replayed turns after owner changes;
+// 8→9: normalize timestamps, reject invalid counters, keep sidechain users out of main-chain
+// attribution.
 const TRANSCRIPT_PARSER_VERSION = 9
 
 function truncatePrecedingText(text: string | null): string | null {
