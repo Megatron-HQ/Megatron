@@ -24,7 +24,7 @@ export interface ParsedSkill {
 const LISTING_DESCRIPTION_MAX_CHARS = 1536
 
 // Empirically calibrated 2026-08-24, NOT verbatim from Claude Code's binary — see
-// docs/mvp-build-spec.md's Token estimation section for the full story. Claude Code doesn't
+// docs/skill-scanner.md's Token estimation section for the full story. Claude Code doesn't
 // publish an offline tokenizer for current models, and Anthropic's own docs explicitly disclaim
 // third-party tokenizers (tiktoken, gpt-tokenizer) as wrong for its vocabulary, so this is the
 // closest available approximation, not an exact count. Derived by comparing Megatron's prior

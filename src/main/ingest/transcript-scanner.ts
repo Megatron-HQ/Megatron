@@ -212,7 +212,7 @@ function extractUserTurnText(content: unknown): string | null {
 // own DIRECT child record carries this marker — confirmed against real transcript data: every
 // genuine skill invocation has one, no built-in ever does, and a 3-record lookahead instead of the
 // parentUuid link misclassifies /clear when an unrelated record sits between it and the next
-// command. See docs/mvp-build-spec.md's "Still-open gap" note.
+// command.
 function hasBaseDirectoryMarker(record: Record<string, unknown> | undefined): boolean {
   if (record === undefined) return false
   const message = record.message
@@ -384,7 +384,7 @@ function extractInvocations(
           invoked_at: invokedAt,
           // A cascade of several invocations from one trigger message all get that same
           // message's classification, even several turns later — accepted heuristic
-          // limitation, not a bug. See docs/mvp-build-spec.md, Invocation trigger
+          // limitation, not a bug. See docs/transcript-ingest.md, Invocation trigger
           // classification.
           trigger_type:
             agentId !== null ? 'subagent' : classifyTrigger(precedingMessage, skillName),

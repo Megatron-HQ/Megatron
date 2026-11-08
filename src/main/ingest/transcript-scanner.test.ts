@@ -520,7 +520,7 @@ describe('parseTranscript', () => {
     it('classifies multiple invocations cascading from one trigger message the same way', () => {
       // Accepted heuristic limitation, not a bug: "most recent user text before this
       // invocation" attributes every call in a cascade to the same original message, even
-      // several turns later — see docs/mvp-build-spec.md, Invocation trigger classification.
+      // several turns later — see docs/transcript-ingest.md, Invocation trigger classification.
       const trigger = metaLine({ message: { content: '/my-skill please, twice' } })
       const assistantTurn = {
         type: 'assistant',

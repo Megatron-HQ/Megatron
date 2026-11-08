@@ -330,7 +330,6 @@ is never deleted by either.
 | [Usage analytics](docs/usage-analytics.md)                | Data sources, cost accounting, estimates, and deferred analytics               |
 | [Usage UI specification](docs/usage-view-ui-spec.md)      | Usage panel layout, chart vocabulary, tokens, and interactions                 |
 | [Security and scan integrity](docs/security-hardening.md) | IPC boundaries, cache preservation, resource bounds, and verification evidence |
-| [MVP build specification](docs/mvp-build-spec.md)         | Milestones, feature decisions, and testing scope                               |
 | [Environment setup](docs/environment-setup.md)            | Electron installation troubleshooting                                          |
 
 Edit `CLAUDE.md` and `.claude/skills/` as the instruction sources. The pre-commit hook regenerates
