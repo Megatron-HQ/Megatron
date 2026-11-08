@@ -76,6 +76,11 @@ This isn't cosmetic: ESLint enforces the ESM-only decision above, so a stray lin
 
 ## Docs
 
+A doc holds only what code can't say: locked decisions and cross-file invariants, facts about things outside the repo (Claude Code's on-disk formats, binary constants, empirical calibrations), non-goals with revisit triggers, and rejected alternatives. Anything an agent learns by opening the file it describes stays in that file; a _why_ that applies to one file is a comment there.
+
+- **Edit in place.** Fold each change into the section it changes so the doc reads as current state. Dates belong only on empirical facts ("verified against real `~/.claude` 2026-08-16").
+- **Work goes to GitHub issues, evidence to commits and CI.** A doc records what is decided.
+
 Each doc below is authoritative for the locked decisions it owns.
 
 | Doc                          | Covers (incl. locked decisions)                                                                                                    | Consult before                                                                                                                     |
