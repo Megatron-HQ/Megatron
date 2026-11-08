@@ -138,6 +138,9 @@ does not establish macOS packaging correctness; macOS CI and release checks rema
 
 ## Release and updates (2026-11-04)
 
+The decisions, their reasons, and upgrade paths live in `docs/releases.md`; this section covers
+their security consequences.
+
 **Unsigned by default.** There is no Developer ID or paid Windows signing yet.
 `scripts/release-build.mjs` builds macOS ad-hoc signed (`mac.identity: "-"`, not notarized) and
 Windows unsigned. The Developer ID / Authenticode path (credential validation,
