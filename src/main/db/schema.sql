@@ -134,7 +134,7 @@ CREATE TABLE IF NOT EXISTS lint_findings (
 
 CREATE INDEX IF NOT EXISTS idx_lint_findings_skill_id ON lint_findings(skill_id);
 
--- Cost-state mirror for the Usage view's Cost section (docs/usage-analytics.md, PR2). Read
+-- Cost-state mirror for the Usage view's Cost section (docs/usage-analytics.md). Read
 -- verbatim from Claude Code's `cost-state` line — no bottom-up token pricing. Derived cache like
 -- every table here: no scan-cache columns, freshness rides sessions_meta's mtime/size/parser-version
 -- gate. Rows are stored as parsed; getCostStats joins sessions_meta to identify lineage terminals.

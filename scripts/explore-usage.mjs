@@ -1,9 +1,9 @@
 // One-shot exploration harness for the Usage Analytics feature (docs/usage-analytics.md).
-// Walks the real ~/.claude on this machine and dumps the open data-shape questions the design
-// still needs answered, into scripts/explore-usage.report.md. Imports the production parser
+// Walks the real ~/.claude on this machine and dumps the data-shape questions behind the Usage
+// design into scripts/explore-usage.report.md. Imports the production parser
 // (src/main/ingest/cost-parser.ts — Node strips the types on load) so the tricky extraction
-// logic isn't re-derived here. Committed with its output for provenance, like the cost
-// investigation docs/usage-analytics.md already cites. Re-run: `npm run explore:usage`.
+// logic isn't re-derived here. Committed with its output for provenance.
+// Re-run: `npm run explore:usage`.
 
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'

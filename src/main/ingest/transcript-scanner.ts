@@ -48,7 +48,7 @@ interface InvocationCandidate {
 
 const PRECEDING_TEXT_MAX_CHARS = 2000
 // Bumps on any parser-semantic change across the whole walk, cost-state included (no separate
-// cost_parser_version — see docs/usage-analytics.md §8). A bump forces one safe reindex of all
+// cost_parser_version — see docs/transcript-ingest.md). A bump forces one safe reindex of all
 // already-indexed sessions. 3→4: cost-state; 4→5: turn usage; 5→6: replay dedup;
 // 6→7: independent lineage plus numeric resident-context samples;
 // 7→8: reject incomplete reads and reconcile replayed turns after owner changes;

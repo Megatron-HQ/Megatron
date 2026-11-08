@@ -615,7 +615,7 @@ export type ContextBaselineResult =
   | { ok: false; error: string; raw?: string }
 
 // The first request of the newest interactive session, read from its transcript on demand and
-// never stored (docs/usage-analytics.md). Sizes are exact characters; Megatron doesn't estimate
+// never stored (docs/usage-analytics.md, Resident tax). Sizes are exact characters; Megatron doesn't estimate
 // tokens for these — only /context's own per-item tokens are shown as tokens.
 export interface RecordedCacheControl {
   ttl: string | null

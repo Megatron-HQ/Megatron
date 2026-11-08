@@ -12,7 +12,7 @@ export function formatCount(n: number): string {
 }
 
 // Whole dollars on the hero numeral — cents are false precision on a figure known to run ~16%
-// high vs a real invoice (docs/usage-analytics.md). `<$1` when a non-zero total rounds to zero,
+// high vs a real invoice (docs/usage-analytics.md, Cost copy). `<$1` when a non-zero total rounds to zero,
 // so it never reads as `$0` (broken). `cents: true` in the legend / RankedList, where magnitudes
 // are compared side by side.
 export function formatUsd(n: number, { cents }: { cents: boolean }): string {

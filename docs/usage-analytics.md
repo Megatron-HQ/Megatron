@@ -1,711 +1,232 @@
-# Megatron: Usage analytics
+# Usage analytics
 
-## Unified Usage projects amendment (2026-11-05)
+Owns the data and accounting behind the Usage view: what "usage" means, which local sources feed
+it, and how token and cost figures avoid double counting. `CLAUDE.md` stays authoritative for
+repo-wide decisions; the decisions below are locked here.
 
-All Usage project representations use the persistent identity and location-link rules in
-`data-model.md`. Activity, History, Tokens, Cost, their detail dialogs, and Usage's skill invocation
-dialog share the same project labels. Nearest-repository ownership and confirmed moved-location
-links apply to project aggregates without altering metric totals or source records. Each panel
-continues to show only projects represented in its selected period and metric; missing measurements
-are never synthesized as zeros to force identical lists.
-
-Activity now uses the same retained prompt archive as History, including maximum observed prompt
-multiplicities and bare-slash exclusion. Their results reconcile for identical intervals; rolling
-cutoffs still differ from whole-day/year bounds. Archive coverage is shown for Activity windows
-and their day/hour details. Removing source files or rebuilding the derived index does not erase
-archived prompts. Cost, Models, and Skills keep their existing metric sources and allocation rules.
-
-The Manage projects interface is deferred: its header button and dialog entry point are removed.
-The retained project catalog and existing location links continue to resolve labels and aggregates;
-manual linking and unlinking are unavailable in the UI until that interaction is revisited.
-Project rankings and the timeline search all rows, including collapsed rows and historical linked
-paths, while shares and timeline intensities remain relative to the complete selected dataset.
-
-## Token history and contribution calendar amendment (2026-11-03)
-
-Usage now includes a Tokens panel and an annual contribution calendar in History, backed by the
-persistent local `usage-history.db` archive described in `data-model.md`. This supersedes the
-earlier deferral of an accumulating history store and the 30-day-only retention assumption for
-these new features. Existing Activity/Cost/Models/Skills queries retain their current semantics.
-
-The token headline is **Total tokens processed**: new input + output + cache reads + cache writes.
-Thinking is a subset of output and is never added again. Recorded per-model terminal-session
-`cost-state` counters are authoritative. For each category, distribute that counter among its
-model's deduplicated response timestamps using that category's observed counts as weights;
-fall back to output weights, then equal weights when no positive weights exist. Cumulative integer
-boundaries preserve each category's recorded total exactly. Continuation ancestors and subagents
-provide timing weights, never additional session totals. All time-based numbers are labeled
-estimated. Undated totals remain separate, and sessions without usable totals contribute no
-invented tokens. Rolling 24h/7d/30d bounds include the exact cutoff and as-of instant; future shares
-are excluded. Day buckets use local calendar boundaries, including daylight-saving changes.
-
-Calendar intensity counts prompts using the existing bare-slash exclusion. Calendar year and
-rolling window are independent. Year choices include the current year and every retained year
-with prompt or token records. Four positive intensity levels share three all-history positive-day
-quartile thresholds, so a prompt count receives the same shade across years in a given snapshot.
-Future dates, unavailable history, known empty days, and partially observed history stay distinct.
-Day details query the whole local day, through the as-of instant for today, regardless of the
-rolling Activity filter. Token fields may be unavailable even when prompt history exists.
-
-History sits immediately after Activity in the Usage sidebar, with an independent retained-year
-selection. Token presentation across Usage uses compact K/M/B values with exact counts available
-on inspection. Calendar hover cards label prompts and tokens separately and disclose unavailable
-sources. These presentation changes preserve the allocation, retention, and coverage rules above.
-
-## Scan feedback amendment (2026-11-03)
-
-Usage stages run before inventory discovery. Transcript ingestion, token archival, prompt ingestion,
-and prompt archival report separate outcomes; a later inventory timeout does not erase successful
-usage results. Only complete source scans are archived. Archive opening is lazy, so focused plugin
-verification has no usage-archive dependency. Completion events refresh token, contribution-calendar,
-and open day-detail queries. App-wide scan feedback is limited to the launch scan; manual progress
-and source-specific outcomes stay in Settings. Rescan requests made during another scan wait for a
-fresh pass, and saving derived project-catalog preferences cannot change an ingestion outcome.
-
-## Scan integrity amendment (2026-10-02)
-
-Parser version 9 validates timestamps and numeric usage, safely aggregates model keys, filters
-sidechain state changes, and reconciles replayed invocations as well as turns. Repeated assistant
-usage is cumulative: retain per-counter maxima rather than summing duplicate measurements.
-Unavailable reads and corrupt cost snapshots preserve prior rows and report a partial scan.
-Activity daily buckets cover every local calendar date intersecting the exact rolling window;
-future activity and model turns are excluded. See [security-hardening.md](security-hardening.md)
-for the boundary policies and resource limits.
-
-Owns the design for surfacing a user's Claude Code **activity, token, and cost history** —
-"what have I been doing, what did it cost, where is it going." `CLAUDE.md` stays authoritative
-for repo-wide decisions; the decisions below are locked here.
-
-**Cost window amendment (2026-10-01):** Cost now has independent exact rolling 24h/7d/30d
-windows. Its totals, model/project breakdowns, chronological hour/day charts, weekday/hour
-punchcard, and daily detail dialog all aggregate the existing proportional timestamped shares
-of recorded terminal `cost-state`. `timed_skill_cost.model` retains model identity; a NULL model
-is residual recorded cost shown as Unattributed. There is no bottom-up token pricing or
-session-start fallback. Untimed cost is disclosed separately and excluded from rolling windows.
-This supersedes the earlier all-tracked-history Cost display rule. See the UI spec's Cost window
-amendment for chart visibility and partial-date behavior.
-
-**Status:** Phase 2a landed — PR1 (Activity), PR2 (Cost), PR3 (Skills), PR4
-(Model & effort + proportional attribution), and PR5 (Resident tax) are implemented. PR5's
-transcript pipeline was replaced on 2026-11-03 — see **Resident tax rebuild** below.
-This is the Phase-2 feature that `docs/mvp-build-spec.md`'s "Deferred, on purpose" row _"Cost
-analytics, MCP dashboard … Per original roadmap's Phase 2+"_ was pointing at.
-
-**Phase 2a is in progress.** **PR1 — Activity — landed** (2026-09-05): the "Usage" top-level
-section, its page frame, and the Activity retrospective over `~/.claude/history.jsonl`.
-**PR2 — Cost — landed**: `cost-state` ingest (`session_cost` / `session_model_cost`, riding the
-existing transcript walk) and the Cost section of the Usage view. **PR3 — Skills — landed**
-(2026-09-09): 24h/7d/30d skill activity, trigger mix, trends, and the explicitly non-attributive
-session association table (`getSkillStats`, `skill_invocations` ⋈ `session_cost`, no new ingest) —
-association rows click through to skill detail, and a section caption reports priced sessions that
-fired no skill. Renderer decisions for the whole Usage view are locked in
-**`docs/usage-view-ui-spec.md`**. **PR5 — Resident tax — landed** (2026-09-11): strict cold-session
-selection, numeric-only attachment measurements, and the measured/itemized Resident-tax panel.
-**Superseded 2026-11-03** by the `/context` rebuild below.
-
-**Canonical PR sequence** (reconciles the build-order table below and `usage-view-ui-spec.md`,
-which have historically disagreed on numbering — the build-order `#` is a dependency order, not a
-PR number):
-
-| PR  | Scope                                                                       | Status    |
-| --- | --------------------------------------------------------------------------- | --------- |
-| PR1 | Activity                                                                    | ✅ landed |
-| PR2 | Cost                                                                        | ✅ landed |
-| PR3 | Skills section — 24h/7d/30d activity, trend, trigger mix, association table | ✅ landed |
-| PR4 | `turn_usage` + Model & effort section + the proportional-attribution rider  | ✅ landed |
-| PR5 | Resident tax — attachment parsing, fresh-session detection (superseded)     | ✅ landed |
-
-### Resident tax rebuild (2026-11-03)
-
-PR5's panel was wrong in four ways, all checked against a real index: (1) its "cold session" gate
-(turn-1 `cache_read_input_tokens` ≤ 100) almost never passes — Claude Code marks the `system[1]`
-breakpoint `cache_control.scope: "global"`, so the cache is shared across sessions and 126 of 132
-real sessions read 26k–43k cached tokens on turn 1, leaving a weeks-old headless run as the
-"sample"; (2) it counted only `cache_creation_input_tokens`; (3) turn 1 includes the first user
-prompt; (4) transcripts can't produce `/context`'s categories (system prompt, tool schemas,
-deferred tools).
-
-The panel now has two sources, and stores neither:
-
-- **Totals** — `claude -p "/context" --output-format json --no-session-persistence`, run with cwd
-  `<userData>/context-baseline/` (a fixed empty folder, so the figure is the **global baseline**:
-  no project CLAUDE.md, skills, or MCP servers). `/context` is computed locally: verified $0,
-  `duration_api_ms: 0`, no transcript written, ≈3.6 s. It does start MCP servers and run
-  SessionStart hooks. Run on the panel's first open per app launch, kept in TanStack Query memory,
-  re-run by the header's Refresh. Parsed generically (`src/main/context-usage.ts`) — a category
-  Claude Code adds later passes through; an unparseable result shows the raw output. `--bare` is
-  unusable: it skips CLAUDE.md and hooks.
-- **Per-item detail** — since Claude Code 2.1.300 main transcripts carry `api-request-shape`
-  (the exact `system` blocks and full `tools` definitions, keyed by `shapeHash`) and `api-request`
-  (`querySource`, `cacheControl` breakpoint paths, `shapeHash`). The drill-in reads the **first
-  `repl_main_thread` request of the newest interactive transcript** on demand
-  (`src/main/ingest/recorded-request.ts`), through `isPathAllowed` (Tier 1). `sdk` / `-p` sessions
-  are never used. Sizes are exact characters; `/context`'s own per-item tokens are the only tokens
-  shown — no `chars/N` estimates, and no `count_tokens` call (that would put Megatron in the auth
-  path).
-
-`resident_context_sample`, `resident-context-parser.ts`, `token-estimate.ts`, and
-`getResidentTaxStats` are deleted. Renderer authority: `docs/usage-view-ui-spec.md` §R.
-
-**Implementation:** usage extraction in `src/main/ingest/` (riding `transcript-scanner.ts`'s
-existing walk), derived-cache tables in `src/main/db/`, and a new top-level renderer view.
-Consult `docs/transcript-ingest.md` (the scan/dedup rules this builds
-on) and `docs/data-model.md` (schema conventions) first.
-
----
-
-## Delivery phases
-
-| Phase  | What                                                                                                                                                               | New runtime surface                                                                        |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| **2a** | Transcript + `~/.claude` mining. The "Usage" view, Tier 1 insights + proportional skill attribution. **PR1–5 landed.** Renderer spec: `docs/usage-view-ui-spec.md` | None — same derived-cache model as today                                                   |
-| **2b** | Opt-in request-capture enrichment: the tool-schema "cut list" + system-prompt sizing                                                                               | Reads capture files from a **granted** directory; ships a **user-launched** capture script |
-
----
+Implementation: usage extraction rides the transcript walk in `src/main/ingest/` (`cost-parser.ts`,
+`skill-cost-allocation.ts`, `prompt-history-scanner.ts`, `usage-history.ts`); Resident tax in
+`src/main/context-usage.ts` and `src/main/ingest/recorded-request.ts`; queries in `src/main/db/`.
+Read `docs/transcript-ingest.md` (the walk's dedup rules) and `docs/data-model.md` (the archive and
+project identity) first.
 
 ## Locked decisions
 
-| Area                     | Decision                                                                                                                                                                                                 | Why                                                                                                                                                                                                                                                  |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Data-source foundation   | Transcript + `~/.claude` mining, **not** a proxy. Proxy-captured request bodies are a 2b enrichment layer only                                                                                           | ~85% of the insight surface (all cost/cache/model/trend/activity data) is already in `~/.claude` for **zero setup** and **full retroactive history**. Same architecture Megatron already has                                                         |
-| No proxy process         | Megatron **never runs a proxy and never sits in the auth-token path**. 2b reads capture files from a granted dir; the shipped `scripts/capture-proxy.mjs` is user-launched                               | A MITM on the OAuth token, and owning the "Megatron hung and broke my Claude Code" failure mode, contradicts the read-only + one-scoped-write identity in `CLAUDE.md`                                                                                |
-| Capture-tool coupling    | 2b depends on the **Anthropic Messages request schema** (`*.request.txt` = the raw request body), not on any capture tool's output format. Never parse a third party's rendered markdown                 | The capture tool (Matt Pocock's gist proxy, our fork, a future `claude --dump-requests`) stays swappable                                                                                                                                             |
-| Stance                   | Insights-first, **passive**. No fabricated actions                                                                                                                                                       | Megatron's core job is insight; the user acts. Bolting a fake lever onto "your cache hit rate is 91%" is worse than showing it well. Real levers (disable skill/hook, MCP cut list) arrive later, per-insight, once the insight has earned its place |
-| Cost figures             | `cost-state.totalCostUSD` / per-model `costUSD` **verbatim only**. No price table in the codebase. No bottom-up token pricing                                                                            | Rolling our own from tokens is strictly worse — less accurate _and_ a price-table maintenance burden that breaks every model release. See "Double-counting hazards" — bottom-up is where every accounting bug lives                                  |
-| Cost copy                | "Estimated API-equivalent cost" / "what this would cost at pay-as-you-go API rates". **Never** "you spent" / "you were charged". Mirror `/cost`'s "may not match your bill" disclaimer                   | `totalCostUSD` is tokens × list price, computed identically for subscription and API-key sessions. Most Megatron users are on subscription — real charge $0. It also ran ~16% high vs the actual invoice in the one reconciled case                  |
-| No auth-regime split     | Do not design a surface that distinguishes "real money" sessions from subscription sessions                                                                                                              | **No auth marker exists anywhere local** — not transcripts, `settings.json`, or `~/.claude.json`. `service_tier` is `"standard"` everywhere; msg/req id prefixes identical                                                                           |
-| `turn_usage` granularity | Per-turn table, for **intra-session shape only** (context-growth curve, per-turn model/effort). A hard "never summed for totals" contract. Session rollups come from `cost-state`, derived at query time | Summing per-turn `message.usage` over-counts ~2.3× (verified). Per-turn data is still the right home for the proxy-like depth, and `requestId` is the seam to 2b captures                                                                            |
-| Organizing unit          | Standalone **"Usage" view** first. Detail-page weaving (`SkillDetail`/`PluginDetail` gain real numbers) and a session-centric view come later, in that order                                             | The single overview is what "insights on my context-window usage like the proxy" actually means, and the natural home for the 2b cut list. Detail-page weaving scatters the story; session-centric is the narrowest audience                         |
-| Resident tax source      | Totals from Claude Code's own `/context`, run headless from an empty `<userData>/context-baseline/` (global baseline), memory only. Detail from the newest interactive transcript, on demand             | Transcripts can't reproduce `/context`'s categories, and global cache scope makes "cold" turn-1 selection impossible. `/context` is local ($0, no API call, no transcript), so the no-proxy rule holds                                               |
-| Pre-feature history      | Sessions with no `cost-state` line show **"cost not tracked"** + a "Claude Code added cost tracking Aug 2026" note + a visible excluded-session count. No estimated dollar figure for them               | `cost-state` is version-gated (see hazards). A "loud rough flag" on a number known to be ~2.3× off is worse than an honest gap                                                                                                                       |
-
----
+| Area                     | Decision                                                                                                                                                         | Why                                                                                                                                                                                                            |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Data source              | Mine transcripts and `~/.claude`, never a proxy                                                                                                                  | ~85% of the insight surface (cost, cache, model, trend, activity) is already local, with zero setup and full retroactive history. Same architecture Megatron already has                                       |
+| No proxy process         | Megatron never runs a proxy and never sits in the auth-token path                                                                                                | A MITM on the OAuth token, and owning the "Megatron broke my Claude Code" failure mode, contradicts the read-only, one-scoped-write identity in `CLAUDE.md`                                                    |
+| Stance                   | Insights-first and passive. No fabricated actions                                                                                                                | Megatron's job is insight; the user acts. A fake lever bolted onto "your cache hit rate is 91%" is worse than showing it well. Real levers arrive per insight, once the insight has earned its place           |
+| Cost figures             | `cost-state.totalCostUSD` and per-model `costUSD` **verbatim only**. No price table, no bottom-up token pricing                                                  | Pricing from tokens is less accurate and breaks every model release, and bottom-up is where every accounting bug lives (see Double-counting hazards)                                                           |
+| Cost copy                | "Estimated API-equivalent cost" / "what this would cost at pay-as-you-go API rates", with `/cost`'s "may not match your bill" disclaimer. Never "you spent"      | `totalCostUSD` is tokens × list price for subscription and API-key sessions alike, and most users are on subscription (real charge $0). In the one reconciled case it ran ~16% high against the actual invoice |
+| No auth-regime split     | No surface distinguishes "real money" sessions from subscription ones                                                                                            | No auth marker exists anywhere local: not transcripts, `settings.json`, or `~/.claude.json`. `service_tier` is `"standard"` everywhere; message and request id prefixes are identical                          |
+| `turn_usage` granularity | Per-turn rows for intra-session shape (model/effort counts, allocation weights) only. **Never summed for dollar totals**; session rollups come from `cost-state` | Summing per-turn `message.usage` over-counts ~2.3× (verified)                                                                                                                                                  |
+| Organizing unit          | One standalone Usage view. Detail-page weaving and a session-centric view come later, in that order                                                              | The overview is what "insights on my context usage" means. Weaving scatters the story before the overview establishes it; session-centric has the narrowest audience                                           |
+| Pre-feature history      | Sessions with no `cost-state` show "cost not tracked" and a visible excluded count, never an estimated dollar figure                                             | `cost-state` is version-gated (hazard 6). A rough flag on a number known to be ~2.3× off is worse than an honest gap                                                                                           |
+| Resident tax source      | Totals from Claude Code's own `/context`, run headless from an empty folder, held in memory only. Detail from the newest interactive transcript, read on demand  | Transcripts can't reproduce `/context`'s categories, and global cache scope makes "cold session" sampling impossible. `/context` is local ($0, no API call), so the no-proxy rule holds                        |
 
 ## What "usage" means here
 
-Two different things share the name:
+Two things share the name:
 
-1. **`/usage` the command** — the live plan rate-limit gauge (5h window, weekly caps, % of limit
-   left, reset times). **Server-side** — it comes from the API. Megatron structurally cannot
-   replicate it, and shouldn't imply it can.
-2. **Historical activity + cost analytics** — "what have I done, what did it cost, where's it
-   going." **Entirely local.** This is what Megatron owns.
-
-Megatron's surface is a retrospective, not a gauge.
-
----
+1. **`/usage` the command**: the live plan rate-limit gauge (5h window, weekly caps, reset times).
+   Server-side. Megatron can't replicate it and shouldn't imply it can.
+2. **Historical activity and cost**: what have I done, what did it cost, where is it going. Entirely
+   local. This is what Megatron owns: a retrospective, not a gauge.
 
 ## Data sources
 
-### Transcripts — `~/.claude/projects/**/*.jsonl`
+### Transcripts (`~/.claude/projects/**/*.jsonl`)
 
-`transcript-scanner.ts` already walks these for `skill_invocations` + `sessions_meta` and drops
-everything else on every line. What's there and unused:
+**Per assistant turn** (`type: "assistant"`): top-level `requestId`, `effort`
+(`xhigh`/`high`/`medium`/`low`), `apiBlockIndex`, `message.model`, and `message.usage`:
 
-**Per assistant turn** (`type:"assistant"`) — top-level `requestId` (the join key to 2b
-captures), `effort` (`xhigh`/`high`/`medium`/`low`), `apiBlockIndex`, `message.model`, and
-`message.usage`:
+| Field                                                        | Meaning                                                  |
+| ------------------------------------------------------------ | -------------------------------------------------------- |
+| `input_tokens`                                               | new, non-cached input                                    |
+| `cache_creation_input_tokens` / `cache_read_input_tokens`    | cache write / read                                       |
+| `cache_creation.ephemeral_1h_input_tokens` / `…_5m_…`        | the real 1h vs 5m cache-write split; don't assume all-1h |
+| `output_tokens`                                              | total output                                             |
+| `output_tokens_details.thinking_tokens`                      | a **subset** of `output_tokens`, already counted         |
+| `service_tier`, `speed`                                      | `"standard"` everywhere observed                         |
+| `server_tool_use.web_search_requests` / `web_fetch_requests` | billable per request                                     |
+| `iterations[]`                                               | per-retry breakdown                                      |
 
-| field                                                        | meaning                                                         |
-| ------------------------------------------------------------ | --------------------------------------------------------------- |
-| `input_tokens`                                               | new, non-cached input                                           |
-| `cache_creation_input_tokens` / `cache_read_input_tokens`    | cache write / read                                              |
-| `cache_creation.ephemeral_1h_input_tokens` / `…_5m_…`        | real 1h vs 5m cache-write split — don't assume all-1h           |
-| `output_tokens`                                              | total output                                                    |
-| `output_tokens_details.thinking_tokens`                      | **subset** of `output_tokens` — already billed, never add again |
-| `service_tier`, `speed`                                      | `"standard"` everywhere observed                                |
-| `server_tool_use.web_search_requests` / `web_fetch_requests` | billable per request                                            |
-| `iterations[]`                                               | per-retry breakdown                                             |
+**Session cost** (`type: "cost-state"`): `totalCostUSD`, `modelUsage[model]` →
+`{ inputTokens, outputTokens, thinkingTokens, cacheReadInputTokens, cacheCreationInputTokens, webSearchRequests, costUSD }`,
+`hasUnknownModelCost`, `startTime`, and peripheral durations and line counts.
 
-**Session end** (`type:"cost-state"`, always the last line — but see hazards):
-`totalCostUSD`, `modelUsage[model]` → `{inputTokens, outputTokens, thinkingTokens,
-cacheReadInputTokens, cacheCreationInputTokens, webSearchRequests, costUSD}`,
-`hasUnknownModelCost`, `startTime`, `totalAPIDuration`, `totalAPIDurationWithoutRetries`,
-`totalToolDuration`, `totalDuration`, `totalLinesAdded`, `totalLinesRemoved`.
+**Lineage** (`type: "continued-in"`): `{ continuedInSessionId, sessionId }`, the resume/continue
+link.
 
-**Lineage** (`type:"continued-in"`): `{continuedInSessionId, sessionId}` — resume/continue link.
+**Context-injection attachments** (`type: "attachment"`): `skill_listing` (the exact injected
+listing text), `mcp_instructions_delta` (`addedBlocks`), `agent_listing_delta` (`addedLines`),
+`deferred_tools_delta` (tool **names** only, never schemas), `hook_success` (hook-injected text),
+`total_tokens_reminder`.
 
-**Context-injection attachments** (`type:"attachment"`), the measurable resident-context parts:
-
-| `attachment.type`        | payload                                                                                                                                                                  |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `skill_listing`          | the **exact skill-listing text as injected** — measure real listing tokens, not the `chars/3` estimate                                                                   |
-| `mcp_instructions_delta` | `addedBlocks` — full MCP instruction text per server                                                                                                                     |
-| `agent_listing_delta`    | `addedLines` — full subagent listing                                                                                                                                     |
-| `deferred_tools_delta`   | `addedNames`/`removedNames`/`readdedNames`/`wireHiddenNames` (tool **names** in/out of context), `failedMcpServers`, `pendingMcpServers` — **names only, never schemas** |
-| `hook_success`           | hook-injected text (e.g. the entire Ponytail block — the measurable cost of one SessionStart hook)                                                                       |
-| `total_tokens_reminder`  | running budget snapshots                                                                                                                                                 |
-
-**Tool calls** (`content[].tool_use`, `toolUseResult`) — every call name + input (only `Skill`
-parsed today), result shapes (`stdout`/`stderr`, `structuredPatch`, `gitOperation`, images), the
-frequency distribution, tool-error rate.
-
-### `~/.claude.json`
-
-- `projects[<path>]` → `lastCost`, `lastModelUsage`, `lastTotal*Tokens`, `lastSessionMetrics`,
-  `lastFpsAverage`/`lastFpsLow1Pct`. **DO NOT USE** — only the most recent session per project,
-  and observed `0`/empty even for real multi-hour sessions. Transcripts are the source of truth.
-- top-level `skillUsage` (CC's own per-skill counter — `docs/transcript-ingest.md` already
-  cross-checks it), `pluginUsage`, global `mcpServers`.
-- `oauthAccount` — only the **current** login (`billingType`, `organizationType`,
-  `hasExtraUsageEnabled`). Not per-session, not historical.
+**Recorded requests** (Claude Code 2.1.300+): main transcripts carry `api-request-shape` (the exact
+`system[]` blocks and full `tools[]` definitions, keyed by `shapeHash`) and `api-request`
+(`querySource`, `cacheControl[]` breakpoints, `shapeHash`). Headless runs record `querySource: "sdk"`
+and a different system prompt; only `repl_main_thread` describes an interactive session. Per-tool
+token counts are still not recorded, nor how tools, system, and history sum to a billed
+`input_tokens`.
 
 ### `~/.claude/history.jsonl`
 
-Every prompt typed, with `project`, `sessionId`, `timestamp` (epoch ms), and `display` (the raw
-prompt text). Prompt volume, prompts/day, project split, busiest hours & weekdays. (This is what
-CC's own insights report counts.)
+Every prompt typed, with `project`, `sessionId`, `timestamp` (epoch ms), and `display` (raw text).
+Verified 2026-09-05 (`claude` v2.1.261): Claude Code prunes entries older than `cleanupPeriodDays`
+(default 30), the same sweep that ages out transcripts. Megatron never stores `display`.
 
-**Retention (verified 2026-09-05, `claude` v2.1.261):** `history.jsonl` is not permanent — Claude
-Code prunes entries older than `cleanupPeriodDays` (default **30 days**), the same retention sweep
-that ages out transcripts (`getCutoffDate()` → `now − cleanupPeriodDays × 24h`). So any mirror of
-it is capped at ~30 days by design; the Activity view's rolling 7d/30d windows sit inside that.
-**Long-range** prompt history would need an _accumulating_ store, explicitly exempt from the
-derived-cache invariant (`docs/data-model.md`), plus a privacy pass — a separate feature, not
-folded into Phase 2a.
+### `~/.claude.json`
 
-**PR1 schema** (`prompt_history`, `src/main/db/schema.sql`) — wiped and reloaded whole each Scan,
-**no prompt text stored**:
+- `projects[<path>].lastCost` and its `last*` siblings: **don't use**. Only the most recent session
+  per project, and observed `0`/empty for real multi-hour sessions.
+- Top-level `skillUsage` (Claude Code's own per-skill counter), `pluginUsage`, `mcpServers`.
+- `oauthAccount` describes only the **current** login; nothing per session or historical.
 
-```sql
-CREATE TABLE IF NOT EXISTS prompt_history (
-  session_id TEXT NOT NULL,          -- history.jsonl sessionId; NO FK — spans pruned sessions
-  project TEXT NOT NULL,             -- raw cwd string, matches sessions_meta.cwd
-  typed_at TEXT NOT NULL,            -- epoch ms -> ISO 8601 UTC
-  is_slash_command INTEGER NOT NULL  -- 1 = bare ^/[a-z][\w-]*$ (/clear, /quit); heuristic
-);
-```
+### Elsewhere
 
-`is_slash_command` is computed once at ingest so the Activity "prompts" count can exclude bare
-tool-control commands without the prompt text ever entering the Index. The `^/[a-z][\w-]*$` regex
-also catches a real skill run typed with no args (`/visual-verify`) — ~1% of lines, in the
-conservative direction (slightly undercounts prompts); a `skill_invocations` join to disambiguate
-is out of PR1 scope.
+`~/.claude/usage-data/` holds Claude Code's own Insights output (`report.html`, per-session
+`facets/*.json` LLM analysis). `~/.claude/telemetry/*.json` holds internal feature events. Neither is
+read.
 
-### `~/.claude/usage-data/`
+## Double-counting hazards
 
-CC's own **Insights** feature output: `report.html` (qualitative — what's working, friction,
-quick wins, bar charts) and `facets/<session-id>.json` (per-session LLM analysis:
-`underlying_goal`, `goal_categories`, `outcome`, `user_satisfaction_counts`, `friction_counts`,
-`session_type`, `brief_summary`). Out of scope for the first cut but a real source if a
-qualitative angle is ever wanted.
+Verified 2026-09-05 against 53 tracked sessions. Any token or cost aggregation must clear all of
+these; this is why cost reads `cost-state` rather than computing it.
 
-### `~/.claude/telemetry/*.json`
-
-`ClaudeCodeInternalEvent` events (feature usage, env, betas). Low priority.
-
-### Recorded requests (Claude Code 2.1.300+)
-
-Before 2.1.300 these were capture-only. Main transcripts now record them for every request:
-
-1. **Full tool definitions** — `api-request-shape.shape.tools[]` (`name`, `description`,
-   `input_schema`), so tools can be ranked by exact serialized size. Per-tool **token** counts are
-   still not recorded; `/context`'s MCP Tools table is the only per-tool token source.
-2. **The system prompt** — `api-request-shape.shape.system[]`, the exact text blocks.
-3. **Cache breakpoints** — `api-request.cacheControl[]`, `{path, value}` per breakpoint
-   (e.g. `system[1]` with `scope: "global"`).
-4. Still absent: `count_tokens` housekeeping calls, and how tools + system + history sum to a
-   specific billed `input_tokens`.
-
-Headless runs record `querySource: "sdk"` and a different system prompt; only
-`repl_main_thread` describes an interactive session. The Resident tax drill-in reads these on
-demand (see **Resident tax rebuild**), so 2b's system-prompt sizing and tool cut list need no
-capture.
-
----
-
-## Double-counting hazards (verified 2026-09-05)
-
-Any bottom-up token aggregation must clear all of these. This is the whole reason the locked
-decision is "read `cost-state`, don't compute."
-
-1. **Never sum `message.usage` across `.jsonl` lines.** Cross-check: raw sum = $278 for the same
-   53 sessions `cost-state` totals at $118.73 (**2.3×**). Causes: resumed sessions replay prior
-   history as context; inline sidechain lines; `<sessionId>/subagents/*.jsonl` turns; compaction
-   re-including summarized content.
-2. **Resume/continue replay is _not_ marked by `isSidechain`.** The existing
-   `isSidechain === false` + dedicated-subagent-file rule (`docs/transcript-ingest.md`) handles
-   _invocation_ counting; the cost path has this extra hazard it doesn't cover.
-3. **`cost-state` itself double-counts across continued lineages.** `continued-in` marker:
-   `a0172855` ($1.32) → `70a66d1d` ($2.27), and `70a66d1d`'s total _carries forward_ `a0172855`'s
-   cost. Rule: build the lineage via `continuedInSessionId`, count **only the terminal session**.
-   Secondary signal: `cost-state.startTime` later than the session's first-line timestamp ⇒
-   replayed history ⇒ probably a continue.
-4. **9 of 53 sessions have multiple `cost-state` lines** (resume checkpoints within one file).
-   Always take the **last** — it's cumulative, not per-segment.
-5. **Subagent token cost is already inside the parent's `cost-state` total.** Reading parent
-   `cost-state` _and_ pricing `subagents/*.jsonl` double-counts. Pick one basis: top-down
-   `cost-state` (recommended) **or** bottom-up with full dedup — never both.
-6. **Version gate.** `cost-state` first appears CC **v2.1.241** (2026-08-21 in this data), zeroed
-   / partial until ~**v2.1.246**, reliable **v2.1.247+**. Here: 53 of ~234 sessions have it.
-   `045738f4` (v2.1.241, 247 turns) has a `cost-state` line with **everything zeroed** — an
-   immature-feature artifact, _not_ a $0 session. Branch on presence.
-7. **Model-key formatting is inconsistent:** `claude-haiku-4-5-20251001` (date suffix) vs
-   `claude-sonnet-5` / `claude-opus-5` (none). Normalize before any join.
-8. **`<synthetic>`** appears as `message.model` on local/error messages — skip, no cost.
-9. **`hasUnknownModelCost: true`** ⇒ CC couldn't price a model (the price table is baked into the
-   CLI binary and goes stale). Surface it; don't silently trust `totalCostUSD`. It's the canary
-   for a model newer than any price data.
-
----
+1. **Never sum `message.usage` across lines.** Raw sum $278 vs `cost-state` $118.73 for the same
+   sessions (2.3×): resumes replay prior history, sidechain lines, subagent files, and compaction
+   re-include content.
+2. **Resume/continue replay is not marked by `isSidechain`.** The invocation rule in
+   `docs/transcript-ingest.md` doesn't cover it; the global turn identities do.
+3. **`cost-state` carries forward across continued lineages.** A continued session's total
+   includes its predecessor's, so only the lineage terminal (built from `continuedInSessionId`)
+   counts.
+4. **A file can hold several `cost-state` lines** (resume checkpoints; 9 of 53). Take the last: it
+   is cumulative.
+5. **Subagent cost is already inside the parent's `cost-state` total.** Pricing
+   `subagents/*.jsonl` too double-counts.
+6. **Version gate.** `cost-state` first appears in v2.1.241 (2026-08-21), is zeroed or partial until
+   ~v2.1.246, and reliable from v2.1.247. A zeroed line is an immature-feature artifact, not a $0
+   session: branch on presence.
+7. **Model keys are inconsistent** (`claude-haiku-4-5-20251001` vs `claude-opus-5`). Normalize
+   before any join.
+8. **`<synthetic>`** appears as `message.model` on local/error messages: skip, no cost.
+9. **`hasUnknownModelCost: true`** means Claude Code couldn't price a model (its baked-in price
+   table went stale). Surface it as a caveat; it is the canary for a model newer than any price
+   data.
+10. **Repeated assistant records for one response repeat cumulative usage.** Keep per-counter
+    maxima; never sum the duplicates.
 
 ## Is `cost-state` stable enough to build on?
 
-**Verdict: yes — same risk class as the skill-invocation parsing Megatron already ships.** Not a
-contract; a reliable-enough signal that needs a fallback and a fixture guard.
+Yes: the same risk class as the skill-invocation parsing Megatron already ships. Not a contract; a
+reliable-enough signal that needs guards.
 
-**Why it's not experimental:**
+- **Not experimental.** It is behind no feature flag (`~/.claude.json` lists active experiments; it
+  isn't one), appears in every substantive session from v2.1.246, backs features Anthropic keeps
+  expanding (`/cost`, status-line cost, `/usage`), and exists to fix a cost-reset bug, so Claude Code
+  itself depends on it.
+- **Not an API.** Undocumented, with no published schema, and already rough (inconsistent model
+  keys, one all-zeros record, a stale-price flag).
 
-- **No feature gate.** `~/.claude.json` carries active experiments (`tengu_copper_fox`,
-  `tengu_flint_harbor`, …); `cost-state` is not one. It appears in 100% of substantive sessions
-  from v2.1.246+ — no rollout %, no flag. Shipped infra, not a trial.
-- **It backs features Anthropic is actively expanding** — `/cost`, status-line cost/duration
-  fields, `/usage`, `/skill-doctor`, `~/.claude/usage-data/` reports. The changelog trend is
-  _more_ cost visibility every release, not less.
-- **It exists to fix a bug** (v2.1.246: cost/duration resetting to zero after navigating to the
-  agents view and back) — persisting this tally is now load-bearing for CC's own correctness
-  across resume / `--clear` / view-switch.
+So:
 
-**Why it's still not a stable API:**
+- Store core fields only: `totalCostUSD`, per-model `costUSD` and token counts,
+  `hasUnknownModelCost`. Peripheral fields may churn; read them ad hoc, never give them columns.
+- `FROZEN_COST_STATE` in `cost-parser.test.ts` snapshots the shape, so a silent rename fails CI
+  instead of shipping wrong dollars.
+- Cost parsing shares the walk's single parser version (`docs/transcript-ingest.md`).
 
-- **Undocumented.** No published schema, not in the changelog. A field rename / cadence change /
-  relocation won't be treated as "breaking" because there's no contract.
-- **Already rough** — inconsistent model keys in one object, one all-zeros degenerate record
-  observed (`045738f4`), `hasUnknownModelCost` exists precisely because the baked-in price table
-  goes stale.
+## Cost ingest
 
-**What that means for the build (folded into the ingest rules and build order below):**
+1. Read only the **last** `cost-state` line of each main transcript; never subagent files.
+2. Store the `continued-in` link whether or not a `cost-state` exists. Every dollar aggregate
+   filters to priced lineage terminals (the predicate is in `docs/data-model.md`).
+3. A session with no `cost-state` gets no cost row. It counts as pre-tracking (before the first
+   tracked session) or unusable (after it), never as a dollar figure.
+4. A lineage terminal with no `cost-state` is unusable; it is never back-filled from a
+   non-terminal in its chain.
 
-1. **One parser version for the whole transcript walk, cost included.** Cost-state extraction
-   rides `scanTranscripts`, so it shares `sessions_meta.transcript_parser_version`
-   (`docs/transcript-ingest.md`) — a cost-parser-semantic change bumps that single constant and
-   forces a one-time reindex of history, not just new writes. There is **no separate
-   `cost_parser_version`** (as-shipped decision, PR2): a separate version only isolates risk when
-   the walks are separate, and they are not. PR2 bumped it `3 → 4`.
-2. **Core fields only.** `totalCostUSD`, per-model `costUSD`, per-model token counts,
-   `hasUnknownModelCost`. Peripheral fields (`totalLinesAdded`, `totalAPIDuration`,
-   `totalToolDuration`, `startTime`) are nice-to-have that may churn — **do not make schema
-   columns you'd have to migrate for.** (The repo's "delete, don't migrate" policy softens this,
-   but the smaller the surface, the fewer silent-wrong-number bugs.)
-3. **Fixture-snapshot the `cost-state` JSON shape** in a test, so a silent field rename fails
-   loudly in CI instead of producing wrong dollar figures in the UI.
-4. `hasUnknownModelCost` gating and the "no `cost-state`" path (below) are required regardless —
-   they also make the feature resilient if the format shifts.
+## Per-skill cost attribution
 
----
+Session cost isn't decomposable into the skills a session fired: sessions run several skills plus
+unrelated work. The honest form is a **proportional estimate**, labelled as one, whose rows sum to
+the real total:
 
-## The cost investigation that produced this doc (reference)
+- **Weight.** For each model in a session, split its `cost-state` `costUSD` across that model's
+  turns by `output_tokens`, attribute each turn to its active skill, and sum per skill. A new model
+  needs only its `costUSD` present.
+- **Active skill.** A turn's `attributionSkill` when present; otherwise the last `Skill` call or
+  slash trigger, sticky until the next. Accepted ceiling: this over-credits a fire-and-return skill
+  for the turns after it.
+- **Subagent turns count**, attributed to the skills invoked in that agent file, so subagent-run
+  skills don't dump their cost into General work.
+- **Lineage.** Turns roll up to the same priced terminal the cost totals use.
+- **General work.** Turns with no active skill form one explicit bucket (`skill_name IS NULL`).
+- **Unpriced lineages.** Invocations whose lineage has no usable priced terminal still count as
+  activity, but contribute no dollars and never land in General work.
 
-A parallel Claude session reconciled the user's history against the Anthropic Console while this
-design was being grilled. Findings, for context:
+## Time placement
 
-- The user received **$100** in promo API credit (granted when Fable was removed from the Pro
-  plan), then ran some Claude Code sessions under **API-key auth** and burned through it. Console:
-  **$99.67 spent, $0.33 left.**
-- Local `cost-state` across the 53 tracked sessions totals **$118.73** — **~16–19% high** vs the
-  real invoice. Likely drivers: all cache-creation priced at the 1h rate (2×), API prompt-cache
-  economics differ from the flat calc, rounding.
-- The dollar-bearing sessions form one unbroken run **2026-08-21 → 2026-09-05 05:44**, then a
-  hard stop — the shape of an API key configured for that window and removed. **88%** of the spend
-  is Megatron work; **76%** is the Sept 3–4 push.
-- **Calibration:** the 183 pre-feature (subscription) sessions estimate to **~$1,174**
-  API-equivalent by the same math. The user obviously didn't pay that — which is the proof that
-  `cost-state` / `/cost` means _"what this would cost at API rates,"_ not a charge ledger.
-- **There is no way to reconcile to the cent locally**, and no way to tell a real-money session
-  from a subscription one. Point users at `console.anthropic.com` → Usage (toggle Cost) +
-  Billing → Credits, and at `/status` (current auth) / `/cost` (running charge, says outright
-  when a session is subscription).
+Rolling 24h/7d/30d windows (Cost, Skills, Tokens) aggregate **timestamped shares** of the recorded
+terminal totals; nothing is placed by session start.
 
-See the auto-memory note `cost_state_dollar_estimates.md` for the compressed version.
+- Each share sits at its logical turn's time. Residual cost with no per-model breakdown spreads over
+  the available turn times by output weight and shows as Unattributed. Cost with no turn timestamp
+  stays in the all-history ledger and is disclosed as excluded from windows.
+- **Tokens:** the headline is total tokens processed (new input + output + cache reads + cache
+  writes; thinking is inside output). Recorded per-model terminal counters are authoritative. Each
+  category spreads across that model's deduplicated response times by its own observed counts, then
+  output weights, then equal weights; cumulative integer boundaries keep every category's total
+  exact. Continuation ancestors and subagents supply timing weights, never extra totals. Every
+  time-placed number is labelled estimated.
+- Every rolling window, Activity's included, contains the exact cutoff and the as-of instant and
+  excludes the future. Day buckets use local calendar days, daylight-saving changes included, and
+  cover every date the window touches.
 
----
+## Activity and History
 
-## Insight menu (full brainstorm)
+- Activity and History read the same retained prompt archive (`usage-history.db`), with maximum
+  observed prompt multiplicities and bare slash commands excluded, so their counts reconcile for
+  identical intervals.
+- Future dates, unavailable history, known empty days, and partially observed days stay distinct.
+  Missing measurements are never synthesized as zeros, including to make panels list the same
+  projects.
+- Every project aggregate uses the identity and link rules in `docs/data-model.md`, applied without
+  altering totals or source records.
 
-Everything considered, by robustness. The first cut is Tier 1 + the Tier 3 association table
-(marked ✅); the rest is deferred (see "Deferred").
+## Resident tax
 
-### Tier 1 — robust, from data already there ✅
+Claude Code marks the `system[1]` breakpoint `cache_control.scope: "global"`, so the prompt cache
+is shared across sessions: 126 of 132 real sessions read 26k–43k cached tokens on turn 1. No
+transcript is a "cold" sample, and transcripts can't produce `/context`'s categories (system
+prompt, tool schemas, deferred tools) anyway. So the panel has two sources and stores neither:
 
-| Panel                     | Question it answers                                                                                                              | Source                                                                                                         |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| **Activity**              | sessions, messages, active days, prompts/day, busiest hours & weekdays, per-project split                                        | `history.jsonl` + `sessions_meta`                                                                              |
-| **Cost (tracked window)** | per-session $ cards, window total, per-model $ split, per-project $ ranking                                                      | `cost-state` verbatim — lineage-collapsed, last-line-only                                                      |
-| **Skill activity**        | invocations over 24 h / 7 d / 30 d, top skills, trend, user-invoked vs autonomous vs subagent, plus the Tier-3 association table | `skill_invocations` (already ingested) ⋈ `session_cost` for the association table                              |
-| **Model & effort mix**    | which model served your turns, `xhigh`/`high`/`medium`/`low` distribution                                                        | per-turn `model` / `effort` — **counts, not sums**                                                             |
-| **Resident context tax**  | global-baseline used / window and every `/context` category, plus exact system blocks, tool definitions, cache breakpoints       | `claude -p /context` (not stored) + the newest interactive transcript's first recorded request, read on demand |
+- **Totals:** `claude -p "/context" --output-format json --no-session-persistence`, run with cwd
+  `<userData>/context-baseline/`, a fixed empty folder, so the figure is the **global baseline** (no
+  project CLAUDE.md, skills, or MCP servers). `/context` is computed locally: verified $0,
+  `duration_api_ms: 0`, no transcript written, ≈3.6 s. It does start MCP servers and run
+  SessionStart hooks. Run on the panel's first open per launch and on Refresh, held in memory.
+  Parsed generically, so a category Claude Code adds later passes through. Rejected: `--bare`,
+  which skips CLAUDE.md and hooks.
+- **Per-item detail:** the first `repl_main_thread` request of the newest interactive transcript,
+  read on demand. `sdk` and `-p` sessions are never used. Sizes are exact characters; the only
+  tokens shown are `/context`'s own. Rejected: `chars/N` estimates, and `count_tokens`, which would
+  put Megatron in the auth path.
 
-### Tier 2 — needs careful dedup, would ship with an "estimate" badge
+## Not in scope
 
-- Token volume 7 d / 30 d (output, cache-creation) — deduped sum by `uuid`, main-transcript only
-- Cache-efficiency ratio + 1h-vs-5m cache-write split
-- Context-growth curve _within_ one session
-- Tool-call distribution (Read ×71, Bash ×32 …) + tool-error rate
-
-### Tier 3 — the "which skill costs what" angle
-
-Session cost is **not decomposable** into the skills a session invoked (a session fires several
-skills _and_ does unrelated work; skills co-occur). The honest form is **association, not
-attribution**:
-
-> "Sessions that invoked `visual-verify`: 12 sessions · $18 est. · 40 turns · 2.1 M output tok"
-
-✅ **landed as PR3** — a labelled association table (`getSkillStats`), riding
-`skill_invocations` ⋈ `session_cost`, no new ingest, plus two `skill_invocations` indexes.
-Columns: Skill · Tracked / all sessions · Output tokens · Associated cost. It must **never** be
-captioned "this skill cost you $18"; the section caption states the double-counting mechanism,
-never a ratio.
-
-**Ceilings accepted in PR3:**
-
-- **Naive column sums past the real total** (a $200 tracked window can show ~$290 across the
-  rows) — a session firing N skills is counted under all N. The caption states the mechanism;
-  it never prints the overlap ratio. PR4's rider replaces this with proportional attribution.
-- **Association numbers are windowed by invocation date** (24h / 7d / 30d), but
-  `pricedSessionsWithoutSkill` — the "N sessions fired no skill" caption count — spans **all**
-  cost-tracked history. This Skills caption remains dataset-wide; Cost's displayed figures
-  now use rolling windows. The caption identifies its coverage explicitly.
-- **Lineage-forward resolution, not a drop.** An invocation that lands only in a non-terminal
-  session is resolved forward through `continued_in_session_id` to its priced terminal and
-  credited there (`resolvePricedTerminal`). This is the deliberate replacement for PR2-era
-  `getSkillCostAssociation`'s inner-join drop; it keeps the association consistent with how
-  `getCostStats` treats lineages.
-- **A session with no usable cost lineage** (zeroed terminal, broken or cyclic `continued-in`
-  chain, or no `cost-state` at all — the ~180 pre-feature sessions) still counts toward
-  invocation totals, but contributes nothing to associated $ or output tokens.
-- **Subagent-triggered invocations count** (no `trigger_type` filter) — they carry the parent
-  session's `session_id`, so they associate with the parent's cost.
-- **`skill_name` values with no `skills` row** (`run`, `dataviz`, `doctor`, `statusline`, leaked
-  built-ins / uninstalled / renamed skills) still appear, with `skillId: null` — rendered without
-  click-through. Installed names resolve to a single row by shadowing precedence
-  (global > project > synced), the same rule `SKILLS_WITH_USAGE_SELECT` encodes.
-
-### Tier 4 — needs the 2b capture layer
-
-- Tool-schema **cut list** (tools ranked by token size — the proxy's best trick). Since 2.1.300
-  the definitions are in transcripts; the Resident tax drill-in ranks them by exact characters
-- System-prompt size — likewise in transcripts since 2.1.300 (Resident tax drill-in)
-- Exact per-request composition (tools vs system vs history summing to billed `input_tokens`)
-
----
-
-## First cut — Phase 2a
-
-### Scope
-
-Tier 1 + the Tier 3 association table. **Not** Tier 2 (dedup risk spent on "huh, neat" numbers),
-**not** Tier 4 (needs 2b).
-
-### The "Usage" view — five stacked sections
-
-1. **Activity** — active days, sessions, prompts, and their day/time/project distributions
-2. **Cost** — estimated API-equivalent cost, coverage caveats, and model/project/day splits
-3. **Model & effort** — per-turn model and effort counts (PR4)
-4. **Skills** — 24h/7d/30d activity, trigger mix, and the clearly labelled Tier-3 association table
-5. **Resident tax** — Claude Code's own `/context` breakdown for the global baseline (used /
-   window), with drill-ins into `/context`'s item tables and the newest interactive session's
-   recorded request (rebuilt 2026-11-03)
-
-### Build order
-
-This table is the original **dependency**-ordered work breakdown; its `#` column is not the PR
-number. The **Status** column maps each row to the canonical PR sequence at the top of this doc.
-
-| #   | Work                                                                                                                                                                                                                                                                                                                                                                                                                      | Unlocks                                   | Status   |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | -------- |
-| 1   | `session_cost` + `session_model_cost` (one row per priced session / per-model), populated by the existing `scanTranscripts` walk — `extractCostState` on main transcripts only, `toModelCostRows` projection, one `transcript_parser_version` bump. `getCostStats` collapses `continued-in` lineages and drops zeroed rows at query time. Fixture-snapshot guards the JSON shape. **No `turn_usage`** — deferred past PR2 | Cost panel                                | ✅ PR2   |
-| 2a  | `history.jsonl` ingest + `prompt_history`                                                                                                                                                                                                                                                                                                                                                                                 | Activity section                          | ✅ PR1   |
-| 2b  | Reuse `skill_invocations` ⋈ `session_cost` (`getSkillStats`) + two `skill_invocations` indexes                                                                                                                                                                                                                                                                                                                            | Skills section + Tier-3 table             | ✅ PR3   |
-| 3   | Attachment parsing (`skill_listing`, `agent_listing_delta`, `hook_success`, `mcp_instructions_delta`, project instructions) + strict cold-session detection                                                                                                                                                                                                                                                               | Resident-tax panel (superseded)           | ✅ PR5   |
-| 4   | `turn_usage` table (per-turn model/effort) + the proportional-attribution rider below                                                                                                                                                                                                                                                                                                                                     | Model & effort panel + honest per-skill $ | ✅ PR4   |
-| 5   | The "Usage" view assembling all sections                                                                                                                                                                                                                                                                                                                                                                                  | ship                                      | ✅ PR1–5 |
-
-Step 3 is the only genuinely new parsing and the most on-identity panel (it's the existing
-context budget, ground-truthed and extended).
-
-### `turn_usage` — shipped schema (PR4)
-
-PR4 added this per-logical-turn table. `cost-state` remains the sole basis for every dollar and
-per-model dollar figure; `turn_usage` supplies model/effort counts and allocation weights only.
-
-```sql
-CREATE TABLE IF NOT EXISTS turn_usage (
-  id INTEGER PRIMARY KEY,
-  logical_turn_key TEXT NOT NULL UNIQUE,   -- message id, then request id, then source uuid fallback
-  source_uuid TEXT NOT NULL UNIQUE,        -- first physical record retained as provenance
-  session_id TEXT NOT NULL REFERENCES sessions_meta(session_id) ON DELETE CASCADE,
-  request_id TEXT,                         -- assistant line's requestId; the join seam to 2b
-  message_id TEXT,
-  turn_index INTEGER NOT NULL,             -- chronological logical-turn ordinal
-  model TEXT NOT NULL,                     -- normalized (strip date suffix); '<synthetic>' rows skipped at ingest
-  effort TEXT,                             -- xhigh | high | medium | low | NULL
-  input_tokens INTEGER NOT NULL,
-  cache_read_tokens INTEGER NOT NULL,
-  cache_creation_tokens INTEGER NOT NULL,
-  cache_creation_5m_tokens INTEGER NOT NULL,
-  cache_creation_1h_tokens INTEGER NOT NULL,
-  output_tokens INTEGER NOT NULL,          -- includes thinking_tokens; do not add separately
-  thinking_tokens INTEGER NOT NULL DEFAULT 0,
-  web_search_requests INTEGER NOT NULL DEFAULT 0,
-  agent_id TEXT,                           -- subagent filename stem; NULL for main-session turns
-  active_skill TEXT,
-  invoked_at TEXT NOT NULL
-);
-CREATE INDEX idx_turn_usage_session_id ON turn_usage(session_id);
-CREATE INDEX idx_turn_usage_active_skill ON turn_usage(active_skill);
-CREATE INDEX idx_turn_usage_invoked_at ON turn_usage(invoked_at);
--- NEVER SUM cost from this table. Session $ comes from cost-state. This table is for
--- intra-session shape (growth curve, model/effort mix) and the 2b request_id join only.
-```
-
-Both unique keys are deliberately corpus-wide, not scoped to `session_id`. Resume/continue can
-replay an earlier assistant record into a later main transcript (and equivalent records can appear
-between a main transcript and its `subagents/` files), sometimes preserving only one of the UUID or
-logical-message identifiers. `scanTranscripts` therefore inserts turns with `ON CONFLICT DO
-NOTHING`: the first accepted copy is the canonical row and every later copy is replay, not another
-turn. This catches conflicts on either unique key without suppressing foreign-key, `NOT NULL`, or
-`CHECK` failures. Making either key unique only per session is forbidden because it would restore
-the documented replay inflation in model/effort counts and proportional skill-cost weights. Parser
-version 6 (`5 → 6`) forces existing indexes through this corrected cross-file ingest path.
-
-Session $ / token rollups are a query-time `GROUP BY` (`getCostStats` in `src/main/db/queries.ts`)
-over the `session_cost` / `session_model_cost` ingest that reads `cost-state` verbatim (rows
-absent for the ~180 pre-feature sessions). Not stored denormalized.
-
-### PR4 rider — proportional per-skill cost attribution (shipped)
-
-PR4 replaced PR3's naive, overlapping association with this per-turn approximation. It splits each
-session's real `cost-state` per-model total across turns by output-token weight, sums back to the
-true total, and yields an honest "general work" bucket.
-
-- **Weight:** for each model M in a session, split `cost-state.modelUsage[M].costUSD` across M's
-  turns by `output_tokens` weight; attribute each turn to its active skill; sum per skill across
-  models. **No price table, no multiplier guesses** — a new model only needs its `costUSD` present.
-- **Subagent turns included:** walk `subagents/*.jsonl`, weight the same way. A subagent turn's
-  active skill = the skill(s) invoked in that agent file (`skill_invocations.agent_id` join); none
-  → "general work". This is what stops subagent-run skills (`visual-verify`, `impeccable`) from
-  dumping their cost into the general bucket (measured: 19% of tracked spend fell there with a
-  main-chain-only prototype).
-- **Active-skill resolution:** per-turn `attributionSkill` when present (ground truth); else the
-  last `Skill` tool_use / slash trigger, sticky until the next. **Documented ceiling:** over-credits
-  a fire-and-return skill for the turns after it; degrades as skill density rises.
-- **Lineage:** attribute at the turn's own session, then roll turns up to the priced terminal the
-  same way PR3's `resolvePricedTerminal` does — so the per-skill split and the whole-session
-  association agree on which terminal owns a lineage's cost.
-- **Storage:** derived table `session_skill_cost (session_id, skill_name, est_cost_usd)` written
-  during `scanTranscripts` (same pattern as `session_cost`); `skill_name = NULL` sentinel = general
-  work. `turn_usage.active_skill TEXT` computed at ingest (same "compute once" pattern as
-  `prompt_history.is_slash_command`). Parser-version bump on those semantics; cross-file replay
-  deduplication is part of that same versioned contract.
-- **Presentation:** replaces PR3's naive Associated-cost column; adds a "General work (no skill
-  active)" row; **drops** the overlap caption (columns now sum to the tracked total) → replaced by
-  an "estimated share · method" note.
-- **Scale guards (resolved in PR4):** indexes cover `session_id`, `active_skill`, and `invoked_at`.
-  Transcript input is decoded as a 64 KiB UTF-8 line stream and large tool-result payloads are
-  discarded after each record; no size threshold skips history. The opt-in regression benchmark
-  covers just over 600 MiB total with one 150 MiB session and asserts cold ≤30 s, cached ≤1 s,
-  post-scan RSS growth <128 MiB, and zero skipped logical turns.
-
-**2026-09-30 window follow-up:** `timed_skill_cost` stores the time-stamped shares produced by the
-same allocation pass as `session_skill_cost`. `getSkillStats` filters those shares by the exact
-24h/7d/30d rolling cutoff, reconciles cents within each window, and keeps General work additive.
-Residual cost is distributed over available turn times by output-token weight. Cost with no turn
-timestamp cannot be placed in a window; it remains in the all-history session ledger and causes a
-visible caveat in Skills. Trend buckets carry clipped start/end instants so their invocation
-drilldowns and counts use identical bounds. Each window also counts skill invocations whose
-continuation lineage has no usable priced terminal; these remain in activity but are excluded from
-dollar attribution, not placed in General work. The Skills panel explains that gap. Named project
-cost rows link to Detail only when one current installation matches every contributing session's
-lineage project; otherwise the name opens filtered invocation history. Non-synced skills take
-precedence over synced global copies when resolving links.
-
-### Cost ingest rules (restating the hazards as procedure) — **as shipped, PR2**
-
-1. For each main transcript, read **only the last** `type:"cost-state"` line (`extractCostState`).
-2. Store the `continued-in` link (`sessions_meta.continued_in_session_id`) at ingest, independently
-   of whether a cost-state exists;
-   **`getCostStats` collapses lineages at query time** — every aggregate filters
-   `session_cost.is_zeroed = 0 AND sessions_meta.continued_in_session_id IS NULL` (the
-   priced-terminal predicate), so a
-   non-terminal's total is never double-counted.
-3. Store `totalCostUSD`, per-model `costUSD` + token counts, `hasUnknownModelCost` verbatim.
-   `hasUnknownModelCost` surfaces as the §C6.2 caveat line; the hero numeral gets no hedge glyph.
-4. Do **not** read `subagents/*.jsonl` for cost — already in the parent total.
-   `parseSubagentInvocations` stays cost-free (locked in `docs/transcript-ingest.md`).
-5. Sessions with no `cost-state`: no `session_cost` row. `getCostStats` reports them via
-   `preTrackingSessionCount` (before `trackedSince`) / `unusableSessionCount` (after it) in the
-   §C9 footnote — never a `$` figure.
-6. All dollar copy: "estimated API-equivalent cost", with the `/cost`-style disclaimer.
-7. Store **core fields only** (`totalCostUSD`, per-model `costUSD`, per-model token counts,
-   `hasUnknownModelCost`). Peripheral fields may churn — read them ad hoc if ever needed, don't
-   give them columns. (`session_model_cost` does keep the full 6-token column set even though no
-   PR2 panel reads them — the parser already produces them and it avoids a reindex when a Tier-2
-   token panel wants them.)
-8. **One `transcript_parser_version` for the whole walk** — cost rides `scanTranscripts`, so a
-   cost-state shape change bumps that single constant (PR2: `3 → 4`) and forces a history
-   reindex. No separate `cost_parser_version`. A fixture-snapshot test (`FROZEN_COST_STATE` in
-   `cost-parser.test.ts`) makes a silent rename fail in CI.
-
-### Ceilings accepted in PR2
-
-- **`byDay` buckets on `session_cost` ⋈ `sessions_meta.started_at`, local date** — a session that
-  ran across local midnight lands its whole total on its start date (midnight smear). Acceptable:
-  the by-day strip is the section's thinnest story anyway.
-- **No terminal-missing-`cost-state` fallback.** A lineage terminal with no `cost-state` line is
-  counted as unusable, not back-filled from a non-terminal in its chain. 0 real cases in the
-  exploration data (`explore-usage.report.md` Q3).
-- **A pre-`trackedSince` session that also has a zeroed / non-terminal cost row counts as
-  pre-tracking**, not unusable — the date cut wins (`preTrackingSessionCount` is a pure
-  `started_at < trackedSince`). ~0 real cases.
-
-### Open questions for implementation
-
-- ~~**Fresh-session detection** for the resident-tax measurement~~ — **closed 2026-11-03**:
-  unanswerable from transcripts. `system[1]` carries `cache_control.scope: "global"`, so turn 1 of
-  almost every session reads a warm shared cache. Resident tax now reads `/context` instead (see
-  **Resident tax rebuild**).
-- **`turn_usage` dedup key** — `source_uuid` (the line's `uuid`) vs `requestId`. `uuid` matches
-  the `skill_invocations` pattern and is per-line; `requestId` can repeat across retried
-  iterations. Leaning `uuid`.
-- **Where the "Usage" view sits in nav** — peer of Skills / Plugins, or a sub-tab.
-- **Scan cost** — per-turn extraction over 577 MB of transcripts. The existing mtime/size +
-  `transcript_parser_version` cache covers freshness; closed sessions never re-scan. Needs a
-  one-time backfill measurement.
-
----
-
-## Deferred
-
-| Item                                                                                | Why not in the first cut                                                                                                                                                                                                         | Revisit when                                                                                           |
-| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| **Tier 2 panels** (token volume, cache efficiency, growth curve, tool distribution) | Each needs a careful anti-double-count dedup of per-turn `usage` and _still_ ships with a hedge badge — risk + permanent caveat copy spent on "huh, neat" numbers                                                                | Tier 1 is live and a specific Tier 2 number is actually wanted for a decision                          |
-| **Tier 4 / the tool-schema cut list**                                               | Needs 2b — the capture layer. Sequenced, not cut                                                                                                                                                                                 | 2a proves the feature earns repeat opens                                                               |
-| **True per-skill cost attribution**                                                 | Session cost isn't cleanly decomposable into co-occurring skills. PR3's association table is the honest ceiling until then; the **PR4 rider** (proportional per-turn split) is the designed approximation, gated on `turn_usage` | `turn_usage` lands (PR4)                                                                               |
-| **Lifetime cost total**                                                             | Version gate (53/234 sessions) + the double-count hazards. "Tracked since Aug 2026" + excluded count instead                                                                                                                     | `cost-state` coverage becomes near-complete as old sessions age out                                    |
-| **Rate-limit window %** (the actual `/usage` view)                                  | Server-side. Not in local files                                                                                                                                                                                                  | Never, unless CC starts writing plan-limit state locally                                               |
-| **Bottom-up token pricing** (a price table + estimator)                             | Strictly worse than `cost-state`: less accurate, breaks every model release, and is where all the accounting bugs live                                                                                                           | A hard requirement for full historical dollar coverage emerges — treat as its own dedup-design project |
-| **Session-centric view** (a "Sessions" list, drill into per-turn growth)            | Closest to what the proxy markdown _is_, but the narrowest audience. Heaviest surface                                                                                                                                            | Detail-page weaving proves users want to go deeper than the overview                                   |
-| **Detail-page weaving** (`SkillDetail` / `PluginDetail` gain real numbers)          | Scatters the story across pages before the overview establishes it                                                                                                                                                               | The "Usage" view ships and the per-entity number is the top ask                                        |
-| **Megatron runs / supervises a proxy**                                              | Auth-token MITM + owning the "broke my CLI" failure mode. Identity violation                                                                                                                                                     | Not expected — cut, not deferred                                                                       |
-| **Parsing a capture tool's rendered markdown**                                      | Fragile coupling to a third party's format for no upside over the raw request body                                                                                                                                               | Not expected — cut, not deferred                                                                       |
-| **Qualitative session analysis** (`usage-data/facets/*.json`, `report.html`)        | A different feature (journal / coach). Out of scope for a context-cost surface                                                                                                                                                   | A journal/coach feature is greenlit, with its own privacy pass                                         |
-| `~/.claude.json` `projects[].lastCost`                                              | Observed `0`/empty even for real sessions; only the most recent per project                                                                                                                                                      | Never — transcripts are the source of truth                                                            |
-
----
-
-## Relationship to existing surfaces
-
-- **Context budget** (`src/renderer/src/lib/context-budget.ts`, `ContextBudgetDialog.tsx`) —
-  currently sums `est_listing_tokens` (`chars / 3.0`, calibrated not exact) over enabled
-  model-invocable global + plugin skills. The Tier-1 **Resident tax** panel is the ground truth
-  for the same question — Claude Code's own `/context`, covering tool schemas, MCP, memory files,
-  agents, and messages too. It supersedes the dialog's scope; the dialog's "heaviest skills /
-  disable this" flow is the template for the _first real lever_ this feature grows.
-- **`docs/transcript-ingest.md`** — this feature adds a second consumer of the transcript walk.
-  Its `isSidechain === false` + dedicated-subagent-file rules are necessary but **not sufficient**
-  for the cost path (hazard 2). Any change to the walk must keep both consumers correct.
-- **`docs/mvp-build-spec.md`** "Deferred, on purpose" — the "Cost analytics, MCP dashboard" row
-  and the "Plugin component-inventory / token-cost analysis (Tier 2)" row both point here. Update
-  those rows to reference this doc when Phase 2 is greenlit.
-- **`CLAUDE.md`** Docs table — add a row for this doc ("Usage analytics / cost insights · Consult
-  before `src/main/ingest/` usage extraction or the Usage view") when implementation starts.
+| Item                                                                                 | Why not                                                                                                                                                                                           | Revisit when                                                                                         |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Request capture (Phase 2b): tool-schema cut list, system-prompt sizing               | **Cut**, not deferred. Since 2.1.300, transcripts carry the full tool definitions and system prompt, and the Resident tax drill-in already ranks them by exact size. A capture layer adds nothing | Not revisited                                                                                        |
+| Exact per-request composition (tools + system + history → billed `input_tokens`)     | Not recorded anywhere local, even in 2.1.300+ transcripts                                                                                                                                         | Claude Code records it locally                                                                       |
+| Cache-efficiency ratio, 1h-vs-5m split, context-growth curve, tool-call distribution | Each needs careful per-turn dedup and still ships with a hedge badge: risk and permanent caveat copy for "huh, neat" numbers                                                                      | A specific number is wanted for a real decision                                                      |
+| Lifetime cost total                                                                  | The version gate leaves most history untracked                                                                                                                                                    | `cost-state` coverage becomes near-complete as old sessions age out                                  |
+| Rate-limit window % (`/usage`)                                                       | Server-side; not in local files                                                                                                                                                                   | Claude Code writes plan-limit state locally                                                          |
+| Bottom-up token pricing                                                              | Strictly worse than `cost-state` (see Locked decisions)                                                                                                                                           | Full historical dollar coverage becomes a hard requirement; treat it as its own dedup-design project |
+| Detail-page weaving (`SkillDetail` / `PluginDetail` gain usage numbers)              | Scatters the story before the overview establishes it                                                                                                                                             | The per-entity number becomes the top ask                                                            |
+| Session-centric view (sessions list, per-turn drill-in)                              | The narrowest audience and the heaviest surface                                                                                                                                                   | Detail-page weaving shows users want to go deeper                                                    |
+| Manual project linking UI                                                            | Removed with the Manage projects dialog; existing links still resolve                                                                                                                             | Users need to merge moved or re-cloned projects by hand                                              |
+| Qualitative session analysis (`usage-data/`)                                         | A different feature (journal, coach)                                                                                                                                                              | A journal or coach feature is greenlit, with its own privacy pass                                    |

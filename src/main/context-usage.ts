@@ -10,7 +10,8 @@ import type {
 import { runClaude } from './claude-process'
 
 // `--no-session-persistence` keeps the run out of ~/.claude/projects; /context is computed
-// locally, so the run makes no API call and costs nothing (docs/usage-analytics.md).
+// locally, so the run makes no API call and costs nothing (docs/usage-analytics.md, Resident
+// tax).
 const CONTEXT_ARGS = ['-p', '/context', '--output-format', 'json', '--no-session-persistence']
 const CONTEXT_TIMEOUT_MS = 60_000
 const CONTEXT_TIMEOUT_MESSAGE =
