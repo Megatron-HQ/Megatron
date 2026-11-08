@@ -75,12 +75,14 @@ update check. Installing new plugins and managing marketplaces are outside the c
 
 ### Usage analytics
 
-The Usage section has five panels. Activity, Cost, Models, and Skills each have independent rolling
-**24-hour**, **7-day**, and **30-day** windows.
+The Usage section has seven panels. Activity, Tokens, Cost, Models, and Skills each have independent
+rolling **24-hour**, **7-day**, and **30-day** windows; History picks a calendar year.
 
 | Panel            | Current insights                                                                                                                                                          |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Activity**     | Prompts, sessions, active days, slash commands, chronological hourly/daily charts, weekday-by-hour punchcard, and project rankings                                        |
+| **History**      | An annual prompt contribution calendar, year-in-review readouts (active days, longest streak, busiest day), a project-by-month timeline, and day details                  |
+| **Tokens**       | Total tokens processed, input/output/cache-read/cache-write readouts, an hourly or daily trend, and model and project rankings                                            |
 | **Cost**         | Estimated API-equivalent spend, model-family/version breakdown, hourly/daily trends, time-of-day punchcard, project rankings, and clickable hour/day cost details         |
 | **Models**       | Logical turns, distinct models, output tokens, model and reasoning-effort rankings, and a model-by-effort matrix                                                          |
 | **Skills**       | Invocations, unique skills, active sessions, trend drilldowns, top skills, trigger distribution, and proportional estimated cost attribution with a General work bucket   |
@@ -153,153 +155,42 @@ in **Settings > Updates**; **Check now** works either way.
 Each check is one request to github.com, which sees your IP address and which platform's update
 feed is fetched. No skills, usage data, or paths are sent.
 
-## Getting started
+## Run locally
 
-### Prerequisites
+Requires Node.js 22 (`.nvmrc`) and npm. Plugin actions also need the `claude` executable on the
+desktop app's PATH.
 
-- **Node.js 22.x**, as specified in `.nvmrc` and `package.json`.
-- **npm** and Git. Use the committed `package-lock.json` with `npm ci`.
-- Local Claude Code data to populate the inventory and analytics. Plugin actions additionally
-  require the `claude` executable on the PATH available to the desktop app.
-
-### Run locally
-
-```powershell
+```sh
 git clone https://github.com/Megatron-HQ/Megatron.git
 cd Megatron
 npm ci
 npm run dev
 ```
 
-Installation automatically rebuilds Electron's native dependencies and configures the Git hook.
-Do not invoke `postinstall` or `prepare` separately. Dependency install-script approvals are
-recorded in `package.json`.
-
 On first launch, Megatron scans its allowed Claude Code locations. Open **Settings > Project
-folders > Manage** to grant repositories containing project skills or project/local plugin settings.
-The app also rescans when its window regains focus, when grants change, and after successful plugin
-actions. **Settings > Rescan now** provides a manual refresh; there is no continuous filesystem watcher.
+folders > Manage** to grant repositories containing project skills or project/local plugin
+settings. If startup reports `Error: Electron uninstall`, see
+[Environment setup](docs/environment-setup.md).
 
-If Electron's binary is missing or startup reports `Error: Electron uninstall`, follow
-[Environment setup](docs/environment-setup.md) to check install-script approval and extraction.
+Scripts live in `package.json`; `CLAUDE.md` notes the ones with a gotcha. Design and architecture
+decisions live in `docs/` (see [Development documentation](#development-documentation)).
 
-## Commands
+## Privacy
 
-| Command                  | Purpose                                                                                  |
-| ------------------------ | ---------------------------------------------------------------------------------------- |
-| `npm run dev`            | Launch Electron with renderer hot reload                                                 |
-| `npm run start`          | Preview a production build; run `npm run build` first                                    |
-| `npm run build`          | Run both type checks, then build with electron-vite                                      |
-| `npm run typecheck`      | Check the main/preload and renderer TypeScript projects                                  |
-| `npm run typecheck:node` | Check the main/preload TypeScript project                                                |
-| `npm run typecheck:web`  | Check the renderer TypeScript project                                                    |
-| `npm run lint`           | Run ESLint                                                                               |
-| `npm run format`         | Format the repository with Prettier                                                      |
-| `npm run test`           | Run Vitest tests                                                                         |
-| `npm run verify:visual`  | Build and capture Electron rendering evidence using Playwright                           |
-| `npm run build:unpack`   | Build and create an unpacked app with electron-builder `--dir`                           |
-| `npm run build:mac`      | Package an ad-hoc signed DMG and zip; signs only with `MEGATRON_SIGNED_RELEASE=true`     |
-| `npm run build:win`      | Package the NSIS installer; signs only with `MEGATRON_SIGNED_RELEASE=true`               |
-| `npm run build:icons`    | Regenerate icon outputs under Electron; the macOS `.icon` remains hand-assembled         |
-| `npm run db`             | Open the local index in DB Browser for SQLite on macOS, or the associated app on Windows |
-| `npm run db:reset`       | Delete the local index and SQLite sidecar files; repository grants are kept              |
-| `npm run explore:usage`  | Inspect real local Claude usage data and overwrite `scripts/explore-usage.report.md`     |
+- **Analysis stays on your machine.** Megatron has no telemetry and makes no LLM calls. Nothing it
+  indexes is uploaded.
+- **Update checks reach github.com.** Installed builds ask GitHub for new releases (see
+  [Updates](#updates)); no skills, usage data, or paths are sent.
+- **The Claude CLI may use the network.** Plugin actions and Resident tax run Claude Code's own
+  CLI. Resident tax's `/context` is computed locally, but it starts your MCP servers and
+  SessionStart hooks.
+- **The local index holds some prompt text.** It stores skill invocation arguments and excerpts of
+  the prompt that preceded each invocation. Resident tax results stay in memory.
+- **The usage archive keeps metadata only.** `usage-history.db` records prompt counts, session and
+  project identifiers, timestamps, and token counters, never prompt or response text. It outlives
+  Claude Code's own ~30-day history so Usage can show more than a month.
 
-### Verification
-
-```powershell
-npm run typecheck
-npm run lint
-npm run test
-npm run build
-```
-
-CI runs the generated-mirror check, type checks, lint, and tests on `macos-latest` and
-`windows-latest`. Packaging and visual verification are separate from those CI checks.
-
-Vitest covers backend logic, shared utilities, and pure renderer helpers in `src/**/*.test.ts`.
-React component tests and behavioral UI E2E assertions are not part of the test suite. For renderer
-changes, run the app or use `npm run verify:visual`: the verifier launches an isolated profile,
-checks the supported window sizes, and writes screenshots and comparison evidence to
-`.visual-verify/`. Its screenshots still use local Claude data and require visual review.
-
-## Architecture
-
-Megatron is a single-package, ESM-only Electron application:
-
-```text
-React renderer -> typed window.api preload bridge -> Electron main process
-                                                    |
-                                      Permission-aware scanners and linter
-                                                    |
-                                          Local SQLite index
-
-Plugin management -> validated install action -> Claude CLI -> rescan
-```
-
-| Area                 | Implementation                                                                             |
-| -------------------- | ------------------------------------------------------------------------------------------ |
-| Desktop and build    | Electron 43, electron-vite 5, electron-builder                                             |
-| UI                   | React 19, TypeScript 5.9, Tailwind CSS v4, shadcn/ui with Radix primitives, Lucide, Motion |
-| Renderer state       | TanStack Query for IPC data; React state for local UI                                      |
-| Tables and file tree | TanStack Table v9; TanStack Virtual v3 for the file tree                                   |
-| Storage              | better-sqlite3 and electron-store preferences                                              |
-| Parsing and display  | YAML, react-markdown, remark-gfm, Geist Sans and Geist Mono                                |
-| Verification         | Vitest, ESLint, Prettier, Playwright's Electron support                                    |
-
-```text
-src/main/                 App lifecycle, validated IPC, permissions, CLI actions
-  db/                     SQLite schema, inventory/usage queries, cost windows
-  ingest/                 Skills, plugins, transcripts, history, cost/context extraction
-  linter/                 Five deterministic rules and MCP configuration resolution
-src/preload/              Context-isolated, typed window.api bridge
-src/renderer/src/         React views, components, charts, styles, and helpers
-  components/usage/       Usage charts and drilldown dialogs
-  components/ui/          Vendored shadcn/ui primitives
-src/shared/               IPC contracts and version helpers
-scripts/                  Database tools, icon generation, usage exploration
-docs/                     Architecture, feature contracts, and setup notes
-.claude/skills/           Project development workflows and visual verification
-.agents/skills/           Generated mirror of project development workflows
-.github/workflows/        macOS and Windows CI
-build/ and resources/     Packaging resources and app icons
-references/               Reference code outside the shipped application
-```
-
-### Local data, permissions, and scan integrity
-
-Claude data reads pass through `isPathAllowed()` and permission-aware filesystem helpers:
-
-- Tier 1 allows `~/.claude/{skills,plugins,projects}` plus the specific files
-  `~/.claude.json`, `~/.claude/settings.json`, and `~/.claude/history.jsonl`.
-- Tier 2 allows repository folders explicitly granted through the native folder picker.
-  Revoking a grant removes its project skill rows and refreshes the inventory.
-- Scanners follow symlinks rooted at allowed paths, with cycle protection. The permission check
-  applies to the discovered link path.
-
-The renderer has context isolation enabled and Node integration disabled. Its ESM preload is
-unsandboxed and exposes the application API without raw IPC or environment variables. IPC checks
-the trusted window's main frame, exact renderer URL, argument shapes, and matching plugin install.
-Navigation outside the app is blocked; HTTP(S) links open through the external browser.
-
-Analysis runs locally without Megatron telemetry or external LLM calls. Installed builds check
-github.com for updates (see [Updates](#updates)). Plugin actions delegate to
-the Claude CLI, which may use the network; Resident tax runs `claude -p /context`, which is
-computed locally but does start your MCP servers and SessionStart hooks. The local index contains
-invocation arguments and preceding prompt excerpts; prompt-history rows retain metadata rather than
-full prompt text, and Resident tax keeps its results in memory only.
-
-Scans distinguish **complete**, **partial**, and **failed** outcomes. Unavailable reads, invalid
-settings or registries, and corrupt cost snapshots preserve usable cached data while readable sources
-can refresh. The app reports incomplete scans and offers rescan feedback in Settings. Transcript
-caching uses file modification times, sizes,
-and parser version; changed main/subagent data is reconciled transactionally, including resume
-replay deduplication. The index reflects retained Claude files, not a permanent history archive.
-
-File previews are bounded to 256 KiB per file and 4 MiB total content, with traversal limits of
-1,024 files, 4,096 entries, and 32 directory levels. Omitted preview content is marked explicitly.
-
-### Index location and recovery
+## Index location and recovery
 
 The database is `megatron.db` under Electron's user data directory. Default development locations:
 
@@ -320,20 +211,17 @@ is never deleted by either.
 
 ## Development documentation
 
-| Document                                                  | Covers                                                                   |
-| --------------------------------------------------------- | ------------------------------------------------------------------------ |
-| [CLAUDE.md](CLAUDE.md)                                    | Repository rules and locked decisions; source for generated `AGENTS.md`  |
-| [Design system](DESIGN.md)                                | Visual language, components, layouts, and app icons                      |
-| [Skill scanner](docs/skill-scanner.md)                    | Sources, synced/nested skills, symlinks, and precedence                  |
-| [Transcript ingestion](docs/transcript-ingest.md)         | Invocation detection, trigger classification, and deduplication          |
-| [Data model](docs/data-model.md)                          | Index schema, plugin identity, and attribution joins                     |
-| [Usage analytics](docs/usage-analytics.md)                | Data sources, cost accounting, estimates, and deferred analytics         |
-| [Security and scan integrity](docs/security-hardening.md) | Security boundaries and threats, cache preservation, and resource bounds |
-| [Environment setup](docs/environment-setup.md)            | Electron installation troubleshooting                                    |
-
-Edit `CLAUDE.md` and `.claude/skills/` as the instruction sources. The pre-commit hook regenerates
-and stages `AGENTS.md` and `.agents/skills/`; CI checks that those mirrors match. Do not hand-edit
-the generated copies or vendored `components/ui/` files.
+| Document                                                  | Covers                                                                                  |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| [CLAUDE.md](CLAUDE.md)                                    | Repository rules, the docs rule, and locked decisions; source for generated `AGENTS.md` |
+| [Design system](DESIGN.md)                                | Visual language, components, Usage chart rules, layouts, and app icons                  |
+| [Skill scanner](docs/skill-scanner.md)                    | Skill sources, scan integrity, frontmatter parsing, token estimates, and linting        |
+| [Transcript ingestion](docs/transcript-ingest.md)         | Transcript formats, invocation detection, trigger classification, and scan cadence      |
+| [Data model](docs/data-model.md)                          | Index and usage-archive invariants, plugin identity, and Usage project identity         |
+| [Usage analytics](docs/usage-analytics.md)                | Data sources, double-counting hazards, cost attribution, and Resident tax               |
+| [Security and scan integrity](docs/security-hardening.md) | Security boundaries and threats, cache preservation, and resource bounds                |
+| [Releases](docs/releases.md)                              | Signing switch, Homebrew tap, updater behavior, and upgrade paths                       |
+| [Environment setup](docs/environment-setup.md)            | Electron installation troubleshooting                                                   |
 
 ## Founders
 
