@@ -92,7 +92,7 @@ function scanSkillEntry(
     disabled_reason: overrides.get(parsed.name) === 'off' ? 'override' : null,
     // ponytail: skillOverrides 'name-only' keeps the name and drops the description — a partial
     // exclusion — but is deliberately still counted toward the budget here (model_invocable = 1).
-    // Accounting for it would need a separate name-token estimator; see TODO out-of-scope note.
+    // Accounting for it would need a separate name-token estimator (docs/skill-scanner.md).
     model_invocable:
       parsed.disableModelInvocation || overrides.get(parsed.name) === 'user-invocable-only' ? 0 : 1
   }

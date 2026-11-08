@@ -21,6 +21,7 @@ const SKIP_DIRECTORIES = new Set(
     'vendor',
     'target',
     '.next',
+    // A skill's own reference/example files must never read as a nested package.
     '.claude',
     '.tmp',
     '.temp',

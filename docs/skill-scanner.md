@@ -1,159 +1,118 @@
-# Skill scanner — sources, symlinks, and real `~/.claude` data notes
+# Skill scanner
 
-## Live inventory reconciliation (2026-11-05)
+Owns which directories count as skill sources, how they are walked, and how a `SKILL.md` is parsed,
+token-estimated, and linted. `CLAUDE.md` stays authoritative for repo-wide decisions; the decisions
+below are locked here.
 
-Approved project folders, global skills, plugin stores, and user configuration are watched through
-the permission boundary. Changes settle for one second before a quiet inventory-only scan; a
-five-second cap avoids starvation during continuous file operations. Source-file edits outside
-Claude content and generated/dependency directories are ignored. A 30-second reconciliation pass
-reattaches watches and recovers missed events or temporarily inaccessible sources. Startup,
-focus, and manual full scans keep their existing behavior; live scans do not ingest Usage again
-or refetch open Usage and historical-activity queries.
-Settings retains the result of the user's requested rescan through later automatic refreshes;
-current source details still show the newest scan, and another requested rescan clears the message.
-
-A discovered child confirmed missing beneath a readable grant is removed from the catalog and
-derived skill/plugin inventory. Deleting only its `.claude` directory also reconciles stale skills.
-Individually granted missing folders remain saved with cached data. An unreadable grant is not
-evidence that its children were deleted. Unreadable projects retain their cached entries and retry;
-their warnings do not mark readable parents or siblings unavailable. Incomplete discovery preserves
-only cached locations whose traversal was affected, rather than every unrelated old catalog entry.
-
-A granted folder absent from the discovery catalog has an unknown availability until scanning
-establishes its status. Skills and Plugins keep that state quiet in both the inventory and sidebar;
-permission alone never implies a failed refresh. Confirmed unavailable, missing, or access-required
-statuses remain visible during retries and clear when a subsequent scan reports recovery. This
-also covers folders removed and re-added through Project Folders settings.
-
-When the selected project disappears, Skills and Plugins return to the nearest available ancestor
-and close details for removed items. The active section and sidebar interactions are preserved.
-Moves within approved folders are rediscovered at their new paths; this never grants a new location,
-rewrites Claude's plugin registry, or moves historical usage to a guessed project identity.
-
-## Repository catalog and parent navigation (2026-10-15)
-
-`project-discovery.ts` owns the shared bounded walk used by skill scanning and both project
-sidebars. It records empty Git repositories and worktrees as well as unversioned Claude projects
-with `.claude/skills` or project settings. A Claude package inside an identified repository keeps
-that repository's ownership; a new Git boundary always starts another repository. Discovery
-retains the existing skip list, canonical permission checks, cycle guard, depth and directory limits.
-Traversal uses guarded directory-entry types to skip ordinary files without resolving and statting
-each one. Directory targets and links still cross the canonical permission boundary; discovery scope
-and repository ownership are unchanged.
-
-The catalog is derived metadata in the private preferences cache, independent of folder grants.
-It preserves individually granted missing repositories and unavailable repository entries across scans and restarts. Cached
-entries never grant access, and removing a grant drops entries no longer covered by another grant.
-Automatic discovery skips `.tmp` and `.temp`, along with the existing generated/dependency
-directories. Windows skip names are case-insensitive. Cached entries and derived skill rows under
-excluded project locations are discarded rather than rediscovered on every scan. A direct grant
-inside an excluded directory, including a grant of that directory itself, remains supported.
-Existing skill and plugin rows provide cached counts; a complete scan of a readable empty source
-reconciles its contents normally. Missing discovered children are reconciled as described above.
-
-Skills and Plugins share a granted-folder → repository tree. A parent selects its aggregate and
-expands its children; its chevron only expands/collapses. Intermediate directories are omitted
-unless explicitly granted, with their path segments retained in the next repository's label.
-Every nested Git boundary (directory or worktree file) starts an independent repository, at any
-supported depth. Repositories attach to their nearest enclosing repository or granted folder;
-overlapping grants appear once. Table and detail labels use the local folder hierarchy, including
-the outer granted folder (for example `MegatronHQ/megatron`), preserve display casing, and use `/`.
-Directly granted repositories retain parent-folder context. Duplicate labels gain ancestors until
-distinct. A repository's own items have a separate "This repo" filter, including zero items;
-grouping folders with direct items retain "This folder".
-Known empty repositories show zero, and unavailable entries identify their cached state. A Git
-repository nested inside another Git repository is listed only when it, or a package it owns, has
-`.claude/skills` or `.claude` settings — an empty clone, submodule, or vendored checkout is not a
-project. It still owns its subtree and keeps its skill root for reconciliation. A directly
-granted repository is always listed, and an incomplete discovery hides nothing.
-
-Plugins combine Project and Local scopes in one Projects tree. Counts and inventory rows use
-distinct `name@marketplace` plus repository; User is a separate context. The same plugin in two
-repositories contributes twice to a parent's count. Project/Local versions and enablement remain
-per-install, and details/actions selected from a repository row stay scoped to that repository.
-Usage metrics labelled "all projects" retain their existing aggregate meaning. Unknown project
-records remain visible separately and cannot be managed without a project location.
-
-The Skills Projects tree counts only repository-defined skills; Global and Plugin source groups
-are unchanged. Monorepo package ownership and name qualification remain repository-scoped.
-
-## Parent-folder grants (2026-10-15)
-
-A grant may cover a grouping folder containing several repositories. A child directory with
-its own `.git` directory or worktree file starts an independent project: its skills use that
-repository's settings, usage scope, and collision namespace. Nested packages without a Git
-boundary continue to share the owning repository's `projectRoot`, as described below. Discovery
-retains the existing permission checks, skip list, cycle guard, and work limits. Overlapping
-parent and direct grants produce one skill root per directory.
-
-Scan summaries include actionable settings diagnostics. An unapproved project requests folder
-access; an approved but absent project reports a missing location, including moved-project
-records. Settings failures preserve cached rows and disablement. Megatron does not guess a
-replacement project path or rewrite Claude's plugin registry during scans.
-
-Confirmed missing projects retain their cached state and appear as informational details in
-Settings. A scan whose only incomplete sources report `project_missing` does not raise an app-wide
-refresh warning; a manual rescan completes with the missing locations listed below it. Permission
-errors, invalid settings, read failures, scan limits, worker failures, and unexplained partial results
-still require attention, including when they occur alongside a missing project. A directory replaced
-by a regular file is treated as an absent directory, not as denied access.
-
-## Scan integrity amendment (2026-10-02)
-
-Unavailable skill reads and malformed or unavailable settings preserve cached rows and report
-a partial scan. Readable siblings can refresh, while name qualification still considers preserved
-siblings. Confirmed deletion of an entire nested or synced root reconciles its cached rows.
-Malformed plugin registry entries preserve the affected identity; unavailable marketplace and
-enablement snapshots retain previously known values. Root plugin skills still refresh when the
-container cannot be inspected, without making that container scan authoritative. Symlink following
-now requires approval of both the discovered path and its canonical target (security amendment 2026-10-10). See [security-hardening.md](security-hardening.md).
-
-Owns which directories count as skill sources and how they are walked. `CLAUDE.md` stays
-authoritative for repo-wide decisions; the decisions below are locked here.
-
-Implementation: `src/main/ingest/skills-scanner.ts`, `plugin-registry.ts`.
+Implementation: `src/main/ingest/` (`skills-scanner.ts`, `project-discovery.ts`,
+`plugin-registry.ts`, `skill-parser.ts`) and `src/main/linter/`.
 
 ## Locked decisions
 
-| Area                                                                           | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Skill sources                                                                  | Three sources: global (`~/.claude/skills`), project (`<repo>/.claude/skills`), plugin (`~/.claude/plugins/installed_plugins.json` → each entry's `installPath`, probed for two independent on-disk shapes: container `installPath/skills/<name>/SKILL.md`, and root `installPath/SKILL.md` directly — single-skill plugins such as [blader/humanizer](https://github.com/blader/humanizer), whose own manifest declares `"skills": ["./"]`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Plugin skills are read-only — silently overwritten on update. The two shapes are a disk probe, not a manifest read: `plugin.json`'s declared `skills` path doesn't reliably match the installed cache layout — e.g. impeccable's source manifest says `"skills": "./.claude/skills/"`, but its installed copy under `~/.claude/plugins/cache/` has a plain top-level `skills/` dir, because Claude Code's installer normalizes container-style plugins on install. Root-style plugins are left as-is, so `installPath/SKILL.md` is checked directly rather than trusting the manifest.                                                                                                                                  |
-| `.agents/skills/`                                                              | **Never** scanned — permanently out of scope, not a v1 cut                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | It's a Codex convention, not a Claude Code artifact. Megatron is a Claude Code tool; this isn't "deferred," it's out of scope by definition. Don't add it as an opt-in source without an explicit, separate decision to do so. (This repo's own `.agents/skills/` is still kept in sync as a generated mirror — see `CLAUDE.md`. That's repo housekeeping, unrelated to what the scanner reads.)                                                                                                                                                                                                                                                                                                                        |
-| Symlinked skill dirs                                                           | Followed only when both the discovered path and canonical target are approved. Folder selection pins the canonical root; restoring a saved root never reapproves a retargeted junction.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | External skill stores remain supported through an explicit target-folder grant. Traversal and file opening recheck canonical permission and regular-file identity.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `synced/` (claude.ai-synced skills, closed 2026-08-18)                         | `synced` (any capitalization) is a reserved folder name at any global/project root — `scanSkills()` special-cases an entry that lowercases to `synced`, descends one level via `readAllowedDirectory`, and applies the same `SKILL.md`-existence check to its children instead of testing `synced/` itself. Those rows get `is_synced: 1` and keep `source_type: 'global'` (no new enum value — see `docs/data-model.md`). The reconciliation write also pushes `<root>/synced` into that scan's `rootDirs`, since a synced skill's `dirname` is one level below the scanned root.                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | [code.claude.com/docs/en/skills](https://code.claude.com/docs/en/skills): Claude Code downloads claude.ai-synced skills into `~/.claude/skills/synced/`, one level deeper than every other global skill; the folder name itself is never a skill. Was `docs/scanner-coverage-gaps.md`'s Gap 2, now closed — see that doc for what's still open.                                                                                                                                                                                                                                                                                                                                                                         |
-| Nested `.claude/skills/` (monorepo packages, closed 2026-08-18)                | `findNestedSkillsDirs(repoRoot)` recursively finds every `.claude/skills` below a granted repo's own subdirectories (the top-level `<repoRoot>/.claude/skills` is still constructed unconditionally in `defaultSkillRoots()`, independent of disk state), feeding `scanSkills()` one `SkillRoot` per discovery — sharing the owning repository's `projectRoot` rather than each package directory, since invocation counts scope by `sessions_meta.cwd` under `project_root`. A child `.git` directory or worktree file establishes an independent repository when a parent folder is granted (see Parent-folder grants above). Depth is capped at 64 levels and discovery at 50,000 directories; budget exhaustion reports a partial scan and preserves cached rows. Skips `node_modules`, `.git`, `dist`, `build`, `out`, `coverage`, `vendor`, `target`, `.next`, and `.claude` itself (so a skill's own reference/example files can't be mistaken for a real nested package). Cycle-guarded via `allowedRealpathSync` (visited-realpaths set). | [code.claude.com/docs/en/skills](https://code.claude.com/docs/en/skills): a monorepo package's own `.claude/skills/` loads even when the session started at the repo root. Was `docs/scanner-coverage-gaps.md`'s Gap 1, now closed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Nested-skill name qualification                                                | `skills.name` holds a nested skill's **bare** name unless it collides with another same-named skill in the same repo (root-level or another nested one) — then it's rewritten to `<posix-relative-dir-from-repoRoot>:<bare-name>` (e.g. `apps/web:deploy`), always forward-slashed regardless of host OS. A colliding **root-level** skill of that name always keeps its bare name.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Verified against real transcript data, not assumed from the docs page: three headless `claude -p` invocations (nested-no-collision → bare; nested-colliding → qualified; root-level-colliding → still bare) confirmed the exact conditional rule Claude Code itself applies — see `qualifyCollidingNestedSkillNames` in `skills-scanner.ts`. `skill_invocations` joins on this text with no FK (`docs/data-model.md`), so it has to match what Claude Code actually records or usage counts misattribute. Two nested collisions with no root-level skill at all follow the same mechanism by extrapolation from those three cases, not independently re-verified.                                                       |
-| Disabled-skill detection (added 2026-08-21, `skillOverrides` split 2026-09-03) | `scanSkills()`/`scanPluginRegistry()` now also read `~/.claude/settings.json` (added to `permissions.ts`'s `TIER_1_FILES`) via `claude-settings.ts`. A Plugin skill's `disabled_reason` comes from `enabledPlugins`, resolved at **user scope only**. A Global/Project skill's `skillOverrides` state splits three ways: `off` → `disabled_reason = 'override'` (unloads the skill); `user-invocable-only` → `model_invocable = 0` (description dropped from the listing, skill still runs via `/name` — see `docs/data-model.md`'s `model_invocable` entry); `name-only` is a **documented residual** — it keeps the name and drops only the description, a partial exclusion Megatron does not yet account for (needs a name-token estimator), so it stays fully counted. A Project skill gets the full `local > project > user` merge, a Global skill resolves **user scope only**. Plugin skills never consult `skillOverrides` for `model_invocable` — frontmatter `disable-model-invocation: true` only.                                     | Verified against [discover-plugins.md](https://code.claude.com/docs/en/discover-plugins.md), [skills.md](https://code.claude.com/docs/en/skills.md), and [settings-reference.md](https://code.claude.com/docs/en/settings-reference.md), not assumed. The user-scope-only restriction for Plugin/Global skills isn't a fidelity shortcut — it's a real constraint: those rows have `project_root = NULL` (one row total), so they structurally cannot represent "disabled in project X only" without a second scan dimension. A Project skill's row is already anchored to one `project_root`, so it can absorb the full per-project merge. See `docs/data-model.md`'s `disabled_reason` and `model_invocable` entries. |
+| Area                            | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Why                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Skill sources                   | Three: global (`~/.claude/skills`), project (`<repo>/.claude/skills`), plugin (each `~/.claude/plugins/installed_plugins.json` entry's `installPath`, probed for both `installPath/skills/<name>/SKILL.md` and a root `installPath/SKILL.md`)                                                                                                                                                                                                                                                                                                                       | Plugin skills are read-only: an update overwrites them. The two plugin shapes are a disk probe, not a manifest read, because `plugin.json`'s declared `skills` path doesn't match the installed cache: Claude Code's installer normalizes container-style plugins to a top-level `skills/`, and leaves single-skill root plugins (e.g. [blader/humanizer](https://github.com/blader/humanizer), `"skills": ["./"]`) as-is |
+| `.agents/skills/`               | **Never** scanned. Permanently out of scope, not a v1 cut                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | It's a Codex convention, not a Claude Code artifact. Real repos carry both (`Portfolio/` has 11 same-named, diverged skills in each), so "Megatron missed a skill" is often the `.agents/` copy. This repo's own `.agents/skills/` mirror (`CLAUDE.md`) is unrelated housekeeping                                                                                                                                         |
+| Symlinked skill dirs            | Followed only when both the discovered path and its canonical target are approved. Folder selection pins the canonical root; restoring a saved root never reapproves a retargeted junction                                                                                                                                                                                                                                                                                                                                                                          | External skill stores stay supported through an explicit grant of the target folder. See [security-hardening.md](security-hardening.md)                                                                                                                                                                                                                                                                                   |
+| `synced/`                       | A reserved folder name (any capitalization) at any global or project root. Its children are skills with `is_synced = 1`, still `source_type 'global'`; the folder itself never is                                                                                                                                                                                                                                                                                                                                                                                   | [Claude Code docs](https://code.claude.com/docs/en/skills): claude.ai-synced skills download into `~/.claude/skills/synced/`, one level deeper than every other global skill                                                                                                                                                                                                                                              |
+| Nested `.claude/skills/`        | Every `.claude/skills` below a granted repo counts, and shares the owning repository's `projectRoot`. A child `.git` directory or worktree file starts an independent repository (own settings, usage scope, and collision namespace), so a grant can cover a folder of several repos                                                                                                                                                                                                                                                                               | [Claude Code docs](https://code.claude.com/docs/en/skills): a monorepo package's own `.claude/skills/` loads even when the session started at the repo root. Invocation counts scope by `sessions_meta.cwd` under `project_root`, so packages must share their repo's root                                                                                                                                                |
+| Nested-skill name qualification | `skills.name` holds a nested skill's bare name unless it collides with another same-named skill in the same repo; then it becomes `<posix-dir-from-repo-root>:<name>` (e.g. `apps/web:deploy`), forward-slashed on every OS. A colliding root-level skill keeps its bare name                                                                                                                                                                                                                                                                                       | Verified with three headless `claude -p` invocations (nested, no collision → bare; nested, colliding → qualified; root, colliding → bare). `skill_invocations` joins on this text with no FK, so it must match what Claude Code records. Two colliding nested skills with no root-level one follow by extrapolation, not independently verified                                                                           |
+| Disabled skills                 | Read from `~/.claude/settings.json` and project settings. A plugin skill's `disabled_reason` comes from `enabledPlugins` at user scope. A global/project skill's `skillOverrides`: `off` → `disabled_reason = 'override'`; `user-invocable-only` → `model_invocable = 0`; `name-only` stays fully counted (a known residual: excluding it needs a name-token estimator). Project skills get the full `local > project > user` merge; global skills user scope only. A plugin skill's `model_invocable` comes from frontmatter `disable-model-invocation: true` only | Verified against [discover-plugins](https://code.claude.com/docs/en/discover-plugins.md), [skills](https://code.claude.com/docs/en/skills.md), and [settings-reference](https://code.claude.com/docs/en/settings-reference.md). User scope only for plugin/global skills is structural: those rows have `project_root = NULL`, one row total, so they can't represent "disabled in project X only"                        |
 
-## Skill name precedence (verified against official docs, 2026-08-16)
+## Skill name precedence
 
-From [code.claude.com/docs/en/skills](https://code.claude.com/docs/en/skills), "Where skills
-live": when two skills share a name, Claude Code picks one by source, in this order — enterprise,
-then personal (global, `~/.claude/skills/`), then project (`.claude/skills/`). A personal skill
-always wins over a same-named project skill, in every project, unconditionally — the project one
-becomes permanently unreachable while the personal one exists with that name.
-Claude.ai-synced global copies are the exception: a non-synced project skill of the same name
-outranks a synced copy, as described in `docs/data-model.md`.
+Verified against [code.claude.com/docs/en/skills](https://code.claude.com/docs/en/skills) ("Where
+skills live") 2026-08-16. When two skills share a name, Claude Code picks by source: enterprise,
+then personal (global), then project. A personal skill wins over a same-named project skill in every
+project, so the project one is unreachable while the personal one exists. Claude.ai-synced global
+copies are the exception: a non-synced project skill outranks a synced copy.
 
-Plugin skills are exempt from all of this: they're namespaced as `plugin-name:skill-name`, so a
-plugin skill structurally can't collide with a global, project, or another plugin's skill. This is
-also why the `plugin_name` composite identity (`docs/data-model.md`) never needed to account for
-name collisions.
+Plugin skills are exempt: they're namespaced `plugin-name:skill-name`, so they can't collide with any
+other skill. `docs/data-model.md` builds invocation attribution on this precedence.
 
-This precedence is what `docs/data-model.md`'s "Skill name collisions" section builds the
-invocation-attribution rules on — see that doc for how `total_invocations` handles a shadowed
-project skill.
+## Scan integrity
 
-## Real `~/.claude` data notes
+Unreadable is not deleted. Every scanner and the discovery walk hold to this:
 
-Checked against this machine's actual `~/.claude` (131 transcripts, 34 recorded Skill
-invocations, live `installed_plugins.json`) before scaffolding M1. Two things worth knowing if
-you're extending the scanners:
+- An unavailable read (a skill file, settings, a project directory, an exhausted discovery budget)
+  keeps the cached rows and reports a partial scan. Readable siblings still refresh.
+- Cached rows are removed only when a child is confirmed missing beneath a readable parent. An
+  unreadable or offline grant is no evidence about its children; an individually granted missing
+  folder stays saved with its cached data.
+- A malformed plugin registry entry keeps the affected identity; an unavailable marketplace or
+  enablement snapshot keeps the previously known values.
+- A scan never grants a location, guesses a moved project's new path, rewrites Claude's plugin
+  registry, or moves historical usage to a guessed project identity.
+- The repository catalog is derived metadata in the private preferences cache. It never grants
+  access.
 
-- **A 4th skill source exists in the wild, and it's not ours**: `Portfolio/.claude/skills/` and
-  `Portfolio/.agents/skills/` both exist with 11 same-named-but-diverged skills. The `.agents/`
-  copies are Codex's, not Claude Code's — permanently out of scope (see the `.agents/skills/` row
-  above). If you're debugging "why didn't Megatron find this skill," check whether it's actually
-  the `.agents/skills` variant before assuming the scanner is broken.
-- **Skills dirs contain non-skill files** (e.g. a stray `summary.md` next to skill folders) — the
-  scanner must key on `<dir>/SKILL.md` existing, not on every direntry.
+## Frontmatter parsing
+
+The scanner and the linter both read `SKILL.md` frontmatter, for different purposes:
+
+- **Scan time is best-effort.** A malformed `SKILL.md` still gets a `skills` row (directory name as
+  `name`, `NULL` description); one bad skill never fails the scan.
+- **Lint time is authoritative.** The linter re-parses each `SKILL.md` to produce rule-tagged
+  findings, so the `skills` table holds no linter-only error state.
+- **Parser: the `yaml` package.** A hand-rolled `key: value` splitter was rejected: it is permissive
+  by construction, can't tell malformed frontmatter from simple frontmatter, and so defeats the
+  "missing or malformed" rule.
+
+## Token estimation
+
+`est_listing_tokens` / `est_body_tokens` are `Math.round(text.length / CHARS_PER_TOKEN)` with
+`CHARS_PER_TOKEN = 3`, an empirical calibration (2026-08-24): against Claude Code's own `/context`
+per-skill counts across 25 skills, the binary's chars/4 averaged 74.6% of the real number
+(`4 × 0.746 ≈ 3`).
+
+Rejected: third-party tokenizers (Anthropic's token-counting docs: "Any estimate from tiktoken,
+gpt-tokenizer, or similar is wrong for Claude"), and the `count_tokens` API, which would add a
+network dependency and credentials to an offline, sub-second scan.
+
+Four details any estimator must match:
+
+- `Math.round`, not floor or ceil.
+- JS string length, not UTF-8 byte length.
+- A `null` description estimates `name` alone, not `name + ' '`.
+- The description is capped at 1,536 chars before counting (the binary's
+  `skillListingMaxDescChars`), or the estimate overstates long descriptions.
+
+Claude Code truncates the skill listing at `contextWindow(200000) × 4 × 0.01` = 8,000 chars; that
+`4` is its own internal constant, unrelated to ours. `CONTEXT_BUDGET_LIMIT` divides those 8,000
+chars by `CHARS_PER_TOKEN` so `used` and `limit` stay in the same units.
+
+`1536`, `0.01`, `200000`, and that inner `4` are undocumented detail from one build of Claude Code,
+not a public contract: corroboration for Megatron's heuristic, nothing it depends on staying fixed.
+
+**Known limitation:** `200000` is hardcoded. The real budget scales with the session's context
+window and the `skillListingBudgetFraction` setting, which an offline scan can't know, so the budget
+ratio overstates how "over" a listing is on an extended-context session.
+
+## Linting
+
+All rules are static; no API key.
+
+| Rule                                  | Certainty                                                                                |
+| ------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Missing or malformed YAML frontmatter | Deterministic                                                                            |
+| Empty or missing `description`        | Deterministic                                                                            |
+| Exact-name collision                  | Deterministic                                                                            |
+| Broken file path in the skill body    | Heuristic: a regex over the body; false positives and negatives are both possible        |
+| MCP server missing from user config   | Heuristic in finding the `mcp__<server>__` reference; the config lookup is deterministic |
+
+Shadow detection lives outside `lint_findings`. A project skill shadowed by a same-named global
+skill is dead; two same-named project skills in different repos both work and are informational
+only. Shadowing is a live query (`shadowed_by_skill_id`) that the collision rule reads, rather than
+a flat `GROUP BY` that can't tell the two apart.
+
+## Not in scope
+
+| Item                                                   | Why not                                                                                                                                                 | Revisit when                                                                                                            |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| In-app skill editing                                   | The only write surface on files Claude Code executes; a bug corrupts a skill. `references/skills-manager`'s `audit_log.rs` is the template if built     | The read-only inventory shows repeat weekly use                                                                         |
+| Content-hash change detection                          | Plugin update checks are a version-string compare against the marketplace; nothing needs a "modified since last scan" signal                            | Same trigger as in-app editing. Reuse `references/skills-manager`'s `content_hash.rs` ignore list                       |
+| Semantic linter (unclear triggers, overlapping skills) | Needs an LLM call: an API key and per-scan cost                                                                                                         | The deterministic linter is stable and trusted                                                                          |
+| Fork-a-plugin-skill escape hatch                       | Adds a "diverged copy" model for one edge case                                                                                                          | Update plus Report ([#14](https://github.com/Megatron-HQ/Megatron/issues/14)) proves insufficient for abandoned plugins |
+| Plugin component inventory and token-cost split        | The Plugins page shows rollups of data already collected. An agents/hooks/MCP/LSP inventory needs `claude plugin details` text-parsing or a new scanner | Rollups prove insufficient for judging a plugin's real footprint                                                        |
+| Acting on an ungranted project/local install           | Without the folder grant the project's settings are unreadable, so status is Unknown and Enable/Disable would toggle a switch Megatron can't read       | Granting the folder proves to be friction users resent for an action they already confirmed                             |
+| Built-in skills as a fourth source                     | **Cut**, not deferred: not user-managed state (no file, nothing to lint, no version)                                                                    | Not revisited                                                                                                           |
