@@ -28,8 +28,7 @@ const SEGMENT_MIN_WIDTH_PX = 3
 const FOCUS_RING =
   'outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset'
 
-// The segment row shared by `ShareBars` and the Models effort bars (docs/usage-view-ui-spec.md,
-// "Effort bar and bar tooltips"). `hit="bar"` makes the 8px bar its own target, so the share bars
+// The segment row shared by `ShareBars` and the Models effort bars. `hit="bar"` makes the 8px bar its own target, so the share bars
 // keep their geometry; `hit="row"` wraps it in an h-6 target so thin effort segments in a table
 // row stay easy to hit.
 export function SegmentBar<K extends string>({

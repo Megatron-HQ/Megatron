@@ -30,7 +30,7 @@ interface RankedListProps {
 // <ProjectBars>. The old --surface-muted track read as a progress bar and left empty rails on a
 // skewed distribution. The fill is a *tinted row*, not a bar: it renders at final width (no
 // grow), deepens one notch on hover. Two columns only. Monochrome — model color reaches here only
-// as an optional label swatch, never the fill (docs/usage-view-ui-spec.md §C4).
+// as an optional label swatch, never the fill (DESIGN.md, Monochrome-Chart-Ink Rule).
 export function RankedList({
   items,
   formatValue,

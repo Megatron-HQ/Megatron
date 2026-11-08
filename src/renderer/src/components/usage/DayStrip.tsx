@@ -31,7 +31,7 @@ interface DayStripProps {
 // ponytail: renders one bar per day, capped in practice at ~cleanupPeriodDays (~30) by the
 // transcript prune. Past ~45 bars (a user who raised retention) it should bucket `data` to ISO
 // weeks — bars become weeks, the weekend band drops, labels become week-of. Deferred until a real
-// >45-day window exists (docs/usage-view-ui-spec.md §C5).
+// >45-day window exists.
 export function DayStrip({
   data,
   days,

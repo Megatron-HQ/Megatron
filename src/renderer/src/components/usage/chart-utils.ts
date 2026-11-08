@@ -40,8 +40,8 @@ export function formatModelVersion(key: string): string {
 }
 
 // Quantile-bucketed opacity for the punchcard: empty + 4 levels of --usage-bar at 15/40/65/90%
-// (docs/usage-view-ui-spec.md §4.1). Quantile, not linear, so the two peaks don't wash the rest
-// out. Returns a function mapping a cell value to its opacity.
+// (DESIGN.md, Chart ink). Quantile, not linear, so the two peaks don't wash the rest out.
+// Returns a function mapping a cell value to its opacity.
 export function quantileOpacity(values: number[]): (value: number) => number {
   const positives = values.filter((v) => v > 0).sort((a, b) => a - b)
   if (positives.length === 0) return () => 0

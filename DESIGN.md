@@ -1,118 +1,3 @@
----
-name: Megatron
-description: A read-only ledger for every Claude Code skill you have — inventoried, linted, and tracked.
-colors:
-  ledger-paper: 'oklch(0.99 0 0)'
-  ledger-ink: 'oklch(0.145 0 0)'
-  card: 'oklch(1 0 0)'
-  ink-muted: 'oklch(0.556 0 0)'
-  surface-muted: 'oklch(0.97 0 0)'
-  rule-line: 'oklch(0.922 0 0)'
-  focus-ring: 'oklch(0.708 0 0)'
-  primary-stamp: 'oklch(0.205 0 0)'
-  primary-stamp-foreground: 'oklch(0.985 0 0)'
-  acid-lime: '#e4f222'
-  acid-lime-ink: 'oklch(0.145 0 0)'
-  flag-red: 'oklch(0.577 0.245 27.325)'
-  flag-amber: 'oklch(0.769 0.188 70.08)'
-  flag-green: 'oklch(0.723 0.219 149.579)'
-  disabled-flag: 'oklch(0.577 0.12 27.325)'
-  usage-series-1: '#2a78d6' # data-series slot 1 — model identity (Sonnet family)
-  usage-series-2: '#eb6834' # data-series slot 2 — Opus family
-  usage-series-3: '#1baf7a' # data-series slot 3 — Haiku family
-  usage-series-4: '#4a3aa7' # data-series slot 4 — Fable family (dark #7b3fe4)
-typography:
-  title:
-    fontFamily: 'Geist Sans, ui-sans-serif, system-ui, sans-serif'
-    fontSize: '16px'
-    fontWeight: 600
-    lineHeight: 1.3
-    letterSpacing: 'normal'
-  label-app:
-    fontFamily: 'Geist Sans, ui-sans-serif, system-ui, sans-serif'
-    fontSize: '14px'
-    fontWeight: 600
-    lineHeight: 1.4
-    letterSpacing: 'normal'
-  body:
-    fontFamily: 'Geist Sans, ui-sans-serif, system-ui, sans-serif'
-    fontSize: '13px'
-    fontWeight: 400
-    lineHeight: 1.5
-    letterSpacing: 'normal'
-  label-column:
-    fontFamily: 'Geist Sans, ui-sans-serif, system-ui, sans-serif'
-    fontSize: '11px'
-    fontWeight: 500
-    lineHeight: 1.3
-    letterSpacing: '0.04em'
-  mono-data:
-    fontFamily: 'Geist Mono, ui-monospace, monospace'
-    fontSize: '12px'
-    fontWeight: 400
-    lineHeight: 1.4
-    letterSpacing: 'normal'
-rounded:
-  sm: '0.375rem'
-  md: '0.5rem'
-  lg: '0.625rem'
-  xl: '0.875rem'
-  full: '9999px'
-spacing:
-  xs: '4px'
-  sm: '8px'
-  md: '12px'
-  lg: '16px'
-  xl: '24px'
-components:
-  button-primary:
-    backgroundColor: '{colors.primary-stamp}'
-    textColor: '{colors.primary-stamp-foreground}'
-    rounded: '{rounded.md}'
-    padding: '0 16px'
-    height: '36px'
-  button-lime:
-    backgroundColor: '{colors.acid-lime}'
-    textColor: '{colors.acid-lime-ink}'
-    rounded: '{rounded.md}'
-    padding: '0 14px'
-    height: '32px'
-  button-outline:
-    backgroundColor: 'transparent'
-    textColor: '{colors.ledger-ink}'
-    rounded: '{rounded.md}'
-    padding: '0 16px'
-    height: '36px'
-  nav-item-active:
-    backgroundColor: '{colors.acid-lime}'
-    textColor: '{colors.acid-lime-ink}'
-    rounded: '{rounded.md}'
-    padding: '0 8px'
-    height: '32px'
-  status-pill:
-    backgroundColor: '{colors.surface-muted}'
-    textColor: '{colors.ledger-ink}'
-    rounded: '{rounded.full}'
-    padding: '2px 8px'
-  badge-outline:
-    backgroundColor: 'transparent'
-    textColor: '{colors.ledger-ink}'
-    rounded: '{rounded.full}'
-    padding: '2px 8px'
-  text-link:
-    textColor: 'inherit'
-    underlineColor: 'currentColor'
-    underlineThickness: '1px'
-    underlineOffset: '1.5em'
-    transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1)'
-  input:
-    backgroundColor: 'transparent'
-    textColor: '{colors.ledger-ink}'
-    rounded: '{rounded.md}'
-    padding: '0 12px'
-    height: '36px'
----
-
 # Design System: Megatron
 
 ## Overview
@@ -125,7 +10,7 @@ Exactly one stamp of color breaks that quiet: acid lime, reserved for the single
 
 Confirmed rejections: no drop shadows on anything at rest (shadows are reserved for genuinely floating layers), no gradients, no per-source-tier color coding, no hero-scale type anywhere in the product.
 
-The **Usage** section (a retrospective, not an inventory) is a different surface class: its visual decisions — and its explicit, user-authorised departures from this document (a scoped 30px `--usage-stat` numeral step, two monochrome `--usage-*` chart tokens + a punchcard quantile-opacity scale + an ordinal effort ink ramp, a scoped data-series color palette for by-model charts, and charts that animate on enter/scrub/window-switch) — are owned by **`docs/usage-view-ui-spec.md`**.
+The **Usage** section (a retrospective, not an inventory) is a different surface class. Its user-authorised departures are all recorded below, each scoped to Usage: the Usage Stat numeral (Typography), monochrome chart ink and the model-series and Resident Tax palettes (Colors), and hand-rolled, animated charts (Components).
 
 **Key Characteristics:**
 
@@ -137,56 +22,65 @@ The **Usage** section (a retrospective, not an inventory) is a different surface
 
 ## Colors
 
-Near-monochrome ledger ink on paper, with exactly three functional color layers on top: one accent for "this is the active line," four status flags — three shared between lint state and the sidebar's context-budget status, one for disabled state — and a data-series palette for series identity in the Usage view's charts. Nothing else in the system carries color. Built on shadcn's `new-york`/`neutral` base (`components.json`) before the ledger's own accent and flags are layered on top.
+Near-monochrome ledger ink on paper, with functional color layers on top: one accent for "this is the active line," four status flags (three shared between lint state and the sidebar's context-budget status, one for disabled state), and two identity palettes scoped to Usage charts. Nothing else in the system carries color. Built on shadcn's `new-york`/`neutral` base (`components.json`). Every token below is defined in `src/renderer/src/assets/main.css`, light values in `:root` and dark in `.dark`.
 
 ### Primary
 
-- **Acid Lime** (`#e4f222`, same literal value in both themes): the ledger's one stamp of color. Marks the active sidebar filter-nav item and overrides the default button fill on primary CTAs (e.g. "Grant a folder to scan for skills"). Never body text, never a link — text-weight lime on a light background reads poorly, and its rarity is the point. The app rail's active section is deliberately excluded from this stamp — see the Rail entry under Components — so the One Stamp Rule's wording (`{colors.accent}` marks the _sidebar's_ active filter) stays true without amendment.
+- **Acid Lime** (`--accent-lime`, text on it `--accent-lime-foreground`; same literal value in both themes): the ledger's one stamp of color. shadcn's own `--accent` is a neutral hover fill, not the stamp. Marks the active sidebar filter-nav item and overrides the default button fill on primary CTAs (e.g. "Grant a folder to scan for skills"). Never body text, never a link — text-weight lime on a light background reads poorly, and its rarity is the point. The app rail's active section is deliberately excluded from this stamp — see the Rail entry under Components — so the One Stamp Rule's wording (acid lime marks the _sidebar's_ active filter) stays true without amendment.
 
 ### Neutral
 
-- **Ledger Paper** (`oklch(0.99 0 0)` light / `oklch(0.145 0 0)` dark): app background. Deliberately off pure white/black in both themes.
-- **Card** (`oklch(1 0 0)` light / `oklch(0.205 0 0)` dark): panels, popovers, and dialogs — one half-step off the page.
-- **Ledger Ink** (`oklch(0.145 0 0)` light / `oklch(0.985 0 0)` dark): primary text and icon color.
-- **Ink, Muted** (`oklch(0.556 0 0)` light / `oklch(0.708 0 0)` dark): secondary text, table column headers, captions, placeholder text.
-- **Surface Muted** (`oklch(0.97 0 0)` light / `oklch(0.269 0 0)` dark): hover backgrounds, status-pill fill, secondary-button fill.
-- **Rule Line** (`oklch(0.922 0 0)` light / `oklch(1 0 0 / 10%)` dark): the 1px borders that do the elevation system's work.
-- **Focus Ring** (`oklch(0.708 0 0)` light / `oklch(0.556 0 0)` dark): the single keyboard-focus indicator used everywhere — no separate focus-color system.
+- **Ledger Paper** (`--background`): app background. Deliberately off pure white/black in both themes.
+- **Card** (`--card`, `--popover`): panels, popovers, and dialogs — one half-step off the page.
+- **Ledger Ink** (`--foreground`): primary text and icon color.
+- **Primary Stamp** (`--primary`, `--primary-foreground`): the default button fill.
+- **Ink, Muted** (`--muted-foreground`): secondary text, table column headers, captions, placeholder text.
+- **Surface Muted** (`--muted`, `--secondary`, `--accent`): hover backgrounds, status-pill fill, secondary-button fill.
+- **Rule Line** (`--border`, `--input`): the 1px borders that do the elevation system's work.
+- **Focus Ring** (`--ring`): the single keyboard-focus indicator used everywhere — no separate focus-color system.
 
 ### Status flags (functional, not decorative)
 
-- **Flag Red** (`oklch(0.577 0.245 27.325)` light / `oklch(0.704 0.191 22.216)` dark): lint errors; also the sidebar's context-budget dot once usage is over budget.
-- **Flag Amber** (`oklch(0.769 0.188 70.08)` light / `oklch(0.828 0.189 84.429)` dark): lint warnings; also the budget dot once usage is approaching budget (past 80%, `BUDGET_WARNING_THRESHOLD` in `context-budget.ts`).
-- **Flag Green** (`oklch(0.723 0.219 149.579)` light / `oklch(0.792 0.209 151.711)` dark): passing lint / up to date; also the budget dot's default, comfortably-under-budget state.
-- **Disabled Flag** (`oklch(0.577 0.12 27.325)` light / `oklch(0.704 0.094 22.216)` dark): a skill disabled via `skillOverrides` or a disabled plugin. Same hue as Flag Red, roughly half the chroma — deliberately quieter, so "turned off" never gets mistaken for "broken" even though a skill can be both at once (lint status and disabled state are independent facts).
+- **Flag Red** (`--destructive`): lint errors; also the sidebar's context-budget dot once usage is over budget.
+- **Flag Amber** (`--warning`): lint warnings; the budget dot once usage is approaching budget (past 80%, `BUDGET_WARNING_THRESHOLD` in `context-budget.ts`); and the icon on a Usage data-quality caveat (e.g. a model Claude Code couldn't price).
+- **Flag Green** (`--success`): passing lint / up to date; also the budget dot's default, comfortably-under-budget state.
+- **Disabled Flag** (`--disabled-flag`): a skill disabled via `skillOverrides` or a disabled plugin. Same hue as Flag Red, roughly half the chroma — deliberately quieter, so "turned off" never gets mistaken for "broken" even though a skill can be both at once (lint status and disabled state are independent facts).
+
+### Chart ink (Usage)
+
+- **`--usage-bar`**: the default bar fill — every bar full ink, kept thin with air between. The polish is proportion and restraint, not color.
+- **`--usage-bar-quiet`**: opt-in per chart, only where one value must be named and bar height alone doesn't carry it; the emphasized bar stays full ink and the rest go quiet. Also the "Other" fold for an unmapped model family.
+- **Ordinal scales are ink ramps, never hue:** the punchcard's quantile opacity steps of `--usage-bar`, the contribution calendar's `--contribution-1..4` (usage ink mixed into the paper, so higher activity is darker in light mode and lighter in dark), and the effort mix's `color-mix` steps, with "not recorded" off the scale as `.usage-fill-unrecorded` stripes.
 
 ### Data-series (functional, not decorative)
 
-Four categorical hues — `--usage-series-1/2/3/4` (Sonnet, Opus, Haiku, Fable; CVD-validated all-pairs in both themes) — carrying **series identity** in the Usage view only, and only where a chart splits by a bounded identity dimension (today: cost & activity **by model**; ≤4 **family** hues, ever). Assigned by model family in a fixed order, never by rank. Versions within a family are solid tints of that family's hue — newest full, older stepped toward the paper — never a new hue. Always direct-labeled — the hue rides a legend dot or a mark that sits beside its own text label, never color-alone. A fifth+ family folds to `--usage-bar-quiet` ("Other"), never a generated hue. Scoped hard: not by project, not by day, not the Skills or Plugins surfaces. Owned by `docs/usage-view-ui-spec.md` §C3.
+Four categorical hues — `--usage-series-1/2/3/4` (Sonnet, Opus, Haiku, Fable; CVD-validated all-pairs in both themes) — carrying **series identity** in the Usage view only, and only where a chart splits by a bounded identity dimension (today: cost & activity **by model**; ≤4 **family** hues, ever). Assigned by model family in a fixed order, never by rank. Versions within a family are solid tints of that family's hue — newest full, older stepped toward the paper — never a new hue. Always direct-labeled — the hue rides a legend dot or a mark that sits beside its own text label, never color-alone. A fifth+ family folds to `--usage-bar-quiet` ("Other"), never a generated hue. Scoped hard: not by project, not by day, not the Skills or Plugins surfaces. Acid lime is excluded from the palette: it is the stamp, and a near-yellow fails CVD beside the Opus orange.
+
+### Resident Tax category color exception
+
+Resident Tax uses a separate, fixed identity palette (`--resident-skills`, `--resident-mcp`,
+`--resident-memory`, `--resident-agents`) in its composition bar and matching ledger dots only:
+Skills violet, MCP tools and server instructions blue, Memory files teal, and Custom agents muted
+rose. Deferred items use an outlined dot in the same family color. System overhead and unknown
+categories remain neutral, the autocompact buffer retains quiet stripes, and free space remains the
+bare track. Text, numbers, row backgrounds, selection, and drill-in dialogs retain the ledger's
+neutral treatment. Category colors never change with rank or refresh. This is a user-authorized
+exception to the monochrome category treatment, scoped to Resident Tax; it does not expand the
+model-series palette or color the Skills and Plugins inventory surfaces.
 
 ### Named Rules
 
 **The One Stamp Rule.** Acid lime marks exactly one thing at a time — the active sidebar filter, or a single primary call-to-action — and never appears as body text, a link, or a decorative fill.
-**The Flags-Aren't-The-Stamp Rule.** The flag palette reports lint state, disabled state, and the sidebar's context-budget status only. It never substitutes for the lime accent, and a status is never color alone — always paired with an icon, and paired with a label wherever the flag renders as a pill (the disabled flag renders as an icon-only signal with a tooltip instead, since it lives in the table's icon tray, not the Status column). The context-budget dot is a deliberate, narrow exception: a compact, always-visible ambient indicator in the sidebar footer, paired with a tooltip label instead of an icon — not a primary status pill, where icon-pairing stays mandatory.
+**The Flags-Aren't-The-Stamp Rule.** The flag palette reports lint state, disabled state, the sidebar's context-budget status, and Usage data-quality caveats only. It never substitutes for the lime accent, and a status is never color alone — always paired with an icon, and paired with a label wherever the flag renders as a pill (the disabled flag renders as an icon-only signal with a tooltip instead, since it lives in the table's icon tray, not the Status column). The context-budget dot is a deliberate, narrow exception: a compact, always-visible ambient indicator in the sidebar footer, paired with a tooltip label instead of an icon — not a primary status pill, where icon-pairing stays mandatory.
+**The Monochrome-Chart-Ink Rule.** Usage charts draw magnitude and emphasis in `--usage-bar` ink alone. Color in a chart only ever means identity (model series, Resident Tax categories). A tinted "data" color was considered and rejected: it would be the second accent the ledger forbids.
 **The Data-Series-Stays-In-Its-Lane Rule.** The `--usage-series-*` palette means chart series identity and nothing else — never "active" (that's the stamp), never "status" (that's the flags), never a source-tier or a UI accent. It appears only inside `components/usage/` charts that split by model.
-
-### Resident Tax category color exception
-
-Resident Tax uses a separate, fixed `--resident-*` identity palette in its composition bar and
-matching ledger dots only: Skills violet, MCP tools and server instructions blue, Memory files
-teal, and Custom agents muted rose. Deferred items use an outlined dot in the same family color.
-System overhead and unknown categories remain neutral, the autocompact buffer retains quiet
-stripes, and free space remains the bare track. Text, numbers, row backgrounds, selection, and
-drill-in dialogs retain the ledger's neutral treatment. Both themes have dedicated color values.
-This is a user-authorized exception to the monochrome category treatment, scoped to Resident Tax;
-it does not expand the model-series palette or color the Skills and Plugins inventory surfaces.
 
 ## Typography
 
 **UI Font:** Geist Sans (with `ui-sans-serif, system-ui, sans-serif` fallback)
 **Mono Font:** Geist Mono (with `ui-monospace, monospace` fallback), for tabular/code-like data — skill paths, version strings, plugin IDs, token counts.
 
-**Character:** A ledger's typeface, not a marketing one — every size sits at or below 16px/600. Hierarchy comes entirely from position and ink-vs-muted contrast, never from a scale jump.
+**Character:** A ledger's typeface, not a marketing one — every size sits at or below 16px/600, with one scoped exception (Usage Stat). Hierarchy comes entirely from position and ink-vs-muted contrast, never from a scale jump.
 
 ### Hierarchy
 
@@ -195,16 +89,18 @@ it does not expand the model-series palette or color the Skills and Plugins inve
 - **Body** (400, 13px): table cells, descriptions, and general UI text.
 - **Label, Column** (500, 11px, uppercase, ink-muted, 0.04em tracking): table column headers.
 - **Mono Data** (400, 12px, tabular-nums): file paths, plugin IDs, version strings — Geist Mono.
+- **Section Header** (600, 13px, ledger-ink): Usage panel and section headers. Charts inside take Label, Column — a two-level hierarchy that gives a long retrospective real structure while staying under 16px.
+- **Usage Stat** (`.text-usage-stat`: 500, 30px Geist Mono, tabular-nums, −0.01em tracking): the three or four primary stat numerals in a Usage panel, and nothing else.
 
 **Rendered markdown** (inside the skill file viewer) gets its own descending scale rather than reusing UI sizes: h1 20px/600, h2 16px/600, h3 14px/600, h4–h6 share the Body size — all Geist Sans; fenced and inline code stay at the Mono Data step. Prose caps at `72ch`, the one place in the app that isn't fluid-width.
 
 ### Named Rules
 
-**The No-Hero-Type Rule.** Nothing in the ledger exceeds 16px/600. If something needs to stand out, move it up in position or contrast — never up in size.
+**The No-Hero-Type Rule.** Nothing in the ledger exceeds 16px/600. If something needs to stand out, move it up in position or contrast — never up in size. The Usage Stat numeral is the one exception: a retrospective's headline figures are a different surface class from the list/detail UI this rule governs, and Geist Mono keeps it inside "Mono for data", so only size departs.
 
 ## Layout
 
-A dense, Linear-style sidebar + list/detail shell, not a spacious admin dashboard or a marketing page: a persistent 48px icon rail for switching sections (Skills, Plugins, Usage), a 220px secondary sidebar nested inside each section, a fluid content pane that fills the rest of the window, and a fullscreen file viewer that replaces (not layers over) the table when a skill row opens. Skills and Plugins use their sidebars for source/scope filters; Usage uses the same shell for its Activity, Cost, and Skills panels. A 32px full-width drag strip sits above all panes for window-dragging under the `hiddenInset` titlebar; on macOS it carries an inset `xl`-radius `surface-muted` bar (6px side inset, 6px top inset) that reads as the top edge of the window frame.
+A dense, Linear-style sidebar + list/detail shell, not a spacious admin dashboard or a marketing page: a persistent 48px icon rail for switching sections (Skills, Plugins, Usage), a 220px secondary sidebar nested inside each section, a fluid content pane that fills the rest of the window, and a fullscreen file viewer that replaces (not layers over) the table when a skill row opens. Skills and Plugins use their sidebars for source/scope filters; Usage uses the same shell for its panels, rendering one at a time. A 32px full-width drag strip sits above all panes for window-dragging under the `hiddenInset` titlebar; on macOS it carries an inset `xl`-radius `surface-muted` bar (6px side inset, 6px top inset) that reads as the top edge of the window frame.
 
 Row height is fixed at 40px with 8/12px cell padding. The file viewer's tree pane defaults to 240px and is user-resizable between 200–480px. Content max-width is `none` everywhere — fluid — except rendered markdown prose, which caps at `72ch`. The command palette (`⌘K`) is a modal overlay, not primary navigation; it does not reopen the "no search box in the sidebar" decision.
 
@@ -227,10 +123,10 @@ A single radius scale rooted at 10px (`--radius: 0.625rem`), applied identically
 ### Buttons
 
 - **Shape:** rounded-md (8px).
-- **Primary:** `{colors.primary-stamp}` fill, `{colors.primary-stamp-foreground}` text — the default "open/confirm" action.
+- **Primary:** `--primary` fill, `--primary-foreground` text — the default "open/confirm" action.
 - **Lime override:** primary CTAs that need to stand out (e.g. "Grant a folder to scan for skills") swap in acid lime directly on the button rather than through a separate component variant — a targeted override, not a new button kind, per the One Stamp Rule.
 - **Outline / Ghost / Secondary / Destructive:** standard shadcn treatment. Outline for de-emphasized actions; destructive is seeded for a future mutating action (v1 is read-only, so none is live yet).
-- **Hover / Focus:** every hover state dims to 90% of its own fill — never a separate token. Focus uses the shared `{colors.focus-ring}` at a 3px, 50%-alpha ring.
+- **Hover / Focus:** every hover state dims to 90% of its own fill — never a separate token. Focus uses the shared `--ring` at a 3px, 50%-alpha ring.
 
 ### Text links
 
@@ -248,7 +144,7 @@ A single radius scale rooted at 10px (`--radius: 0.625rem`), applied identically
 
 - **Row height:** 40px; **cell padding:** 8/12px; `table-fixed` with Name/Source fixed-width and Description filling the remainder — no horizontal scroll, no variable row height.
 - **Hover / selection:** one shared, absolutely-positioned highlight box tracks the hovered row's position via a spring transition (stiffness 500, damping 40) rather than each row repainting its own background — full-bleed and unrounded, matching the flat/bordered elevation stance.
-- **Keyboard:** `↓`/`↑` moves selection, `Enter`/`Space` opens the fullscreen file viewer; the focus ring is the same shared `{colors.focus-ring}` token, applied inset.
+- **Keyboard:** `↓`/`↑` moves selection, `Enter`/`Space` opens the fullscreen file viewer; the focus ring is the same shared `--ring` token, applied inset.
 
 ### Rail (section switcher)
 
@@ -271,7 +167,7 @@ A single radius scale rooted at 10px (`--radius: 0.625rem`), applied identically
 
 ### Inputs
 
-- 36px height, rounded-md, 1px rule-line border, transparent background (a subtle input tint in dark mode). Focus swaps the border to `{colors.focus-ring}` and adds the shared 3px ring — identical focus language to every other interactive element.
+- 36px height, rounded-md, 1px rule-line border, transparent background (a subtle input tint in dark mode). Focus swaps the border to `--ring` and adds the shared 3px ring — identical focus language to every other interactive element.
 
 ### Loading, Empty & Error States
 
@@ -283,9 +179,15 @@ A single radius scale rooted at 10px (`--radius: 0.625rem`), applied identically
 
 The skill file viewer's file tree makes fuller use of motion than most surfaces today: per-row icon rotation on expand/collapse, a glide-highlight matching the table's (inset, rounded-pill shape rather than the table's full-bleed), and a fade-in on mount — needed once virtualization ruled out a `height: auto` whole-subtree animation. Follows the standard `role="tree"`/`treeitem` keyboard pattern with roving `tabIndex`.
 
+### Charts (Usage)
+
+- **Hand-rolled** in `components/usage/`, drawn in chart ink per the Monochrome-Chart-Ink Rule. A part-to-whole bar has no track: the whole bar is data.
+- **Motion:** bars rise from the baseline, staggered, on enter. A window switch is the signature moment: bars interpolate to their new heights and stat numerals roll to the new value — numerals roll on a switch only, never on mount. Panel switches crossfade (150ms, opacity only). Hover dims siblings; it never recolors.
+
 ### Named Rules
 
-**The Motion-Earns-Its-Keep Rule.** `motion` is available anywhere a state change needs feedback CSS can't express — it isn't fixed to today's three call sites (table row glide, file-tree glide, sidebar nav glide/expand), and can grow into new surfaces as they earn it. CSS transitions stay the default everywhere else, and every `motion` use guards `useReducedMotion()` explicitly, since JS-driven animation doesn't get `prefers-reduced-motion` for free.
+**The Hand-Rolled-Charts Rule.** No charting library. Recharts, visx, and Chart.js ship visual opinions (tooltip chrome, axis styling, entrance animations) that cost as much to override as clean bars cost to build, and add bundle weight to an Electron app. Reopen only if a line chart ships, and then evaluate `d3-shape` alone or `uPlot`, never a full framework.
+**The Motion-Earns-Its-Keep Rule.** `motion` is available anywhere a state change needs feedback CSS can't express — it isn't fixed to today's call sites (table, file-tree, and sidebar glides; Usage charts), and can grow into new surfaces as they earn it. CSS transitions stay the default everywhere else, and every `motion` use guards `useReducedMotion()` explicitly, since JS-driven animation doesn't get `prefers-reduced-motion` for free.
 
 ## App Icon
 
@@ -299,7 +201,7 @@ The icon is a white (`#f5f5f5`) magnet with acid-lime pole caps, pulling in a li
   To change the icon, edit a master, rerun the script, and then rebuild `build/icon.icon` from the new layers. The committed `.icon` also carries per-layer nudges made by hand in Icon Composer (`translation-in-points` in its `icon.json`), which set the macOS magnet about 2.5% left and lower than the masters and the `.ico`. That shipped version is the approved one: a rebuild from fresh layers drops the nudges unless they're reapplied.
 
 - **Sparkle:** 12 even rays at 30° with round caps, ray length 68, stroke 13.3 on the 816 canvas. It's centered at (557.7, 221.5), on the perpendicular bisector of the two nearest cap corners.
-- **Color:** the caps and the sparkle use `acid-lime` (`#e4f222`) itself, the app's own token. A brighter icon-only lime would hurt the app's light mode.
+- **Color:** the caps and the sparkle use `--accent-lime` (`#e4f222`) itself, the app's own token. A brighter icon-only lime would hurt the app's light mode.
 - **macOS:** an Icon Composer `.icon` (`build/icon.icon`) with Liquid Glass off or at minimum on every layer. The Ledger-Lies-Flat Rule applies to the icon too. electron-builder generates the `.icns` fallback for macOS before 26 from the `.icon`.
 - **Windows:** the dark tile is nearly full-bleed, because Windows adds no mask or padding. The `.ico` carries 16, 20, 24, 30, 32, 36, 40, 48, 60, 64, 72, 80, 96 and 256 px. Windows uses the hand-tuned small sizes only at 100% scaling. From 125% up the taskbar shows the full art, scaled down.
 
@@ -326,7 +228,7 @@ The icon is a white (`#f5f5f5`) magnet with acid-lime pole caps, pulling in a li
 - **Do** use rule-lines, not shadows, for on-page structure — reserve shadows for floating layers only.
 - **Do** keep type at or below 16px/600 — build hierarchy from position and ink/muted contrast, not size.
 - **Do** cap rendered markdown prose at 72ch even though the rest of the app is fluid-width.
-- **Do** reach for `motion` wherever a state change needs feedback CSS genuinely can't express — proven today in the table row, file tree, and sidebar nav glides, but not limited to them.
+- **Do** reach for `motion` wherever a state change needs feedback CSS genuinely can't express — proven today in the table row, file tree, and sidebar nav glides and the Usage charts, but not limited to them.
 
 ### Don't:
 

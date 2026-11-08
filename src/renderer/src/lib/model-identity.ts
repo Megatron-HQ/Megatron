@@ -1,6 +1,6 @@
 import { UNATTRIBUTED_COST_MODEL } from '../../../shared/ipc'
 
-// Hand-maintained on purpose (docs/usage-view-ui-spec.md §C3.1): a generated hue can't be
+// Hand-maintained on purpose (DESIGN.md, Data-series): a generated hue can't be
 // CVD-validated. When Anthropic ships a new version, bump `latest`; a new family takes the next
 // slot only after re-running the dataviz palette validator. `latest` is a floor, not a ceiling —
 // an observed newer version still wins, so a stale build never paints a new model as "older".

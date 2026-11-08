@@ -15,9 +15,9 @@ interface ShareBarsProps<T extends { model: string }> {
 
 type Hover = { kind: 'family'; key: string } | { kind: 'model'; model: string } | null
 
-// Segmented part-to-whole bars over one family-grouped legend (docs/usage-view-ui-spec.md §C2 and
-// the Models share bars amendment). Cost's spend bar is the one-series, gutterless case; the Models
-// panel pairs Turns over Output, sharing one hover state so a model lights up in both bars.
+// Segmented part-to-whole bars over one family-grouped legend. Cost's spend bar is the
+// one-series, gutterless case; the Models panel pairs Turns over Output, sharing one hover state
+// so a model lights up in both bars.
 export function ShareBars<T extends { model: string }>({
   rows,
   series,

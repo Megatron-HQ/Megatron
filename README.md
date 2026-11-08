@@ -328,7 +328,6 @@ is never deleted by either.
 | [Transcript ingestion](docs/transcript-ingest.md)         | Invocation detection, trigger classification, and deduplication                |
 | [Data model](docs/data-model.md)                          | Index schema, plugin identity, and attribution joins                           |
 | [Usage analytics](docs/usage-analytics.md)                | Data sources, cost accounting, estimates, and deferred analytics               |
-| [Usage UI specification](docs/usage-view-ui-spec.md)      | Usage panel layout, chart vocabulary, tokens, and interactions                 |
 | [Security and scan integrity](docs/security-hardening.md) | IPC boundaries, cache preservation, resource bounds, and verification evidence |
 | [Environment setup](docs/environment-setup.md)            | Electron installation troubleshooting                                          |
 

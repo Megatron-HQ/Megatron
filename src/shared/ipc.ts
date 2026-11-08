@@ -399,7 +399,7 @@ export interface ActivityStats {
   generatedAt: string
 }
 
-// The Cost section (docs/usage-view-ui-spec.md §C). Read verbatim from Claude Code's per-session
+// The Cost section (docs/usage-analytics.md). Read verbatim from Claude Code's per-session
 // `cost-state` remains the dollar source. Rolling windows use its proportional activity-time
 // shares; coverage metadata describes all retained priced terminal sessions.
 export type CostWindowKey = '24h' | '7d' | '30d'
@@ -575,7 +575,7 @@ export interface SkillCostAttribution {
   rows: SkillCostAttributionRow[]
 }
 
-// Resident tax (docs/usage-view-ui-spec.md §R): Claude Code's own `/context` breakdown, parsed
+// Resident tax (docs/usage-analytics.md): Claude Code's own `/context` breakdown, parsed
 // generically so a category Claude Code adds later passes through instead of being dropped.
 export type ContextCategoryGroup = 'used' | 'deferred' | 'buffer' | 'free'
 
