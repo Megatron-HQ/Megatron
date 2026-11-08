@@ -1,560 +1,139 @@
-# Megatron: Data model
+# Data model
 
-## Usage project identities amendment (2026-11-05)
+Owns Megatron's two SQLite files: the index (`megatron.db`, a disposable derived cache) and the
+usage archive (`usage-history.db`, which can never be rebuilt). Covers the driver, the invariants
+the schema encodes, and plugin identity. `CLAUDE.md` stays authoritative for repo-wide decisions;
+the decisions below are locked here.
 
-Usage keeps a persistent location registry in private `preferences.json` (`usageProjects`),
-independent of the disposable inventory index and live folder catalog. Each location has a stable
-ID, original root path, repository/folder kind, availability, and optional link to another location.
-Confirmed links combine Usage identity only; they never rewrite source records, change skill or
-plugin ownership, or grant filesystem access. Unlinking a confirmed location restores its separate
-totals without deleting records. The target is the primary location and supplies the display name.
-
-Windows casing, separators, and trailing separators share one identity; POSIX paths remain
-case-sensitive. Working directories belong to the deepest retained repository root. Inferred
-subfolder ownership follows subsequently discovered nested repositories and cannot be unlinked as
-though it were an independent repository. Parent-folder activity remains a separate workspace
-when no repository owns that folder. Separate clones and worktrees remain independent until linked.
-
-Missing folders and revoked grants retain their Usage identities and links. Current availability
-uses the existing guarded filesystem capability; ungranted locations are never probed. Rediscovery
-at a known location retains its ID. A changed path or matching name alone does not prove a move:
-similar names alone never combine projects. The Manage projects UI is deferred, so manual linking
-and unlinking are not currently exposed. Existing confirmed links and the persistent registry
-remain intact; no source records or preferences are deleted by removing the entry point.
-No identifier is written into user repositories.
-
-Activity now reads retained prompt multiplicities from `usage-history.db`, sharing History's source
-and coverage ranges. All Usage project aggregates apply the registry at query time, including
-Activity/Cost bucket details, archived day details, token categories, and every timeline month.
-Their grand totals and source attribution remain unchanged. Project labels are disambiguated from
-the entire retained registry, rather than whichever period or panel happens to be loaded.
-
-## Persistent usage history amendment (2026-11-03)
-
-`usage-history.db` is a deliberate exception to the derived-cache invariant. It is a private,
-local-only archive, stored beside `megatron.db` with the same file protections, and is never
-deleted by `db:reset`. The index remains disposable. Successful prompt/transcript scans copy only
-usage metadata into the archive: prompt multiplicities, session/project/model identifiers,
-timestamps, continuation links, and numeric token counters. Prompt and response content are not
-archived. Source pruning and index rebuilds do not delete archived records. Nothing syncs off device.
-
-Prompt identity uses session/project/timestamp/slash classification with the maximum observed
-multiplicity, so rescans do not inflate counts or collapse distinct identical-timestamp entries.
-Response identity retains the scanner's corpus-wide logical key and source UUID protections.
-Session totals replace earlier snapshots as sessions grow; continuation ancestors are resolved to
-one usable terminal before allocation. Failed or partial sources are not copied. Archival writes
-and recomputed token shares commit together in one transaction.
-
-Coverage intervals record only successfully observed prompt-history ranges. Dates outside these
-ranges remain unavailable, and incomplete days are explicitly partial. Deleted history from before
-the first observation cannot be recovered. The archive accumulates only when Megatron scans;
-closing the app does not run a collector in the background.
-
-### `usage-history.db` is additive-only (decided 2026-11-04)
-
-Shipped builds update in place, so every archive a user has ever written must open under every
-later build. The archive has no migration framework and no downgrade guard; instead its shape only
-grows:
-
-- **Allowed:** new tables; new columns added by a guarded `ALTER TABLE ... ADD COLUMN` that is
-  nullable or has a default, run from `openUsageArchive()` after its `CREATE TABLE IF NOT EXISTS`
-  block. (Adding a column to the `CREATE TABLE` text alone does nothing for an existing file —
-  `IF NOT EXISTS` skips it.) The guarded helper gets written with the first column that needs it.
-- **Forbidden:** renaming or dropping a table or column, changing a column's type or nullability,
-  and changing a primary key or `CHECK`.
-- **Enforced by** `src/main/db/usage-archive.test.ts`, which freezes the shipped DDL as a literal:
-  current code must keep every shipped column unchanged, and a shipped archive must open into the
-  same shape as a fresh one. Never edit that literal to make a test pass.
-- **Revisit trigger:** the first time a forbidden change is genuinely needed, switch to numbered
-  `PRAGMA user_version` migrations for this file — not before.
-
-Owns the SQLite index — driver choice, table shapes, and the plugin-identity decisions the
-schema encodes. `CLAUDE.md` stays authoritative for repo-wide decisions; the decisions below
-are locked here, and this doc is where they are argued.
+Table shapes and per-column notes live in `src/main/db/schema.sql` and `usage-archive.ts`.
 
 ## Locked decisions
 
-The renderer projects plugin identities into repository rows: project and local installs for the
-same `name@marketplace` and normalized `project_path` share one row. Different repositories and
-the User context remain separate rows. This does not change stored plugin or install identity.
-The derived project-folder catalog lives in private preferences, includes empty repositories
-(except empty Git repositories nested inside another, per `docs/skill-scanner.md`) and cached
-availability, and never grants filesystem access. No schema migration is needed.
+| Area                     | Decision                                                                                                                                                                                                                              | Why                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Store                    | Embedded SQLite                                                                                                                                                                                                                       | The data is relational (a skill has many invocations; an invocation belongs to a session). Single-file and serverless fits local-first and makes "delete my index" a literal `rm`. Rejected: Postgres/MySQL (need a daemon), DuckDB (solves a columnar-analytics scale this app doesn't have)                                                      |
+| SQLite driver            | `better-sqlite3`, not `node:sqlite`                                                                                                                                                                                                   | `node:sqlite` is still experimental: the wrong risk for the core data layer. `better-sqlite3` ships N-API prebuilds                                                                                                                                                                                                                                |
+| `skill_invocations` join | Text `skill_name`, **no FK** to `skills.id`                                                                                                                                                                                           | Invocations reference skills no scan will find (built-ins, deleted skills, ungranted repos), so the join is best-effort at query time                                                                                                                                                                                                              |
+| Plugin identity          | Composite `name@marketplace`, not bare name                                                                                                                                                                                           | `installed_plugins.json` keys plugins this way                                                                                                                                                                                                                                                                                                     |
+| Plugin → install         | One-to-many, keyed by `scope` and `project_path` as well as `install_path`                                                                                                                                                            | `installed_plugins.json` values are arrays, and `installPath` is version-addressed, so one plugin at one version installed for two scopes or two projects shares a path                                                                                                                                                                            |
+| Marketplace repo         | Read from `known_marketplaces.json`, not `installed_plugins.json`                                                                                                                                                                     | It resolves a plugin's GitHub repo for the Report deep-link ([#14](https://github.com/Megatron-HQ/Megatron/issues/14))                                                                                                                                                                                                                             |
+| Index schema changes     | `openIndex()` stamps a fingerprint of `schema.sql` into `PRAGMA user_version`; on a mismatch it deletes `megatron.db` (and its `-wal`/`-shm`/`-journal`) and the startup scan repopulates it. Any edit triggers it, comments included | The index is 100% derived from `~/.claude/`, so deleting it loses nothing, and a shipped user can't be told to run `db:reset`. A false rebuild costs one sub-second rescan; a missed one ships an index that doesn't match the code. Rejected: in-place `ALTER`/rebuild migrations, ~100 lines of the riskiest data-layer code to save that rescan |
+| Index open order         | Main opens the index before the scan worker does                                                                                                                                                                                      | The worker takes its path from main, so it never sees a half-rebuilt file                                                                                                                                                                                                                                                                          |
+| Folder grants            | Live in `preferences.json` (`grantedFolders`), not the index                                                                                                                                                                          | A rebuild must never cost a re-grant                                                                                                                                                                                                                                                                                                               |
 
-Nested repositories keep independent `project_root` values. For same-named project skills,
-an invocation belongs to the deepest matching enclosing root, after existing global/synced
-precedence. This rule applies to inventory totals, history, detail breakdowns, Usage links, and
-cost links. Mixed-repository aggregates remain unlinked when no single skill explains them.
-Windows comparisons normalize separators, drive/path casing, and trailing separators; POSIX
-paths retain case sensitivity. No schema change or user registry rewrite is required.
+## External file shapes
 
-| Area                     | Decision                                                                                                   | Why                                                                                                                                                                                                                       |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SQLite driver            | `better-sqlite3`, not `node:sqlite`                                                                        | `node:sqlite` is still experimental/evolving; wrong risk for the core data layer. `better-sqlite3` v13 ships N-API prebuilds (`prebuilds/darwin-arm64.node` etc.) — no native rebuild needed on install for this platform |
-| `skill_invocations` join | Text `skill_name`, **no FK** to `skills.id`                                                                | Invocations can reference skills no scan will ever find (built-ins, deleted skills, ungranted repos) — join is best-effort at query time, not enforced. Marked in `schema.sql` itself as a locked decision                |
-| Built-in skills          | **Not a skill source, permanently.** No `builtin-skills.json`, no `source: builtin` tag                    | Not user-managed state — no file to point at, nothing to lint, no path to go stale, no version to track. `source_type` is a 3-way enum: `global` \| `project` \| `plugin`. Cut, not deferred                              |
-| Plugin identity          | Key on the composite `name@marketplace`, not bare name                                                     | `installed_plugins.json` keys this way; also handles `"version": "unknown"` (non-semver)                                                                                                                                  |
-| Plugin → install         | One-to-**many** (array), with a `scope` field (`user` / `project` / `local`) and the owning `project_path` | `installed_plugins.json` values are arrays, not single objects. See "Plugin install identity" below for why `install_path` alone can't key them                                                                           |
-| Marketplace repo         | Read from `known_marketplaces.json` (separate file), not `installed_plugins.json`                          | This is what makes the plugin-remediation milestone's "Report" deep-link to the marketplace's GitHub repo resolvable — see `docs/mvp-build-spec.md` for milestone numbering                                               |
-| Schema changes           | The index rebuilds itself when `schema.sql` changes — no migration code                                    | The index is 100% derived from `~/.claude/`; nothing in it is user-authored (folder grants live in `preferences.json`). See "Schema changes: delete, don't migrate" below                                                 |
+Verified against real `~/.claude`:
 
-## Index schema
+- `plugins/installed_plugins.json` is a wrapper, `{ "version": 2, "plugins": { … } }`, mapping each
+  `name@marketplace` key to an **array** of installs, each
+  `{ scope, installPath, projectPath, version, installedAt, lastUpdated, gitCommitSha }`. `version`
+  can be the literal string `"unknown"`. `scope` is `user`, `project`, or `local`; the last two carry
+  `projectPath`. `installPath` is `cache/<marketplace>/<plugin>/<version>`.
+- `plugins/known_marketplaces.json` maps each marketplace name to
+  `{ source: { source, repo }, installLocation, lastUpdated }`.
+- Plugin enablement (`enabledPlugins`) and `skillOverrides` resolve `local > project > user`: user is
+  `~/.claude/settings.json`, project is the repo's committed `.claude/settings.json`, local is that
+  developer's `.claude/settings.local.json`.
+- `history.jsonl` is capped by Claude Code's `cleanupPeriodDays` prune (~30 days by default).
 
-No upfront sketch — each table was added by the milestone that knew its real shape. The core
-four below plus `lint_findings` (linter output),
-`prompt_history` (Usage view PR1), and `session_cost` / `session_model_cost` (Usage view PR2),
-each added once its feature needed it. (`resident_context_sample`, PR5's table, was deleted on
-2026-11-03: Resident tax now reads Claude Code's `/context` and keeps nothing in the index — see
-`docs/usage-analytics.md`, "Resident tax rebuild".)
+## Index invariants
 
-```sql
-CREATE TABLE IF NOT EXISTS skills (
-  id INTEGER PRIMARY KEY,
-  name TEXT NOT NULL,
-  source_type TEXT NOT NULL CHECK (source_type IN ('global', 'project', 'plugin')),
-  source_path TEXT NOT NULL UNIQUE,   -- discovered path, not realpath (see docs/skill-scanner.md)
-  plugin_name TEXT,                   -- 'name@marketplace' composite, plugin-tier only
-  description TEXT,                   -- NULL/empty is a valid, lint-worthy state
-  last_scanned_at TEXT NOT NULL,      -- ISO8601
-  est_listing_tokens INTEGER NOT NULL DEFAULT 0,  -- name+description, chars/3.0 (calibrated,
-                                                   -- not exact) — see docs/mvp-build-spec.md
-  est_body_tokens INTEGER NOT NULL DEFAULT 0,     -- full SKILL.md, chars/3.0
-  project_root TEXT                   -- owning repo within a granted folder; NULL for global/plugin — see
-                                       -- Skill name collisions below
-);
+**Natural keys are the rescan strategy.** `skills` and `sessions_meta` upsert on `source_path` /
+`session_id`. Deletion is scoped per root: only rows whose parent directory is a root passed to this
+scan, and unseen this pass, are removed. A `source_type`-wide delete was rejected because two
+project roots share a `source_type`, so rescanning one repo would sweep the other's skills. The same
+reconciliation removes a deleted transcript's invocations, so `args_text` never outlives its source.
+`skill_invocations` are immutable events, deduped on the transcript line's `uuid`.
 
-CREATE TABLE IF NOT EXISTS sessions_meta (
-  session_id TEXT PRIMARY KEY,        -- transcript's `sessionId` (camelCase)
-  cwd TEXT NOT NULL,
-  git_branch TEXT,                    -- NULL when cwd isn't a git repo
-  started_at TEXT NOT NULL,           -- timestamp of the first line carrying a `cwd` field (not
-                                       -- literally line 0 — see mvp-build-spec's On-disk data
-                                       -- shapes section)
-  message_count INTEGER NOT NULL,     -- count of lines where type IN ('user','assistant')
-  continued_in_session_id TEXT,       -- continuation lineage, independent of cost-state
-  source_mtime_ms INTEGER NOT NULL,   -- transcript file's mtime at last scan — see Scan cadence
-  source_size_bytes INTEGER NOT NULL DEFAULT -1,
-                                     -- parent transcript + subagent byte total; pairs with mtime
-                                     -- so an append with an unchanged mtime is still rescanned
-  transcript_parser_version INTEGER NOT NULL DEFAULT 0
-                                     -- parser semantic version; a change forces one safe reindex
-);
+**`prompt_history` is a mirror, not an accumulator.** It is wiped and reloaded from
+`history.jsonl` each scan, carries no prompt text, and has no FK (its sessions outlive transcript
+pruning). A failed read keeps the last good rows. Long-range history is the usage archive's job.
 
-CREATE TABLE IF NOT EXISTS skill_invocations (
-  id INTEGER PRIMARY KEY,
-  source_uuid TEXT NOT NULL UNIQUE,   -- the transcript line's own `uuid` — natural dedup key
-  session_id TEXT NOT NULL REFERENCES sessions_meta(session_id),
-  skill_name TEXT NOT NULL,           -- no FK to skills.id — locked decision
-  args_text TEXT,                     -- kept, not cut — see Idempotency below (the
-                                       -- outliving-its-source risk and its fix)
-  invoked_at TEXT NOT NULL,
-  trigger_type TEXT NOT NULL CHECK (   -- see docs/transcript-ingest.md
-    trigger_type IN ('user_invoked', 'autonomous', 'subagent')
-  ),
-  agent_id TEXT,                      -- subagent filename stem; NULL for main-session invocations
-  preceding_user_text TEXT            -- nearest preceding user message; heuristic, nullable —
-                                       -- see docs/transcript-ingest.md
-);
--- Every skill-usage query joins by one of these two columns and the table has no other
--- non-unique index, so without them SKILLS_WITH_USAGE_SELECT runs a per-skill correlated
--- subquery over a full scan. Added with the Usage view's Skills section (getSkillStats).
-CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill_name ON skill_invocations(skill_name);
-CREATE INDEX IF NOT EXISTS idx_skill_invocations_session_id ON skill_invocations(session_id);
+**Usage stats are computed live, never stored.** `total_invocations`, `last_invoked_at`, the
+context budget, and every Usage aggregate are queries at read time. A stored counter would need
+upkeep on every insert and delete, and could drift.
 
-CREATE TABLE IF NOT EXISTS plugin_registry (
-  name TEXT NOT NULL,
-  marketplace TEXT NOT NULL,
-  marketplace_repo TEXT,              -- resolved from known_marketplaces.json; NULL if absent
-  installed_version TEXT NOT NULL,    -- can literally be the string "unknown"
-  scope TEXT NOT NULL CHECK (scope IN ('user', 'project', 'local')),
-  install_path TEXT NOT NULL,
-  last_scanned_at TEXT NOT NULL,
-  project_path TEXT NOT NULL DEFAULT '',  -- owning project root; '' for user scope
-  available_version TEXT,             -- resolved from marketplace cache; NULL if absent
-  PRIMARY KEY (name, marketplace, scope, install_path, project_path)
-);
+**Skill name collisions.** Two same-named skills are always two rows (`source_path` is the
+identity). Attribution follows Claude Code's precedence (`docs/skill-scanner.md`):
 
-CREATE TABLE IF NOT EXISTS lint_findings (
-  id INTEGER PRIMARY KEY,
-  skill_id INTEGER NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
-  rule_id TEXT NOT NULL,
-  severity TEXT NOT NULL CHECK (severity IN ('error', 'warning')),
-  message TEXT NOT NULL,
-  detail TEXT,
-  file_path TEXT,
-  line_number INTEGER,
-  detected_at TEXT NOT NULL           -- ISO8601
-);
+- A project skill shadowed by a same-named global skill can never fire: its count is forced to `0`
+  and `shadowed_by_skill_id` points at the global row. Known ceiling: if the project skill predates
+  the global one, its real past invocations still attribute to the global row.
+- A claude.ai-synced global copy is the lowest priority: any same-named non-synced skill shadows
+  it, and it never shadows a non-synced project skill.
+- A non-shadowed project skill counts only sessions whose `cwd` is under its own `project_root`,
+  matched with `substr`, not `LIKE`, because `_` and `%` are literal in real paths. With nested
+  repositories, an invocation belongs to the deepest matching root. Windows comparisons normalize
+  separators, casing, and trailing separators; POSIX paths stay case-sensitive.
+- Nested project skills are never a shadowing relationship: both stay reachable, and
+  `skills.name` already carries the name Claude Code records (bare or directory-qualified).
+- Global and plugin skills are unscoped by name.
+- `SKILLS_WITH_USAGE_SELECT` ("which row shadows this one") and the Usage Skills panel's
+  name-to-row resolution ("which row wins this name": global > project > synced) encode the same
+  precedence twice; change both together.
 
-CREATE TABLE IF NOT EXISTS prompt_history (
-  session_id TEXT NOT NULL,           -- history.jsonl sessionId; NO FK — spans pruned sessions
-  project TEXT NOT NULL,              -- raw cwd string, matches sessions_meta.cwd
-  typed_at TEXT NOT NULL,             -- history.jsonl timestamp (epoch ms) -> ISO 8601 UTC
-  is_slash_command INTEGER NOT NULL   -- 1 = bare ^/[a-z][\w-]*$ line (/clear, /quit); heuristic,
-                                      -- conflates tool control with a bare skill run (~1%)
-);
-CREATE INDEX IF NOT EXISTS idx_prompt_history_typed_at ON prompt_history(typed_at);
+**Cost rows are stored as parsed.** Every dollar aggregate filters to priced lineage terminals:
+`session_cost.is_zeroed = 0 AND sessions_meta.continued_in_session_id IS NULL`. See
+`docs/usage-analytics.md` for why `cost-state` needs it.
 
-CREATE TABLE IF NOT EXISTS session_cost (
-  session_id TEXT PRIMARY KEY REFERENCES sessions_meta(session_id),
-  total_cost_usd REAL NOT NULL,
-  has_unknown_model_cost INTEGER NOT NULL DEFAULT 0,
-  is_zeroed INTEGER NOT NULL DEFAULT 0           -- cost-state present but 0/empty (CC v2.1.241-246 artifact)
-);
+**Plugin enablement can be unknowable.** A project/local install's settings live under a Tier 2
+root, readable only once granted. The scanner never guesses: `disabled_reason` stays `NULL`, and
+`enablement_known` is derived at read time through `isPathAllowed()` so it can't go stale when a
+grant changes between scans. Granting or revoking a folder rescans the plugin registry too.
+Management actions go through the `claude plugin` CLI; `plugin_registry` stays a read-only scan
+cache.
 
-CREATE TABLE IF NOT EXISTS session_model_cost (
-  session_id TEXT NOT NULL REFERENCES session_cost(session_id) ON DELETE CASCADE,
-  model TEXT NOT NULL,                           -- normalized; date suffix stripped
-  cost_usd REAL NOT NULL,
-  input_tokens INTEGER NOT NULL,
-  output_tokens INTEGER NOT NULL,
-  thinking_tokens INTEGER NOT NULL,
-  cache_read_tokens INTEGER NOT NULL,
-  cache_creation_tokens INTEGER NOT NULL,
-  web_search_requests INTEGER NOT NULL,
-  PRIMARY KEY (session_id, model)
-);
+**Plugin update availability resolves offline.** `available_version` comes from local marketplace
+caches only, with zero network requests during a scan. A marketplace `installLocation` outside
+`~/.claude/plugins/` stays unresolved until its folder is granted: a manifest is never an implicit
+permission grant. A moving branch ref like `main` is not a version, so without a commit SHA the
+result is `NULL`.
 
-```
+## Usage project identity
 
-`prompt_history` (added 2026-09-05, Usage view Phase 2a / PR1) is the mirror of Claude Code's
-`~/.claude/history.jsonl` that backs the Usage view's **Activity** section — see
-`docs/usage-analytics.md`. It carries no prompt text and no FK: `session_id` deliberately spans
-sessions the transcript prune has already aged out (a prompt's row outlives its Session). Populated
-by `scanPromptHistory` (`src/main/ingest/prompt-history-scanner.ts`) in the same Scan as the other
-tables; `getActivityStats` (`src/main/db/queries.ts`) reduces it into both rolling windows in JS.
+Usage keeps a persistent location registry in private `preferences.json` (`usageProjects`),
+independent of the index and the live folder catalog. Each location has a stable ID that survives
+rediscovery at the same path.
 
-`session_cost` / `session_model_cost` (added Usage view Phase 2a / PR2) mirror Claude Code's
-per-session `cost-state` line — one row per priced session, one child row per model — and back
-the Usage view's **Cost** section (`docs/usage-analytics.md`, `docs/usage-view-ui-spec.md` §C).
-Populated by `scanTranscripts` on the same walk as `skill_invocations` (`extractCostState` /
-`toModelCostRows` in `cost-parser.ts`), gated by the same `transcript_parser_version`, no scan-cache
-columns of their own. Rows are stored as parsed — zeroed rows and lineage non-terminals included;
-`getCostStats` (`src/main/db/queries.ts`) filters them out of every aggregate with the
-**priced-terminal predicate** `session_cost.is_zeroed = 0 AND
-sessions_meta.continued_in_session_id IS NULL` (the fix for
-`cost-state` carrying a prior session's total forward across a `continued-in` chain — see
-`docs/usage-analytics.md` hazard 3). `session_model_cost` cascades off `session_cost`
-(`ON DELETE CASCADE`); `session_cost` itself has a plain FK to `sessions_meta` (no cascade), so
-the retention sweep deletes it _before_ `sessions_meta`.
+- A working directory belongs to the deepest retained repository root. Parent-folder activity with
+  no owning repository is its own workspace. Separate clones and worktrees stay independent.
+- A confirmed link merges Usage identity only, applied at query time. It never rewrites source
+  records, changes skill or plugin ownership, or grants filesystem access, and unlinking restores
+  separate totals without deleting anything. Linking has no UI yet; existing links stay intact.
+- A changed path or a matching name never proves a move. Missing folders and revoked grants keep
+  their identity and links; ungranted locations are never probed.
+- Nothing is written into user repositories.
 
-`turn_usage` / `session_skill_cost` (added Usage view Phase 2a / PR4) back the Models panel and
-the Skills panel's additive attribution ledger. `turn_usage` has one row per logical assistant
-response: repeated physical JSONL records collapse by message id, then request id, with source uuid
-as the final fallback. It stores per-turn shape and active-skill state only; it is never summed to
-produce dollar totals. Main and `subagents/*.jsonl` turns are included, while `cost-state` remains
-the sole dollar source. `session_skill_cost` materializes each priced terminal's proportional split
-by per-model output-token weight; `skill_name IS NULL` is the unique General work bucket. Both are
-derived cache data rebuilt during `scanTranscripts` and cleared by `db:reset`. The later
-`timed_skill_cost` table stores each allocated share at its logical turn time, with an index on
-`allocated_at`. Its nullable `model` retains the priced model for each timestamped share;
-NULL identifies residual cost without a model breakdown. It powers both the Skills and Cost
-panels' rolling dollar windows. Cost groups these same shares into daily/hourly buckets and
-model/project breakdowns, preserving terminal-session project ownership. Untimed cost stays in
-`session_skill_cost` and is disclosed as excluded from those windows. Skill invocations whose
-lineage has no usable priced terminal are counted separately in each window and omitted from dollar
-attribution; they do not become General work.
+## `usage-history.db`
 
-Tier-2 folder grants are not in the index. They live under `grantedFolders` in `preferences.json`
-(`src/main/folder-grants.ts`), behind the same `folders:list` / `folders:pickAndAdd` /
-`folders:revoke` channels, so rebuilding the index never costs a re-grant. Entries that aren't an
-absolute path with a timestamp are dropped on read, since each one widens file access.
-`lint_findings` is rebuilt whole on each lint pass —
-`replaceAllLintFindings` (`src/main/db/queries.ts`) deletes every row and bulk-reinserts findings
-for every skill in one transaction, rather than diffing per skill; `skill_id ON DELETE CASCADE`
-separately means a rescan that drops a skill row drops its findings too. See
-`docs/mvp-build-spec.md`'s Linter rule set for what populates `rule_id`/`severity`/`message`/
-`detail`.
+The one deliberate exception to the derived-cache rule: a private, local-only archive beside
+`megatron.db` with the same file protections. `db:reset`, source pruning, and index rebuilds never
+delete it, and nothing syncs off device.
 
-**Idempotency / re-scan strategy** — the natural unique key per table _is_ the strategy:
+- **Metadata only.** Successful scans copy prompt multiplicities, session/project/model
+  identifiers, timestamps, continuation links, and numeric token counters. No prompt or response
+  content. Failed or partial sources are not copied; archive writes and the recomputed token shares
+  commit in one transaction.
+- **Idempotent identity.** A prompt is identified by session, project, timestamp, and slash
+  classification, keeping the maximum observed multiplicity, so rescans neither inflate counts nor
+  collapse distinct same-timestamp entries. Responses reuse the scanner's global turn identities.
+- **Coverage is explicit.** Only successfully observed `history.jsonl` ranges are recorded. Dates
+  outside them are unavailable, incomplete days are partial, and history pruned before Megatron's
+  first observation is gone. The archive grows only when Megatron scans; there is no background
+  collector.
 
-- `skills` / `sessions_meta` reflect current disk state, which can change (a skill deleted, a
-  session file grows) — `source_path` / `session_id` are natural keys; scan writes via
-  `INSERT ... ON CONFLICT DO UPDATE`. **Correction, found during M1 implementation**: a
-  scoped delete keyed on `source_type IN (<tiers scanned>) AND source_path NOT IN (<seen>)`
-  (the original plan here) doesn't actually satisfy "rescanning one repo shouldn't delete
-  another repo's skills it didn't touch" — two project roots share the same `source_type`, so
-  a `source_type`-broad delete sweeps both. Implemented instead as a per-root path-prefix
-  match: only rows whose parent directory is one of the roots _actually passed to this scan
-  call_ are eligible for deletion, and only if not seen this pass. `plugin-registry.ts` uses
-  the equivalent scoping via its own seen-set for plugin-tagged skills and registry rows. This
-  same reconciliation, extended to `sessions_meta`/`skill_invocations`, is also the fix for the
-  `args_text`-outliving-its-source risk: delete the transcript, the next scan removes the
-  corresponding rows. Known remaining ceiling: rows survive if their root is dropped from the
-  scan entirely (e.g. a revoked Tier-2 grant) — cleanup only happens on a scan that still
-  includes that root and finds it empty; revisit if M3's picker needs eager cleanup-on-revoke.
-- `skill_invocations` are immutable historical events (a past Skill call never changes) —
-  `source_uuid` from the transcript line itself is the dedup key, so the transcript-scanner
-  just does `INSERT OR IGNORE`. No update/delete reconciliation needed for this table beyond
-  the cascade-on-vanished-session case above.
-- `session_cost` reflects current disk state (a session's last `cost-state` line can change on a
-  resume) — keyed on `session_id`, the transcript-scanner writes it as `DELETE` + re-`INSERT`
-  inside the same stale/new branch that rewrites `skill_invocations`, and the retention sweep
-  deletes vanished-session rows (before `sessions_meta`, since the FK has no cascade).
-  `session_model_cost` is never written or swept directly — it rides `session_cost`'s
-  `ON DELETE CASCADE`.
-- `plugin_registry` upserts on `(name, marketplace, scope, install_path, project_path)`,
-  preserving each installed scope/location listed under a plugin key. See "Plugin install
-  identity" below for why the last three columns are all load-bearing.
-- `prompt_history` has no natural key to reconcile on — `history.jsonl` is itself a
-  wiped-and-reloaded mirror Claude Code caps at `cleanupPeriodDays` (~30d), so `scanPromptHistory`
-  matches it exactly: `DELETE FROM prompt_history` then bulk re-insert, in one transaction
-  (pattern: `replaceAllLintFindings`). A transient read failure returns early and leaves the last
-  good rows in place; an empty `history.jsonl` clears the table. `db:reset` stays lossless — the
-  next Scan rebuilds it from the file, minus whatever the prune has since removed. Long-range
-  prompt history would need an _accumulating_ store, explicitly exempt from the derived-cache
-  invariant — a separate feature, see `docs/usage-analytics.md`.
+### Additive-only shape
 
-**Usage stats (M5) are computed live, never stored.** `total_invocations`, `last_invoked_at`, and
-the trigger-type/per-project/recent-trigger breakdowns in `getSkillUsageDetail` are all aggregate
-queries over `skill_invocations` at read time, joined on `skill_name` (the same no-FK join as
-above), not counters maintained on the `skills` row. `skill_invocations` is append-only, so a
-stored count would need upkeep on every insert/delete and could drift; a live `COUNT`/`MAX` never
-can. The context budget (`getContextBudget`) is the same shape: `SUM(est_listing_tokens)` at read
-time, not a cached total — filtered to `disabled_reason IS NULL` (see below), since a disabled
-skill costs Claude Code nothing.
+Shipped builds update in place, so every archive a user has written must open under every later
+build. There is no migration framework and no downgrade guard; the shape only grows.
 
-The Usage view's Skills activity (`getSkillStats`, PR3) is the same live-query shape: it reads
-`skill_invocations` (windowed) and `session_cost` / `session_model_cost` (all history) and
-reduces in TypeScript. Each invocation's session is resolved forward through
-`sessions_meta.continued_in_session_id` to its priced, lineage-terminal session (`resolvePricedTerminal`, the
-same lineage rule `getCostStats` applies), then associated once per skill. A `skill_name` resolves
-to a single `skills.id` for click-through by shadowing precedence (global > project > synced) — a
-separate encoding of the same rule `SKILLS_WITH_USAGE_SELECT` uses, answering "which row wins for
-this name" rather than "which row shadows this one". PR4 preserves those windowed activity fields
-for the top of the panel; the cost table now reads `timed_skill_cost` within the same rolling
-window. Display cents use largest-remainder rounding, so every visible row sums
-exactly to the visible total. Project cost rows link to Detail only when all contributing terminal
-lineages stay within one current project root; otherwise they open filtered history. See
-`docs/usage-analytics.md`.
-
-**`disabled_reason` (added 2026-08-21)**: nullable `TEXT` on `skills`, stamped at Scan time —
-`NULL` when enabled, `'plugin'` when the owning plugin's `enabledPlugins` entry in `settings.json`
-is `false` (Claude Code unloads the whole plugin), `'override'` when `settings.json`'s
-`skillOverrides` has this skill set to `"off"` (plugin skills can't carry this second reason — see
-`docs/skill-scanner.md`). `getContextBudget()` excludes any row with `disabled_reason` set from
-`used`, and reports its tokens/count separately as `excludedTokens`/`excludedCount`.
-
-**`model_invocable` (added 2026-09-03)**: `INTEGER NOT NULL DEFAULT 1` on `skills`, stamped at
-Scan time. `0` means Claude Code keeps this skill's description **out of its skill listing**, so it
-costs `0` listing tokens — set by either the frontmatter flag `disable-model-invocation: true`
-(all three sources) or `settings.json`'s `skillOverrides` `"<name>": "user-invocable-only"`
-(global/project only; plugin skills ignore `skillOverrides`, consistent with `disabled_reason`).
-Deliberately **not** a third `disabled_reason` value: a `model_invocable = 0` skill still works —
-`/name` runs it and its body loads — so listing it under "Disabled Skills" would misread it as
-broken. Same reasoning as `hook_events` getting its own column. `getContextBudget()` excludes
-`model_invocable = 0` rows from `used` and reports them as `userInvocableOnlyTokens` /
-`userInvocableOnlyCount`; that bucket is mutually exclusive with `excludedTokens`/`excludedCount`
-(a row that is both disabled and `model_invocable = 0` counts only as disabled). `skillOverrides`
-`"name-only"` is a documented residual — it keeps the name, drops only the description, and is
-still counted (accounting for it needs a name-token estimator that does not exist yet).
-
-**Skill name collisions (added 2026-08-16)**: two same-named skills are always two separate
-`skills` rows (identity is `source_path`, already `UNIQUE`) — never merged. What changed is how
-`total_invocations`/`last_invoked_at` attribute a name's invocations across those rows, per the
-precedence Claude Code itself uses (verified against
-[code.claude.com/docs/en/skills](https://code.claude.com/docs/en/skills)): personal (global)
-always overrides a same-named project skill, everywhere, unconditionally; plugin skills use a
-`plugin-name:skill-name` namespace and can't collide with anything. The exception is a synced
-global copy: any non-synced same-named skill has higher priority.
-
-- A project skill shadowed by a same-named global skill can never actually fire. Its count is
-  forced to `0` (not left to a bare name join) and `SkillRow.shadowed_by_skill_id` points at the
-  global skill's id. Known ceiling: if the project skill predates the global one, its real past
-  invocations still get attributed to the global row — there's no skill-version history to split
-  them by.
-- A non-shadowed project skill's count is scoped to sessions whose `cwd` is under its own
-  `project_root` (`substr`-based prefix match, not `LIKE` — `_`/`%` in a real path are literal
-  characters, not wildcards). This is what makes two different repos with a same-named skill
-  (e.g. two repos both having their own `visual-verify`) report correct, separate counts instead
-  of each absorbing the other's history.
-- Global and plugin skills stay unscoped by name — global wins everywhere, plugin skills can't
-  collide.
-- **`is_synced` shadowing (closed 2026-08-18, was Gap 2 in `docs/scanner-coverage-gaps.md`)**: a
-  claude.ai-synced skill (`skills.is_synced = 1`, still `source_type: 'global'` — see
-  `docs/skill-scanner.md`) is the lowest-priority source. Any same-named non-synced skill —
-  global or project — shadows it, same forced-`0`-count/NULL-`last_invoked_at` treatment as
-  above, via a second `WHEN` branch in the `shadowed_by_skill_id` subquery
-  (`skills.is_synced = 1 AND ns.is_synced = 0`, `COALESCE`d with the existing
-  global-shadows-project branch). A synced global copy does not shadow a non-synced project skill.
-- **Nested project skills are not a shadowing relationship (closed 2026-08-18, was Gap 1 in
-  `docs/scanner-coverage-gaps.md`)**: a monorepo package's own `.claude/skills/`
-  (`docs/skill-scanner.md`) can share a bare name with the repo's top-level project skill —
-  unlike every case above, **both stay reachable**, not shadowed. `shadowed_by_skill_id` is
-  untouched by this; instead `skills.name` itself carries whatever Claude Code would actually
-  invoke that row as (bare, or directory-qualified on collision — see `skill-scanner.md`), so the
-  existing no-FK `skill_name` join already attributes each row's invocations correctly with zero
-  further query changes.
-
-Implemented in `SKILLS_WITH_USAGE_SELECT` and `getSkillUsageDetail` (`src/main/db/queries.ts`),
-which is why `getSkillUsageDetail` takes the full `SkillRow` now, not a bare name — it needs
-`source_type`/`project_root`/`shadowed_by_skill_id` to know how to scope.
-
-**Schema changes: delete, don't migrate (revised 2026-08-18)**: `applySchema()`
-(`src/main/db/schema.ts`) is `db.pragma('foreign_keys = ON'); db.exec(schemaSql)` — nothing else.
-An earlier version retrofitted an existing `megatron.db` in place: guarded
-`ALTER TABLE ... ADD COLUMN` for new columns, plus a `CREATE ..._rebuild` / copy / `DROP` / rename
-dance for the `CHECK`/`PRIMARY KEY` changes SQLite can't `ALTER`. That bought exactly one thing —
-`sessions_meta`'s scan cache (`source_mtime_ms`/`source_size_bytes`/`transcript_parser_version`,
-see Scan cadence in `docs/mvp-build-spec.md`) survives a schema change instead of forcing a full
-transcript re-read. But that re-read is measured at 0.066s per ~80MB of transcript history and
-runs after the window is shown, never blocking startup — and every row in this index is derived
-from `~/.claude/`, so nothing is lost by deleting the file outright. ~100 lines of the
-highest-risk code in the data layer, buying a sub-second saving nobody has felt yet: not worth it.
-**Automatic rebuild (revised 2026-11-04, for distribution):** a shipped user can't be told to run
-`npm run db:reset`, so `openIndex()` (`src/main/db/schema.ts`) stamps a fingerprint of
-`schema.sql` (sha256, cut to a positive 31-bit int) into `PRAGMA user_version`. On a mismatch it
-deletes `megatron.db` and its `-wal`/`-shm`/`-journal` siblings, recreates the schema, and the
-startup scan (`main/index.ts`) repopulates everything. Any edit to `schema.sql` triggers it,
-comments included — deliberately: a false rebuild costs one sub-second rescan, a missed one ships
-an index that no longer matches the code. Main always opens the index before the scan worker
-does (the worker gets its path from `getDb().name`), so the worker never sees a half-rebuilt file.
-The one table that used to resist this, `allowed_paths`, moved to `preferences.json` (see above),
-which makes the index 100% derived. `npm run db:reset` remains for a clean slate.
-
-**SKILL.md metadata capture (added 2026-08-18)**: `skills` gained four columns beyond the M1
-snippet above — `license` and `metadata_json` (frontmatter `license:` / `metadata:` block,
-parsed in `skill-parser.ts`), and `created_at` / `modified_at` (`SKILL.md`'s own filesystem
-birthtime/mtime, NULL for plugin skills — see `install_at` on `plugin_registry` below for that
-case instead). `plugin_registry` gained `installed_at` / `last_updated` / `git_commit_sha`,
-read from `installed_plugins.json`.
-
-Not all of these reach the UI. `metadata_json` and `modified_at` are selected in
-`SKILLS_WITH_USAGE_SELECT` and exposed on `SkillRow` (shown in `SkillDetail.tsx` as a
-"Metadata" badge section and a "Modified" stat). `license` deliberately is not added to
-`SkillRow` — it already renders today via a separate, older path: `SkillDetail.tsx`
-re-parses raw `SKILL.md` client-side (`parseExtraFrontmatterFields`) and shows any
-unrecognized scalar frontmatter key, including `license`, as a badge. `created_at` is captured
-but not surfaced — it's near-always identical to `modified_at`.
-
-**Plugin management (added 2026-08-24)**: `plugin_registry` gained `disabled_reason` (same two
-values as `skills.disabled_reason`; stamped by `scanPluginRegistry` from the same
-`disabledPlugins` lookup already used for that plugin's skill rows, so a zero-skill,
-MCP-only plugin now reports its own enabled/disabled state instead of having none). The table
-now backs `listPlugins`/`getPluginDetail` in `queries.ts` and the `plugins:list`/`plugins:detail`
-IPC channels — the "no query or IPC channel at all" gap above is closed. `installed_at` /
-`last_updated` / `git_commit_sha` (previously captured but unsurfaced) are exposed per-install
-on `PluginRow.installs[]`. Management actions (enable/disable/update/uninstall) shell out to the
-`claude plugin <verb>` CLI (`src/main/plugin-actions.ts`) rather than writing to
-`plugin_registry` directly — the table stays a read-only scan cache like every other table here;
-Enable, Disable, and Update request a fresh focused plugin-registry scan after their CLI command
-and return the verified detail snapshot through IPC. Uninstall retains its full refresh and verifies
-that the selected installation has disappeared. A shared service holds an installation-level lock
-through command execution and verification, across all four verbs. Windows aliases of the same
-project path share that lock; different installations remain independent.
-
-Focused verification retries at most once after a transient read or scan failure. The CLI mutation
-runs exactly once. Effective enablement still follows local > project > user; an override that keeps
-the target in the opposite state produces a verification error, not a false success. Unrelated
-ungranted projects do not prevent verification of a readable target.
-
-The scan coordinator terminates an older full worker before starting focused work, then resumes the
-full scan for its existing callers. Transcripts, prompt history, and linting finish in the background.
-Folder-permission changes still await worker termination and finish changing grants before any
-worker restarts.
-
-The renderer cancels older inventory/detail reads before publishing the verified snapshot to all
-cached plugin contexts. Affected skill metadata/file queries and the skill list/context budget are
-refreshed independently. Its success/loading state does not wait for those query refreshes.
-Progress events distinguish marketplace refresh, installation, and verification and remain visible
-across section changes. CLI failure and post-command verification failure remain separate outcomes;
-a successful command alone never stamps a persistent "updated" flag.
-
-**Plugin install identity and project scope (added 2026-09-03)**: Claude Code installs a plugin at
-one of three scopes, and `installed_plugins.json` records all of them in the same array under one
-`name@marketplace` key. `user` is `~/.claude/settings.json`; `project` is the repo's committed
-`.claude/settings.json`; `local` is that developer's own `.claude/settings.local.json`. The last
-two carry a `projectPath`, captured as `project_path`.
-
-- **`install_path` cannot key an install.** The cache path is version-addressed
-  (`cache/<marketplace>/<plugin>/<version>`), so one plugin at one version installed for two
-  scopes — or for two different projects — reports a single `installPath` for every one of those
-  installs. The old `(name, marketplace, install_path)` primary key collapsed them into one row
-  with one arbitrary scope. `scope` and `project_path` join the key to separate them.
-- **`project_path` is `NOT NULL DEFAULT ''`, not nullable**, because it is part of that key.
-  SQLite does not enforce `NOT NULL` on a non-integer primary key, and `ON CONFLICT` never
-  matches a `NULL`, so a nullable column here would make every scan insert a fresh duplicate row
-  for every user-scope install. Queries read it back as `NULLIF(project_path, '')`, so nothing
-  above the data layer sees the sentinel.
-- **`disabled_reason` is per-install, not per-identity.** `readPluginEnablement`
-  (`ingest/claude-settings.ts`) resolves each install against its own scope, merging
-  local > project > user — the same precedence and file list `readSkillOverrides` uses. A plugin
-  disabled at user scope but re-enabled for a project is genuinely two different states.
-  `listPlugins`'s identity-level `disabled_reason` therefore stopped being a `MAX()` and became
-  "disabled everywhere" (`COUNT(*) = COUNT(disabled_reason)`); the old `MAX()`, justified above as
-  a no-op tie-break, would have reported a plugin as disabled on the strength of one install.
-- **A plugin skill's `disabled_reason` follows the whole identity, not one install.** Two installs
-  at one version share an `install_path`, therefore one set of `skills` rows, so the skill's state
-  is genuinely ambiguous. It is stamped `'plugin'` only when _every_ install is disabled — "still
-  loads somewhere" is the honest reading of a split. Known ceiling: a skill enabled for one
-  project and disabled everywhere else reads as plainly enabled.
-- **Enablement can be unknowable.** A project/local install's settings live under its project
-  root, which is Tier 2 — readable only once granted. An ungranted root reads as `'missing'`
-  rather than `'unavailable'` (`isPathAllowed()` gates `allowedExistsSync()` as well as the read),
-  so `readJson`'s status can't tell "no settings file" apart from "not allowed to look"; the
-  permission check is the only honest signal. The scanner refuses to guess and leaves
-  `disabled_reason` NULL, and `listPlugins` derives `installs[].enablement_known` at read time
-  from `readPluginEnablement()`, which goes through `isPathAllowed()`. It's derived rather than
-  stamped at scan time so it can't go stale when a grant changes between scans; `permissions.ts`
-  seeds its in-memory grant set from the stored grants (`preferences.json`) at startup. `folders:pickAndAdd` and `folders:revoke` now run `scanPluginRegistry`
-  alongside `scanSkills` for the same reason: the grant is what makes the settings readable.
-- **Actions run from the install's own project directory.** `claude plugin <verb>` resolves a
-  project/local install entirely from its working directory — verified against the real CLI, where
-  `claude plugin list` run inside a project reports its plugins enabled and the identical command
-  run from `$HOME` reports the same installs disabled. `plugin-actions.ts` therefore passes
-  `cwd: project_path` for any non-`user` scope, and no cwd at all for `user`. `cwd` is an
-  `execFile` option rather than part of the command line, so it never reaches the `cmd.exe`
-  parsing that `shell: true` enables on Windows.
-- **A project/local action requires its folder to be granted.** Not only for consistency with the
-  permission model: without the grant the project's settings are unreadable, so `enablement_known`
-  is false and the UI is showing **Unknown** — offering Enable/Disable there would be toggling a
-  switch whose current position Megatron has just said it can't read. `PluginDetail` disables the
-  buttons and links to Manage Folders; `plugin-actions.ts` re-checks `isPathAllowed()` so a
-  renderer bug can't route around it.
-- **A granted project folder that is not a directory is `project_missing`, not an ungranted
-  folder.** `readPluginEnablement` already records that at read time. `listPlugins` exposes it on
-  each install. The detail row explains that the install is still registered to that path, disables
-  Update, Enable, Disable, and Uninstall, and tells the user to put the project back or install
-  the plugin again from its new location. Megatron does not guess the new path or rewrite Claude's
-  plugin registry. An action rejected for that reason repeats the same explanation. The Unknown
-  tooltip says the folder is missing. Scan details use "This project folder is missing. Showing
-  the last available data."
-- **The in-flight action guard keys on the install, not the identity.** `name@marketplace` alone
-  would make disabling a project install block the user install of the same plugin, and would
-  serialize two projects that each installed it. The key is
-  `name@marketplace` + `scope` + `project_path`.
-
-**Plugin update availability (added 2026-09-03)**: `plugin_registry` gained `available_version`
-(nullable `TEXT`), resolved during `scanPluginRegistry` against local marketplace cache directories
-in `~/.claude/plugins/marketplaces/`. Zero network requests are made during scanning; the version is
-resolved strictly from local filesystem artifacts (`marketplace.json`, `plugin.json`, `.gcs-sha`,
-`.git/HEAD`, and manifest source refs).
-
-- **Permission boundary**: a marketplace under `~/.claude/plugins/` is Tier 1 and readable by the
-  scanner. Any marketplace `installLocation` outside that root stays unresolved until its folder is
-  explicitly granted; the scanner never turns a marketplace manifest into an implicit permission grant.
-- **Concrete source identity**: object sources use their validated commit `sha` before a `ref`. A
-  ref is used only when it is a SemVer tag; a moving branch name such as `main` is not a version and
-  therefore leaves `available_version` NULL when no SHA exists.
-- **SemVer vs SHA comparisons**: Version comparison in `isUpdateAvailable` (`src/shared/version.ts`)
-  uses a SemVer-compliant comparator when both versions parse as SemVer (stripping leading `v` and
-  ignoring build metadata). Commit identifiers are case-insensitive; a validated 12-to-40-character
-  hexadecimal prefix and its full commit are the same revision. When the marketplace target is a
-  commit and the installed version is a release label (or unknown), compare the recorded installed
-  `git_commit_sha` when available. Distinct comparable commits remain actionable. Other non-SemVer
-  identifiers retain the inequality fallback; missing/unknown marketplace targets remain unresolved.
-  These rules are shared by inventory badges, detail rows, and post-update verification, so a restart
-  derives the same answer from the same registry and marketplace artifacts.
-- **UI surfacing**: The inventory table flags plugins where any install is behind with an inline
-  amber badge (`PluginUpdateBadge`) in the Version column and a descriptive tooltip. The detail view
-  surfaces the badge in both the header and individual install rows, prompts the user with the target
-  version in the helper note, and accents the Update button.
-
-## Why SQLite
-
-The data is relational, not key-value — a skill has many invocations, an invocation belongs
-to a session — so joins beat a document or KV store. Embedded and single-file fits
-local-first (no server process) and makes "delete my local index" a literal `rm`.
-`better-sqlite3` specifically (not `node:sqlite` — see Locked decisions above): ships N-API
-prebuilds, no native rebuild needed on install. Postgres/MySQL are the wrong shape (need a
-daemon); DuckDB solves a columnar-analytics scale problem this app doesn't have.
+- **Allowed:** new tables; new nullable or defaulted columns added by a guarded
+  `ALTER TABLE … ADD COLUMN` in `openUsageArchive()` after its `CREATE TABLE IF NOT EXISTS` block.
+  Editing the `CREATE TABLE` text alone does nothing for an existing file.
+- **Forbidden:** renaming or dropping a table or column; changing a column's type or nullability;
+  changing a primary key or `CHECK`.
+- **Enforced by** `src/main/db/usage-archive.test.ts`, which freezes the shipped DDL as a literal.
+  That literal is the contract: change the code to satisfy it.
+- **Revisit when** a forbidden change is genuinely needed: switch this file to numbered
+  `PRAGMA user_version` migrations then, not before.

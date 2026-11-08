@@ -163,7 +163,7 @@ async function openFirstPluginDetail(window) {
 
 /**
  * PluginDetail for one named plugin. Scope now changes what the detail page offers — a
- * project/local install's actions are disabled (see docs/data-model.md) — so scenarios that
+ * project/local install's actions need a granted folder (see plugin-actions.ts) — so scenarios that
  * depend on an action being clickable can't take whichever row happens to sort first.
  */
 async function openPluginDetailByName(window, pluginName) {
@@ -1413,7 +1413,7 @@ export const scenarios = [
   {
     // The inverse of skill-detail-with-metadata: a plugin-sourced skill, where
     // metadata_json/modified_at are always NULL (plugin skills use install-time
-    // provenance instead — see docs/data-model.md). Confirms the Modified stat and
+    // provenance instead — see schema.sql). Confirms the Modified stat and
     // Metadata section are both correctly omitted, not rendered empty/broken.
     name: 'skill-detail-without-metadata',
     screen: 'skill-detail',
