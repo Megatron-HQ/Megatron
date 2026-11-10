@@ -2,38 +2,12 @@
 
 Local-first desktop app that inventories, lints, and tracks usage of every Claude Code skill a user has (global, project, and plugin-installed), and manages installed plugins (enable/disable/update/uninstall via the `claude` CLI). Skill inventory is read-only in v1; plugin management is the one scoped write capability, mediated entirely through the CLI's own commands.
 
-## Commands
+**Real users.** Megatron has real users on macOS and Windows (no Linux build) and is built to scale to hundreds more, each with their own `~/.claude`: different plugin sets, Claude Code versions, project counts, and data volumes. This machine is one sample. Every fix, design choice, and grill-me recommendation targets that whole population: name the edge cases, handle each one, and choose the robust option over the one that only works here.
 
-Full script list is in `package.json`; these are the ones with a gotcha.
+## Gotchas
 
-| Command                 | Note                                                                                                                                                         |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `npm run dev`           | electron-vite dev — the normal way to run the app                                                                                                            |
-| `npm run build`         | typechecks **first**, then builds — a type error fails the build                                                                                             |
-| `npm run test`          | vitest run                                                                                                                                                   |
-| `npm run verify:visual` | Playwright-Electron screenshots; **not** wired into `npm test`/CI                                                                                            |
-| `npm run db`            | opens the local SQLite index in DB Browser                                                                                                                   |
-| `npm run db:reset`      | deletes the local index for a clean slate; a `schema.sql` change already triggers an automatic rebuild. Folder grants live in `preferences.json` and survive |
-| `npm run build:unpack`  | `--dir`, no DMG                                                                                                                                              |
-| `npm run build:mac`     | ad-hoc signed DMG + zip + `latest-mac.yml`; signs and notarizes only with `MEGATRON_SIGNED_RELEASE=true`                                                     |
-| `npm run build:win`     | unsigned NSIS installer + `latest.yml`; same switch                                                                                                          |
-| `npm run build:icons`   | runs under `electron`, not `node`; the macOS `.icon` is still hand-built (`DESIGN.md`, App Icon)                                                             |
-
-`postinstall` (`electron-builder install-app-deps`) and `prepare` (`git config core.hooksPath .githooks`) both run automatically on `npm install` — don't invoke them by hand.
-
-## Stack
-
-Electron + React + TypeScript on `electron-vite`, Tailwind v4 + shadcn/ui (`new-york`, `neutral`), TanStack Query, `better-sqlite3`, Vitest, `electron-builder`. Non-obvious parts:
-
-- npm, **no workspaces** — single-product repo, not a monorepo.
-- `package-lock.json` **is** committed; both founders and CI install off it with `npm ci`.
-- Node pinned to `22.x` via `.nvmrc` and `engines` — advisory, not `engine-strict`. A warning, not a hard block.
-- **Ships macOS (ad-hoc signed DMG + Homebrew tap) and Windows (per-user NSIS installer).** Release builds are unsigned by default; the Developer ID / Authenticode path runs only when `MEGATRON_SIGNED_RELEASE=true` (`scripts/release-build.mjs`), never just because secrets exist. A `v*` tag builds a **draft** GitHub Release that a human publishes; see `docs/releases.md`. CI runs `macos-latest` + `windows-latest`. No Linux build.
-
-## Layout
-
-`src/main/` · `src/preload/` · `src/renderer/src/` · `src/shared/`. Two things `ls` won't tell you:
-
+- `npm test` is vitest only. Tests for the release and packaging scripts (`scripts/*.test.mjs`) run under `npm run test:package-security`.
+- `npm run db:reset` deletes only the derived index (`megatron.db`). `usage-history.db` and the folder grants in `preferences.json` survive. A `schema.sql` change rebuilds the index without it.
 - `src/renderer/src/components/ui/` is shadcn-vendored — don't hand-edit.
 - Path alias `@/*` → `src/renderer/src/*` must be declared in **both** `tsconfig.json` (so the `shadcn` CLI resolves it) and `tsconfig.web.json` (so the renderer actually compiles).
 
