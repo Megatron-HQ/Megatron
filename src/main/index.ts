@@ -58,12 +58,15 @@ import {
   securePrivateDataDirectory
 } from './permissions'
 import {
+  markOnboardingDone,
   resolveInitialSection,
   resolveInitialTheme,
+  resolveOnboarding,
   setStoredSection,
   setStoredTheme,
   type ThemeStore
 } from './theme'
+import { suggestGrantStart } from '../shared/grant-suggestions'
 import {
   createScanController,
   ScanWorkerError,
@@ -456,9 +459,19 @@ app.whenReady().then(() => {
   }
 
   secureIpc.handle(IPC_CHANNELS.pickAndAddFolders, async (event) => {
+    // The starting folder comes from main's own record of where Claude Code ran, so the renderer
+    // still never names a path; it only saves the user navigating there.
+    const defaultPath = suggestGrantStart(
+      usageProjectLocations()
+        .filter((location) => location.status === 'needs_access')
+        .map((location) => location.path),
+      listAllowedPaths(themeStore).map((row) => row.path),
+      homedir()
+    )
     const picks = await pickFolders(event.sender, {
       title: 'Grant Project or Parent Folder',
-      message: GRANT_GUIDANCE
+      message: GRANT_GUIDANCE,
+      ...(defaultPath ? { defaultPath } : {})
     })
     return picks.length === 0
       ? { folders: listAllowedPaths(themeStore), skipped: [] }
@@ -583,6 +596,12 @@ app.whenReady().then(() => {
   secureIpc.handle(IPC_CHANNELS.setLastSection, (_event, section: AppSection) => {
     setStoredSection(themeStore, section)
   })
+
+  secureIpc.on(IPC_CHANNELS.getInitialOnboarding, (event) => {
+    event.returnValue = resolveOnboarding(themeStore)
+  })
+
+  secureIpc.handle(IPC_CHANNELS.setOnboardingDone, () => markOnboardingDone(themeStore))
 
   // Await the isolated scan; the completion broadcast invalidates renderer queries.
   secureIpc.handle(IPC_CHANNELS.rescan, () => scanAndNotify('announce', true))

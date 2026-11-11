@@ -167,9 +167,11 @@ npm ci
 npm run dev
 ```
 
-On first launch, Megatron scans its allowed Claude Code locations. Open **Settings > Project
-folders > Manage** to grant repositories containing project skills or project/local plugin
-settings. If startup reports `Error: Electron uninstall`, see
+On first launch, Megatron scans its allowed Claude Code locations and opens a short welcome. It
+covers what Megatron reads, what it found, and which folders Claude Code has run in, so you can
+grant the repositories that hold project skills or project/local plugin settings. Replay it from
+**Settings > About > Show welcome**. Grants can be changed later in **Settings > Project folders >
+Manage**. If startup reports `Error: Electron uninstall`, see
 [Environment setup](docs/environment-setup.md).
 
 Scripts live in `package.json`; `CLAUDE.md` notes the ones with a gotcha. Design and architecture

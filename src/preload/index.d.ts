@@ -59,6 +59,8 @@ interface Api {
   getRecordedRequest: () => Promise<RecordedRequest | null>
   getInitialSection: () => AppSection
   setLastSection: (section: AppSection) => Promise<void>
+  getInitialOnboarding: () => boolean
+  setOnboardingDone: () => Promise<void>
   rescan: () => Promise<ScanSummary>
   revealDataFolder: () => Promise<void>
   getVersion: () => string

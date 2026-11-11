@@ -23,6 +23,8 @@ export const IPC_CHANNELS = {
   uninstallPlugin: 'plugins:uninstall',
   getInitialSection: 'app:getInitialSection',
   setLastSection: 'app:setLastSection',
+  getInitialOnboarding: 'app:getInitialOnboarding',
+  setOnboardingDone: 'app:setOnboardingDone',
   rescan: 'app:rescan',
   revealDataFolder: 'app:revealDataFolder',
   getVersion: 'app:getVersion',

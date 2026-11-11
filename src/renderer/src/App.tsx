@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AppRail } from '@/components/AppRail'
 import { CommandPalette } from '@/components/CommandPalette'
 import { ManageFoldersDialog } from '@/components/ManageFoldersDialog'
+import { OnboardingDialog } from '@/components/onboarding/OnboardingDialog'
 import { PluginActionToasts, type PluginActionToast } from '@/components/PluginActionToasts'
 import { PluginSidebar } from '@/components/PluginSidebar'
 import { SettingsDialog } from '@/components/SettingsDialog'
@@ -94,6 +95,7 @@ function App(): React.JSX.Element {
   const [skillBackTarget, setSkillBackTarget] = useState<SkillBackTarget>('inventory')
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [onboardingOpen, setOnboardingOpen] = useState(() => window.api.getInitialOnboarding())
   const [foldersDialogOpen, setFoldersDialogOpen] = useState(false)
   const [treeWidth, setTreeWidth] = useState(TREE_WIDTH_DEFAULT)
   const [pluginActionToasts, setPluginActionToasts] = useState<PluginActionToast[]>([])
@@ -216,6 +218,8 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
+      // The palette or Settings would stack over onboarding's modal and fight it for focus.
+      if (onboardingOpen) return
       // `!event.repeat` — a held Cmd+K otherwise toggles the palette on every
       // key-repeat, landing it open or closed at random depending on parity.
       if (event.key === 'k' && (event.metaKey || event.ctrlKey) && !event.repeat) {
@@ -229,7 +233,7 @@ function App(): React.JSX.Element {
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [onboardingOpen])
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
@@ -423,6 +427,14 @@ function App(): React.JSX.Element {
       setPluginView({ kind: 'list' })
     void queryClient.invalidateQueries({ queryKey: ['skills'] })
     void queryClient.invalidateQueries({ queryKey: ['projects'] })
+  }
+
+  function finishOnboarding(): void {
+    setOnboardingOpen(false)
+    void window.api.setOnboardingDone()
+    setFilter({ kind: 'all' })
+    setView({ kind: 'list' })
+    handleSectionChange('skills')
   }
 
   function showPluginActionToast(message: string): void {
@@ -631,7 +643,21 @@ function App(): React.JSX.Element {
           setSettingsOpen(false)
           setFoldersDialogOpen(true)
         }}
+        onShowWelcome={() => {
+          setSettingsOpen(false)
+          setOnboardingOpen(true)
+        }}
         updateState={updateState}
+      />
+      <OnboardingDialog
+        open={onboardingOpen}
+        onFinish={finishOnboarding}
+        skills={skills}
+        plugins={plugins}
+        folders={folders}
+        scanComplete={scanComplete}
+        home={home}
+        onAddFolders={handleAddFolders}
       />
       <ManageFoldersDialog
         open={foldersDialogOpen}

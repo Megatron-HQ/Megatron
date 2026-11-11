@@ -5,7 +5,9 @@ import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   getStoredTheme,
+  markOnboardingDone,
   resolveInitialSection,
+  resolveOnboarding,
   setStoredSection,
   setStoredTheme,
   resolveInitialTheme,
@@ -69,5 +71,34 @@ describe('resolveInitialSection', () => {
   it('falls back to skills when the stored value is not a known section', () => {
     store.set('lastSection', 'no-such-section' as never)
     expect(resolveInitialSection(store)).toBe('skills')
+  })
+})
+
+describe('resolveOnboarding', () => {
+  const grant = (): void =>
+    store.set('grantedFolders', [
+      { path: join(tempDir, 'repo'), granted_at: '2026-11-01T00:00:00.000Z' }
+    ])
+
+  it('shows onboarding on a fresh install, and again if it was quit before finishing', () => {
+    expect(resolveOnboarding(store)).toBe(true)
+    expect(resolveOnboarding(store)).toBe(true)
+  })
+
+  it('skips onboarding once it has been finished', () => {
+    markOnboardingDone(store)
+    expect(resolveOnboarding(store)).toBe(false)
+  })
+
+  it('skips an upgrading user who already granted folders, for good', () => {
+    grant()
+    expect(resolveOnboarding(store)).toBe(false)
+    store.set('grantedFolders', [])
+    expect(resolveOnboarding(store)).toBe(false)
+  })
+
+  it('ignores malformed grants when deciding the user is already set up', () => {
+    store.set('grantedFolders', [{ path: 'relative/repo', granted_at: '2026-11-01' }] as never)
+    expect(resolveOnboarding(store)).toBe(true)
   })
 })

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { usageOverviewQuery } from '@/lib/usage-overview-query'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import {
   Activity,
@@ -93,11 +94,7 @@ export function UsageView({
   const reduceMotion = useReducedMotion() === true
   const projects = useUsageProjects()
 
-  const { data, isPending, isFetching, isError, refetch } = useQuery({
-    queryKey: ['usage'],
-    queryFn: () => window.api.getUsageOverview(),
-    refetchInterval: (query) => (query.state.data?.scanComplete ? false : 750)
-  })
+  const { data, isPending, isFetching, isError, refetch } = useQuery(usageOverviewQuery)
   const calendar = useQuery({
     queryKey: ['usage', 'calendar', calendarYear],
     queryFn: () => window.api.getUsageCalendar(calendarYear),

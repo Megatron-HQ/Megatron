@@ -20,6 +20,7 @@ interface SettingsDialogProps {
   scanSummary?: ScanSummary
   scanning: boolean
   onManageFolders: () => void
+  onShowWelcome: () => void
   updateState?: UpdateState
 }
 
@@ -59,6 +60,7 @@ export function SettingsDialog({
   scanSummary,
   scanning,
   onManageFolders,
+  onShowWelcome,
   updateState
 }: SettingsDialogProps): React.JSX.Element {
   const queryClient = useQueryClient()
@@ -267,12 +269,20 @@ export function SettingsDialog({
 
           <section className="flex items-center justify-between gap-4 border-t border-border pt-3">
             <p className="font-mono text-xs text-muted-foreground">Megatron v{version}</p>
-            <TextLink
-              onClick={() => window.api.revealDataFolder()}
-              className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Reveal data folder
-            </TextLink>
+            <div className="flex items-center gap-4">
+              <TextLink
+                onClick={onShowWelcome}
+                className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Show welcome
+              </TextLink>
+              <TextLink
+                onClick={() => window.api.revealDataFolder()}
+                className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Reveal data folder
+              </TextLink>
+            </div>
           </section>
         </div>
       </DialogContent>

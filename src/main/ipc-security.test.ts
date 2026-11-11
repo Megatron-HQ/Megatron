@@ -89,6 +89,12 @@ describe('renderer trust boundary', () => {
     expect(() => security.validateIpcArguments(channel, args)).not.toThrow()
   })
   it.each([
+    [IPC_CHANNELS.getInitialOnboarding, []],
+    [IPC_CHANNELS.setOnboardingDone, []]
+  ])('accepts onboarding requests for %s', (channel, args) => {
+    expect(() => security.validateIpcArguments(channel, args)).not.toThrow()
+  })
+  it.each([
     [IPC_CHANNELS.narrowAllowedPath, ['/Users/me/Desktop']],
     [IPC_CHANNELS.getHomePath, []]
   ])('accepts valid folder requests for %s', (channel, args) => {
@@ -101,6 +107,9 @@ describe('renderer trust boundary', () => {
     [IPC_CHANNELS.narrowAllowedPath, ['/Users/me/Desktop\0']],
     // Narrowing replaces the grant with dialog picks; the renderer never names folders to add.
     [IPC_CHANNELS.narrowAllowedPath, ['/Users/me/Desktop', ['/Users/me/Desktop/api']]],
+    // The picker's starting folder is computed in main; the renderer never names one.
+    [IPC_CHANNELS.pickAndAddFolders, ['/Users/me/code']],
+    [IPC_CHANNELS.setOnboardingDone, [true]],
     [IPC_CHANNELS.getHomePath, ['/Users/me']]
   ])('rejects malformed folder requests for %s', (channel, args) => {
     expect(() => security.validateIpcArguments(channel, args)).toThrow()

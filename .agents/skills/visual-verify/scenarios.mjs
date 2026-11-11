@@ -9,10 +9,10 @@
 // Implementing a UI change that adds a new screen, nav destination, or major
 // state includes adding its scenario here in the same change — see SKILL.md.
 //
-// Every scenario carries a `screen` — one of the ten names in SKILL.md's "Scope
+// Every scenario carries a `screen` — one of the names in SKILL.md's "Scope
 // the run" table (skill-inventory, skill-detail, skill-file-viewer, sidebar,
 // command-palette, context-budget-dialog, settings-dialog, plugin-inventory,
-// plugin-detail, usage), tagged by what the screenshot is actually testing. It's what
+// plugin-detail, usage, onboarding), tagged by what the screenshot is actually testing. It's what
 // `npm run verify:visual -- --only <screen>` filters on. The two interaction
 // guards (sidebar-filter-closes-open-detail, command-palette-skill-from-plugins-
 // section) list both screens they span. A new scenario MUST have one.
@@ -2819,5 +2819,27 @@ export const scenarios = [
         .scrollIntoViewIfNeeded()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
-  }
+  },
+  ...['brief', 'overview', 'folders'].map((step, index) => ({
+    // Each onboarding step must fit the 860×500 minimum window, with only the folder list
+    // scrolling. Folder rows and counts are this machine's real Claude Code data.
+    name: `onboarding-${step}`,
+    screen: 'onboarding',
+    async run(window) {
+      await openOnboarding(window)
+      for (let next = 0; next < index; next += 1)
+        await window.getByRole('button', { name: 'Next', exact: true }).click()
+      await window
+        .getByRole('button', { name: `Step ${index + 1} of 3`, exact: true })
+        .and(window.locator('[aria-current="step"]'))
+        .waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  }))
 ]
+
+async function openOnboarding(window) {
+  await window.getByRole('button', { name: 'Settings', exact: true }).click()
+  await window.getByRole('button', { name: 'Show welcome', exact: true }).click()
+  await window.getByRole('dialog', { name: 'Welcome to Megatron', exact: true }).waitFor()
+}

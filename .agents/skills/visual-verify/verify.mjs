@@ -181,9 +181,12 @@ async function captureAll(app, window, outDir, activeScenarios, scoped) {
       // so a scenario that ends on the Plugins section or flips the theme would
       // otherwise poison every scenario after it — reset both before reloading.
       await app.evaluate(() => globalThis.megatronVisualFixtures.reset())
+      // The throwaway profile has no folder grants, so first-run onboarding would open over
+      // every scenario; the onboarding scenarios reopen it through Settings › Show welcome.
       await window.evaluate(async () => {
         await window.api.setLastSection('skills')
         await window.api.setTheme('system')
+        await window.api.setOnboardingDone()
       })
       await window.reload()
       await waitForSettle(window)

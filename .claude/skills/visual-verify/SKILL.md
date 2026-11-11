@@ -47,6 +47,7 @@ files to screens:
 | `views/PluginDetail.tsx`                                                              | `plugin-detail`                  |
 | `components/PluginBadges.tsx`                                                         | `plugin-inventory,plugin-detail` |
 | `views/UsageView.tsx`, `components/usage/**`                                          | `usage`                          |
+| `components/onboarding/**`                                                            | `onboarding`                     |
 
 A changed file **not in this table → run the full sweep.** (`ManageFoldersDialog.tsx` and
 `PluginActionToasts.tsx` have no scenario at all — a pre-existing coverage gap, not something
@@ -170,7 +171,7 @@ running full the whole time anyway.
 
 **Implementing a UI change that adds a new screen, nav destination, or major state includes adding
 its scenario to `scenarios.mjs` in the same change** — this is part of "done," not a follow-up. Each
-entry is `{ name, screen, run(window) }`: `screen` is one of the ten names in the "Scope the run"
+entry is `{ name, screen, run(window) }`: `screen` is one of the names in the "Scope the run"
 table (or an array, for a scenario guarding an interaction between two screens); `run` describes how
 to get from the app's default baseline state to the state you want screenshotted (the runner reloads
 back to baseline before every scenario, so don't assume another scenario ran first — see the comment

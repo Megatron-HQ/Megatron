@@ -12,6 +12,8 @@ Confirmed rejections: no drop shadows on anything at rest (shadows are reserved 
 
 The **Usage** section (a retrospective, not an inventory) is a different surface class. Its user-authorised departures are all recorded below, each scoped to Usage: the Usage Stat numeral (Typography), monochrome chart ink and the model-series and Resident Tax palettes (Colors), and hand-rolled, animated charts (Components).
 
+**Onboarding** (the first-run dialog) is a third surface class, also user-authorised: large step headlines and motion-led transitions with live count-ups, scoped to that dialog alone. See the Onboarding entry under Components.
+
 **Key Characteristics:**
 
 - Dense, Linear-style sidebar + list/detail shell, now spanning three sections (Skills, Plugins, Usage) behind a persistent icon rail — still a utility, never a spacious admin dashboard
@@ -156,8 +158,28 @@ A single radius scale rooted at 10px (`--radius: 0.625rem`), applied identically
 ### Settings (dialog)
 
 - Modal `Dialog` (`SettingsDialog.tsx`), opened by the rail gear or `Cmd+,` — not a third rail section. Built on the same vendored `Dialog` primitives and `Button variant="outline" size="sm"` as `ManageFoldersDialog`. Single column, sections separated by 1px `border-t` rule-lines per the Ledger-Lies-Flat Rule; floats above the page so it (via the primitive) may cast a shadow.
-- v1 sections: **Appearance** (segmented Light | Dark | System control) · **Index** ("Rescan now") · **Project folders** ("Manage…", which closes Settings and opens `ManageFoldersDialog`, where revoking is two-step: the row turns into an inline confirm naming how many projects lose access, with "Keep some folders…" to re-pick children instead; picks already covered by a grant are listed in a muted notice, not an error) · **Updates** (status line; one outline action: "Check now", or "Restart to update" on Windows once downloaded, or "Download" on macOS plus a select-all `brew upgrade --cask megatron` line; a "Check for updates automatically" switch drawn in ink) · **About** (`Megatron v{version}` in Geist Mono + a "Reveal data folder" text button).
+- v1 sections: **Appearance** (segmented Light | Dark | System control) · **Index** ("Rescan now") · **Project folders** ("Manage…", which closes Settings and opens `ManageFoldersDialog`, where revoking is two-step: the row turns into an inline confirm naming how many projects lose access, with "Keep some folders…" to re-pick children instead; picks already covered by a grant are listed in a muted notice, not an error) · **Updates** (status line; one outline action: "Check now", or "Restart to update" on Windows once downloaded, or "Download" on macOS plus a select-all `brew upgrade --cask megatron` line; a "Check for updates automatically" switch drawn in ink) · **About** (`Megatron v{version}` in Geist Mono + "Show welcome" and "Reveal data folder" text buttons).
 - The segmented control's active item is **ink-fill** (`bg-muted text-foreground`), mirroring the rail's active-section treatment — deliberately not lime, per the One Stamp Rule. `role="radiogroup"` with `aria-checked` on each option.
+
+### Onboarding (dialog)
+
+- A three-step modal over the live app (`components/onboarding/`): a brief of what Megatron does and doesn't do, an overview of Skills / Plugins / Usage with the user's own counts, and folder access. It shows when no folder is granted and the flag in `preferences.json` is unset. Every exit (finish, Skip, Esc, close) sets the flag. Clicking outside does nothing. Settings › About › "Show welcome" replays it.
+- **Departs from the ledger, user-authorised and scoped to this dialog:**
+  - Step headlines are 24px/600, the one place above the No-Hero-Type cap besides the Usage Stat.
+  - Steps slide and crossfade on springs, direction-aware.
+  - The dialog's height animates to each step.
+  - Facts, cards and folder rows stagger in.
+  - Counts tick up as the scan reports.
+  - Granted rows pop a check.
+  - The progress dots stretch into a pill on the active step.
+- **Kept:**
+  - Geist and the theme tokens in both themes.
+  - Lime on exactly one CTA at a time: Next, then "Choose folders…" until something is granted, then "Open Megatron".
+  - No gradients, glows or animated backgrounds.
+  - Every `motion` use guards `useReducedMotion()`. With reduced motion, steps become opacity-only and counts show their final value.
+  - Focus moves to each step's heading on mount.
+  - ←/→ change steps, and Enter advances the two reading steps.
+- **Reactive by design:** the overview and folder list read the same query caches the app polls during the first scan, so they fill in live. A count that settles at zero drops its numeral and keeps only the card's line. With no Claude Code data at all, the overview becomes a "No Claude Code data found" state listing the likely causes, with a Rescan button.
 
 ### Sidebar Navigation
 

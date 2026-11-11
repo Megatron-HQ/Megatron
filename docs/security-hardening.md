@@ -43,7 +43,10 @@ in-memory access, and their cached skills stay because the parent covers them. G
 older versions collapse the same way at startup, before access is restored. Overlap is decided by
 `isWithinGrant`, the containment rule `isPathAllowed` uses, so the two cannot disagree. Narrowing
 (`folders:narrow`) accepts only a path equal to an existing grant and replaces it with folders
-picked in the native dialog, so grants still come only from that dialog. Every grant change drops
+picked in the native dialog, so grants still come only from that dialog. The add dialog may open
+in a suggested starting folder, which main computes from Claude Code's recorded project locations
+(`suggestGrantStart`). It never suggests the home folder, anything above it, or a drive/share
+root, and the renderer never supplies it. Every grant change drops
 cached skills only where no remaining grant covers them. Threat: a child grant the user believes
 went away with its parent would keep that folder readable, invisibly to anyone reading the list.
 
