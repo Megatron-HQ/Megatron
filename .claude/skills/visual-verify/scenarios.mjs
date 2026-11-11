@@ -1267,6 +1267,33 @@ export const scenarios = [
     }
   },
   {
+    // The entity tile's tightest contrast is dark Skills on the selected-row fill (3.24:1, DESIGN.md
+    // → Validation). cmdk selects the first item (a plugin) on open, so End selects a skill row.
+    name: 'command-palette-skill-selected-dark',
+    screen: 'command-palette',
+    async run(window) {
+      await setDarkTheme(window)
+      await window.waitForFunction(() => document.documentElement.classList.contains('dark'))
+      await window.keyboard.press('Meta+k')
+      await window.getByPlaceholder(/search skills/i).waitFor()
+      await window.keyboard.press('End')
+    }
+  },
+  {
+    // A disabled skill's ⌘K row: neutral entity tile, labeled by the dormant Power + "Disabled".
+    name: 'command-palette-disabled-skill',
+    screen: 'command-palette',
+    shouldSkip: skipWithoutDisabledSkills,
+    async run(window) {
+      const name = await window.locator('tbody tr:has(svg.lucide-power) td').first().innerText()
+      await window.keyboard.press('Meta+k')
+      const input = window.getByPlaceholder(/search skills/i)
+      await input.waitFor()
+      await input.fill(name.trim())
+      await window.getByRole('option').filter({ hasText: 'Disabled' }).first().waitFor()
+    }
+  },
+  {
     // Keyboard path is covered by command-palette-open above — this covers the
     // visible header button separately, since it's a distinct entry point.
     name: 'command-palette-via-header-button',

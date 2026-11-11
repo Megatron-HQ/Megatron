@@ -154,6 +154,10 @@
   --color-usage-series-2: var(--usage-series-2);
   --color-usage-series-3: var(--usage-series-3);
   --color-usage-series-4: var(--usage-series-4);
+  --color-entity-skills: var(--entity-skills);
+  --color-entity-mcp: var(--entity-mcp);
+  --color-entity-memory: var(--entity-memory);
+  --color-entity-agents: var(--entity-agents);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

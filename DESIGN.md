@@ -70,13 +70,14 @@ Four categorical hues — `--usage-series-1/2/3/4` (Sonnet, Opus, Haiku, Fable; 
 
 ### Entity identity
 
-Four fixed hues name what a thing is: `--entity-skills` (violet), `--entity-mcp` (cyan), `--entity-memory` (magenta), and `--entity-agents` (orange). Plugins, hooks, and commands stay neutral. Today the entity hues mark Resident Tax only, in its composition bar and matching ledger dots; MCP tools and MCP server instructions share the MCP hue. Deferred items use an outlined dot in the same hue. System overhead and unknown categories stay neutral, the autocompact buffer keeps quiet stripes, and free space stays the bare track. Entity hues never color text, numbers, row backgrounds, selection, drill-in dialogs, the rail, or section icons such as onboarding's overview cards, and never change with rank or refresh. They never appear on the frame at all (see the Channel Rule).
+Four fixed hues name what a thing is: `--entity-skills` (violet), `--entity-mcp` (cyan), `--entity-memory` (magenta), and `--entity-agents` (orange). Plugins, hooks, and commands stay neutral. Today the entity hues mark two things. The entity glyph (Components → Entity glyph) marks Skills in ⌘K's skill rows and the SkillDetail header; MCP, Memory, and Agents glyphs render once those entities have surfaces of their own. Resident Tax colors its composition bar and matching ledger dots; MCP tools and MCP server instructions share the MCP hue. Deferred items use an outlined dot in the same hue. System overhead and unknown categories stay neutral, the autocompact buffer keeps quiet stripes, and free space stays the bare track. A glyph's tinted tile is part of the mark, not a row background. Entity hues never color text, numbers, row backgrounds, selection, drill-in dialogs, the rail, or section icons such as onboarding's overview cards, and never change with rank or refresh. They never appear on the frame at all (see the Channel Rule).
 
 ### Validation
 
-Verified 2026-11-11 with the `dataviz` skill's `validate_palette.js`, against the `--background` sheet of each theme, and against the `--frame` for the tones and neutrals the frame carries.
+Verified 2026-11-11 with the `dataviz` skill's `validate_palette.js`, against the `--background` sheet of each theme, against the `--frame` for the tones and neutrals the frame carries, and against `--popover` and the `--accent` selected-row fill for the entity glyph tiles.
 
 - **Entities, all pairs** (entity marks can sit next to each other in any order): worst colorblind ΔE 13.9 light / 11.8 dark; worst normal-vision ΔE 18.2 / 15.2. Dark steps run up to L 0.70 so marks clear 3:1; MCP's dark step (L 0.701) sits just past the validator's dark lightness band on purpose, its one flagged check.
+- **Entity glyph tiles** (the glyph against a 10% tint of its own hue, composited over the surface beneath): Skills 5.15 on the popover / 5.06 on the sheet / 4.39 on a selected row (`--accent`) light, 3.48 / 3.81 / 3.24 dark; Memory 5.19 / 5.14 / 4.44 light, 3.42 / 3.73 / 3.16 dark. Light Agents drops to 2.69 on a selected row, and light MCP to 2.93 / 2.88 / 2.51 (2.78 even bare on a selected row). Neither renders as a glyph yet; each gets a darker glyph step, validated here, before it does. A stronger tint costs contrast: at 16% dark Skills on a selected row falls to 3.02.
 - **Tones:** icons clear 3:1 on the paper. Light: danger 5.77, warning 3.13, success 3.36, info 4.75, dormant 4.02. Dark: danger 5.66, warning 10.0, success 9.68, info 7.27, dormant 6.90.
 - **Tones on the frame:** Light: danger 5.25, warning 3.14 (the `--frame-warning` step; the sheet's step would be 2.85), success 3.06, info 4.33, dormant 3.66. Dark: danger 6.17, warning 10.9, success 10.6, info 7.93, dormant 7.52. The frame step keeps its tone neighbors apart: warning ↔ danger ΔE 10.9 colorblind (deutan) / 16.0 normal, warning ↔ success 8.8 (protan) / 21.6.
 - **Frame and sheet:** sheet:frame 1.10:1 light / 1.09:1 dark. Light `--frame-muted` on the frame 1.09:1; `--muted-foreground` on `--frame-muted` 4.53:1 and on the frame 4.96:1.
@@ -157,6 +158,14 @@ A single radius scale rooted at 10px (`--radius: 0.625rem`), applied identically
 - **Status pills** (`LintStatusBadge`): rounded-full, muted fill, bordered. The only colored element is the icon (danger/warning/success tone) — the label text always stays ledger-ink, so a status is legible even to someone who can't distinguish the tones.
 - **Plugin update pill** (`PluginBadges`): `ArrowUpCircle` + "Update" in the info tone. PluginDetail's Update button takes the same tone while an update is available.
 - **Disabled** (`Power`): the dormant tone, icon-only with a tooltip in the table's icon tray, and icon + "Disabled" in the plugin status pill.
+
+### Entity glyph
+
+- **`EntityGlyph`** is the entity mark outside Resident Tax: a 28px `rounded-lg` tile tinted with the entity's hue at 10%, holding a 16px glyph in the full hue. Skills `BrainCircuit`, MCP `Plug`, Memory `NotebookText`, Agents `Workflow`. Memory isn't `FileText`, which already means SKILL.md. Agents isn't `Bot`, which pairs with `BotOff` to mean "Claude invokes it on its own" (the Auto trigger and the user-invocable-only chip).
+- **Where:** the leading slot of ⌘K skill rows, and the SkillDetail header between Back and the title. In ⌘K the source icon moves inline before the source label, keeping its icon + label pair, and plugin rows keep a bare, muted `Blocks` in a slot of the same width so both groups' text lines up. Plugins aren't an entity, so they get no tile.
+- **Always beside text that names the entity** (a group heading, the detail view's title), so the glyph is decorative (`aria-hidden`) and identity is never carried by color alone.
+- **Disabled skills** get a neutral tile (`--muted` fill, muted-ink glyph). ⌘K labels it with the dormant `Power` + "Disabled"; SkillDetail's Disabled chip already does.
+- Never on the frame and never as a section icon: the rail, onboarding's overview cards, and the Usage panel list keep an ink `BrainCircuit` (the Channel Rule).
 
 ### Table (the ledger's spine)
 

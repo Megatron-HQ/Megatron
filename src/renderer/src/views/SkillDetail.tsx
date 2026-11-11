@@ -10,6 +10,7 @@ import {
   Power,
   Webhook
 } from 'lucide-react'
+import { EntityGlyph } from '@/components/EntityGlyph'
 import { InvocationGroupRow } from '@/components/InvocationGroupRow'
 import { InvocationRow } from '@/components/InvocationRow'
 import { LintFindingsPanel } from '@/components/LintFindingsPanel'
@@ -150,6 +151,7 @@ export function SkillDetail({
           >
             <ArrowLeft className="size-4" />
           </Button>
+          <EntityGlyph entity="skills" disabled={skill.disabled_reason !== null} />
           <h2 className="min-w-0 truncate text-base font-semibold">
             {getSkillDisplayName(skill.name, skill.source_type, skill.plugin_name)}
           </h2>

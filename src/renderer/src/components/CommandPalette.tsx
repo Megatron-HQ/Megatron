@@ -1,4 +1,5 @@
-import { Blocks } from 'lucide-react'
+import { Blocks, Power } from 'lucide-react'
+import { EntityGlyph } from '@/components/EntityGlyph'
 import { SOURCE_ICON, SYNCED_ICON } from '@/lib/source-icon'
 import { getSkillDisplayName, getSourceDisplayName } from '@/lib/source-name'
 import { projectRootForSkill } from '@/lib/source-filter'
@@ -52,7 +53,11 @@ export function CommandPalette({
                 onOpenChange(false)
               }}
             >
-              <Blocks className="size-4" />
+              {/* Same width as the skill rows' entity tile so both groups' text lines up;
+                  plugins aren't an entity, so no tile. */}
+              <span className="flex w-7 shrink-0 justify-center">
+                <Blocks className="size-4!" />
+              </span>
               <div className="flex flex-1 flex-col overflow-hidden">
                 <div className="flex items-center gap-2">
                   <span className="truncate">{plugin.name}</span>
@@ -67,6 +72,7 @@ export function CommandPalette({
         <CommandGroup heading="Skills">
           {skills.map((skill) => {
             const isSynced = skill.is_synced === 1
+            const isDisabled = skill.disabled_reason !== null
             const Icon = isSynced ? SYNCED_ICON : SOURCE_ICON[skill.source_type]
             const sourceName =
               skill.source_type === 'project'
@@ -86,20 +92,29 @@ export function CommandPalette({
                   onOpenChange(false)
                 }}
               >
-                <Icon className="size-4" />
+                <EntityGlyph entity="skills" disabled={isDisabled} />
                 <div className="flex flex-1 flex-col overflow-hidden">
                   <div className="flex items-center gap-2">
                     <span className="truncate">
                       {getSkillDisplayName(skill.name, skill.source_type, skill.plugin_name)}
                     </span>
-                    <span className="flex min-w-0 text-[11px] text-muted-foreground">
+                    <span className="flex min-w-0 items-center text-[11px] text-muted-foreground">
                       ·&nbsp;
+                      <Icon className="mr-1 size-3!" />
                       {skill.source_type === 'project' ? (
                         <ProjectName label={sourceName} />
                       ) : (
                         <span className="truncate">{sourceName}</span>
                       )}
                     </span>
+                    {/* Labels the neutral tile, so "disabled" is never carried by color alone. */}
+                    {isDisabled && (
+                      <span className="flex shrink-0 items-center text-[11px] text-muted-foreground">
+                        ·&nbsp;
+                        <Power className="mr-1 size-3! text-dormant" />
+                        Disabled
+                      </span>
+                    )}
                   </div>
                   {skill.description && (
                     <span className="truncate text-xs text-muted-foreground">
