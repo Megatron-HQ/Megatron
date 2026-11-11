@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { homedir, tmpdir } from 'os'
 import { join, resolve } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,9 +9,11 @@ import {
   allowedReadFileSync,
   allowedRealpathSync,
   allowedStatSync,
+  canonicalGrantPath,
   getGrantedPaths,
   grantPath,
   isPathAllowed,
+  isWithinGrant,
   readAllowedDirectory,
   resetGrantedPaths,
   visitAllowedUtf8LinesSync,
@@ -192,6 +194,64 @@ describe('isPathAllowed', () => {
         )
       )
     ).toBe(true)
+  })
+})
+
+describe('isWithinGrant', () => {
+  const root = resolve('/work/repo')
+
+  it.each([
+    [root, true],
+    [resolve('/work/repo/src/index.ts'), true],
+    [resolve('/work/repo-2'), false],
+    [resolve('/work'), false],
+    [resolve('/work/repo/../other'), false]
+  ])('classifies %s against the grant exactly as isPathAllowed does', (path, expected) => {
+    expect(isWithinGrant(path, root)).toBe(expected)
+    grantPath(root)
+    expect(isPathAllowed(path)).toBe(expected)
+  })
+
+  // A whole external drive or volume is a real grant; its root already ends in a separator.
+  it('contains every path on a granted filesystem root', () => {
+    const driveRoot = resolve('/')
+    expect(isWithinGrant(resolve('/projects/api'), driveRoot)).toBe(true)
+    grantPath(driveRoot)
+    expect(isPathAllowed(resolve('/projects/api'))).toBe(true)
+  })
+
+  it('ignores case only on win32', () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+    try {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      expect(isWithinGrant(resolve('/Work/Repo/src'), resolve('/work/repo'))).toBe(true)
+      Object.defineProperty(process, 'platform', { value: 'darwin' })
+      expect(isWithinGrant(resolve('/Work/Repo/src'), resolve('/work/repo'))).toBe(false)
+    } finally {
+      Object.defineProperty(process, 'platform', platform)
+    }
+  })
+})
+
+describe('canonicalGrantPath', () => {
+  it('resolves a linked folder to its target without granting either', () => {
+    const target = mkdtempSync(join(tmpdir(), 'megatron-canonical-target-'))
+    const parent = mkdtempSync(join(tmpdir(), 'megatron-canonical-link-'))
+    const link = join(parent, 'linked')
+    try {
+      symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir')
+      expect(canonicalGrantPath(link)).toBe(realpathSync(target))
+      expect(getGrantedPaths()).toEqual([])
+    } finally {
+      rmSync(parent, { recursive: true, force: true })
+      rmSync(target, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps a missing folder at its absolute path', () => {
+    expect(canonicalGrantPath(resolve('/missing/../missing-grant'))).toBe(
+      resolve('/missing-grant')
+    )
   })
 })
 

@@ -4,6 +4,7 @@ import {
   IPC_CHANNELS,
   type AllowedPathRow,
   type AppSection,
+  type GrantChangeResult,
   type OpenSkillMetaResult,
   type OpenSkillResult,
   type PluginActionInput,
@@ -44,8 +45,10 @@ const api = {
   listAllowedPaths: (): Promise<AllowedPathRow[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.listAllowedPaths),
   listProjects: () => ipcRenderer.invoke(IPC_CHANNELS.listProjects),
-  pickAndAddFolders: (): Promise<AllowedPathRow[]> =>
+  pickAndAddFolders: (): Promise<GrantChangeResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.pickAndAddFolders),
+  narrowAllowedPath: (path: string): Promise<GrantChangeResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.narrowAllowedPath, path),
   revokeAllowedPath: (path: string): Promise<AllowedPathRow[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.revokeAllowedPath, path),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.openExternal, url),
@@ -85,6 +88,7 @@ const api = {
   rescan: (): Promise<ScanSummary> => ipcRenderer.invoke(IPC_CHANNELS.rescan),
   revealDataFolder: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.revealDataFolder),
   getVersion: (): string => ipcRenderer.sendSync(IPC_CHANNELS.getVersion),
+  getHomePath: (): string => ipcRenderer.sendSync(IPC_CHANNELS.getHomePath),
   getUpdateState: (): Promise<UpdateState> => ipcRenderer.invoke(IPC_CHANNELS.getUpdateState),
   checkForUpdates: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.checkForUpdates),
   installUpdate: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.installUpdate),

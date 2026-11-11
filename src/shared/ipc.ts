@@ -12,6 +12,7 @@ export const IPC_CHANNELS = {
   listProjects: 'projects:list',
   pickAndAddFolders: 'folders:pickAndAdd',
   revokeAllowedPath: 'folders:revoke',
+  narrowAllowedPath: 'folders:narrow',
   openExternal: 'shell:openExternal',
   listPlugins: 'plugins:list',
   getPluginDetail: 'plugins:detail',
@@ -25,6 +26,7 @@ export const IPC_CHANNELS = {
   rescan: 'app:rescan',
   revealDataFolder: 'app:revealDataFolder',
   getVersion: 'app:getVersion',
+  getHomePath: 'app:getHomePath',
   usageOverview: 'usage:overview',
   usageCalendar: 'usage:calendar',
   usageDay: 'usage:day',
@@ -55,6 +57,20 @@ export interface AllowedPathRow {
   path: string
   granted_at: string
 }
+
+export interface SkippedGrant {
+  path: string
+  coveredBy: string
+}
+
+export interface GrantChangeResult {
+  folders: AllowedPathRow[]
+  skipped: SkippedGrant[]
+}
+
+// Shown in Manage Folders and as the native picker's macOS message, so both say the same thing.
+export const GRANT_GUIDANCE =
+  'A parent folder includes every project inside it, including ones added later. To include only some, select them individually; you can pick several at once.'
 
 export interface ProjectFolder {
   path: string

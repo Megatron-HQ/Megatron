@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, dialog, ipcMain, net, protocol, session } from 'electron'
-import { join } from 'path'
+import { basename, join } from 'path'
 import { homedir } from 'os'
 import { pathToFileURL } from 'url'
 import {
@@ -34,7 +34,7 @@ import {
 import type { UsageProjectLocation } from '../shared/usage-projects'
 import { createScanSession, type ScanUrgency } from './scan-session'
 import { disableChromiumHttpCache } from './chromium-cache'
-import { addAllowedPath, listAllowedPaths, removeAllowedPath } from './folder-grants'
+import { changeAllowedPaths, listAllowedPaths, normalizeAllowedPaths } from './folder-grants'
 import { createUpdater, type Updates } from './updater'
 import {
   deleteSkillsForProjectRoot,
@@ -49,6 +49,7 @@ import {
   listSkills
 } from './db/queries'
 import {
+  canonicalGrantPath,
   getGrantedPaths,
   isPathAllowed,
   grantPath,
@@ -79,9 +80,11 @@ import { openSafeExternal } from './shell'
 import { disablePlugin, enablePlugin, uninstallPlugin, updatePlugin } from './plugin-actions'
 import { createPluginActionService } from './plugin-action-service'
 import {
+  GRANT_GUIDANCE,
   IPC_CHANNELS,
   INVOCATION_PAGE_SIZE,
   type AppSection,
+  type GrantChangeResult,
   type OpenSkillMetaResult,
   type OpenSkillResult,
   type PluginActionInput,
@@ -418,43 +421,69 @@ app.whenReady().then(() => {
     )
   )
 
-  secureIpc.handle(IPC_CHANNELS.pickAndAddFolders, async (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender)
-    const options: Electron.OpenDialogOptions = {
-      title: 'Grant Project or Parent Folder',
+  async function pickFolders(
+    sender: Electron.WebContents,
+    options: Electron.OpenDialogOptions
+  ): Promise<string[]> {
+    const window = BrowserWindow.fromWebContents(sender)
+    const dialogOptions: Electron.OpenDialogOptions = {
+      ...options,
       properties: ['openDirectory', 'multiSelections']
     }
     const result = window
-      ? await dialog.showOpenDialog(window, options)
-      : await dialog.showOpenDialog(options)
-    if (result.canceled || result.filePaths.length === 0) {
-      return listAllowedPaths(themeStore)
-    }
+      ? await dialog.showOpenDialog(window, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions)
+    return result.canceled ? [] : result.filePaths
+  }
+
+  // Every grant change, so add, narrow and revoke share one ordering: persist first (a failed
+  // write leaves access as it was), then update in-memory access, then drop skills no longer
+  // readable. Picks are only registered once known not to be covered by another grant.
+  async function changeGrants(picks: string[], remove: string[]): Promise<GrantChangeResult> {
+    const selected = new Map(picks.map((pick) => [canonicalGrantPath(pick), pick]))
+    // Outside the try: a worker that can't be stopped must leave access and scans untouched.
     await scans.cancel()
     try {
-      for (const filePath of result.filePaths) {
-        addAllowedPath(themeStore, grantPath(filePath))
-      }
+      const change = changeAllowedPaths(themeStore, { add: [...selected.keys()], remove })
+      for (const path of [...remove, ...change.absorbed]) revokePath(path)
+      for (const path of change.added) grantPath(selected.get(path)!)
+      for (const path of remove) deleteSkillsForProjectRoot(getDb(), path, isPathAllowed)
+      return { folders: change.next, skipped: change.skipped }
     } finally {
       inventoryWatcher?.update()
       void scanAndNotify()
     }
-    return listAllowedPaths(themeStore)
+  }
+
+  secureIpc.handle(IPC_CHANNELS.pickAndAddFolders, async (event) => {
+    const picks = await pickFolders(event.sender, {
+      title: 'Grant Project or Parent Folder',
+      message: GRANT_GUIDANCE
+    })
+    return picks.length === 0
+      ? { folders: listAllowedPaths(themeStore), skipped: [] }
+      : changeGrants(picks, [])
   })
 
-  secureIpc.handle(IPC_CHANNELS.revokeAllowedPath, async (_event, path: string) => {
-    const db = getDb()
-    await scans.cancel()
-    try {
-      revokePath(path)
-      removeAllowedPath(themeStore, path)
-      deleteSkillsForProjectRoot(db, path, isPathAllowed)
-    } finally {
-      inventoryWatcher?.update()
-      void scanAndNotify()
-    }
-    return listAllowedPaths(themeStore)
+  secureIpc.handle(IPC_CHANNELS.narrowAllowedPath, async (event, path: string) => {
+    // Only an existing grant can be narrowed, and the replacement folders come from the native
+    // dialog, so the renderer still can never name a folder to grant.
+    const grant = listAllowedPaths(themeStore).find((row) => row.path === path)
+    if (!grant) throw new Error('Folder is not granted')
+    const picks = await pickFolders(event.sender, {
+      title: 'Choose Folders to Keep',
+      message: `Choose the folders inside ${basename(grant.path)} to keep. Everything else in it loses access.`,
+      defaultPath: grant.path
+    })
+    return picks.length === 0
+      ? { folders: listAllowedPaths(themeStore), skipped: [] }
+      : changeGrants(picks, [grant.path])
   })
+
+  secureIpc.handle(
+    IPC_CHANNELS.revokeAllowedPath,
+    async (_event, path: string) => (await changeGrants([], [path])).folders
+  )
 
   secureIpc.handle(IPC_CHANNELS.openExternal, (_event, url: string) => {
     openSafeExternal(url, (safeUrl) => {
@@ -567,6 +596,11 @@ app.whenReady().then(() => {
     event.returnValue = appVersion
   })
 
+  // The sandboxed preload has no `os`; the renderer needs home to root the project tree.
+  secureIpc.on(IPC_CHANNELS.getHomePath, (event) => {
+    event.returnValue = homedir()
+  })
+
   const updateService = createUpdater({
     updater: electronUpdater.autoUpdater,
     platform: process.platform,
@@ -595,6 +629,7 @@ app.whenReady().then(() => {
   updateService.start()
 
   setImmediate(() => {
+    normalizeAllowedPaths(themeStore)
     const allowed = listAllowedPaths(themeStore)
     for (const row of allowed) {
       restoreGrantedPath(row.path)

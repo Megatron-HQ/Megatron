@@ -123,6 +123,7 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
       valid = args.length === 1 && typeof value === 'boolean'
       break
     case IPC_CHANNELS.revokeAllowedPath:
+    case IPC_CHANNELS.narrowAllowedPath:
     case IPC_CHANNELS.openExternal:
       valid = args.length === 1 && text(value)
       break

@@ -51,13 +51,19 @@ const TIER_1_FILES = [
 const grantedPaths = new Map<string, string>()
 const MAX_DIRECTORY_ENTRIES = 20_000
 
-export function grantPath(path: string): string {
-  let canonical = resolve(path)
+// Separate from grantPath so a pick can be classified against existing grants before it becomes
+// readable: registering a pick that ends up skipped would outlive its covering grant's revocation.
+export function canonicalGrantPath(path: string): string {
   try {
-    canonical = realpathSync(path)
+    return realpathSync(path)
   } catch {
     /* A not-yet-created grant remains anchored to its absolute path. */
+    return resolve(path)
   }
+}
+
+export function grantPath(path: string): string {
+  const canonical = canonicalGrantPath(path)
   grantedPaths.set(resolve(path), canonical)
   return canonical
 }
@@ -86,14 +92,21 @@ function normalizeFsPath(p: string): string {
   return process.platform === 'win32' ? p.toLowerCase() : p
 }
 
+// The one containment rule: grant overlap (folder-grants.ts) must agree with access exactly.
+export function isWithinGrant(path: string, root: string): boolean {
+  const resolved = normalizeFsPath(resolve(path))
+  const normalizedRoot = normalizeFsPath(resolve(root))
+  // A filesystem root (`/`, `D:\`) already ends in a separator.
+  const prefix = normalizedRoot.endsWith(sep) ? normalizedRoot : normalizedRoot + sep
+  return resolved === normalizedRoot || resolved.startsWith(prefix)
+}
+
 export function isPathAllowed(path: string): boolean {
   const resolved = normalizeFsPath(resolve(path))
   if (TIER_1_FILES.some((file) => normalizeFsPath(file) === resolved)) return true
-  for (const root of [...TIER_1_ROOTS, ...grantedPaths.keys(), ...grantedPaths.values()]) {
-    const normalizedRoot = normalizeFsPath(root)
-    if (resolved === normalizedRoot || resolved.startsWith(normalizedRoot + sep)) return true
-  }
-  return false
+  return [...TIER_1_ROOTS, ...grantedPaths.keys(), ...grantedPaths.values()].some((root) =>
+    isWithinGrant(path, root)
+  )
 }
 
 // CLI discovery is a separate capability: candidate names come from the fixed resolver, not IPC.

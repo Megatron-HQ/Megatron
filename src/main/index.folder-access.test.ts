@@ -4,9 +4,9 @@ import { tmpdir } from 'os'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { applySchema } from './db/schema'
 import { openUsageArchive } from './db/usage-archive'
-import { addAllowedPath, listAllowedPaths } from './folder-grants'
+import { changeAllowedPaths, listAllowedPaths } from './folder-grants'
 import type { ThemeStore } from './theme'
-import { grantPath, isPathAllowed, resetGrantedPaths } from './permissions'
+import { getGrantedPaths, grantPath, isPathAllowed, resetGrantedPaths } from './permissions'
 import { IPC_CHANNELS, type ScanSummary } from '../shared/ipc'
 
 const runtime = vi.hoisted(() => ({
@@ -28,6 +28,8 @@ const runtime = vi.hoisted(() => ({
   database: undefined as Database.Database | undefined,
   archive: undefined as Database.Database | undefined,
   stores: [] as unknown[],
+  initialPreferences: [] as [string, unknown][],
+  startupGrants: { stored: [] as string[], readable: [] as string[] },
   failGrantWrites: false
 }))
 
@@ -72,7 +74,7 @@ vi.mock('electron', () => {
 })
 vi.mock('electron-store', () => ({
   default: class {
-    values = new Map()
+    values = new Map(runtime.initialPreferences)
     constructor() {
       runtime.stores.push(this)
     }
@@ -124,8 +126,30 @@ const summary: ScanSummary = {
   sources: []
 }
 const folder = resolve(tmpdir(), 'megatron-folder-access-test')
+const child = join(folder, 'repo')
 const preferences = (): ThemeStore => runtime.stores[0] as ThemeStore
 const event = { sender: runtime.contents, senderFrame: runtime.contents.mainFrame }
+
+function grant(path: string): void {
+  changeAllowedPaths(preferences(), { add: [grantPath(path)] })
+}
+
+function insertProjectSkill(projectRoot: string, name: string): void {
+  runtime
+    .database!.prepare(
+      `INSERT INTO skills (name, source_type, source_path, last_scanned_at, project_root)
+       VALUES (?, 'project', ?, '2026-11-10', ?)`
+    )
+    .run(name, join(projectRoot, '.claude', 'skills', name), projectRoot)
+}
+
+function projectSkillNames(): string[] {
+  return (
+    runtime
+      .database!.prepare("SELECT name FROM skills WHERE source_type = 'project' ORDER BY name")
+      .all() as { name: string }[]
+  ).map((row) => row.name)
+}
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let complete!: (value: T) => void
@@ -150,8 +174,21 @@ beforeAll(async () => {
     result: startup.promise,
     cancel: async () => undefined
   })
+  runtime.initialPreferences = [
+    [
+      'grantedFolders',
+      [
+        { path: child, granted_at: '2026-01-01T00:00:00.000Z' },
+        { path: folder, granted_at: '2026-01-02T00:00:00.000Z' }
+      ]
+    ]
+  ]
   await import('./index')
   await new Promise((resolve) => setImmediate(resolve))
+  runtime.startupGrants = {
+    stored: listAllowedPaths(preferences()).map((row) => row.path),
+    readable: getGrantedPaths()
+  }
   runtime.startupUsageReady.push(
     ((await invoke(IPC_CHANNELS.usageOverview)) as { scanComplete: boolean }).scanComplete
   )
@@ -174,6 +211,7 @@ beforeEach(() => {
   }))
   preferences().set('grantedFolders', [])
   resetGrantedPaths()
+  runtime.database!.prepare('DELETE FROM skills').run()
   runtime.contents.send.mockClear()
   runtime.pickFolders.mockReset()
 })
@@ -231,7 +269,7 @@ describe('folder access IPC', () => {
         cancel: async () => interrupt(new Error('Scan cancelled after folder permissions changed'))
       })
       .mockReturnValueOnce({ result: replacement.promise, cancel: async () => undefined })
-    addAllowedPath(preferences(), grantPath(folder))
+    grant(folder)
     runtime.failGrantWrites = true
     runtime.pickFolders.mockResolvedValueOnce({ canceled: false, filePaths: [folder] })
     let completed = false
@@ -265,7 +303,7 @@ describe('folder access IPC', () => {
             interrupt(new Error('Scan cancelled after folder permissions changed'))
         })
         .mockReturnValueOnce({ result: replacement.promise, cancel: async () => undefined })
-      addAllowedPath(preferences(), grantPath(folder))
+      grant(folder)
       runtime.pickFolders.mockResolvedValueOnce({ canceled: false, filePaths: [folder] })
       const scanning = invoke(IPC_CHANNELS.rescan)
       try {
@@ -303,7 +341,7 @@ describe('folder access IPC', () => {
   it('returns a persisted revocation before the replacement scan completes', async () => {
     const scan = deferred<ScanSummary>()
     runtime.startWorker.mockReturnValueOnce({ result: scan.promise, cancel: async () => undefined })
-    addAllowedPath(preferences(), grantPath(folder))
+    grant(folder)
     let result: unknown
     const operation = invoke(IPC_CHANNELS.revokeAllowedPath, folder).then(
       (value) => (result = value)
@@ -334,7 +372,11 @@ describe('folder access IPC', () => {
     const operation = invoke(IPC_CHANNELS.pickAndAddFolders).then((value) => (result = value))
     try {
       await vi.waitFor(
-        () => expect(result).toEqual([{ path: folder, granted_at: expect.any(String) }]),
+        () =>
+          expect(result).toEqual({
+            folders: [{ path: folder, granted_at: expect.any(String) }],
+            skipped: []
+          }),
         {
           timeout: 500
         }
@@ -344,6 +386,71 @@ describe('folder access IPC', () => {
       scan.resolve(summary)
       await operation
     }
+  })
+
+  it('collapses overlapping grants saved by an older version before restoring access', () => {
+    expect(runtime.startupGrants).toEqual({ stored: [folder], readable: [folder] })
+  })
+
+  it('reports a pick inside a granted folder without making it separately readable', async () => {
+    grant(folder)
+    runtime.pickFolders.mockResolvedValueOnce({ canceled: false, filePaths: [child] })
+    expect(await invoke(IPC_CHANNELS.pickAndAddFolders)).toEqual({
+      folders: [{ path: folder, granted_at: expect.any(String) }],
+      skipped: [{ path: child, coveredBy: folder }]
+    })
+    await invoke(IPC_CHANNELS.revokeAllowedPath, folder)
+    expect(isPathAllowed(child)).toBe(false)
+  })
+
+  it('keeps cached skills of a grant absorbed into a new parent until the parent is revoked', async () => {
+    grant(child)
+    insertProjectSkill(child, 'child-skill')
+    runtime.pickFolders.mockResolvedValueOnce({ canceled: false, filePaths: [folder] })
+    expect(await invoke(IPC_CHANNELS.pickAndAddFolders)).toMatchObject({
+      folders: [{ path: folder }],
+      skipped: []
+    })
+    expect(projectSkillNames()).toEqual(['child-skill'])
+    await invoke(IPC_CHANNELS.revokeAllowedPath, folder)
+    expect(isPathAllowed(child)).toBe(false)
+    expect(projectSkillNames()).toEqual([])
+  })
+
+  it('refuses to narrow a folder that is not a grant, without opening a dialog', async () => {
+    grant(child)
+    await expect(invoke(IPC_CHANNELS.narrowAllowedPath, folder)).rejects.toThrow('not granted')
+    expect(runtime.pickFolders).not.toHaveBeenCalled()
+    expect(listAllowedPaths(preferences()).map((row) => row.path)).toEqual([child])
+  })
+
+  it('opens the narrowing dialog inside the grant and changes nothing on cancel', async () => {
+    grant(folder)
+    runtime.pickFolders.mockResolvedValueOnce({ canceled: true, filePaths: [] })
+    expect(await invoke(IPC_CHANNELS.narrowAllowedPath, folder)).toEqual({
+      folders: [{ path: folder, granted_at: expect.any(String) }],
+      skipped: []
+    })
+    expect(runtime.pickFolders.mock.calls[0][1]).toMatchObject({
+      defaultPath: folder,
+      properties: expect.arrayContaining(['openDirectory', 'multiSelections'])
+    })
+    expect(isPathAllowed(child)).toBe(true)
+  })
+
+  it('narrows a grant to the picked folders and drops skills outside them', async () => {
+    const dropped = join(folder, 'dropped')
+    grant(folder)
+    insertProjectSkill(child, 'kept-skill')
+    insertProjectSkill(dropped, 'dropped-skill')
+    runtime.pickFolders.mockResolvedValueOnce({ canceled: false, filePaths: [child] })
+    expect(await invoke(IPC_CHANNELS.narrowAllowedPath, folder)).toEqual({
+      folders: [{ path: child, granted_at: expect.any(String) }],
+      skipped: []
+    })
+    expect(isPathAllowed(child)).toBe(true)
+    expect(isPathAllowed(dropped)).toBe(false)
+    expect(projectSkillNames()).toEqual(['kept-skill'])
   })
 
   it('stops the old worker before revoking its access', async () => {
@@ -356,7 +463,7 @@ describe('folder access IPC', () => {
         oldScan.resolve(summary)
       }
     })
-    addAllowedPath(preferences(), grantPath(folder))
+    grant(folder)
     const scanning = invoke(IPC_CHANNELS.rescan)
     const revoking = invoke(IPC_CHANNELS.revokeAllowedPath, folder)
     await Promise.resolve()
@@ -376,7 +483,7 @@ describe('folder access IPC', () => {
         throw new Error('Worker termination failed')
       }
     })
-    addAllowedPath(preferences(), grantPath(folder))
+    grant(folder)
     const scanning = invoke(IPC_CHANNELS.rescan)
     try {
       await expect(invoke(IPC_CHANNELS.revokeAllowedPath, folder)).rejects.toThrow(
@@ -395,7 +502,7 @@ describe('folder access IPC', () => {
     const failedScan = new Promise<ScanSummary>((_resolve, reject) => (fail = reject))
     const reportError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     runtime.startWorker.mockReturnValueOnce({ result: failedScan, cancel: async () => undefined })
-    addAllowedPath(preferences(), grantPath(folder))
+    grant(folder)
     const operation = invoke(IPC_CHANNELS.revokeAllowedPath, folder)
     try {
       await vi.waitFor(() => expect(listAllowedPaths(preferences())).toEqual([]))

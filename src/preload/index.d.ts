@@ -2,6 +2,7 @@ import type { UsageProjectCatalog } from '../shared/usage-projects'
 import type {
   AllowedPathRow,
   AppSection,
+  GrantChangeResult,
   OpenSkillMetaResult,
   OpenSkillResult,
   PluginActionInput,
@@ -37,7 +38,8 @@ interface Api {
   setTheme: (theme: ThemePreference) => Promise<void>
   listAllowedPaths: () => Promise<AllowedPathRow[]>
   listProjects: () => Promise<ProjectFolder[]>
-  pickAndAddFolders: () => Promise<AllowedPathRow[]>
+  pickAndAddFolders: () => Promise<GrantChangeResult>
+  narrowAllowedPath: (path: string) => Promise<GrantChangeResult>
   revokeAllowedPath: (path: string) => Promise<AllowedPathRow[]>
   openExternal: (url: string) => Promise<void>
   listPlugins: () => Promise<PluginRow[]>
@@ -60,6 +62,7 @@ interface Api {
   rescan: () => Promise<ScanSummary>
   revealDataFolder: () => Promise<void>
   getVersion: () => string
+  getHomePath: () => string
   getUpdateState: () => Promise<UpdateState>
   checkForUpdates: () => Promise<void>
   installUpdate: () => Promise<void>

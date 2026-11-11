@@ -89,6 +89,23 @@ describe('renderer trust boundary', () => {
     expect(() => security.validateIpcArguments(channel, args)).not.toThrow()
   })
   it.each([
+    [IPC_CHANNELS.narrowAllowedPath, ['/Users/me/Desktop']],
+    [IPC_CHANNELS.getHomePath, []]
+  ])('accepts valid folder requests for %s', (channel, args) => {
+    expect(() => security.validateIpcArguments(channel, args)).not.toThrow()
+  })
+  it.each([
+    [IPC_CHANNELS.narrowAllowedPath, []],
+    [IPC_CHANNELS.narrowAllowedPath, ['']],
+    [IPC_CHANNELS.narrowAllowedPath, [42]],
+    [IPC_CHANNELS.narrowAllowedPath, ['/Users/me/Desktop\0']],
+    // Narrowing replaces the grant with dialog picks; the renderer never names folders to add.
+    [IPC_CHANNELS.narrowAllowedPath, ['/Users/me/Desktop', ['/Users/me/Desktop/api']]],
+    [IPC_CHANNELS.getHomePath, ['/Users/me']]
+  ])('rejects malformed folder requests for %s', (channel, args) => {
+    expect(() => security.validateIpcArguments(channel, args)).toThrow()
+  })
+  it.each([
     [IPC_CHANNELS.usageCalendar, ['2026']],
     [IPC_CHANNELS.usageCalendar, [10000]],
     [IPC_CHANNELS.usageCalendar, [2026, 'extra']],
