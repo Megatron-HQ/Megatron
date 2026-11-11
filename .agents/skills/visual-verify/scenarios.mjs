@@ -216,6 +216,15 @@ async function openUsagePanel(window, panelName) {
   await window.locator('header').getByText(panelName, { exact: true }).waitFor()
 }
 
+// Radix restores focus to the opener in a deferred setTimeout after the dialog unmounts
+// (react-focus-scope), so a key pressed as soon as the dialog hides can land on <body> and never
+// reopen it. Waiting for the opener itself, not a fixed delay, closes that race under any load.
+async function closeDialogAndRefocus(window, opener) {
+  await window.keyboard.press('Escape')
+  await window.getByRole('dialog').waitFor({ state: 'hidden' })
+  await window.waitForFunction((element) => document.activeElement === element, opener)
+}
+
 // Activity's chart columns, scoped by their ChartBlock label so Cost's columns never match.
 // Nonzero day columns carry aria-haspopup; hour columns (InvocationTrend) are named "<time>: N prompts".
 function activityChart(window, label) {
@@ -2033,14 +2042,14 @@ export const scenarios = [
       })
       await openUsagePanel(window, 'History')
       await window.getByRole('button', { name: /^Busiest day:/ }).focus()
+      const opener = await window.evaluateHandle(() => document.activeElement)
       for (const key of ['Enter', 'Space']) {
         await window.keyboard.press(key)
         await window
           .getByRole('dialog')
           .getByText(/estimated tokens processed/)
           .waitFor()
-        await window.keyboard.press('Escape')
-        await window.getByRole('dialog').waitFor({ state: 'hidden' })
+        await closeDialogAndRefocus(window, opener)
       }
     }
   },
@@ -2127,14 +2136,14 @@ export const scenarios = [
         .first()
       await day.focus()
       await window.keyboard.press('ArrowRight')
+      const opener = await window.evaluateHandle(() => document.activeElement)
       for (const key of ['Enter', 'Space']) {
         await window.keyboard.press(key)
         await window
           .getByRole('dialog')
           .getByText(/estimated tokens processed/)
           .waitFor()
-        await window.keyboard.press('Escape')
-        await window.getByRole('dialog').waitFor({ state: 'hidden' })
+        await closeDialogAndRefocus(window, opener)
       }
     }
   },
@@ -2261,11 +2270,11 @@ export const scenarios = [
     async run(window) {
       await openHourlyActivity(window)
       await activityHourColumns(window).first().focus()
+      const opener = await window.evaluateHandle(() => document.activeElement)
       for (const key of ['Enter', 'Space']) {
         await window.keyboard.press(key)
         await window.getByRole('dialog', { name: /Activity details/ }).waitFor()
-        await window.keyboard.press('Escape')
-        await window.getByRole('dialog').waitFor({ state: 'hidden' })
+        await closeDialogAndRefocus(window, opener)
         await window.waitForTimeout(MOTION_SETTLE_MS)
       }
     }
@@ -2436,11 +2445,11 @@ export const scenarios = [
       await openHourlyCost(window)
       const hour = window.locator('button[aria-haspopup="dialog"]').first()
       await hour.focus()
+      const opener = await window.evaluateHandle(() => document.activeElement)
       for (const key of ['Enter', 'Space']) {
         await window.keyboard.press(key)
         await window.getByRole('dialog', { name: /Cost details/ }).waitFor()
-        await window.keyboard.press('Escape')
-        await window.getByRole('dialog').waitFor({ state: 'hidden' })
+        await closeDialogAndRefocus(window, opener)
         await window.waitForTimeout(MOTION_SETTLE_MS)
       }
     }
