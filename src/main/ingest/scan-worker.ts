@@ -7,6 +7,7 @@ import { scanPluginRegistry } from './plugin-registry'
 import { scanTranscripts as runTranscriptScan } from './transcript-scanner'
 import { scanPromptHistory as runPromptScan } from './prompt-history-scanner'
 import { openUsageArchive } from '../db/usage-archive'
+import { recordPluginSkillSightings } from '../db/stale-skills'
 import { createUsageScanTasks } from './usage-scan-tasks'
 import { runLinter } from '../linter'
 import { runAllScans, selectScanTasks, type ScanScope } from './scan-all'
@@ -30,10 +31,11 @@ function scanSkills(db: Database.Database): ScanTaskResult {
 for (const path of grantedPaths) restoreGrantedPath(path)
 const database = new Database(databasePath)
 let archive: Database.Database | undefined
+const getArchive = (): Database.Database => (archive ??= openUsageArchive(archivePath))
 const usageScans = createUsageScanTasks({
   scanTranscripts: runTranscriptScan,
   scanPromptHistory: runPromptScan,
-  getArchive: () => (archive ??= openUsageArchive(archivePath))
+  getArchive
 })
 let sourceStartedAt = 0
 try {
@@ -43,6 +45,12 @@ try {
       ...usageScans,
       { name: 'scanSkills', run: scanSkills },
       { name: 'scanPluginRegistry', run: scanPluginRegistry },
+      // Not gated on the registry scan's status: leftover index rows are still real sightings,
+      // and recording one late only delays a 30-day signal. Full scans only (selectScanTasks).
+      {
+        name: 'archivePluginSkills',
+        run: (db: Database.Database) => recordPluginSkillSightings(db, getArchive())
+      },
       { name: 'runLinter', run: runLinter }
     ]),
     (error) => {

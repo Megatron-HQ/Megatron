@@ -176,7 +176,7 @@ export function getTokenStats(db: Database.Database, now: Date = new Date()): To
   }
 }
 
-function historyCoverage(
+export function historyCoverage(
   start: Date,
   end: Date,
   ranges: CoverageRange[],

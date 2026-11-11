@@ -10,7 +10,7 @@ import {
   useTable
 } from '@tanstack/react-table'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
-import { AlertTriangle, BotOff, FolderOpen, Power, Search, Webhook } from 'lucide-react'
+import { AlertTriangle, BotOff, Clock, FolderOpen, Power, Search, Webhook } from 'lucide-react'
 import { motion } from 'motion/react'
 import { ClaudeIcon } from '@/components/ClaudeIcon'
 import { LintStatusBadge } from '@/components/LintStatusBadge'
@@ -44,7 +44,7 @@ import {
   getSourceSortKey,
   getSourceTooltip
 } from '@/lib/source-name'
-import type { SkillRow } from '../../../shared/ipc'
+import type { InventorySkillRow } from '../../../shared/ipc'
 
 const ROW_HEIGHT = 40
 const HEADER_HEIGHT = 40
@@ -56,7 +56,7 @@ const features = tableFeatures({
   sortFns: { text: sortFn_text, number: sortFn_basic }
 })
 
-const columnHelper = createColumnHelper<typeof features, SkillRow>()
+const columnHelper = createColumnHelper<typeof features, InventorySkillRow>()
 
 const COLUMN_WIDTH: Record<string, string> = {
   repository: 'w-[220px] max-[1000px]:w-[180px]',
@@ -131,6 +131,14 @@ const nameColumn = columnHelper.accessor(
               </TooltipContent>
             </Tooltip>
           )}
+          {row.stale && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Clock className="size-3 shrink-0 text-dormant" />
+              </TooltipTrigger>
+              <TooltipContent>Not run in the last 30 days of recorded sessions.</TooltipContent>
+            </Tooltip>
+          )}
         </span>
       )
     }
@@ -160,7 +168,7 @@ const statusColumn = columnHelper.accessor('lint_status', {
 
 const sourceColumn = (
   resolveProjectLabel: ProjectLabelResolver
-): ColumnDef<typeof features, SkillRow, string> =>
+): ColumnDef<typeof features, InventorySkillRow, string> =>
   columnHelper.accessor(
     (row) =>
       row.source_type === 'project'
@@ -222,7 +230,7 @@ const usesColumn = columnHelper.accessor('total_invocations', {
 
 const allColumns = (
   resolveProjectLabel: ProjectLabelResolver
-): ColumnDef<typeof features, SkillRow, unknown>[] =>
+): ColumnDef<typeof features, InventorySkillRow, unknown>[] =>
   columnHelper.columns([
     nameColumn,
     statusColumn,
@@ -234,7 +242,7 @@ const allColumns = (
 
 const repositoryColumn = (
   resolveProjectLabel: ProjectLabelResolver
-): ColumnDef<typeof features, SkillRow, string> =>
+): ColumnDef<typeof features, InventorySkillRow, string> =>
   columnHelper.accessor((skill) => resolveProjectLabel(projectRootForSkill(skill)), {
     id: 'repository',
     header: 'Repository',
@@ -253,7 +261,7 @@ function buildColumns(
   showSource: boolean,
   showRepository: boolean,
   resolveProjectLabel: ProjectLabelResolver
-): ColumnDef<typeof features, SkillRow, unknown>[] {
+): ColumnDef<typeof features, InventorySkillRow, unknown>[] {
   if (showRepository)
     return columnHelper.columns([
       nameColumn,
@@ -269,7 +277,7 @@ function buildColumns(
 
 interface SkillInventoryProps {
   availability?: import('../../../shared/ipc').ProjectFolder['status']
-  skills: SkillRow[]
+  skills: InventorySkillRow[]
   loading: boolean
   filter: SourceFilter
   onSelect: (id: number) => void

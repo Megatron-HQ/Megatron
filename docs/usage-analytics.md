@@ -197,6 +197,52 @@ terminal totals; nothing is placed by session start.
 - Every project aggregate uses the identity and link rules in `docs/data-model.md`, applied without
   altering totals or source records.
 
+## Stale skills
+
+A skill is stale when it had 0 invocations in the last 30 days of covered history while it
+existed. The inventory's icon tray marks it with the dormant `Clock` (`DESIGN.md`, Badges / Chips).
+Every unknown resolves to no signal, because a missing icon costs less than a false one.
+
+- **As-of anchoring.** The window is `[asOf − 30 days, asOf]`, where `asOf` is the latest
+  `history_coverage.end_at`: the last successful prompt observation, not the wall clock. An app left
+  open for days between scans never ages a skill past what the data has seen.
+- **Global gates.** If any gate fails, nothing is stale:
+  1. This launch's latest `scanTranscripts` and `archivePrompts` statuses are both `complete`. An
+     index left over from a previous launch is never trusted. Inventory-only rescans don't run these
+     sources, so the flags carry over between them.
+  2. Archived prompt coverage spans the whole window.
+  3. Every non-slash archived prompt in the window belongs to a session still in `sessions_meta`.
+     Invocations come only from transcripts, which Claude Code prunes at `cleanupPeriodDays`
+     (default 30, the same length as the window), so the archive's prompts supply the reach-back
+     evidence. This gate catches a shorter retention, deleted transcripts, and any change to
+     pruning. Bare slash commands never write a transcript, so they are left out.
+- **Per skill.** A skill is stale only when all of these hold:
+  - It is enabled and not shadowed. `Power` or the shadow warning already explains why such a skill
+    doesn't run.
+  - It existed before the window start. For global and project skills that is SKILL.md's birthtime
+    (`skills.created_at`). For plugin skills it is the later of Megatron's first sighting
+    (`history_plugin_skills`, recorded on every full scan) and the plugin's earliest current
+    `installedAt`. The sighting catches a skill that an update added, since updates keep
+    `installedAt`. `installedAt` catches an uninstall and reinstall after the sighting, and a
+    missing one falls back to the sighting alone. A missing, unparseable, or epoch value (Node's
+    fallback when a filesystem records no birthtime) gives no signal.
+  - Its scope recorded non-slash prompts both before and during the window. The scope is every
+    project for a global skill or a plugin with a `user`-scope install, the skill's own project for
+    a project skill, and the install projects for a plugin with only `project` or `local` installs.
+    Idle projects, idle months, and repos new within the window give no signal.
+  - `last_invoked_at` is null or before the window start. It carries the invocation count's
+    shadowing, project-scoping, and nested-root rules (`docs/data-model.md`).
+- **Known limits.** Each one delays the signal; none produces a false one.
+  - A git clone, a re-clone, or an editor's atomic save resets SKILL.md's birthtime.
+  - Plugin skills get no `Clock` until 30 days after Megatron first records them, and that includes
+    every plugin skill installed before the sighting table existed.
+  - Reinstalling a plugin resets `installedAt`.
+  - Headless `claude -p` runs write nothing to `history.jsonl`, so they never count as
+    opportunity.
+- Verified against real `~/.claude` 2026-11-11: of the 71 sessions with archived prompts in the
+  window, 70 still had transcripts. The 71st held only a single bare slash command, which never
+  writes a transcript.
+
 ## Resident tax
 
 Claude Code marks the `system[1]` breakpoint `cache_control.scope: "global"`, so the prompt cache

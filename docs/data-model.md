@@ -50,9 +50,9 @@ reconciliation removes a deleted transcript's invocations, so `args_text` never 
 `history.jsonl` each scan, carries no prompt text, and has no FK (its sessions outlive transcript
 pruning). A failed read keeps the last good rows. Long-range history is the usage archive's job.
 
-**Usage stats are computed live, never stored.** `total_invocations`, `last_invoked_at`, the
-context budget, and every Usage aggregate are queries at read time. A stored counter would need
-upkeep on every insert and delete, and could drift.
+**Usage stats are computed live, never stored.** `total_invocations`, `last_invoked_at`,
+staleness, the context budget, and every Usage aggregate are queries at read time. A stored
+counter would need upkeep on every insert and delete, and could drift.
 
 **Skill name collisions.** Two same-named skills are always two rows (`source_path` is the
 identity). Attribution follows Claude Code's precedence (`docs/skill-scanner.md`):
@@ -112,9 +112,13 @@ The one deliberate exception to the derived-cache rule: a private, local-only ar
 delete it, and nothing syncs off device.
 
 - **Metadata only.** Successful scans copy prompt multiplicities, session/project/model
-  identifiers, timestamps, continuation links, and numeric token counters. No prompt or response
-  content. Failed or partial sources are not copied; archive writes and the recomputed token shares
-  commit in one transaction.
+  identifiers, timestamps, continuation links, and numeric token counters. Full scans also record
+  when each plugin skill was first seen, keyed by plugin identity (`name@marketplace`) and the
+  namespaced skill name, never the version-addressed `source_path`. No prompt or response content.
+  Failed or partial usage sources are not copied; archive writes and the recomputed token shares
+  commit in one transaction. Plugin sightings are the exception: they are recorded from whatever
+  plugin rows the index holds, because a late sighting only delays the stale signal
+  (`docs/usage-analytics.md`, Stale skills).
 - **Idempotent identity.** A prompt is identified by session, project, timestamp, and slash
   classification, keeping the maximum observed multiplicity, so rescans neither inflate counts nor
   collapse distinct same-timestamp entries. Responses reuse the scanner's global turn identities.

@@ -42,6 +42,10 @@ const SHIPPED_ARCHIVE_DDL = `
     input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
     cache_read_tokens INTEGER NOT NULL, cache_creation_tokens INTEGER NOT NULL
   );
+  CREATE TABLE history_plugin_skills (
+    plugin_name TEXT NOT NULL, skill_name TEXT NOT NULL, first_seen_at TEXT NOT NULL,
+    PRIMARY KEY(plugin_name, skill_name)
+  );
 `
 
 type Shape = Record<string, { name: string; type: string; notnull: number; pk: number }[]>

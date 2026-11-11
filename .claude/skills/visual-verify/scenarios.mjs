@@ -1621,6 +1621,26 @@ export const scenarios = [
         .waitFor()
     }
   },
+  // The table Name column's stale indicator: a Clock in the dormant tone (DESIGN.md's Status
+  // tones, Dormant). Which skills are really stale depends on local history, so the fixture marks
+  // the first enabled, non-shadowed row instead.
+  ...['light', 'dark'].map((theme) => ({
+    name: `skill-inventory-stale-tooltip${theme === 'dark' ? '-dark' : ''}`,
+    screen: 'skill-inventory',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'skills-stale'))
+      await window.evaluate((selected) => window.api.setTheme(selected), theme)
+      await window.reload()
+      const clock = window.locator('tbody tr svg.lucide-clock').first()
+      await clock.waitFor()
+      // Same glide-highlight settle as table-disabled-icon-tooltip above.
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+      await clock.hover()
+      await window
+        .getByText('Not run in the last 30 days of recorded sessions.', { exact: true })
+        .waitFor()
+    }
+  })),
   {
     // The table Name column's user-invocable-only indicator: a neutral (muted-ink, NOT
     // flag-colored) BotOff icon, reading as a deliberate config beside the flag-colored

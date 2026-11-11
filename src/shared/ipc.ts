@@ -134,6 +134,12 @@ export interface SkillRow {
   warning_count: number
 }
 
+// Not on SkillRow: staleness is computed at list time from the index plus the usage archive
+// (docs/usage-analytics.md, Stale skills), and the detail payloads never carry it.
+export interface InventorySkillRow extends SkillRow {
+  stale: boolean
+}
+
 export interface ContextBudget {
   used: number
   limit: number
@@ -179,7 +185,7 @@ export interface ScanProgress {
 }
 
 export interface SkillsListResult {
-  skills: SkillRow[]
+  skills: InventorySkillRow[]
   scanComplete: boolean
   scanSummary?: ScanSummary
   // Set while a scan is in progress so a renderer that missed scan:started can still time the banner.

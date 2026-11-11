@@ -78,6 +78,16 @@ globalThis.megatronVisualFixtures = {
         if (channel === 'plugins:list') return result.map(transform)
       }
       if (mode.startsWith('project-tree')) return projectTreeFixture(channel, args, result, mode)
+      // Real staleness depends on this machine's history, so mark one row the rule could flag.
+      if (channel === 'skills:list' && mode === 'skills-stale') {
+        const target = result.skills.find(
+          (skill) => skill.disabled_reason === null && skill.shadowed_by_skill_id === null
+        )
+        return {
+          ...result,
+          skills: result.skills.map((skill) => ({ ...skill, stale: skill === target }))
+        }
+      }
       if (
         channel === 'skills:list' &&
         ['scan-updating', 'scan-background', 'scan-manual', 'scan-retrying'].includes(mode)

@@ -43,6 +43,12 @@ export function openUsageArchive(path: string): Database.Database {
         input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
         cache_read_tokens INTEGER NOT NULL, cache_creation_tokens INTEGER NOT NULL
       );
+      -- Keyed by plugin identity, never source_path: the cache path is version-addressed and
+      -- changes on every update, which would make a long-installed skill look new.
+      CREATE TABLE IF NOT EXISTS history_plugin_skills (
+        plugin_name TEXT NOT NULL, skill_name TEXT NOT NULL, first_seen_at TEXT NOT NULL,
+        PRIMARY KEY(plugin_name, skill_name)
+      );
     `)
     return database
   } catch (error) {

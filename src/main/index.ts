@@ -77,6 +77,7 @@ import { createInventoryWatcher } from './inventory-watcher'
 import { findNewestRecordedRequest } from './ingest/recorded-request'
 import { measureContextBaseline } from './context-usage'
 import { USAGE_ARCHIVE_FILENAME } from './db/usage-archive'
+import { findStaleSkillIds, usageDataTrusted } from './db/stale-skills'
 import { sanitizeProjectFolders } from './ingest/project-discovery'
 import { readSkillFiles, readSkillMd } from './skill-files'
 import { openSafeExternal } from './shell'
@@ -96,7 +97,9 @@ import {
   type SkillInvocationSliceInput,
   type ScanActivity,
   type ScanFinished,
+  type ScanSourceSummary,
   type ScanSummary,
+  type SkillsListResult,
   type ThemePreference
 } from '../shared/ipc'
 
@@ -130,6 +133,10 @@ function usageProjectLocations(): UsageProjectLocation[] {
 }
 let scanComplete = false
 let usageComplete = false
+// Empty until this launch's first usage scan reports, so staleness never trusts an index left
+// over from a previous launch. Inventory-only rescans skip these sources, so the last status
+// carries over and the stale flags don't flicker on every watcher refresh.
+const usageSourceStatus = new Map<string, ScanSourceSummary['status']>()
 let scanSummary: ScanSummary | undefined
 const scanSession = createScanSession()
 let lastScanFinished: ScanFinished | null = null
@@ -207,6 +214,8 @@ const scans = createScanController((scope) =>
     (progress) => {
       if (progress.type !== 'source-complete') return
       if (progress.source.name === 'archivePrompts') usageComplete = true
+      if (progress.source.name === 'scanTranscripts' || progress.source.name === 'archivePrompts')
+        usageSourceStatus.set(progress.source.name, progress.source.status)
       const activity = scanSession.current()
       if (!activity) return
       for (const window of BrowserWindow.getAllWindows()) {
@@ -366,13 +375,19 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  secureIpc.handle(IPC_CHANNELS.listSkills, () => ({
-    skills: listSkills(getDb()),
-    scanComplete,
-    scanSummary,
-    scanActivity: scanSession.current(),
-    contextBudget: getContextBudget(getDb())
-  }))
+  secureIpc.handle(IPC_CHANNELS.listSkills, (): SkillsListResult => {
+    const skills = listSkills(getDb())
+    const staleIds = usageDataTrusted(usageSourceStatus)
+      ? findStaleSkillIds(getDb(), getUsageArchive(), skills)
+      : new Set<number>()
+    return {
+      skills: skills.map((skill) => ({ ...skill, stale: staleIds.has(skill.id) })),
+      scanComplete,
+      scanSummary,
+      scanActivity: scanSession.current(),
+      contextBudget: getContextBudget(getDb())
+    }
+  })
 
   secureIpc.handle(IPC_CHANNELS.openSkill, (_event, id: number): OpenSkillResult | null => {
     const skill = getSkillById(getDb(), id)

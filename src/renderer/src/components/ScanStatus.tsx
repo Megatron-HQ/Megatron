@@ -10,6 +10,7 @@ const SOURCE_LABELS: Record<string, string> = {
   scanPromptHistory: 'Prompt history',
   archiveTokens: 'Token history',
   archivePrompts: 'Contribution history',
+  archivePluginSkills: 'Plugin skill history',
   runLinter: 'Skill checks',
   scanWorker: 'Scan worker'
 }
