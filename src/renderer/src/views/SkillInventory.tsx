@@ -37,6 +37,7 @@ import {
 import { SYNCED_ICON } from '@/lib/source-icon'
 import { useProjectLabel } from '@/lib/use-project-label'
 import type { ProjectLabelResolver } from '@/lib/project-tree'
+import { ProjectName } from '@/components/ProjectName'
 import {
   getPluginBareName,
   getSkillDisplayName,
@@ -240,11 +241,10 @@ const repositoryColumn = (
     sortFn: 'text',
     cell: (info) => (
       <span
-        dir="ltr"
-        className="block truncate text-left text-xs text-muted-foreground"
+        className="block text-left text-xs text-muted-foreground"
         title={projectRootForSkill(info.row.original)}
       >
-        {info.getValue()}
+        <ProjectName label={info.getValue()} />
       </span>
     )
   })

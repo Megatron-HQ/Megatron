@@ -17,6 +17,7 @@ import { getSkillDisplayName } from '@/lib/source-name'
 import { useUsageProjects } from '@/lib/use-usage-projects'
 import { matchesUsageProjectSearch } from '../../../../shared/usage-projects'
 import type { ProjectLabelResolver } from '@/lib/project-tree'
+import { ProjectName } from '@/components/ProjectName'
 import { TRIGGER_META } from '@/lib/trigger-meta'
 import { cn } from '@/lib/utils'
 import type { SkillInvocationRecord, TriggerType } from '../../../../shared/ipc'
@@ -192,9 +193,10 @@ export function SkillInvocationDialog({
                     )}
                     <span
                       title={entry.cwd}
-                      className="min-w-0 truncate text-[11px] text-muted-foreground"
+                      className="flex min-w-0 text-[11px] text-muted-foreground"
                     >
-                      · {resolveProjectLabel(entry.cwd)}
+                      ·&nbsp;
+                      <ProjectName label={resolveProjectLabel(entry.cwd)} />
                     </span>
                   </div>
                   <InvocationRow entry={entry} />

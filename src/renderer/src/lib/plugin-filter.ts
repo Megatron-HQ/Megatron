@@ -1,5 +1,4 @@
 import type {
-  AllowedPathRow,
   PluginDetailResult,
   PluginInstall,
   PluginRow,
@@ -174,7 +173,6 @@ export function createPluginRows(
   filter: PluginFilter = { kind: 'all' },
   projects: ProjectFolder[] = [],
   skillSources?: Pick<SkillRow, 'source_path' | 'plugin_name'>[],
-  folders: AllowedPathRow[] = [],
   displayLabels?: ReadonlyMap<string, string>
 ): PluginRepositoryRow[] {
   const availability = new Map(
@@ -182,19 +180,14 @@ export function createPluginRows(
   )
   const labels =
     displayLabels ??
-    projectDisplayLabels(
-      [
-        ...projects
-          .filter((project) => project.kind === 'repository')
-          .map((project) => project.path),
-        ...plugins.flatMap((plugin) =>
-          plugin.installs.flatMap((install) =>
-            install.project_path === null ? [] : [install.project_path]
-          )
+    projectDisplayLabels([
+      ...projects.filter((project) => project.kind === 'repository').map((project) => project.path),
+      ...plugins.flatMap((plugin) =>
+        plugin.installs.flatMap((install) =>
+          install.project_path === null ? [] : [install.project_path]
         )
-      ],
-      folders
-    )
+      )
+    ])
   return plugins.flatMap((plugin) => {
     const groups = new Map<string, { context: PluginContext; installs: PluginInstall[] }>()
     for (const install of plugin.installs) {

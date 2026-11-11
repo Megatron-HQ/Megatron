@@ -3,6 +3,7 @@ import { SOURCE_ICON, SYNCED_ICON } from '@/lib/source-icon'
 import { getSkillDisplayName, getSourceDisplayName } from '@/lib/source-name'
 import { projectRootForSkill } from '@/lib/source-filter'
 import { useProjectLabel } from '@/lib/use-project-label'
+import { ProjectName } from '@/components/ProjectName'
 import {
   CommandDialog,
   CommandEmpty,
@@ -91,8 +92,13 @@ export function CommandPalette({
                     <span className="truncate">
                       {getSkillDisplayName(skill.name, skill.source_type, skill.plugin_name)}
                     </span>
-                    <span className="truncate text-[11px] text-muted-foreground">
-                      · {sourceName}
+                    <span className="flex min-w-0 text-[11px] text-muted-foreground">
+                      ·&nbsp;
+                      {skill.source_type === 'project' ? (
+                        <ProjectName label={sourceName} />
+                      ) : (
+                        <span className="truncate">{sourceName}</span>
+                      )}
                     </span>
                   </div>
                   {skill.description && (

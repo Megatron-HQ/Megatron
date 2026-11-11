@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { ProjectLabelResolver } from '@/lib/project-tree'
+import { ProjectName } from '@/components/ProjectName'
 import type { UsageCalendar } from '../../../../shared/ipc'
 import { formatCount, quantileOpacity } from './chart-utils'
 import { percentLabel } from './share-bars'
@@ -104,9 +105,9 @@ export function ProjectTimeline({
                       <TooltipTrigger asChild>
                         <span
                           tabIndex={0}
-                          className="block truncate rounded-[2px] outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          className="flex min-w-0 rounded-[2px] outline-none focus-visible:ring-1 focus-visible:ring-ring"
                         >
-                          {resolveProjectLabel(project.project)}
+                          <ProjectName label={resolveProjectLabel(project.project)} />
                         </span>
                       </TooltipTrigger>
                       <TooltipContent className="whitespace-pre-line">

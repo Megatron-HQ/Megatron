@@ -55,6 +55,15 @@ async function openManageFolders(window) {
   await window.getByRole('dialog', { name: 'Project Folders', exact: true }).waitFor()
 }
 
+// Revoking is two-step: the trash button opens an inline confirm in that row.
+async function revokeFirstFolder(window) {
+  await window
+    .getByRole('button', { name: /^Revoke access to/ })
+    .first()
+    .click()
+  await window.getByRole('button', { name: 'Revoke', exact: true }).click()
+}
+
 async function removeSelectedFixtureProject(window, app, section) {
   await app.evaluate(({ BrowserWindow }) => {
     for (const channel of [
@@ -413,7 +422,7 @@ export const scenarios = [
       await openPluginsSection(window)
       await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
       await window.getByRole('button', { name: /^Megatron\s*3$/ }).click()
-      await window.getByText('Projects / Megatron HQ/Megatron Plugins').waitFor()
+      await window.getByText('Projects / Megatron Plugins').waitFor()
     }
   },
   {
@@ -434,7 +443,7 @@ export const scenarios = [
     async run(window, app) {
       await enableProjectHierarchy(window, app, 'project-tree-own')
       await openPluginsSection(window)
-      await window.getByRole('button', { name: /^Projects\/Megatron HQ\s*7$/ }).click()
+      await window.getByRole('button', { name: /^Megatron HQ\s*7$/ }).click()
       await window.getByRole('button', { name: /^This repo\s*1$/ }).click()
     }
   },
@@ -629,7 +638,27 @@ export const scenarios = [
     async run(window, app) {
       await enableProjectHierarchy(window, app)
       await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
+      await window.getByRole('button', { name: '1 without skills', exact: true }).click()
       await window.getByRole('button', { name: /^Empty-repo\s*0$/ }).click()
+    }
+  },
+  {
+    name: 'skills-grouped-grants',
+    screen: 'sidebar',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app, 'project-tree-grouped')
+      await window.getByRole('button', { name: /^Megatron-site\s*3$/ }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'skills-folded-empty-repositories',
+    screen: 'sidebar',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app)
+      await window.getByRole('button', { name: /^Megatron HQ\s*6$/ }).click()
+      await window.getByRole('button', { name: '1 without skills', exact: true }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
   {
@@ -920,10 +949,7 @@ export const scenarios = [
       await enableProjectHierarchy(window, app)
       await app.evaluate(() => globalThis.megatronVisualFixtures.set('folders:revoke', 'pending'))
       await openManageFolders(window)
-      await window
-        .getByRole('button', { name: /^Revoke access to/ })
-        .first()
-        .click()
+      await revokeFirstFolder(window)
       await window.getByRole('status').filter({ hasText: 'Revoking folder access' }).waitFor()
     }
   },
@@ -934,10 +960,7 @@ export const scenarios = [
       await enableProjectHierarchy(window, app)
       await app.evaluate(() => globalThis.megatronVisualFixtures.set('folders:revoke', 'error'))
       await openManageFolders(window)
-      await window
-        .getByRole('button', { name: /^Revoke access to/ })
-        .first()
-        .click()
+      await revokeFirstFolder(window)
       await window
         .getByRole('alert')
         .filter({ hasText: 'Could not revoke folder access' })
@@ -954,11 +977,33 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('folders:revoke', 'empty-folders')
         globalThis.megatronVisualFixtures.set('folders:list', 'pending')
       })
-      await window
-        .getByRole('button', { name: /^Revoke access to/ })
-        .first()
-        .click()
+      await revokeFirstFolder(window)
       await window.getByText('No project folders granted', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'manage-folders-revoke-confirm',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app)
+      await openManageFolders(window)
+      await window
+        .getByRole('button', { name: 'Revoke access to Megatron HQ', exact: true })
+        .click()
+      await window.getByRole('button', { name: 'Keep some folders…', exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'manage-folders-skipped-notice',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app)
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('folders:pickAndAdd', 'project-tree')
+      )
+      await openManageFolders(window)
+      await window.getByRole('button', { name: 'Add Folder...', exact: true }).click()
+      await window.getByText('Megatron-site is already included in Megatron HQ.').waitFor()
     }
   },
   {

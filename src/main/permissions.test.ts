@@ -249,9 +249,7 @@ describe('canonicalGrantPath', () => {
   })
 
   it('keeps a missing folder at its absolute path', () => {
-    expect(canonicalGrantPath(resolve('/missing/../missing-grant'))).toBe(
-      resolve('/missing-grant')
-    )
+    expect(canonicalGrantPath(resolve('/missing/../missing-grant'))).toBe(resolve('/missing-grant'))
   })
 })
 

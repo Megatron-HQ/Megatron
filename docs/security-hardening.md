@@ -34,9 +34,23 @@ user.
 
 Repository discovery metadata in the private preferences cache is descriptive, not an access
 capability. Discovery and catalog restoration retain current grants and canonical target checks.
-Revoking an overlapping grant removes cached skills only when no remaining grant covers them.
 Repository-scoped plugin rows do not broaden plugin actions: the existing IPC install-identity,
 enablement, folder access, and CLI working-directory checks still apply.
+
+Grants never nest. A pick inside an existing grant is skipped and reported before it is registered
+as readable. Adding a parent absorbs the stored grants inside it: they leave preferences and
+in-memory access, and their cached skills stay because the parent covers them. Grants saved by
+older versions collapse the same way at startup, before access is restored. Overlap is decided by
+`isWithinGrant`, the containment rule `isPathAllowed` uses, so the two cannot disagree. Narrowing
+(`folders:narrow`) accepts only a path equal to an existing grant and replaces it with folders
+picked in the native dialog, so grants still come only from that dialog. Every grant change drops
+cached skills only where no remaining grant covers them. Threat: a child grant the user believes
+went away with its parent would keep that folder readable, invisibly to anyone reading the list.
+
+Rejected: per-folder exclusions, a deny rule inside `isPathAllowed`, to keep a parent minus a few
+children. A second rule kind in the chokepoint widens what every read evaluates and what a bug
+there can expose; narrowing covers the need with grants alone. Revisit if users need to exclude a
+few folders from a parent holding hundreds of projects, where re-picking the rest is impractical.
 
 User-data reads remain centralized in `permissions.ts`. Separate capabilities serve fixed CLI
 discovery, preparation of Electron's private cache, and compiled app assets. None accepts an

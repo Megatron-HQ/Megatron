@@ -1,8 +1,8 @@
 import { motion } from 'motion/react'
 import { List, User } from 'lucide-react'
-import { useMemo, type Dispatch, type SetStateAction } from 'react'
+import { useEffect, useMemo, type Dispatch, type SetStateAction } from 'react'
 import { createPluginRows, type PluginFilter } from '@/lib/plugin-filter'
-import { buildProjectTree } from '@/lib/project-tree'
+import { buildProjectTree, snapProjectSelection } from '@/lib/project-tree'
 import { ProjectNavigation } from '@/components/ProjectNavigation'
 import { useElementGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
@@ -17,16 +17,21 @@ export function PluginSidebar({
   plugins,
   filter,
   onFilterChange,
+  onFilterSnap,
   folders,
   projectCatalog,
+  home,
   expandedProjects,
   setExpandedProjects
 }: {
   plugins: PluginRow[]
   filter: PluginFilter
   onFilterChange: (filter: PluginFilter) => void
+  // Replaces the filter without leaving a detail view, for selections whose row disappeared.
+  onFilterSnap: (filter: PluginFilter) => void
   folders: AllowedPathRow[]
   projectCatalog: ProjectFolder[]
+  home: string
   expandedProjects: Set<string>
   setExpandedProjects: Dispatch<SetStateAction<Set<string>>>
 }): React.JSX.Element {
@@ -38,10 +43,18 @@ export function PluginSidebar({
         projectCatalog,
         rows
           .filter((row) => row.context.kind === 'project')
-          .map((row) => ({ path: row.repositoryPath!, count: 1 }))
+          .map((row) => ({ path: row.repositoryPath!, count: 1 })),
+        { home }
       ),
-    [folders, projectCatalog, rows]
+    [folders, projectCatalog, rows, home]
   )
+  useEffect(() => {
+    if (filter.kind !== 'projects') return
+    const selection = { path: filter.projectPath, exact: filter.exact }
+    const snapped = snapProjectSelection(projects, selection)
+    if (snapped !== selection)
+      onFilterSnap({ kind: 'projects', projectPath: snapped.path, exact: snapped.exact })
+  }, [projects, filter, onFilterSnap])
   const unknownCount = rows.filter((row) => row.context.kind === 'unknown').length
   const { containerRef, highlightRect, onItemHover, onMouseLeave, transition } =
     useElementGlideHighlight<HTMLElement>()
@@ -99,6 +112,7 @@ export function PluginSidebar({
               onFilterChange({ kind: 'projects', projectPath: path, exact })
             }
             onItemHover={onItemHover}
+            emptyLabel="without plugins"
             unknown={{
               count: unknownCount,
               selected: filter.kind === 'unknown',

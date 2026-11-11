@@ -141,7 +141,6 @@ describe('repository plugin rows', () => {
       { kind: 'all' },
       [],
       undefined,
-      [],
       new Map([['c:/hq/megatron', 'HQ/Megatron']])
     )
     expect(rows[0].repositoryLabel).toBe('HQ/Megatron')

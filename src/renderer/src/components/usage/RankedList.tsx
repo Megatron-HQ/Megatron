@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TextLink } from '@/components/TextLink'
+import { ProjectName } from '@/components/ProjectName'
 import { percentLabel } from './share-bars'
 
 const TOP_N = 8
@@ -13,6 +14,7 @@ export interface RankedItem {
   onSelect?: () => void
   actionLabel?: string
   swatch?: string // CSS color — model lists only (§C4); the row fill stays monochrome
+  project?: boolean // label is a project name; its disambiguating parent folders give way first
 }
 
 interface RankedListProps {
@@ -83,8 +85,12 @@ export function RankedList({
                 aria-label={item.actionLabel}
                 className="min-w-0 flex-1 truncate pr-3 text-left text-[13px]"
               >
-                {item.label}
+                {item.project ? <ProjectName label={item.label} /> : item.label}
               </TextLink>
+            ) : item.project ? (
+              <span className="relative flex min-w-0 flex-1 pr-3 text-[13px]">
+                <ProjectName label={item.label} />
+              </span>
             ) : (
               <span className="relative flex-1 truncate pr-3 text-[13px]">{item.label}</span>
             )}

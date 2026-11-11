@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Image as ImageIcon } from 'lucide-react'
 import { parseInvocationPrompt } from '@/lib/invocation-prompt'
 import { formatRelativeTime } from '@/lib/relative-time'
 import { useProjectLabel } from '@/lib/use-project-label'
+import { ProjectName } from '@/components/ProjectName'
 import { TRIGGER_META } from '@/lib/trigger-meta'
 import { cn } from '@/lib/utils'
 import type { SkillInvocationEntry } from '../../../shared/ipc'
@@ -63,10 +64,14 @@ export function InvocationRow({ entry }: { entry: SkillInvocationEntry }): React
         <dl className="mt-2 grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-3 gap-y-1 pl-[3.25rem] text-[11px]">
           <dt className="text-muted-foreground">Project</dt>
           <dd title={entry.cwd} className="min-w-0 break-words text-foreground">
-            {resolveProjectLabel(entry.cwd)}
-            {entry.git_branch !== null && (
-              <span className="text-muted-foreground"> · {entry.git_branch}</span>
-            )}
+            <span className="flex min-w-0">
+              <ProjectName label={resolveProjectLabel(entry.cwd)} />
+              {entry.git_branch !== null && (
+                <span className="min-w-0 truncate text-muted-foreground">
+                  &nbsp;· {entry.git_branch}
+                </span>
+              )}
+            </span>
           </dd>
           <dt className="text-muted-foreground">When</dt>
           <dd className="text-foreground">{new Date(entry.invoked_at).toLocaleString()}</dd>

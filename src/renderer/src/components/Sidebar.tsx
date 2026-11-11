@@ -1,4 +1,4 @@
-import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { Blocks, ChevronRight, Globe, List } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { ContextBudgetDialog } from '@/components/ContextBudgetDialog'
@@ -11,16 +11,19 @@ import { projectRootForSkill, type SourceFilter } from '@/lib/source-filter'
 import type { AllowedPathRow, ContextBudget, ProjectFolder, SkillRow } from '../../../shared/ipc'
 
 import { ProjectNavigation } from '@/components/ProjectNavigation'
-import { buildProjectTree } from '@/lib/project-tree'
+import { buildProjectTree, snapProjectSelection } from '@/lib/project-tree'
 
 interface SidebarProps {
   filter: SourceFilter
   onFilterChange: (filter: SourceFilter) => void
+  // Replaces the filter without leaving a detail view, for selections whose row disappeared.
+  onFilterSnap: (filter: SourceFilter) => void
   contextBudget: ContextBudget
   onSelectSkill: (id: number) => void
   skills?: SkillRow[]
   folders?: AllowedPathRow[]
   projectCatalog: ProjectFolder[]
+  home: string
   expandedProjects: Set<string>
   setExpandedProjects: Dispatch<SetStateAction<Set<string>>>
 }
@@ -34,11 +37,13 @@ interface PluginSidebarItem {
 export function Sidebar({
   filter,
   onFilterChange,
+  onFilterSnap,
   contextBudget,
   onSelectSkill,
   skills = [],
   folders = [],
   projectCatalog,
+  home,
   expandedProjects,
   setExpandedProjects
 }: SidebarProps): React.JSX.Element {
@@ -56,10 +61,18 @@ export function Sidebar({
           .map((skill) => ({
             path: projectRootForSkill(skill),
             count: 1
-          }))
+          })),
+        { home }
       ),
-    [folders, projectCatalog, skills]
+    [folders, projectCatalog, skills, home]
   )
+  useEffect(() => {
+    if (filter.kind !== 'project') return
+    const selection = { path: filter.projectRoot, exact: filter.exact }
+    const snapped = snapProjectSelection(projects, selection)
+    if (snapped !== selection)
+      onFilterSnap({ kind: 'project', projectRoot: snapped.path, exact: snapped.exact })
+  }, [projects, filter, onFilterSnap])
 
   const plugins = useMemo<PluginSidebarItem[]>(() => {
     const map = new Map<string, PluginSidebarItem>()
@@ -169,6 +182,7 @@ export function Sidebar({
               onFilterChange({ kind: 'project', projectRoot: path, exact })
             }
             onItemHover={onItemHover}
+            emptyLabel="without skills"
           />
 
           <div className="flex flex-col">

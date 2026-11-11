@@ -67,6 +67,8 @@ export function projectTreeFixture(channel, args, original, mode) {
   const own = mode === 'project-tree-own'
   const duplicate = mode === 'project-tree-duplicates'
   const nested = mode === 'project-tree-nested'
+  // Three sibling grants and no parent grant: the parent becomes a generated group row.
+  const grouped = mode === 'project-tree-grouped'
   const first = duplicate ? `${PARENT}\\apps\\Megatron` : FIRST
   const second = duplicate ? `${PARENT}\\clients\\Megatron` : SECOND
   const projects = [
@@ -114,7 +116,14 @@ export function projectTreeFixture(channel, args, original, mode) {
     )
   }
   if (channel === 'folders:list')
-    return [{ path: PARENT, granted_at: '' }, ...(!live ? [{ path: first, granted_at: '' }] : [])]
+    return grouped
+      ? [first, second, `${PARENT}\\Empty-repo`].map((path) => ({ path, granted_at: '' }))
+      : [{ path: PARENT, granted_at: '' }, ...(!live ? [{ path: first, granted_at: '' }] : [])]
+  if (channel === 'folders:pickAndAdd')
+    return {
+      folders: [{ path: PARENT, granted_at: '' }],
+      skipped: [{ path: second, coveredBy: PARENT }]
+    }
   const currentPlugins = removed
     ? plugins
         .map((plugin) => ({

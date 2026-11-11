@@ -23,8 +23,7 @@ import { matchesFilter, type SourceFilter } from '@/lib/source-filter'
 import {
   createProjectAvailabilityResolver,
   createProjectLabelResolver,
-  projectDisplayLabels,
-  resolveProjectSelection
+  projectDisplayLabels
 } from '@/lib/project-tree'
 import { ProjectLabelContext } from '@/lib/use-project-label'
 import { SkillDetail } from './views/SkillDetail'
@@ -37,6 +36,8 @@ import type {
   AppSection,
   ContextBudget,
   CostWindowKey,
+  GrantChangeResult,
+  SkippedGrant,
   SkillStatsWindowKey,
   ThemePreference,
   PluginUpdateProgress,
@@ -72,6 +73,7 @@ function App(): React.JSX.Element {
     window.api.getInitialTheme()
   )
   const [version] = useState(() => window.api.getVersion())
+  const [home] = useState(() => window.api.getHomePath())
   const [filter, setFilter] = useState<SourceFilter>({ kind: 'all' })
   const [view, setView] = useState<View>({ kind: 'list' })
   const [section, setSection] = useState<AppSection>(() => window.api.getInitialSection())
@@ -169,22 +171,6 @@ function App(): React.JSX.Element {
             !projects.some(
               (entry) => normalizeProjectPath(entry.path) === normalizeProjectPath(path)
             )
-          setFilter((current) =>
-            current.kind === 'project' && current.projectRoot && disappeared(current.projectRoot)
-              ? {
-                  kind: 'project',
-                  projectRoot: resolveProjectSelection(current.projectRoot, projects)
-                }
-              : current
-          )
-          setPluginFilter((current) =>
-            current.kind === 'projects' && current.projectPath && disappeared(current.projectPath)
-              ? {
-                  kind: 'projects',
-                  projectPath: resolveProjectSelection(current.projectPath, projects)
-                }
-              : current
-          )
           setView((current) => {
             if (current.kind === 'list' || skills === undefined) return current
             const previousRoot = previousSkills.find(
@@ -268,21 +254,16 @@ function App(): React.JSX.Element {
   const plugins = useMemo(() => pluginsData ?? [], [pluginsData])
   const projectLabels = useMemo(
     () =>
-      projectDisplayLabels(
-        [
-          ...projectCatalog
-            .filter((project) => project.kind === 'repository')
-            .map((project) => project.path),
-          ...skills.flatMap((skill) => (skill.project_root ? [skill.project_root] : [])),
-          ...plugins.flatMap((plugin) =>
-            plugin.installs.flatMap((install) =>
-              install.project_path ? [install.project_path] : []
-            )
-          )
-        ],
-        folders
-      ),
-    [projectCatalog, skills, plugins, folders]
+      projectDisplayLabels([
+        ...projectCatalog
+          .filter((project) => project.kind === 'repository')
+          .map((project) => project.path),
+        ...skills.flatMap((skill) => (skill.project_root ? [skill.project_root] : [])),
+        ...plugins.flatMap((plugin) =>
+          plugin.installs.flatMap((install) => (install.project_path ? [install.project_path] : []))
+        )
+      ]),
+    [projectCatalog, skills, plugins]
   )
   const scanComplete = data?.scanComplete ?? false
   const resolveProjectLabel = useMemo(
@@ -309,8 +290,8 @@ function App(): React.JSX.Element {
   )
 
   const filteredPlugins = useMemo(
-    () => createPluginRows(plugins, pluginFilter, projectCatalog, skills, folders, projectLabels),
-    [plugins, pluginFilter, projectCatalog, skills, folders, projectLabels]
+    () => createPluginRows(plugins, pluginFilter, projectCatalog, skills, projectLabels),
+    [plugins, pluginFilter, projectCatalog, skills, projectLabels]
   )
 
   function handleFilterChange(next: SourceFilter): void {
@@ -410,28 +391,30 @@ function App(): React.JSX.Element {
     void window.api.setTheme(next)
   }
 
-  async function handleAddFolders(): Promise<void> {
-    const folders = await window.api.pickAndAddFolders()
+  async function applyGrantChange(change: Promise<GrantChangeResult>): Promise<SkippedGrant[]> {
+    const result = await change
     await queryClient.cancelQueries({ queryKey: ['folders'] })
-    queryClient.setQueryData(['folders'], folders)
+    queryClient.setQueryData(['folders'], result.folders)
     void queryClient.invalidateQueries({ queryKey: ['skills'] })
     void queryClient.invalidateQueries({ queryKey: ['projects'] })
+    return result.skipped
+  }
+
+  function handleAddFolders(): Promise<SkippedGrant[]> {
+    return applyGrantChange(window.api.pickAndAddFolders())
+  }
+
+  function handleNarrowFolder(path: string): Promise<SkippedGrant[]> {
+    return applyGrantChange(window.api.narrowAllowedPath(path))
   }
 
   async function handleRevokeFolder(path: string): Promise<void> {
     const remaining = await window.api.revokeAllowedPath(path)
     await queryClient.cancelQueries({ queryKey: ['folders'] })
     queryClient.setQueryData(['folders'], remaining)
+    // Sidebar filters snap to a remaining row on their own once the tree rebuilds.
     const covered = (selectedPath: string): boolean =>
       remaining.some((folder) => isWithinProjectPath(selectedPath, folder.path))
-    if (filter.kind === 'project' && filter.projectRoot && !covered(filter.projectRoot))
-      handleFilterChange({ kind: 'project' })
-    if (
-      pluginFilter.kind === 'projects' &&
-      pluginFilter.projectPath &&
-      !covered(pluginFilter.projectPath)
-    )
-      handlePluginFilterChange({ kind: 'projects' })
     if (
       pluginView.kind === 'detail' &&
       pluginView.context?.kind === 'project' &&
@@ -477,11 +460,13 @@ function App(): React.JSX.Element {
               <Sidebar
                 filter={filter}
                 onFilterChange={handleFilterChange}
+                onFilterSnap={setFilter}
                 contextBudget={contextBudget}
                 onSelectSkill={openDetailFromAnywhere}
                 skills={skills}
                 folders={folders}
                 projectCatalog={projectCatalog}
+                home={home}
                 expandedProjects={skillExpandedProjects}
                 setExpandedProjects={setSkillExpandedProjects}
               />
@@ -536,10 +521,12 @@ function App(): React.JSX.Element {
                 plugins={plugins}
                 folders={folders}
                 projectCatalog={projectCatalog}
+                home={home}
                 expandedProjects={pluginExpandedProjects}
                 setExpandedProjects={setPluginExpandedProjects}
                 filter={pluginFilter}
                 onFilterChange={handlePluginFilterChange}
+                onFilterSnap={setPluginFilter}
               />
               {pluginView.kind === 'detail' ? (
                 <PluginDetail
@@ -650,7 +637,9 @@ function App(): React.JSX.Element {
         open={foldersDialogOpen}
         onOpenChange={setFoldersDialogOpen}
         folders={folders}
+        projectCatalog={projectCatalog}
         onAddFolders={handleAddFolders}
+        onNarrowFolder={handleNarrowFolder}
         onRevokeFolder={handleRevokeFolder}
       />
       <PluginActionToasts

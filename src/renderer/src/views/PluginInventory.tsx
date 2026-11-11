@@ -19,6 +19,7 @@ import {
 } from '@/components/PluginBadges'
 import { pluginUpdateDetails } from '@/lib/plugin-update'
 import { useProjectLabel } from '@/lib/use-project-label'
+import { ProjectName } from '@/components/ProjectName'
 import {
   getPluginFilterHeaderTitle,
   shouldShowScopeColumn,
@@ -250,10 +251,9 @@ const repositoryColumn = columnHelper.accessor('repositoryLabel', {
   cell: (info) => (
     <span
       title={info.row.original.repositoryPath ?? info.getValue()}
-      dir="ltr"
-      className="block truncate text-left text-xs text-muted-foreground"
+      className="block text-left text-xs text-muted-foreground"
     >
-      {info.getValue()}
+      <ProjectName label={info.getValue()} />
     </span>
   )
 })

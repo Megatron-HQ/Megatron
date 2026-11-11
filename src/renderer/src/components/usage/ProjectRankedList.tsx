@@ -12,7 +12,11 @@ export function ProjectRankedList({
   const [expanded, setExpanded] = useState(false)
   const { projectTooltip } = useUsageProjects()
   const needle = search.trim().toLowerCase()
-  const presented = items.map((item) => ({ ...item, fullLabel: projectTooltip(item.fullLabel) }))
+  const presented = items.map((item) => ({
+    ...item,
+    project: true,
+    fullLabel: projectTooltip(item.fullLabel)
+  }))
   const matches = presented.filter((item) =>
     matchesUsageProjectSearch(needle, [item.label, ...item.fullLabel.split('\n')])
   )

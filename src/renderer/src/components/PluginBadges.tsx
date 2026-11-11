@@ -2,6 +2,7 @@ import { ArrowUpCircle, CircleCheck, CircleHelp, Power, ShieldCheck, Store } fro
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useProjectLabel } from '@/lib/use-project-label'
+import { ProjectName } from '@/components/ProjectName'
 import { cn } from '@/lib/utils'
 import type { PluginScope } from '../../../shared/ipc'
 import { MISSING_PROJECT_STATUS_TOOLTIP } from '../../../shared/missing-project'
@@ -169,7 +170,7 @@ export function PluginScopeLabel({
           {projectName !== null && (
             <>
               <span aria-hidden="true">·</span>
-              <span className="truncate text-foreground">{projectName}</span>
+              <ProjectName label={projectName} className="text-foreground" />
             </>
           )}
         </span>

@@ -24,6 +24,7 @@ import { hasDisableModelInvocationFrontmatter, parseExtraFrontmatterFields } fro
 import { groupInvocationEntries } from '@/lib/invocation-grouping'
 import { getSkillDisplayName } from '@/lib/source-name'
 import { useProjectLabel } from '@/lib/use-project-label'
+import { ProjectName } from '@/components/ProjectName'
 import { projectRootForSkill } from '@/lib/source-filter'
 import { TRIGGER_META } from '@/lib/trigger-meta'
 import { cn } from '@/lib/utils'
@@ -580,8 +581,8 @@ function ByProject({ rows }: { rows: ProjectCount[] }): React.JSX.Element {
               key={row.cwd}
               className="grid grid-cols-[minmax(4rem,7rem)_1fr_auto] items-center gap-3 rounded-md px-2 py-1"
             >
-              <span className="truncate text-[13px] text-foreground" title={row.cwd}>
-                {label}
+              <span className="flex min-w-0 text-[13px] text-foreground" title={row.cwd}>
+                <ProjectName label={label} />
               </span>
               <span className="flex h-1.5 min-w-0 overflow-hidden rounded-full bg-muted">
                 <span

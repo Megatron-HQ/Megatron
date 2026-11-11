@@ -57,17 +57,14 @@ describe('usage project labels', () => {
     expect(resolve('/archive/PreviousName/src')).toBe('clients/Megatron')
     expect(resolve('/work/clients/Megatron')).toBe('clients/Megatron')
   })
-  it('uses names for both catalog projects and granted folders without changing shared labels', () => {
+  it('uses names for both catalog projects and granted folders', () => {
     const paths = ['C:\\HQ', 'C:\\HQ\\Megatron', 'C:\\HQ\\Site']
     const grants = [{ path: paths[0], granted_at: '' }]
-    const hierarchy = createProjectLabelResolver(
-      projectDisplayLabels(paths.slice(1), grants),
-      grants
-    )
+    const hierarchy = createProjectLabelResolver(projectDisplayLabels(paths.slice(1)), grants)
     const resolve = createUsageProjectLabelResolver(paths, hierarchy)
 
     expect(paths.map(resolve)).toEqual(['HQ', 'Megatron', 'Site'])
-    expect(hierarchy(paths[1])).toBe('HQ/Megatron')
+    expect(hierarchy(paths[0])).toBe('HQ')
     expect(resolve('')).toBe('Unknown project')
   })
 

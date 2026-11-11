@@ -60,6 +60,9 @@ globalThis.megatronVisualFixtures = {
         return { status: mode.slice('update-'.length), version: '0.1.1', autoCheck: true }
       // Before `original`: the real handler would spawn the Claude Code CLI.
       if (mode.startsWith('context-baseline')) return contextBaselineFixture(mode)
+      // Before `original`: the real handler would open the native folder picker.
+      if (channel === 'folders:pickAndAdd' && mode.startsWith('project-tree'))
+        return projectTreeFixture(channel, args, undefined, mode)
       const fixtureProjectRescan = channel === 'app:rescan' && PROJECT_SCAN_MODES.includes(mode)
       const result = fixtureProjectRescan ? undefined : await original(event, ...args)
       if (mode.startsWith('usage-history')) return usageHistoryFixture(channel, args, result, mode)

@@ -1,10 +1,13 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { ChevronRight, CircleAlert, FolderGit2 } from 'lucide-react'
 import type { Dispatch, SetStateAction } from 'react'
-import type { ProjectTreeNode } from '@/lib/project-tree'
-import { normalizeProjectPath } from '../../../shared/project-path'
+import {
+  matchesProjectRow,
+  partitionFoldedChildren,
+  type ProjectTreeNode
+} from '@/lib/project-tree'
+import { ProjectName } from '@/components/ProjectName'
 import { cn } from '@/lib/utils'
-import { useProjectLabel } from '@/lib/use-project-label'
 
 interface Selection {
   path?: string
@@ -18,6 +21,8 @@ interface ProjectNavigationProps {
   setExpanded: Dispatch<SetStateAction<Set<string>>>
   onSelect: (path?: string, exact?: boolean) => void
   onItemHover: (element: HTMLElement | null) => void
+  // Completes the trailing fold row: "3 without skills".
+  emptyLabel: string
   unknown?: { count: number; selected: boolean; onSelect: () => void }
 }
 
@@ -26,6 +31,7 @@ const MAX_INDENTED_REPOSITORY_DEPTH = 4
 const IDLE = 'text-muted-foreground hover:text-accent-foreground'
 const SELECTED = 'bg-accent-lime text-accent-lime-foreground'
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+const SELECTED_PREFIX = 'text-accent-lime-foreground/70'
 
 export function ProjectNavigation(props: ProjectNavigationProps): React.JSX.Element {
   const reduceMotion = useReducedMotion()
@@ -82,16 +88,14 @@ export function ProjectNavigation(props: ProjectNavigationProps): React.JSX.Elem
           {nodes.length === 0 && !unknown?.count && (
             <p className="px-2 py-1 text-[11px] text-muted-foreground italic">No project folders</p>
           )}
-          {nodes.map((node) => (
-            <ProjectNode
-              key={node.key}
-              node={node}
-              depth={0}
-              navigation={props}
-              reduceMotion={!!reduceMotion}
-              onToggle={toggle}
-            />
-          ))}
+          <NodeList
+            nodes={nodes}
+            foldKey={`${GROUP_KEY}#folded`}
+            depth={0}
+            navigation={props}
+            reduceMotion={!!reduceMotion}
+            onToggle={toggle}
+          />
           {!!unknown?.count && (
             <button
               type="button"
@@ -114,30 +118,92 @@ export function ProjectNavigation(props: ProjectNavigationProps): React.JSX.Elem
   )
 }
 
+type NodeProps = {
+  depth: number
+  navigation: ProjectNavigationProps
+  reduceMotion: boolean
+  onToggle: (key: string) => void
+}
+
+function nestedListClass(depth: number): string {
+  return cn(
+    'my-0.5 flex min-w-0 flex-col gap-0.5',
+    depth < 2 && 'ml-3 border-l border-border/70 pl-2',
+    depth >= 2 && depth < MAX_INDENTED_REPOSITORY_DEPTH && 'ml-1 border-l border-border/70 pl-1'
+  )
+}
+
+// Rows with nothing to show sit behind one trailing fold row per sibling set (Q11), so a granted
+// parent folder full of empty clones doesn't bury the projects that have entries.
+function NodeList({
+  nodes,
+  foldKey,
+  ...props
+}: NodeProps & { nodes: ProjectTreeNode[]; foldKey: string }): React.JSX.Element {
+  const { selected, selection, expanded, onItemHover, emptyLabel } = props.navigation
+  const { visible, folded } = partitionFoldedChildren(nodes, selected ? selection.path : undefined)
+  const open = expanded.has(foldKey)
+  const text = `${folded.length} ${emptyLabel}`
+  return (
+    <>
+      {visible.map((node) => (
+        <ProjectNode key={node.key} node={node} {...props} />
+      ))}
+      {folded.length > 0 && (
+        <div className="flex min-w-0 flex-col">
+          <div
+            onMouseEnter={(event) => onItemHover(event.currentTarget)}
+            className={cn(
+              'relative z-10 flex h-7 min-w-0 items-center gap-1 rounded-md px-2 text-xs transition-colors',
+              IDLE
+            )}
+          >
+            <button
+              type="button"
+              aria-expanded={open}
+              onClick={() => props.onToggle(foldKey)}
+              className={cn('flex h-full min-w-0 flex-1 items-center text-left', FOCUS)}
+            >
+              <span className="truncate">{text}</span>
+            </button>
+            <Disclosure label={text} expanded={open} onClick={() => props.onToggle(foldKey)} />
+          </div>
+          <Children open={open} reduceMotion={props.reduceMotion}>
+            <div className={nestedListClass(props.depth)}>
+              {folded.map((node) => (
+                <ProjectNode key={node.key} node={node} {...props} depth={props.depth + 1} />
+              ))}
+            </div>
+          </Children>
+        </div>
+      )}
+    </>
+  )
+}
+
 function ProjectNode({
   node,
   depth,
   navigation,
   reduceMotion,
   onToggle
-}: {
-  node: ProjectTreeNode
-  depth: number
-  navigation: ProjectNavigationProps
-  reduceMotion: boolean
-  onToggle: (key: string) => void
-}): React.JSX.Element {
+}: NodeProps & { node: ProjectTreeNode }): React.JSX.Element {
   const { selected, selection, expanded, onSelect, onItemHover } = navigation
-  const resolveProjectLabel = useProjectLabel()
-  // Nested entries already sit under their parent group, so the parent-relative tree label avoids
-  // repeating (and truncating on) that prefix. Top-level repositories keep the app-wide name.
-  const label =
-    depth === 0 && node.kind === 'repository' ? resolveProjectLabel(node.path) : node.label
+  const label = node.label
   const hasChildren = node.children.length > 0
   const exact = !hasChildren && node.kind === 'repository'
-  const samePath = selection.path !== undefined && normalizeProjectPath(selection.path) === node.key
+  const samePath = selection.path !== undefined && matchesProjectRow(node, selection.path)
   const isSelected = selected && samePath && !!selection.exact === exact
   const unavailable = node.status !== undefined && node.status !== 'available'
+  // `expanded` holds rows toggled away from their default, so generated groups can start open.
+  const open = node.defaultExpanded !== expanded.has(node.key)
+  const name = (
+    <ProjectName
+      label={label}
+      className="text-left"
+      prefixClassName={isSelected ? SELECTED_PREFIX : undefined}
+    />
+  )
   return (
     <div className="flex min-w-0 flex-col">
       {hasChildren ? (
@@ -157,9 +223,7 @@ function ProjectNode({
             }}
             className={cn('flex h-full min-w-0 flex-1 items-center gap-1.5 text-left', FOCUS)}
           >
-            <span dir="ltr" className="truncate text-left">
-              {label}
-            </span>
+            {name}
             {unavailable && (
               <CircleAlert
                 className="size-3 shrink-0"
@@ -170,7 +234,7 @@ function ProjectNode({
           </button>
           <Disclosure
             label={`${label} repositories`}
-            expanded={expanded.has(node.key)}
+            expanded={open}
             onClick={() => onToggle(node.key)}
           />
         </div>
@@ -186,9 +250,7 @@ function ProjectNode({
             isSelected ? SELECTED : IDLE
           )}
         >
-          <span dir="ltr" className="truncate text-left">
-            {label}
-          </span>
+          {name}
           {unavailable && (
             <CircleAlert
               className="size-3 shrink-0"
@@ -200,16 +262,8 @@ function ProjectNode({
         </button>
       )}
       {hasChildren && (
-        <Children open={expanded.has(node.key)} reduceMotion={reduceMotion}>
-          <div
-            className={cn(
-              'my-0.5 flex min-w-0 flex-col gap-0.5',
-              depth < 2 && 'ml-3 border-l border-border/70 pl-2',
-              depth >= 2 &&
-                depth < MAX_INDENTED_REPOSITORY_DEPTH &&
-                'ml-1 border-l border-border/70 pl-1'
-            )}
-          >
+        <Children open={open} reduceMotion={reduceMotion}>
+          <div className={nestedListClass(depth)}>
             {(node.kind === 'repository' || node.directCount > 0) && (
               <button
                 type="button"
@@ -232,16 +286,14 @@ function ProjectNode({
                 <DisclosureSpacer />
               </button>
             )}
-            {node.children.map((child) => (
-              <ProjectNode
-                key={child.key}
-                node={child}
-                depth={depth + 1}
-                navigation={navigation}
-                reduceMotion={reduceMotion}
-                onToggle={onToggle}
-              />
-            ))}
+            <NodeList
+              nodes={node.children}
+              foldKey={`${node.key}#folded`}
+              depth={depth + 1}
+              navigation={navigation}
+              reduceMotion={reduceMotion}
+              onToggle={onToggle}
+            />
           </div>
         </Children>
       )}
