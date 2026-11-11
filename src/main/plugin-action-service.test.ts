@@ -47,6 +47,7 @@ function detail(overrides: Partial<PluginInstall> = {}): PluginDetailResult {
       ]
     },
     skills: [],
+    components: [],
     totalInvocations: 0,
     errorCount: 0,
     warningCount: 0

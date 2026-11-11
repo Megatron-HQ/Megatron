@@ -29,6 +29,7 @@ function detail(installs: PluginInstall[]): PluginDetailResult {
       installs
     },
     skills: [],
+    components: [],
     totalInvocations: 0,
     errorCount: 0,
     warningCount: 0

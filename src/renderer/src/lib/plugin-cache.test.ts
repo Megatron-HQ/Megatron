@@ -16,6 +16,7 @@ const detail: PluginDetailResult = {
     installs: []
   },
   skills: [],
+  components: [],
   totalInvocations: 0,
   errorCount: 0,
   warningCount: 0

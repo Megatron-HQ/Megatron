@@ -13,6 +13,7 @@ import type {
   LintSeverity,
   ModelStats,
   ModelStatsWindow,
+  PluginComponent,
   PluginDetailResult,
   PluginInstall,
   PluginRow,
@@ -1427,9 +1428,20 @@ export function getPluginDetail(
     .prepare(`SELECT * FROM (${SKILLS_WITH_USAGE_SELECT}) WHERE plugin_name = ?`)
     .all(`${name}@${marketplace}`) as SkillRow[]
 
+  const components = db
+    .prepare(
+      `SELECT install_path, kind, name, detail, source_path FROM plugin_components
+       WHERE install_path IN (SELECT value FROM json_each(?))
+       ORDER BY kind, name, install_path`
+    )
+    .all(
+      JSON.stringify(plugin.installs.map((install) => install.install_path))
+    ) as PluginComponent[]
+
   return {
     plugin,
     skills,
+    components,
     totalInvocations: skills.reduce((sum, s) => sum + s.total_invocations, 0),
     errorCount: skills.reduce((sum, s) => sum + s.error_count, 0),
     warningCount: skills.reduce((sum, s) => sum + s.warning_count, 0)

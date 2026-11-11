@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { PluginInstall, PluginRow, PluginScope } from '../../../shared/ipc'
+import type {
+  PluginComponent,
+  PluginDetailResult,
+  PluginInstall,
+  PluginRow,
+  PluginScope
+} from '../../../shared/ipc'
 import {
   getPluginFilterHeaderTitle,
   isPluginFilterEqual,
@@ -185,11 +191,64 @@ describe('repository plugin rows', () => {
     ])
     expect(rows[0].disabled_reason).toBe('plugin')
     expect(rows[1].installs[0].enablement_known).toBe(false)
-    const detail = { plugin: row, skills: [], totalInvocations: 7, errorCount: 0, warningCount: 0 }
+    const detail = {
+      plugin: row,
+      skills: [],
+      components: [],
+      totalInvocations: 7,
+      errorCount: 0,
+      warningCount: 0
+    }
     expect(scopePluginDetail(detail, { kind: 'project', path: '/first' })?.plugin.installs).toEqual(
       [disabled]
     )
     expect(scopePluginDetail(detail, { kind: 'project', path: '/missing' })).toBeNull()
+  })
+
+  it("scopes components to the context's installs and lists each kind and name once", () => {
+    const user = { ...install('user'), install_path: '/cache/p/1.0.0' }
+    const project = { ...install('project', '/repo'), install_path: '/cache/p/2.0.0' }
+    const component = (
+      installPath: string,
+      kind: PluginComponent['kind'],
+      name: string
+    ): PluginComponent => ({
+      install_path: installPath,
+      kind,
+      name,
+      detail: null,
+      source_path: null
+    })
+    const detail = {
+      plugin: plugin('p', [user, project]),
+      skills: [],
+      components: [
+        component('/cache/p/1.0.0', 'agent', 'helper'),
+        component('/cache/p/2.0.0', 'agent', 'helper'),
+        component('/cache/p/2.0.0', 'agent', 'new-in-2'),
+        component('/cache/p/1.0.0', 'hook', 'helper')
+      ],
+      totalInvocations: 0,
+      errorCount: 0,
+      warningCount: 0
+    }
+
+    const kindAndName = (scoped: PluginDetailResult | null): string[] =>
+      scoped?.components.map((c) => `${c.kind}:${c.name}`) ?? []
+
+    expect(kindAndName(scopePluginDetail(detail, { kind: 'all' }))).toEqual([
+      'agent:helper',
+      'agent:new-in-2',
+      'hook:helper'
+    ])
+    expect(kindAndName(scopePluginDetail(detail, { kind: 'user' }))).toEqual([
+      'agent:helper',
+      'hook:helper'
+    ])
+    expect(kindAndName(scopePluginDetail(detail, { kind: 'project', path: '/repo' }))).toEqual([
+      'agent:helper',
+      'agent:new-in-2'
+    ])
   })
 
   it('keeps a missing project distinct from an ungranted one when the repository cannot be refreshed', () => {

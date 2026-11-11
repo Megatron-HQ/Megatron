@@ -332,9 +332,26 @@ export interface PluginRow {
   installs: PluginInstall[]
 }
 
+export type PluginComponentKind = 'agent' | 'command' | 'mcp' | 'hook' | 'lsp'
+
+// One install's component, resolved from disk by Claude Code's own rules (docs/skill-scanner.md,
+// Plugin components). Identity is (install_path, kind, name).
+export interface PluginComponent {
+  install_path: string
+  kind: PluginComponentKind
+  // Without the plugin prefix. Agents and commands keep their `:` subfolder segments.
+  name: string
+  // Agent/command description, MCP transport plus URL host or command basename (never args, env,
+  // headers, or URL path/query), LSP file extensions. NULL for hooks.
+  detail: string | null
+  // The file that declares it; NULL only when nothing on disk does.
+  source_path: string | null
+}
+
 export interface PluginDetailResult {
   plugin: PluginRow
   skills: SkillRow[]
+  components: PluginComponent[]
   totalInvocations: number
   errorCount: number
   warningCount: number

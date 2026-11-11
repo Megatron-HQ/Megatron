@@ -85,6 +85,10 @@
   --entity-mcp: #089ac3;
   --entity-memory: #ae316e;
   --entity-agents: #d36d02;
+  /* Glyph steps: the light MCP and Agents hues fall under 3:1 on their own 10% tile (DESIGN.md,
+     Validation). The base hues stay, since Resident Tax's bar and dots are validated on them. */
+  --entity-mcp-glyph: #0a86aa;
+  --entity-agents-glyph: #c26402;
 }
 
 .dark {
@@ -104,6 +108,8 @@
   --entity-mcp: #0cb0d4;
   --entity-memory: #c25485;
   --entity-agents: #c9690c;
+  --entity-mcp-glyph: var(--entity-mcp);
+  --entity-agents-glyph: var(--entity-agents);
   --card: #23201c;
   --card-foreground: #f5f3f0;
   --popover: #23201c;
@@ -159,6 +165,10 @@
   --color-entity-mcp: var(--entity-mcp);
   --color-entity-memory: var(--entity-memory);
   --color-entity-agents: var(--entity-agents);
+  --color-entity-glyph-skills: var(--entity-skills);
+  --color-entity-glyph-mcp: var(--entity-mcp-glyph);
+  --color-entity-glyph-memory: var(--entity-memory);
+  --color-entity-glyph-agents: var(--entity-agents-glyph);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

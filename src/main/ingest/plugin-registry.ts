@@ -10,6 +10,11 @@ import {
   readAllowedDirectory
 } from '../permissions'
 import { isRecord, readJson, readPluginEnablement } from './claude-settings'
+import {
+  resolvePluginComponents,
+  type MarketplaceEntryRef,
+  type PluginComponentsRead
+} from './plugin-components'
 import { parseSkillDirectory } from './skill-parser'
 import { isSemanticVersion } from '../../shared/version'
 import { createMissingProjectCheck } from './project-discovery'
@@ -83,22 +88,34 @@ function getMarketplaceHeadSha(installLocation: string): string | null {
   return null
 }
 
+interface MarketplaceManifest {
+  path: string
+  plugins: unknown[]
+}
+
+// 'unavailable' only when no copy could be read and one exists but couldn't be.
+function readMarketplaceManifest(
+  installLocation: string
+): MarketplaceManifest | 'unavailable' | null {
+  let unavailable = false
+  for (const path of [
+    join(installLocation, '.claude-plugin', 'marketplace.json'),
+    join(installLocation, 'marketplace.json')
+  ]) {
+    const manifest = readJson(path)
+    if (manifest.status === 'ok')
+      return isRecord(manifest.value) && Array.isArray(manifest.value.plugins)
+        ? { path, plugins: manifest.value.plugins }
+        : null
+    if (manifest.status === 'unavailable') unavailable = true
+  }
+  return unavailable ? 'unavailable' : null
+}
+
 function resolveMarketplaceAvailableVersion(
   marketplaceInstallLocation: string,
-  pluginName: string
+  entryRaw: Record<string, unknown>
 ): string | null {
-  let manifest = readJson(join(marketplaceInstallLocation, '.claude-plugin', 'marketplace.json'))
-  if (manifest.status !== 'ok') {
-    manifest = readJson(join(marketplaceInstallLocation, 'marketplace.json'))
-  }
-  if (manifest.status !== 'ok' || !isRecord(manifest.value)) return null
-
-  const pluginsRaw = manifest.value.plugins
-  if (!Array.isArray(pluginsRaw)) return null
-
-  const entryRaw = pluginsRaw.find((p) => isRecord(p) && p.name === pluginName)
-  if (!isRecord(entryRaw)) return null
-
   const entry = entryRaw as MarketplacePluginManifestEntry
 
   // 1. Direct version in marketplace manifest
@@ -164,28 +181,6 @@ function registryKey(
 function splitPluginKey(key: string): { name: string; marketplace: string } {
   const atIndex = key.lastIndexOf('@')
   return { name: key.slice(0, atIndex), marketplace: key.slice(atIndex + 1) }
-}
-
-// Reads the plugin's own `.claude-plugin/plugin.json` and, if it declares a hooks manifest
-// (e.g. `"hooks": "./hooks/claude-codex-hooks.json"`), resolves and reads that file too, so
-// Megatron can tell "never invoked as a Skill" apart from "runs every turn via a hook" — a plugin
-// that's active but was never routed through the Skill tool would otherwise look identically dead.
-// Degrades to null on any missing/invalid manifest rather than aborting the plugin's whole scan.
-function readPluginHookEvents(installPath: string): string | null {
-  const manifest = readJson(join(installPath, '.claude-plugin', 'plugin.json'))
-  if (manifest.status !== 'ok' || !isRecord(manifest.value)) return null
-
-  const hooksRelPath = manifest.value.hooks
-  if (typeof hooksRelPath !== 'string' || hooksRelPath.length === 0) return null
-
-  const hooksManifest = readJson(resolve(installPath, hooksRelPath))
-  if (hooksManifest.status !== 'ok' || !isRecord(hooksManifest.value)) return null
-
-  const events = hooksManifest.value.hooks
-  if (!isRecord(events)) return null
-
-  const eventNames = Object.keys(events)
-  return eventNames.length > 0 ? JSON.stringify(eventNames) : null
 }
 
 function buildPluginSkillRow(
@@ -308,21 +303,58 @@ export function scanPluginRegistry(
       available_version = CASE WHEN @has_marketplace_snapshot = 1 THEN excluded.available_version ELSE plugin_registry.available_version END
   `)
 
-  const availableVersionsCache = new Map<string, string | null>()
-  function getAvailableVersion(marketplace: string, name: string): string | null {
-    const cacheKey = `${marketplace}:${name}`
-    if (availableVersionsCache.has(cacheKey)) return availableVersionsCache.get(cacheKey)!
-
+  // One read per marketplace, shared by every plugin it lists. An ungranted location is null,
+  // not unavailable: it was never readable, so there's no cached answer to protect.
+  const marketplaceManifests = new Map<string, MarketplaceManifest | 'unavailable' | null>()
+  function getMarketplaceEntry(
+    marketplace: string,
+    name: string
+  ): { location: string; entry: MarketplaceEntryRef } | 'unavailable' | null {
     const mpConfig = marketplaceEntries[marketplace]
     const loc = typeof mpConfig?.installLocation === 'string' ? mpConfig.installLocation : null
-    if (!loc || !isPathAllowed(loc)) {
-      availableVersionsCache.set(cacheKey, null)
-      return null
-    }
+    if (!loc || !isPathAllowed(loc)) return null
+    if (!marketplaceManifests.has(marketplace))
+      marketplaceManifests.set(marketplace, readMarketplaceManifest(loc))
+    const manifest = marketplaceManifests.get(marketplace)!
+    if (manifest === null || manifest === 'unavailable') return manifest
+    const value = manifest.plugins.find((p) => isRecord(p) && p.name === name)
+    return isRecord(value) ? { location: loc, entry: { value, path: manifest.path } } : null
+  }
 
-    const ver = resolveMarketplaceAvailableVersion(loc, name)
-    availableVersionsCache.set(cacheKey, ver)
-    return ver
+  const insertComponent = db.prepare(
+    `INSERT INTO plugin_components (install_path, kind, name, detail, source_path)
+     VALUES (@install_path, @kind, @name, @detail, @source_path)`
+  )
+  const deleteComponents = db.prepare('DELETE FROM plugin_components WHERE install_path = ?')
+  const cachedHookEvents = db.prepare(
+    "SELECT name FROM plugin_components WHERE install_path = ? AND kind = 'hook'"
+  )
+  // Installs sharing a path share one component set, so each path resolves once per scan. The
+  // result is the plugin's hook_events — the same resolver feeds both (docs/skill-scanner.md).
+  const hookEventsByPath = new Map<string, string | null>()
+  let componentsComplete = true
+  function syncComponents(
+    installPath: string,
+    marketplaceEntry: ReturnType<typeof getMarketplaceEntry>
+  ): string | null {
+    if (hookEventsByPath.has(installPath)) return hookEventsByPath.get(installPath)!
+    const read: PluginComponentsRead =
+      marketplaceEntry === 'unavailable'
+        ? { status: 'unavailable', components: [] }
+        : resolvePluginComponents(installPath, marketplaceEntry?.entry ?? null)
+    let events: string[]
+    if (read.status === 'ok') {
+      deleteComponents.run(installPath)
+      for (const component of read.components)
+        insertComponent.run({ install_path: installPath, ...component })
+      events = read.components.filter((c) => c.kind === 'hook').map((c) => c.name)
+    } else {
+      componentsComplete = false
+      events = (cachedHookEvents.all(installPath) as { name: string }[]).map((row) => row.name)
+    }
+    const hookEvents = events.length > 0 ? JSON.stringify(events.sort()) : null
+    hookEventsByPath.set(installPath, hookEvents)
+    return hookEvents
   }
 
   const runScan = db.transaction(() => {
@@ -351,7 +383,14 @@ export function scanPluginRegistry(
       const { name, marketplace } = splitPluginKey(key)
       const marketplaceRepo = marketplaceEntries[marketplace]?.source?.repo
       const repo = typeof marketplaceRepo === 'string' ? marketplaceRepo : null
-      const availableVersion = getAvailableVersion(marketplace, name)
+      const marketplaceEntry = getMarketplaceEntry(marketplace, name)
+      const availableVersion =
+        marketplaceEntry === null || marketplaceEntry === 'unavailable'
+          ? null
+          : resolveMarketplaceAvailableVersion(
+              marketplaceEntry.location,
+              marketplaceEntry.entry.value
+            )
 
       const entries = Array.isArray(entriesRaw) ? entriesRaw : []
       const installs: NormalizedInstall[] = []
@@ -431,7 +470,9 @@ export function scanPluginRegistry(
         )
         if (unknownProjects.has(install.projectPath)) pluginSkillScanIsAuthoritative = false
 
-        const hookEvents = readPluginHookEvents(installPath)
+        // Without this a plugin that runs every turn via a hook, but was never routed through the
+        // Skill tool, would look identically dead to one nobody uses.
+        const hookEvents = syncComponents(installPath, marketplaceEntry)
 
         // Two real on-disk shapes for an installed plugin's skill(s) — verified against this
         // machine's actual ~/.claude/plugins/cache, not assumed from a manifest field (a
@@ -535,6 +576,9 @@ export function scanPluginRegistry(
         )
       }
     }
+    db.prepare(
+      'DELETE FROM plugin_components WHERE install_path NOT IN (SELECT install_path FROM plugin_registry)'
+    ).run()
 
     if (pluginSkillScanIsAuthoritative) {
       writeSkillScanAuthoritative(db, 'plugin', skillRows)
@@ -543,7 +587,7 @@ export function scanPluginRegistry(
     }
     return {
       status:
-        pluginSkillScanIsAuthoritative && hasMarketplaceSnapshot
+        pluginSkillScanIsAuthoritative && hasMarketplaceSnapshot && componentsComplete
           ? ('complete' as const)
           : ('partial' as const),
       ...(issues.size > 0 ? { issues: [...issues.values()] } : {})

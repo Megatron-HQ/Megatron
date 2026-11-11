@@ -55,6 +55,12 @@ function pluginSkills(): SkillRow[] {
     .all() as SkillRow[]
 }
 
+function allComponents(): Record<string, unknown>[] {
+  return db
+    .prepare('SELECT * FROM plugin_components ORDER BY install_path, kind, name')
+    .all() as Record<string, unknown>[]
+}
+
 function writeInstalledPlugins(content: unknown): void {
   writeFileSync(join(pluginsDir, 'installed_plugins.json'), JSON.stringify(content))
 }
@@ -752,6 +758,130 @@ describe('scanPluginRegistry', () => {
 
     expect(() => scanPluginRegistry(db, pluginsDir)).not.toThrow()
     expect(pluginSkills()[0].hook_events).toBeNull()
+  })
+
+  it('reads hook events from the default hooks/hooks.json (impeccable, vercel shape)', () => {
+    const installPath = join(tmpDir, 'install-a')
+    writePluginSkill(installPath, 'sub-skill', '---\nname: sub-skill\n---\nBody')
+    mkdirSync(join(installPath, 'hooks'), { recursive: true })
+    writeFileSync(
+      join(installPath, 'hooks', 'hooks.json'),
+      JSON.stringify({ hooks: { PostToolUse: [{ hooks: [] }], Stop: [{ hooks: [] }] } })
+    )
+    writeInstalledPlugins({
+      plugins: { 'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }] }
+    })
+
+    scanPluginRegistry(db, pluginsDir)
+
+    expect(pluginSkills()[0].hook_events).toBe(JSON.stringify(['PostToolUse', 'Stop']))
+  })
+
+  it("writes each install's components once, keyed by install path", () => {
+    const installPath = join(tmpDir, 'install-a')
+    const project = join(tmpDir, 'repo')
+    mkdirSync(project)
+    mkdirSync(join(installPath, 'agents'), { recursive: true })
+    writeFileSync(join(installPath, 'agents', 'helper.md'), '---\ndescription: Helps\n---\n')
+    writeFileSync(
+      join(installPath, '.mcp.json'),
+      JSON.stringify({ api: { type: 'http', url: 'https://api.dev/x?token=secret' } })
+    )
+    writeInstalledPlugins({
+      plugins: {
+        'plugin-a@market-1': [
+          { scope: 'user', installPath, version: '1.0.0' },
+          { scope: 'project', projectPath: project, installPath, version: '1.0.0' }
+        ]
+      }
+    })
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+
+    expect(allComponents()).toEqual([
+      {
+        install_path: installPath,
+        kind: 'agent',
+        name: 'helper',
+        detail: 'Helps',
+        source_path: join(installPath, 'agents', 'helper.md')
+      },
+      {
+        install_path: installPath,
+        kind: 'mcp',
+        name: 'api',
+        detail: 'http · api.dev',
+        source_path: join(installPath, '.mcp.json')
+      }
+    ])
+  })
+
+  it('keeps cached components and hook events when the install becomes unreadable', () => {
+    const installPath = join(tmpDir, 'install-a')
+    writePluginSkill(installPath, 'sub-skill', '---\nname: sub-skill\n---\nBody')
+    writePluginManifestWithHooks(installPath, './hooks/extra.json', {
+      SessionStart: [{ hooks: [] }]
+    })
+    writeInstalledPlugins({
+      plugins: { 'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }] }
+    })
+    scanPluginRegistry(db, pluginsDir)
+    const before = allComponents()
+
+    const read = permissions.readAllowedFile
+    vi.spyOn(permissions, 'readAllowedFile').mockImplementation((path, limit) =>
+      path === join(installPath, '.claude-plugin', 'plugin.json')
+        ? { status: 'unavailable', contents: null }
+        : read(path, limit)
+    )
+    const result = scanPluginRegistry(db, pluginsDir)
+
+    expect(result.status).toBe('partial')
+    expect(before).toHaveLength(1)
+    expect(allComponents()).toEqual(before)
+    expect(pluginSkills()[0].hook_events).toBe(JSON.stringify(['SessionStart']))
+  })
+
+  it('removes components when their install is uninstalled', () => {
+    const installPath = join(tmpDir, 'install-a')
+    mkdirSync(join(installPath, 'agents'), { recursive: true })
+    writeFileSync(join(installPath, 'agents', 'helper.md'), '# helper')
+    writeInstalledPlugins({
+      plugins: { 'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }] }
+    })
+    scanPluginRegistry(db, pluginsDir)
+    writeInstalledPlugins({ plugins: {} })
+
+    scanPluginRegistry(db, pluginsDir)
+
+    expect(allComponents()).toEqual([])
+  })
+
+  it('reads components a marketplace entry declares for a plugin without plugin.json', () => {
+    const installPath = join(tmpDir, 'install-lsp')
+    mkdirSync(installPath)
+    const marketplace = join(pluginsDir, 'marketplaces', 'market-1')
+    mkdirSync(join(marketplace, '.claude-plugin'), { recursive: true })
+    writeFileSync(
+      join(marketplace, '.claude-plugin', 'marketplace.json'),
+      JSON.stringify({
+        plugins: [
+          {
+            name: 'ts-lsp',
+            strict: false,
+            lspServers: { ts: { command: 'tsls', extensionToLanguage: { '.ts': 'typescript' } } }
+          }
+        ]
+      })
+    )
+    writeMarketplaces({ 'market-1': { installLocation: marketplace } })
+    writeInstalledPlugins({
+      plugins: { 'ts-lsp@market-1': [{ scope: 'user', installPath, version: '1.0.0' }] }
+    })
+
+    scanPluginRegistry(db, pluginsDir)
+
+    expect(allComponents()).toMatchObject([{ kind: 'lsp', name: 'ts', detail: '.ts' }])
   })
 
   it('captures installedAt, lastUpdated, and gitCommitSha when present in the entry', () => {

@@ -20,10 +20,10 @@ CREATE TABLE IF NOT EXISTS skills (
   is_synced INTEGER NOT NULL DEFAULT 0, -- global skill found under a reserved synced/ dir
                                         -- (claude.ai sync) — lowest-priority source, see
                                         -- docs/skill-scanner.md
-  hook_events TEXT,                    -- JSON array of event names from the plugin's declared
-                                        -- hooks manifest (.claude-plugin/plugin.json's "hooks"
-                                        -- field); NULL for global/project skills and for plugin
-                                        -- skills whose plugin declares no hooks
+  hook_events TEXT,                    -- JSON array of the plugin's hook event names, the same set
+                                        -- as its plugin_components 'hook' rows; NULL for
+                                        -- global/project skills and for plugin skills whose plugin
+                                        -- declares no hooks
   disabled_reason TEXT,                -- NULL when enabled. 'plugin' when the owning plugin's
                                         -- settings.json enabledPlugins entry is false (Claude Code
                                         -- unloads the whole plugin). 'override' when settings.json
@@ -106,6 +106,19 @@ CREATE TABLE IF NOT EXISTS plugin_registry (
                                        -- (cache/<marketplace>/<plugin>/<version>), so the same
                                        -- plugin at the same version installed for two scopes, or
                                        -- for two different projects, shares one path.
+);
+
+-- One install's agents, commands, MCP servers, hooks, and LSP servers, resolved from disk
+-- (docs/skill-scanner.md, Plugin components). Keyed by install_path, not plugin identity: installs
+-- at different versions can ship different components, and installs sharing a path share them.
+CREATE TABLE IF NOT EXISTS plugin_components (
+  install_path TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('agent', 'command', 'mcp', 'hook', 'lsp')),
+  name TEXT NOT NULL,                 -- without the plugin prefix; agents/commands keep `:` segments
+  detail TEXT,                        -- description, MCP transport + host/program, LSP extensions.
+                                       -- Never MCP args, env, headers, or URL path/query.
+  source_path TEXT,                   -- the declaring file, for a future detail view
+  PRIMARY KEY (install_path, kind, name)
 );
 
 CREATE TABLE IF NOT EXISTS prompt_history (

@@ -5,13 +5,21 @@ export type Entity = 'skills' | 'mcp' | 'memory' | 'agents'
 
 // DESIGN.md → Entity glyph. Agents isn't `Bot`: Bot/BotOff already mean "Claude invokes it on its
 // own" (the Auto trigger and the user-invocable-only chip). Memory isn't `FileText` (SKILL.md).
-// MCP's and Agents' light steps fall under 3:1 on this tile (DESIGN.md → Validation), so each
-// needs a darker glyph step, validated there, before it first renders.
+// Tiles read the `entity-glyph-*` steps: MCP's and Agents' base light hues fall under 3:1 on
+// their own tint, so light mode darkens those two (DESIGN.md → Validation).
 const ENTITY = {
-  skills: { Icon: BrainCircuit, tile: 'bg-entity-skills/10', glyph: 'text-entity-skills' },
-  mcp: { Icon: Plug, tile: 'bg-entity-mcp/10', glyph: 'text-entity-mcp' },
-  memory: { Icon: NotebookText, tile: 'bg-entity-memory/10', glyph: 'text-entity-memory' },
-  agents: { Icon: Workflow, tile: 'bg-entity-agents/10', glyph: 'text-entity-agents' }
+  skills: {
+    Icon: BrainCircuit,
+    tile: 'bg-entity-glyph-skills/10',
+    glyph: 'text-entity-glyph-skills'
+  },
+  mcp: { Icon: Plug, tile: 'bg-entity-glyph-mcp/10', glyph: 'text-entity-glyph-mcp' },
+  memory: {
+    Icon: NotebookText,
+    tile: 'bg-entity-glyph-memory/10',
+    glyph: 'text-entity-glyph-memory'
+  },
+  agents: { Icon: Workflow, tile: 'bg-entity-glyph-agents/10', glyph: 'text-entity-glyph-agents' }
 } as const
 
 // Decorative: every placement names the entity in text, so the hue never carries identity alone.

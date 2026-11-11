@@ -1915,6 +1915,34 @@ describe('getPluginDetail', () => {
     expect(detail?.errorCount).toBe(1)
     expect(detail?.warningCount).toBe(1)
   })
+
+  it("returns the components of this plugin's installs only, each with its install path", () => {
+    insertPluginRegistry({ name: 'plugin-a', marketplace: 'market-1', install_path: '/a/1' })
+    insertPluginRegistry({ name: 'plugin-b', marketplace: 'market-1', install_path: '/b/1' })
+    const insert = db.prepare(
+      'INSERT INTO plugin_components (install_path, kind, name, detail, source_path) VALUES (?, ?, ?, ?, ?)'
+    )
+    insert.run('/a/1', 'mcp', 'api', 'http · api.dev', '/a/1/.mcp.json')
+    insert.run('/a/1', 'agent', 'helper', null, '/a/1/agents/helper.md')
+    insert.run('/b/1', 'agent', 'other', null, '/b/1/agents/other.md')
+
+    expect(getPluginDetail(db, 'plugin-a', 'market-1')?.components).toEqual([
+      {
+        install_path: '/a/1',
+        kind: 'agent',
+        name: 'helper',
+        detail: null,
+        source_path: '/a/1/agents/helper.md'
+      },
+      {
+        install_path: '/a/1',
+        kind: 'mcp',
+        name: 'api',
+        detail: 'http · api.dev',
+        source_path: '/a/1/.mcp.json'
+      }
+    ])
+  })
 })
 
 describe('getActivityStats', () => {

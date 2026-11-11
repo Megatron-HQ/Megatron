@@ -45,7 +45,7 @@ function estimateListingTokens(name: string, description: string | null): number
   return estimateTokens([name, capped].filter(Boolean).join(' '))
 }
 
-interface ParsedFrontmatter {
+export interface ParsedFrontmatter {
   name: string
   description: string | null
   license: string | null
@@ -53,7 +53,7 @@ interface ParsedFrontmatter {
   disableModelInvocation: boolean
 }
 
-function parseFrontmatter(content: string, fallbackName: string): ParsedFrontmatter {
+export function parseFrontmatter(content: string, fallbackName: string): ParsedFrontmatter {
   const defaults = {
     name: fallbackName,
     description: null,

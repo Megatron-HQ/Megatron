@@ -251,10 +251,20 @@ export function scopePluginDetail(
       : detail.skills.filter((skill) =>
           installs.some((install) => isWithinProjectPath(skill.source_path, install.install_path))
         )
+  // Installs at different versions each carry a copy of what they share; list each once.
+  const seen = new Set<string>()
+  const components = detail.components.filter((component) => {
+    const key = `${component.kind}\0${component.name}`
+    if (seen.has(key) || !installs.some((i) => i.install_path === component.install_path))
+      return false
+    seen.add(key)
+    return true
+  })
   return {
     ...detail,
     plugin: { ...withInstalls(detail.plugin, installs), skill_count: skills.length },
     skills,
+    components,
     errorCount: skills.reduce((sum, skill) => sum + skill.error_count, 0),
     warningCount: skills.reduce((sum, skill) => sum + skill.warning_count, 0)
   }

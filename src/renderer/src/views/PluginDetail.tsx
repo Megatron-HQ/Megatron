@@ -41,7 +41,11 @@ import {
 } from '@/lib/plugin-filter'
 import { ProjectAvailabilityNotice } from '@/components/ProjectAvailabilityNotice'
 import { missingProjectInstallMessage } from '../../../shared/missing-project'
+import { EntityGlyph, type Entity } from '@/components/EntityGlyph'
+import { Badge } from '@/components/ui/badge'
 import type {
+  PluginComponent,
+  PluginComponentKind,
   PluginInstall,
   ProjectFolder,
   PluginUpdateProgress,
@@ -297,6 +301,12 @@ export function PluginDetail({
                 <Stat label="Lint warnings" value={warningCount.toLocaleString()} mono />
               </CardContent>
             </Card>
+
+            <PluginComponents
+              pluginName={plugin.name}
+              components={data.components}
+              disabled={plugin.disabled_reason !== null}
+            />
 
             <div className="flex flex-col gap-2">
               <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
@@ -586,6 +596,192 @@ function InstallRow({
         </p>
       )}
     </div>
+  )
+}
+
+const COMPONENT_PREVIEW_COUNT = 5
+
+// Static rows, with no hover, selection, or focus stop: no component has a view of its own yet.
+// MCP servers and agents are entities and get the glyph tile; commands, hooks, and LSP stay
+// neutral (DESIGN.md → Entity glyph).
+function PluginComponents({
+  pluginName,
+  components,
+  disabled
+}: {
+  pluginName: string
+  components: PluginComponent[]
+  disabled: boolean
+}): React.JSX.Element {
+  const of = (kind: PluginComponentKind): PluginComponent[] =>
+    components.filter((component) => component.kind === kind)
+  const hooks = of('hook')
+  return (
+    <>
+      <ComponentList label="MCP servers" items={of('mcp')}>
+        {(server) => (
+          <TileRow key={server.name} entity="mcp" disabled={disabled} component={server} mono />
+        )}
+      </ComponentList>
+      <ComponentList label="Agents" items={of('agent')}>
+        {(agent) => (
+          <TileRow
+            key={agent.name}
+            entity="agents"
+            disabled={disabled}
+            component={agent}
+            prefix={`${pluginName}:`}
+          />
+        )}
+      </ComponentList>
+      <ComponentList label="Commands" items={of('command')} panel>
+        {(command) => (
+          <DenseRow key={command.name} component={command} prefix={`/${pluginName}:`} />
+        )}
+      </ComponentList>
+      {hooks.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <ComponentCaption label="Hooks" count={hooks.length} />
+          <div className="flex flex-wrap gap-1.5">
+            {hooks.map((hook) => (
+              <Badge
+                key={hook.name}
+                variant="outline"
+                className="font-mono text-[11px] font-normal text-muted-foreground"
+              >
+                {hook.name}
+              </Badge>
+            ))}
+          </div>
+        </section>
+      )}
+      <ComponentList label="LSP servers" items={of('lsp')} panel>
+        {(server) => <DenseRow key={server.name} component={server} alignDetail="end" />}
+      </ComponentList>
+    </>
+  )
+}
+
+function ComponentCaption({ label, count }: { label: string; count: number }): React.JSX.Element {
+  return (
+    <h3 className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+      {label} · {count.toLocaleString()}
+    </h3>
+  )
+}
+
+function ComponentList({
+  label,
+  items,
+  panel = false,
+  children
+}: {
+  label: string
+  items: PluginComponent[]
+  panel?: boolean
+  children: (item: PluginComponent) => React.ReactNode
+}): React.JSX.Element | null {
+  const [expanded, setExpanded] = useState(false)
+  if (items.length === 0) return null
+  const hidden = expanded ? 0 : items.length - COMPONENT_PREVIEW_COUNT
+  return (
+    <section className="flex flex-col gap-2">
+      <ComponentCaption label={label} count={items.length} />
+      <div className={cn(panel && 'rounded-md bg-muted px-3 py-2')}>
+        <ul className={cn('flex flex-col', panel ? 'gap-1' : 'gap-2.5')}>
+          {(hidden > 0 ? items.slice(0, COMPONENT_PREVIEW_COUNT) : items).map(children)}
+        </ul>
+        {hidden > 0 && (
+          <button
+            type="button"
+            aria-expanded={false}
+            onClick={() => setExpanded(true)}
+            className={cn(
+              'rounded-sm text-[11px] text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+              panel ? 'mt-1' : 'mt-2.5'
+            )}
+          >
+            Show all {items.length.toLocaleString()}
+          </button>
+        )}
+      </div>
+    </section>
+  )
+}
+
+// The name as the user types it, with the plugin prefix dimmed.
+function ComponentName({
+  prefix,
+  name,
+  className
+}: {
+  prefix?: string
+  name: string
+  className?: string
+}): React.JSX.Element {
+  return (
+    <span title={`${prefix ?? ''}${name}`} className={cn('truncate font-mono text-xs', className)}>
+      {prefix && <span className="text-muted-foreground">{prefix}</span>}
+      {name}
+    </span>
+  )
+}
+
+function TileRow({
+  entity,
+  disabled,
+  component,
+  prefix,
+  mono = false
+}: {
+  entity: Entity
+  disabled: boolean
+  component: PluginComponent
+  prefix?: string
+  mono?: boolean
+}): React.JSX.Element {
+  return (
+    <li className="flex min-w-0 items-center gap-2.5">
+      <EntityGlyph entity={entity} disabled={disabled} />
+      <div className="flex min-w-0 flex-col">
+        <ComponentName prefix={prefix} name={component.name} />
+        {component.detail && (
+          <span
+            title={component.detail}
+            className={cn('truncate text-[11px] text-muted-foreground', mono && 'font-mono')}
+          >
+            {component.detail}
+          </span>
+        )}
+      </div>
+    </li>
+  )
+}
+
+function DenseRow({
+  component,
+  prefix,
+  alignDetail = 'start'
+}: {
+  component: PluginComponent
+  prefix?: string
+  alignDetail?: 'start' | 'end'
+}): React.JSX.Element {
+  return (
+    <li className="flex min-w-0 items-baseline gap-3">
+      <ComponentName prefix={prefix} name={component.name} className="max-w-[60%] shrink-0" />
+      {component.detail && (
+        <span
+          title={component.detail}
+          className={cn(
+            'min-w-0 flex-1 truncate text-[11px] text-muted-foreground',
+            alignDetail === 'end' && 'text-right font-mono'
+          )}
+        >
+          {component.detail}
+        </span>
+      )}
+    </li>
   )
 }
 
