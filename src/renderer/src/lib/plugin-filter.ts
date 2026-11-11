@@ -143,6 +143,10 @@ function contextKey(context: PluginContext): string {
   return context.kind === 'project' ? normalizeProjectPath(context.path) : context.kind
 }
 
+export function pluginRowKey(name: string, marketplace: string, context: PluginContext): string {
+  return JSON.stringify([name, marketplace, context.kind, contextKey(context)])
+}
+
 function belongsToContext(install: PluginInstall, context: PluginContext): boolean {
   if (context.kind === 'all') return true
   if (context.kind === 'user') return install.scope === 'user'
@@ -219,12 +223,7 @@ export function createPluginRows(
             }
           : {}),
         context,
-        rowKey: JSON.stringify([
-          plugin.name,
-          plugin.marketplace,
-          context.kind,
-          contextKey(context)
-        ]),
+        rowKey: pluginRowKey(plugin.name, plugin.marketplace, context),
         repositoryPath: context.kind === 'project' ? context.path : null,
         repositoryLabel:
           context.kind === 'project'

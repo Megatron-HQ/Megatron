@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Loader2, Power, RefreshCw, Trash2 } from 'lucide-react'
+import { motion } from 'motion/react'
+import { GlideTitle } from '@/components/GlideTitle'
 import {
   MarketplaceBadge,
   PluginScopeLabel,
@@ -15,6 +17,7 @@ import {
   type PluginActionVariables,
   type PluginActionVerb
 } from '@/lib/plugin-action'
+import { pluginTitleGlideId, useSettle } from '@/lib/transitions'
 import { isUpdateAvailable } from '../../../shared/version'
 import { TextLink } from '@/components/TextLink'
 import { useProjectLabel } from '@/lib/use-project-label'
@@ -31,6 +34,7 @@ import {
 import { cn } from '@/lib/utils'
 import {
   pluginInstallBlock,
+  pluginRowKey,
   scopePluginDetail,
   showsMissingProjectStatus,
   type PluginContext
@@ -112,6 +116,7 @@ export function PluginDetail({
         availability !== undefined && availability !== 'available'
       )
     : rawData
+  const settle = useSettle(isPending)
 
   const [uninstallTarget, setUninstallTarget] = useState<PluginInstall | null>(null)
   const mutationKey = ['plugin-action', name, marketplace]
@@ -165,39 +170,40 @@ export function PluginDetail({
     })
   }
 
-  if (isPending) {
+  // The name comes from the list row, so the header (and its title glide from that row) renders
+  // before the query returns; the rest of the header arrives with the data.
+  const glideId = pluginTitleGlideId(pluginRowKey(name, marketplace, context))
+  if (isPending || isError || !data) {
     return (
-      <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-        Loading…
-      </div>
-    )
-  }
-
-  if (isError) {
-    return (
-      <div
-        role="alert"
-        className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-muted-foreground"
-      >
-        <p>Could not load this plugin.</p>
-        <TextLink onClick={() => void refetch()}>Retry</TextLink>
-        <TextLink onClick={onBack}>Back</TextLink>
-      </div>
-    )
-  }
-  if (!data) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
-        <p className="text-sm font-medium">Plugin not found</p>
-        <p className="max-w-[320px] text-sm text-muted-foreground">
-          It may have been removed since the last scan.
-        </p>
-        <Button
-          onClick={onBack}
-          className="mt-2 bg-accent-lime text-accent-lime-foreground hover:bg-accent-lime hover:opacity-90"
-        >
-          Back to plugins
-        </Button>
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <PluginHeader name={name} glideId={glideId} onBack={onBack} />
+        {isPending ? (
+          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+            Loading…
+          </div>
+        ) : isError ? (
+          <div
+            role="alert"
+            className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-muted-foreground"
+          >
+            <p>Could not load this plugin.</p>
+            <TextLink onClick={() => void refetch()}>Retry</TextLink>
+            <TextLink onClick={onBack}>Back</TextLink>
+          </div>
+        ) : (
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+            <p className="text-sm font-medium">Plugin not found</p>
+            <p className="max-w-[320px] text-sm text-muted-foreground">
+              It may have been removed since the last scan.
+            </p>
+            <Button
+              onClick={onBack}
+              className="mt-2 bg-accent-lime text-accent-lime-foreground hover:bg-accent-lime hover:opacity-90"
+            >
+              Back to plugins
+            </Button>
+          </div>
+        )}
       </div>
     )
   }
@@ -217,17 +223,7 @@ export function PluginDetail({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onBack}
-          aria-label="Back to plugins"
-          className="shrink-0 text-muted-foreground"
-        >
-          <ArrowLeft className="size-4" />
-        </Button>
-        <h2 className="min-w-0 truncate text-base font-semibold">{plugin.name}</h2>
+      <PluginHeader name={name} glideId={glideId} onBack={onBack}>
         <MarketplaceBadge marketplace={plugin.marketplace} />
         <div className="flex shrink-0 items-center gap-1.5 font-mono text-xs text-muted-foreground whitespace-nowrap">
           <span title={`Installed version: ${versionLabel(plugin.installed_version)}`}>
@@ -260,74 +256,78 @@ export function PluginDetail({
           known={enablementKnown}
           projectMissing={showsMissingProjectStatus(plugin.installs)}
         />
-      </div>
+      </PluginHeader>
 
-      {context.kind === 'project' && (
-        <p
-          title={context.path}
-          className="shrink-0 truncate border-b border-border px-4 py-1.5 font-mono text-[11px] text-muted-foreground"
-        >
-          Repository: {resolveProjectLabel(context.path)}
-        </p>
-      )}
-      {noticeStatus && <ProjectAvailabilityNotice status={noticeStatus} />}
-      <div className="flex-1 overflow-y-auto">
-        <div className="flex flex-col gap-4 px-4 py-4">
-          <Card className="shadow-none py-4">
-            <CardContent className="grid grid-cols-2 gap-x-6 gap-y-4 px-4 sm:grid-cols-5">
-              <Stat
-                label="Marketplace"
-                value={
-                  plugin.available_version ? versionLabel(plugin.available_version) : 'Unknown'
-                }
-                mono
-              />
-              <Stat
-                label="Skills"
-                value={plugin.skill_count.toLocaleString()}
-                onClick={
-                  plugin.skill_count > 0 ? () => onViewSkills(`${name}@${marketplace}`) : undefined
-                }
-              />
-              <Stat
-                label={context.kind === 'all' ? 'Uses' : 'Uses (all projects)'}
-                value={totalInvocations === 0 ? 'Never' : totalInvocations.toLocaleString()}
-                mono
-              />
-              <Stat label="Lint errors" value={errorCount.toLocaleString()} mono />
-              <Stat label="Lint warnings" value={warningCount.toLocaleString()} mono />
-            </CardContent>
-          </Card>
+      <motion.div {...settle} className="flex min-h-0 flex-1 flex-col">
+        {context.kind === 'project' && (
+          <p
+            title={context.path}
+            className="shrink-0 truncate border-b border-border px-4 py-1.5 font-mono text-[11px] text-muted-foreground"
+          >
+            Repository: {resolveProjectLabel(context.path)}
+          </p>
+        )}
+        {noticeStatus && <ProjectAvailabilityNotice status={noticeStatus} />}
+        <div className="flex-1 overflow-y-auto">
+          <div className="flex flex-col gap-4 px-4 py-4">
+            <Card className="shadow-none py-4">
+              <CardContent className="grid grid-cols-2 gap-x-6 gap-y-4 px-4 sm:grid-cols-5">
+                <Stat
+                  label="Marketplace"
+                  value={
+                    plugin.available_version ? versionLabel(plugin.available_version) : 'Unknown'
+                  }
+                  mono
+                />
+                <Stat
+                  label="Skills"
+                  value={plugin.skill_count.toLocaleString()}
+                  onClick={
+                    plugin.skill_count > 0
+                      ? () => onViewSkills(`${name}@${marketplace}`)
+                      : undefined
+                  }
+                />
+                <Stat
+                  label={context.kind === 'all' ? 'Uses' : 'Uses (all projects)'}
+                  value={totalInvocations === 0 ? 'Never' : totalInvocations.toLocaleString()}
+                  mono
+                />
+                <Stat label="Lint errors" value={errorCount.toLocaleString()} mono />
+                <Stat label="Lint warnings" value={warningCount.toLocaleString()} mono />
+              </CardContent>
+            </Card>
 
-          <div className="flex flex-col gap-2">
-            <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-              Installs
-            </p>
-            {plugin.installs.map((install) => (
-              <InstallRow
-                key={`${installKey(install)}:${install.install_path}`}
-                install={install}
-                fallbackAvailableVersion={plugin.available_version}
-                pendingKey={pendingKey}
-                updatePhase={
-                  updateProgress?.input.scope === install.scope &&
-                  updateProgress.input.projectPath === install.project_path
-                    ? updateProgress.phase
-                    : undefined
-                }
-                onManageFolders={onManageFolders}
-                errorMessage={
-                  actionError?.install === installKey(install) ? actionError.message : undefined
-                }
-                onEnable={() => runAction('enable', install)}
-                onDisable={() => runAction('disable', install)}
-                onUpdate={() => runAction('update', install)}
-                onUninstallRequest={() => setUninstallTarget(install)}
-              />
-            ))}
+            <div className="flex flex-col gap-2">
+              <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                Installs
+              </p>
+              {plugin.installs.map((install) => (
+                <InstallRow
+                  key={`${installKey(install)}:${install.install_path}`}
+                  install={install}
+                  fallbackAvailableVersion={plugin.available_version}
+                  pendingKey={pendingKey}
+                  updatePhase={
+                    updateProgress?.input.scope === install.scope &&
+                    updateProgress.input.projectPath === install.project_path
+                      ? updateProgress.phase
+                      : undefined
+                  }
+                  onManageFolders={onManageFolders}
+                  errorMessage={
+                    actionError?.install === installKey(install) ? actionError.message : undefined
+                  }
+                  onEnable={() => runAction('enable', install)}
+                  onDisable={() => runAction('disable', install)}
+                  onUpdate={() => runAction('update', install)}
+                  onUninstallRequest={() => setUninstallTarget(install)}
+                />
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       <Dialog
         open={uninstallTarget !== null}
@@ -371,6 +371,41 @@ export function PluginDetail({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+function PluginHeader({
+  name,
+  glideId,
+  onBack,
+  children
+}: {
+  name: string
+  glideId: string
+  onBack: () => void
+  children?: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={onBack}
+        aria-label="Back to plugins"
+        className="shrink-0 text-muted-foreground"
+      >
+        <ArrowLeft className="size-4" />
+      </Button>
+      <GlideTitle
+        as="h2"
+        glideId={glideId}
+        level="detail"
+        className="min-w-0 truncate text-base font-semibold"
+      >
+        {name}
+      </GlideTitle>
+      {children}
     </div>
   )
 }

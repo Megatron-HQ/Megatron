@@ -87,6 +87,41 @@ async function finishTransitions(window) {
   })
 }
 
+// Screen enters, title glides and data settles are motion-driven (data-screen, data-glide,
+// data-settle). Motion may start one a frame after the scenario's last action, so a single
+// finishTransitions() can run before it exists, and this window can stall one mid-flight. Finishing
+// every Web Animation on each poll covers both, and the predicate waits out anything JS-driven.
+async function settleMotion(window) {
+  await window.waitForFunction(
+    () => {
+      for (const animation of document.getAnimations()) {
+        try {
+          animation.finish()
+        } catch {
+          // Infinite animations can't finish; see finishTransitions().
+        }
+      }
+      return [...document.querySelectorAll('[data-screen], [data-glide], [data-settle]')].every(
+        (element) => {
+          const style = getComputedStyle(element)
+          return style.opacity === '1' && style.transform === 'none'
+        }
+      )
+    },
+    undefined,
+    { polling: 50, timeout: 2_000 }
+  )
+}
+
+// A tooltip whose exit animation finishTransitions() just finished unmounts on its animationend,
+// which fires a frame later.
+async function waitTwoFrames(window) {
+  await window.evaluate(
+    () =>
+      new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+  )
+}
+
 /** A page wider than its own viewport is a real bug on a desktop app — never intentional. */
 async function hasHorizontalOverflow(window) {
   return window.evaluate(
@@ -209,7 +244,9 @@ async function captureAll(app, window, outDir, activeScenarios, scoped) {
       await window.mouse.move(0, 0)
 
       await scenario.run(window, app)
+      await settleMotion(window)
       await finishTransitions(window)
+      await waitTwoFrames(window)
 
       console.log(`[visual-verify]   capturing ${name}...`)
       const path = join(outDir, name)

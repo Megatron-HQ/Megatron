@@ -6,6 +6,7 @@ import { ManageFoldersDialog } from '@/components/ManageFoldersDialog'
 import { OnboardingDialog } from '@/components/onboarding/OnboardingDialog'
 import { PluginActionToasts, type PluginActionToast } from '@/components/PluginActionToasts'
 import { PluginSidebar } from '@/components/PluginSidebar'
+import { ScreenTransition } from '@/components/ScreenTransition'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { ScanStatusBanner, ScanUpdatingBanner } from '@/components/ScanStatus'
 import { useScanBanner } from '@/lib/use-scan-banner'
@@ -18,7 +19,12 @@ import {
 } from '@/components/usage/SkillInvocationDialog'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { TREE_WIDTH_DEFAULT } from '@/lib/file-tree'
-import { createPluginRows, type PluginContext, type PluginFilter } from '@/lib/plugin-filter'
+import {
+  createPluginRows,
+  pluginRowKey,
+  type PluginContext,
+  type PluginFilter
+} from '@/lib/plugin-filter'
 import { isWithinProjectPath, normalizeProjectPath } from '../../shared/project-path'
 import { matchesFilter, type SourceFilter } from '@/lib/source-filter'
 import {
@@ -93,6 +99,11 @@ function App(): React.JSX.Element {
     useState<SkillInvocationSelection | null>(null)
   const [skillInvocationOpen, setSkillInvocationOpen] = useState(false)
   const [skillBackTarget, setSkillBackTarget] = useState<SkillBackTarget>('inventory')
+  // The row Back left from, so the list it returns to focuses it and scrolls it into view.
+  // Only Back sets these; a filter or section change clears them, so every other route to a list
+  // starts at row 0.
+  const [returnSkillId, setReturnSkillId] = useState<number | null>(null)
+  const [returnPluginKey, setReturnPluginKey] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [onboardingOpen, setOnboardingOpen] = useState(() => window.api.getInitialOnboarding())
@@ -299,11 +310,13 @@ function App(): React.JSX.Element {
   )
 
   function handleFilterChange(next: SourceFilter): void {
+    setReturnSkillId(null)
     setView({ kind: 'list' })
     setFilter(next)
   }
 
   function handlePluginFilterChange(next: PluginFilter): void {
+    setReturnPluginKey(null)
     setPluginView({ kind: 'list' })
     setPluginFilter(next)
   }
@@ -359,6 +372,7 @@ function App(): React.JSX.Element {
   }
 
   function leaveSkillDetail(): void {
+    if (skillBackTarget === 'inventory' && view.kind !== 'list') setReturnSkillId(view.skillId)
     setView({ kind: 'list' })
     if (skillBackTarget === 'usage-skills' || skillBackTarget === 'usage-skills-dialog') {
       setUsagePanel('skills')
@@ -368,12 +382,23 @@ function App(): React.JSX.Element {
   }
 
   function handleSectionChange(next: AppSection): void {
+    setReturnSkillId(null)
+    setReturnPluginKey(null)
     setSection(next)
     void window.api.setLastSection(next)
   }
 
   function openPluginDetail(name: string, marketplace: string, context?: PluginContext): void {
+    setReturnPluginKey(null)
     setPluginView({ kind: 'detail', name, marketplace, context })
+  }
+
+  function leavePluginDetail(): void {
+    if (pluginView.kind === 'detail')
+      setReturnPluginKey(
+        pluginRowKey(pluginView.name, pluginView.marketplace, pluginView.context ?? { kind: 'all' })
+      )
+    setPluginView({ kind: 'list' })
   }
 
   function selectPluginFromPalette(name: string, marketplace: string): void {
@@ -480,16 +505,16 @@ function App(): React.JSX.Element {
     section === 'skills' ? (
       view.kind === 'detail' ? (
         <SkillDetail
-          key={view.skillId}
           skillId={view.skillId}
+          summary={skills.find((skill) => skill.id === view.skillId)}
           onBack={leaveSkillDetail}
           onViewFiles={() => setView({ kind: 'files', skillId: view.skillId })}
           onNavigate={navigateSkillDetail}
         />
       ) : view.kind === 'files' ? (
         <SkillFileViewer
-          key={view.skillId}
           skillId={view.skillId}
+          summary={skills.find((skill) => skill.id === view.skillId)}
           treeWidth={treeWidth}
           onTreeWidthChange={setTreeWidth}
           onBack={() => setView({ kind: 'detail', skillId: view.skillId })}
@@ -520,12 +545,12 @@ function App(): React.JSX.Element {
           onOpenSearch={() => setPaletteOpen(true)}
           onManageFolders={() => setFoldersDialogOpen(true)}
           onGrantFolder={handleAddFolders}
+          restoreFocusId={returnSkillId}
         />
       )
     ) : section === 'plugins' ? (
       pluginView.kind === 'detail' ? (
         <PluginDetail
-          key={`${pluginView.name}@${pluginView.marketplace}:${JSON.stringify(pluginView.context)}`}
           name={pluginView.name}
           marketplace={pluginView.marketplace}
           updateProgress={pluginUpdateProgress[`${pluginView.name}@${pluginView.marketplace}`]}
@@ -535,7 +560,7 @@ function App(): React.JSX.Element {
               ? projectAvailability(pluginView.context.path)
               : undefined
           }
-          onBack={() => setPluginView({ kind: 'list' })}
+          onBack={leavePluginDetail}
           onViewSkills={handleViewSkillsForPlugin}
           onActionSuccess={showPluginActionToast}
           onManageFolders={() => setFoldersDialogOpen(true)}
@@ -566,6 +591,7 @@ function App(): React.JSX.Element {
           filter={pluginFilter}
           onSelect={(plugin) => openPluginDetail(plugin.name, plugin.marketplace, plugin.context)}
           onOpenSearch={() => setPaletteOpen(true)}
+          restoreFocusKey={returnPluginKey}
         />
       )
     ) : (
@@ -588,6 +614,22 @@ function App(): React.JSX.Element {
       />
     )
 
+  // Each screen's key and depth; a new key remounts the screen, as the detail views' own keys
+  // did, and depth sets which way it enters.
+  const screen =
+    section === 'skills'
+      ? view.kind === 'list'
+        ? { key: 'skills:list', depth: 0 }
+        : { key: `skills:${view.kind}:${view.skillId}`, depth: view.kind === 'detail' ? 1 : 2 }
+      : section === 'plugins'
+        ? pluginView.kind === 'list'
+          ? { key: 'plugins:list', depth: 0 }
+          : {
+              key: `plugins:detail:${pluginRowKey(pluginView.name, pluginView.marketplace, pluginView.context ?? { kind: 'all' })}`,
+              depth: 1
+            }
+        : { key: 'usage', depth: 0 }
+
   const shell = (
     <TooltipProvider>
       <div className="flex h-screen flex-col">
@@ -606,7 +648,9 @@ function App(): React.JSX.Element {
               onOpenSettings={() => setSettingsOpen(true)}
               updateNotice={updateNotice}
             />
-            {sidebar}
+            <ScreenTransition screenKey={section} section={section} depth={0} className="flex">
+              {sidebar}
+            </ScreenTransition>
           </div>
           {/* The inset is the sheet's own margin so the rail and sidebars still reach the window's
               bottom edge; overflow-hidden clips the banner and scrollbars to the radius. */}
@@ -618,7 +662,16 @@ function App(): React.JSX.Element {
                 onOpenDetails={() => setSettingsOpen(true)}
               />
             )}
-            <div className="flex min-h-0 flex-1">{content}</div>
+            <div className="flex min-h-0 flex-1">
+              <ScreenTransition
+                screenKey={screen.key}
+                section={section}
+                depth={screen.depth}
+                className="flex min-h-0 min-w-0 flex-1"
+              >
+                {content}
+              </ScreenTransition>
+            </div>
           </main>
         </div>
       </div>

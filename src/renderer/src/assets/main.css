@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import 'tw-animate-css';
 @import '@fontsource/geist-sans/400.css';
 @import '@fontsource/geist-sans/500.css';
 @import '@fontsource/geist-sans/600.css';
@@ -184,6 +185,37 @@
 @keyframes icon-fade {
   from {
     opacity: 0;
+  }
+}
+
+/* Dialog and ⌘K motion (DESIGN.md, Transitions): the vendored ui/dialog carries tw-animate's
+   zoom-95/200ms in and out. These rules are unlayered so they beat those layered utilities, and
+   still would if ui/ were regenerated. Enter is tuned to 0.98 → 1 over 150ms; the overlay keeps
+   tw-animate's 150ms fade. Close stays instant: with no closing animation, Radix Presence
+   unmounts at once. */
+[data-slot='dialog-content'] {
+  --tw-duration: 150ms;
+}
+@media (prefers-reduced-motion: no-preference) {
+  [data-slot='dialog-content'] {
+    --tw-enter-scale: 0.98;
+  }
+}
+[data-slot='dialog-content'][data-state='closed'],
+[data-slot='dialog-overlay'][data-state='closed'] {
+  animation: none;
+}
+
+/* tw-animate-css doesn't honor reduced motion itself: dialogs and tooltips keep their fades and
+   lose their zoom and slide. */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    --tw-enter-scale: 1;
+    --tw-exit-scale: 1;
+    --tw-enter-translate-x: 0;
+    --tw-enter-translate-y: 0;
+    --tw-exit-translate-x: 0;
+    --tw-exit-translate-y: 0;
   }
 }
 

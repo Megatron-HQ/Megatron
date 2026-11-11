@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffectEvent, useLayoutEffect, useRef, useState } from 'react'
 import {
   createColumnHelper,
   createSortedRowModel,
@@ -10,7 +10,8 @@ import {
 } from '@tanstack/react-table'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Blocks, Search } from 'lucide-react'
-import { motion } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
+import { GlideTitle } from '@/components/GlideTitle'
 import {
   MarketplaceBadge,
   PluginScopeLabel,
@@ -37,6 +38,7 @@ import {
   TableHeader as TableHeadGroup,
   TableRow
 } from '@/components/ui/table'
+import { ENTER, pluginTitleGlideId, useSettle } from '@/lib/transitions'
 import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
 import { ProjectAvailabilityNotice } from '@/components/ProjectAvailabilityNotice'
@@ -115,7 +117,15 @@ const columnHelper = createColumnHelper<typeof features, PluginRow>()
 const nameColumn = columnHelper.accessor('name', {
   header: 'Name',
   sortFn: 'text',
-  cell: (info) => <span className="block truncate font-medium">{info.getValue()}</span>
+  cell: (info) => (
+    <GlideTitle
+      glideId={pluginTitleGlideId(info.row.original.rowKey)}
+      level="list"
+      className="block truncate font-medium"
+    >
+      {info.getValue()}
+    </GlideTitle>
+  )
 })
 
 const marketplaceColumn = columnHelper.accessor('marketplace', {
@@ -370,6 +380,9 @@ interface PluginInventoryProps {
   filter: PluginFilter
   onSelect: (plugin: PluginRow) => void
   onOpenSearch: () => void
+  // The row Back left from: focused (and so scrolled into view) when the list mounts, so Back
+  // returns to where the user was instead of row 0 at the top.
+  restoreFocusKey?: string | null
 }
 
 export function PluginInventory({
@@ -378,7 +391,8 @@ export function PluginInventory({
   filter,
   availability,
   onSelect,
-  onOpenSearch
+  onOpenSearch,
+  restoreFocusKey = null
 }: PluginInventoryProps): React.JSX.Element {
   const resolveProjectLabel = useProjectLabel()
   const [sorting, setSorting] = useState<SortingState>([])
@@ -422,21 +436,39 @@ export function PluginInventory({
   const highlightIndex =
     hoveredId !== null ? rows.findIndex((row) => pluginKey(row.original) === hoveredId) : -1
 
+  const settle = useSettle(loading)
+
   const focusRow = useCallback(
     (index: number): void => {
       const clamped = Math.max(0, Math.min(index, rows.length - 1))
       setFocusedIndex(clamped)
-      const rowEl = containerRef.current?.querySelectorAll('tbody tr')[clamped]
-      if (rowEl instanceof HTMLElement) rowEl.focus()
+      // AnimatePresence keeps a leaving row mounted at its old position for a beat after the rows
+      // change, so a DOM position can name a row on its way out. The key can't.
+      const key = rows[clamped]?.id
+      const rowEl = [
+        ...(containerRef.current?.querySelectorAll<HTMLElement>('tbody tr') ?? [])
+      ].find((el) => el.dataset.rowKey === key)
+      rowEl?.focus()
     },
-    [rows.length]
+    [rows]
   )
 
-  useEffect(() => {
-    if (!hasRows) return
+  // Spent by the first focus; every later run starts at row 0.
+  const pendingRestoreKey = useRef(restoreFocusKey)
+  // An effect event, so the effect below keeps today's triggers rather than re-running whenever
+  // the plugin rows are rebuilt.
+  const focusShownRows = useEffectEvent(() => {
     if (containerRef.current?.contains(document.activeElement)) return
-    focusRow(0)
-  }, [hasRows, focusRow])
+    const restoreIndex = rows.findIndex((row) => row.id === pendingRestoreKey.current)
+    pendingRestoreKey.current = null
+    focusRow(Math.max(restoreIndex, 0))
+  })
+
+  // A layout effect, so Back's scroll to the opened row lands before the first paint rather than
+  // a frame after the list shows at the top.
+  useLayoutEffect(() => {
+    if (hasRows) focusShownRows()
+  }, [hasRows, rows.length])
 
   let body: React.JSX.Element
   if (loading) {
@@ -514,7 +546,13 @@ export function PluginInventory({
     )
   } else {
     body = (
-      <div ref={containerRef} className="relative flex-1 overflow-auto" onMouseLeave={onMouseLeave}>
+      <motion.div
+        ref={containerRef}
+        layoutScroll
+        {...settle}
+        className="relative flex-1 overflow-auto"
+        onMouseLeave={onMouseLeave}
+      >
         {highlightIndex >= 0 && (
           <motion.div
             className="pointer-events-none absolute inset-x-0 z-0 bg-accent"
@@ -553,41 +591,48 @@ export function PluginInventory({
             ))}
           </TableHeadGroup>
           <TableBody>
-            {rows.map((row, index) => (
-              <motion.tr
-                key={row.id}
-                data-slot="table-row"
-                tabIndex={index === safeFocusedIndex ? 0 : -1}
-                className="h-10 cursor-pointer border-b-0 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-                initial={reduceMotion ? false : { opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={reduceMotion ? { duration: 0 } : { duration: 0.15, ease: 'easeOut' }}
-                onFocus={() => setFocusedIndex(index)}
-                onMouseEnter={() => setHoveredId(pluginKey(row.original))}
-                onClick={() => onSelect(row.original)}
-                onKeyDown={(event) => {
-                  if (event.key === 'ArrowDown') {
-                    event.preventDefault()
-                    focusRow(index + 1)
-                  } else if (event.key === 'ArrowUp') {
-                    event.preventDefault()
-                    focusRow(index - 1)
-                  } else if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault()
-                    onSelect(row.original)
-                  }
-                }}
-              >
-                {row.getAllCells().map((cell) => (
-                  <TableCell key={cell.id} className={cn('px-3 py-2', columnWidth[cell.column.id])}>
-                    <table.FlexRender cell={cell} />
-                  </TableCell>
-                ))}
-              </motion.tr>
-            ))}
+            {/* Rows on screen when the list mounts arrive with it; rows added later fade in. */}
+            <AnimatePresence initial={false}>
+              {rows.map((row, index) => (
+                <motion.tr
+                  key={row.id}
+                  data-slot="table-row"
+                  data-row-key={row.id}
+                  tabIndex={index === safeFocusedIndex ? 0 : -1}
+                  className="h-10 cursor-pointer border-b-0 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                  initial={reduceMotion ? false : { opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={reduceMotion ? { duration: 0 } : ENTER}
+                  onFocus={() => setFocusedIndex(index)}
+                  onMouseEnter={() => setHoveredId(pluginKey(row.original))}
+                  onClick={() => onSelect(row.original)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'ArrowDown') {
+                      event.preventDefault()
+                      focusRow(index + 1)
+                    } else if (event.key === 'ArrowUp') {
+                      event.preventDefault()
+                      focusRow(index - 1)
+                    } else if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      onSelect(row.original)
+                    }
+                  }}
+                >
+                  {row.getAllCells().map((cell) => (
+                    <TableCell
+                      key={cell.id}
+                      className={cn('px-3 py-2', columnWidth[cell.column.id])}
+                    >
+                      <table.FlexRender cell={cell} />
+                    </TableCell>
+                  ))}
+                </motion.tr>
+              ))}
+            </AnimatePresence>
           </TableBody>
         </Table>
-      </div>
+      </motion.div>
     )
   }
 

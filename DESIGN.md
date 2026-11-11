@@ -172,7 +172,7 @@ A single radius scale rooted at 10px (`--radius: 0.625rem`), applied identically
 
 - **Row height:** 40px; **cell padding:** 8/12px; `table-fixed` with Name/Source fixed-width and Description filling the remainder — no horizontal scroll, no variable row height.
 - **Hover / selection:** one shared, absolutely-positioned highlight box tracks the hovered row's position via a spring transition (stiffness 500, damping 40) rather than each row repainting its own background — full-bleed and unrounded, matching the flat/bordered elevation stance.
-- **Keyboard:** `↓`/`↑` moves selection, `Enter`/`Space` opens the file viewer; the focus ring is the same shared `--ring` token, applied inset.
+- **Keyboard:** `↓`/`↑` moves selection, `Enter`/`Space` opens the file viewer; the focus ring is the same shared `--ring` token, applied inset. Back returns focus to the row that was opened.
 
 ### Rail (section switcher)
 
@@ -192,7 +192,7 @@ A single radius scale rooted at 10px (`--radius: 0.625rem`), applied identically
 - A three-step modal over the live app (`components/onboarding/`): a brief of what Megatron does and doesn't do, an overview of Skills / Plugins / Usage with the user's own counts, and folder access. It shows when no folder is granted and the flag in `preferences.json` is unset. Every exit (finish, Skip, Esc, close) sets the flag. Clicking outside does nothing. Settings › About › "Show welcome" replays it.
 - **Departs from the ledger, user-authorised and scoped to this dialog:**
   - Step headlines are 24px/600, the one place above the No-Hero-Type cap besides the Usage Stat.
-  - Steps slide and crossfade on springs, direction-aware.
+  - Steps slide and crossfade on springs, direction-aware, between steps; the shared dialog enter opens it.
   - The dialog's height animates to each step.
   - Facts, cards and folder rows stagger in.
   - Counts tick up as the scan reports.
@@ -228,9 +228,22 @@ A single radius scale rooted at 10px (`--radius: 0.625rem`), applied identically
 - **Empty:** one large `ink-muted` icon (e.g. `FolderOpen`), centered, above a short heading and one line of body text; closes with a single CTA when the state is actionable, styled per the Lime override button above.
 - **Error:** inline, near the affected row or section — not a full-page state.
 
+### Transitions
+
+Timings live in `lib/transitions.ts`; dialog tuning lives in `main.css`.
+
+- **Arrival only.** Departures are instant: no exit animations on screens or dialogs. The old screen leaves in the same commit the new one mounts.
+- **Screens** (`ScreenTransition`): a section switch rises 4px for both sidebar and content; going deeper (list → detail → files) enters 16px from the right; Back enters 16px from the left; 150ms ease-out. The first paint never animates.
+- **Title glide** (`GlideTitle`): the name glides from a Skills row into its detail, detail → files, files → detail, and from a Plugins row into its detail. Position only, so the size snaps to the destination and the text never distorts, on the row-glide spring (500/40). Destination headers render from the list row, so the glide can start before the query returns.
+  - Back to a list doesn't glide. The row sits inside the table's scroll container, which would clip the title under the title strip, and the title would cross other rows' names. Back still focuses the opened row and scrolls it into view.
+- **Data settle:** a 150ms opacity settle on pending → data only, never on a refetch or poll; cached data shows at once. Rows present when a list mounts arrive with it; rows added later fade and rise 4px.
+- **Dialogs and ⌘K:** tw-animate-css, tuned to 0.98 → 1 plus fade over 150ms, with the overlay fading alongside. They close instantly. Onboarding opens with it, and its step slides run between steps.
+- **Tooltips:** shadcn's stock fade, zoom-95 and 8px slide, in and out.
+- **Reduced motion:** opacity only. Screens fade without travel, titles don't glide, and dialogs and tooltips keep only their fades. The settle is unchanged.
+
 ### File Tree (signature component)
 
-The skill file viewer's file tree makes fuller use of motion than most surfaces today: per-row icon rotation on expand/collapse, a glide-highlight matching the table's (inset, rounded-pill shape rather than the table's full-bleed), and a fade-in on mount — needed once virtualization ruled out a `height: auto` whole-subtree animation. Follows the standard `role="tree"`/`treeitem` keyboard pattern with roving `tabIndex`.
+The skill file viewer's file tree makes fuller use of motion than most surfaces today: per-row icon rotation on expand/collapse, a glide-highlight matching the table's (inset, rounded-pill shape rather than the table's full-bleed), and a fade-in for rows that mount after the viewer opens (an expanded folder, a scroll) — needed once virtualization ruled out a `height: auto` whole-subtree animation. Rows present when the viewer opens arrive with its enter. Follows the standard `role="tree"`/`treeitem` keyboard pattern with roving `tabIndex`.
 
 ### Charts (Usage)
 
@@ -240,7 +253,7 @@ The skill file viewer's file tree makes fuller use of motion than most surfaces 
 ### Named Rules
 
 **The Hand-Rolled-Charts Rule.** No charting library. Recharts, visx, and Chart.js ship visual opinions (tooltip chrome, axis styling, entrance animations) that cost as much to override as clean bars cost to build, and add bundle weight to an Electron app. Reopen only if a line chart ships, and then evaluate `d3-shape` alone or `uPlot`, never a full framework.
-**The Motion-Earns-Its-Keep Rule.** `motion` is available anywhere a state change needs feedback CSS can't express — it isn't fixed to today's call sites (table, file-tree, and sidebar glides; Usage charts), and can grow into new surfaces as they earn it. CSS transitions stay the default everywhere else, and every `motion` use guards `useReducedMotion()` explicitly, since JS-driven animation doesn't get `prefers-reduced-motion` for free.
+**The Motion-Earns-Its-Keep Rule.** `motion` is available anywhere a state change needs feedback CSS can't express — it isn't fixed to today's call sites (table, file-tree, and sidebar glides; Usage charts; screen enters, the title glide, and the data settle), and can grow into new surfaces as they earn it. CSS stays the default everywhere else; dialogs and tooltips are CSS keyframes (tw-animate-css). Every `motion` use guards `useReducedMotion()` explicitly, since JS-driven animation doesn't get `prefers-reduced-motion` for free. The one exception is an opacity-only fade (the data settle), which reduced motion keeps.
 
 ## App Icon
 
@@ -281,11 +294,11 @@ The icon is a white (`#f5f5f5`) magnet with acid-lime pole caps, pulling in a li
 - **Do** use rule-lines, not shadows, for on-page structure — reserve shadows for the one content sheet and for floating layers.
 - **Do** keep type at or below 16px/600 — build hierarchy from position and ink/muted contrast, not size.
 - **Do** cap rendered markdown prose at 72ch even though the rest of the app is fluid-width.
-- **Do** reach for `motion` wherever a state change needs feedback CSS genuinely can't express — proven today in the table row, file tree, and sidebar nav glides and the Usage charts, but not limited to them.
+- **Do** reach for `motion` wherever a state change needs feedback CSS genuinely can't express — proven today in the table row, file tree, and sidebar nav glides, the Usage charts, screen enters, the title glide, and the data settle, but not limited to them.
 
 ### Don't:
 
 - **Don't** give source tiers (global/project/plugin) their own color family — icon + neutral badge carries that meaning; color stays reserved for the stamp, status tones, entity identity, and model series.
 - **Don't** introduce a second accent color or a gradient — the ledger has exactly one stamp. _(Entity and model hues are not accents: they carry identity, not emphasis, and stay in their channels — see the Channel Rule.)_
 - **Don't** add a hue outside the four roles, or one that hasn't been validated — see the Every-Hue-Has-A-Role Rule.
-- **Don't** let `motion` become decorative — reach for it only when CSS transitions genuinely can't deliver the feedback, and always guard it with `useReducedMotion()`.
+- **Don't** let `motion` become decorative — reach for it only when CSS transitions genuinely can't deliver the feedback, and always guard it with `useReducedMotion()` (an opacity-only fade excepted).

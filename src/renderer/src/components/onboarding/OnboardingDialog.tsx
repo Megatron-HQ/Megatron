@@ -128,7 +128,7 @@ export function OnboardingDialog({
           className="relative overflow-hidden"
         >
           <div ref={measure} className="relative px-6 pt-7 pb-6">
-            <AnimatePresence mode="popLayout" custom={direction}>
+            <AnimatePresence initial={false} mode="popLayout" custom={direction}>
               <motion.div
                 key={STEPS[step]}
                 custom={direction}

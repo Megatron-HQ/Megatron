@@ -1937,6 +1937,11 @@ export const scenarios = [
           .first()
         await day.focus()
         if (state === 'hover') {
+          // At the minimum size, focusing scrolls the day into view, which closes the tooltip it
+          // just opened. A single synthetic pointermove during that exit fade doesn't reopen it.
+          await window
+            .locator('[role="tooltip"][data-state="closed"]')
+            .waitFor({ state: 'detached' })
           await day.hover()
           await window
             .getByRole('tooltip')
@@ -2034,8 +2039,9 @@ export const scenarios = [
         .first()
       await cell.focus()
       await window.keyboard.press('ArrowRight')
+      // The tooltip arrowed away from is still playing its exit animation, so wait on the open one.
       await window
-        .getByRole('tooltip')
+        .locator('[role="tooltip"]:not([data-state="closed"])')
         .getByText(/of this month/)
         .waitFor()
     }

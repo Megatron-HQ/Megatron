@@ -93,8 +93,10 @@ are fixed in `verify.mjs`, so "unchanged" means the same thing every time regard
 it — not re-tuned per run. The floor isn't a guess: the capture window emulates
 `prefers-reduced-motion` so the app's JS-driven spring animations (hover-glide, file-tree
 expand/collapse) render instantly instead of needing a wait long enough to outlast an unreliable
-frame rate, and even so, repeated identical runs still showed up to ~650 pixels of ordinary subpixel
-font-rendering jitter. `2000` clears that with real margin. Each screenshot lands in one bucket:
+frame rate. Before each capture it also waits for every motion-driven screen enter, title glide and
+data settle (`data-screen`, `data-glide`, `data-settle`) to reach rest, then finishes CSS animations and
+waits two frames so closing tooltips unmount. Even so, repeated identical runs still showed up to
+~650 pixels of ordinary subpixel font-rendering jitter. `2000` clears that with real margin. Each screenshot lands in one bucket:
 
 - **new** — no baseline exists yet (a first run, or a newly added scenario). Always review.
 - **changed** — differs from the accepted baseline by more than the floor, or its dimensions don't

@@ -1,19 +1,18 @@
 import { useCallback, useRef, useState } from 'react'
 import { useReducedMotion } from 'motion/react'
+import { GLIDE_SPRING } from './transitions'
 
 export function useGlideHighlight<TId>(): {
   hoveredId: TId | null
   setHoveredId: (id: TId | null) => void
   onMouseLeave: () => void
   reduceMotion: boolean
-  transition: { duration: 0 } | { type: 'spring'; stiffness: number; damping: number }
+  transition: { duration: 0 } | typeof GLIDE_SPRING
 } {
   const reduceMotion = useReducedMotion() === true
   const [hoveredId, setHoveredId] = useState<TId | null>(null)
   const onMouseLeave = useCallback(() => setHoveredId(null), [])
-  const transition = reduceMotion
-    ? ({ duration: 0 } as const)
-    : { type: 'spring' as const, stiffness: 500, damping: 40 }
+  const transition = reduceMotion ? ({ duration: 0 } as const) : GLIDE_SPRING
 
   return { hoveredId, setHoveredId, onMouseLeave, reduceMotion, transition }
 }
@@ -31,7 +30,7 @@ export function useElementGlideHighlight<TContainer extends HTMLElement = HTMLEl
   onItemHover: (el: HTMLElement | null) => void
   onMouseLeave: () => void
   reduceMotion: boolean
-  transition: { duration: 0 } | { type: 'spring'; stiffness: number; damping: number }
+  transition: { duration: 0 } | typeof GLIDE_SPRING
 } {
   const reduceMotion = useReducedMotion() === true
   const containerRef = useRef<TContainer | null>(null)
@@ -56,9 +55,7 @@ export function useElementGlideHighlight<TContainer extends HTMLElement = HTMLEl
     setHighlightRect(null)
   }, [])
 
-  const transition = reduceMotion
-    ? ({ duration: 0 } as const)
-    : { type: 'spring' as const, stiffness: 500, damping: 40 }
+  const transition = reduceMotion ? ({ duration: 0 } as const) : GLIDE_SPRING
 
   return { containerRef, highlightRect, onItemHover, onMouseLeave, reduceMotion, transition }
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { ChevronRight, Folder, FolderOpen } from 'lucide-react'
-import { motion } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import { resolveFileIcon } from '@/lib/file-icon'
 import {
   buildTree,
@@ -10,6 +10,7 @@ import {
   type FlatRow,
   type TreeNode
 } from '@/lib/file-tree'
+import { ENTER } from '@/lib/transitions'
 import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
 import type { SkillFile } from '../../../shared/ipc'
@@ -195,78 +196,82 @@ export function FileTree({
             transition={transition}
           />
         )}
-        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-          const row = rows[virtualRow.index]
-          const { node, siblingIndex, siblingCount } = row
-          const isOpen = node.isDirectory && expandedIds.has(node.id)
-          const isSelected = !node.isDirectory && node.file?.relativePath === selectedPath
-          const Icon = node.isDirectory ? null : resolveFileIcon(node.label)
+        {/* Rows on screen when the viewer mounts ride its enter; rows a folder expand or a scroll
+            mounts later fade in. */}
+        <AnimatePresence initial={false}>
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const row = rows[virtualRow.index]
+            const { node, siblingIndex, siblingCount } = row
+            const isOpen = node.isDirectory && expandedIds.has(node.id)
+            const isSelected = !node.isDirectory && node.file?.relativePath === selectedPath
+            const Icon = node.isDirectory ? null : resolveFileIcon(node.label)
 
-          return (
-            <motion.div
-              key={node.id}
-              className="absolute inset-x-0 z-10"
-              style={{ top: virtualRow.start, height: ROW_HEIGHT }}
-              initial={reduceMotion ? false : { opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={reduceMotion ? { duration: 0 } : { duration: 0.15, ease: 'easeOut' }}
-            >
-              <button
-                ref={(el) => {
-                  if (el) rowRefs.current.set(node.id, el)
-                  else rowRefs.current.delete(node.id)
-                }}
-                type="button"
-                role="treeitem"
-                aria-expanded={node.isDirectory ? isOpen : undefined}
-                aria-selected={isSelected}
-                aria-level={node.depth + 1}
-                aria-posinset={siblingIndex + 1}
-                aria-setsize={siblingCount}
-                tabIndex={focusedId === node.id ? 0 : -1}
-                style={{ paddingLeft: BASE_PADDING + node.depth * INDENT_SIZE }}
-                onClick={() => activateNode(node)}
-                onFocus={() => setFocusedId(node.id)}
-                onMouseEnter={() => setHoveredId(node.id)}
-                onKeyDown={(event) => handleRowKeyDown(event, row, virtualRow.index)}
-                className={cn(
-                  'flex h-full w-full items-center gap-1.5 truncate pr-3 text-left font-mono text-[13px] focus-visible:outline-none',
-                  isSelected ? 'font-medium text-foreground' : 'text-muted-foreground',
-                  'hover:text-foreground focus-visible:text-foreground'
-                )}
+            return (
+              <motion.div
+                key={node.id}
+                className="absolute inset-x-0 z-10"
+                style={{ top: virtualRow.start, height: ROW_HEIGHT }}
+                initial={reduceMotion ? false : { opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={reduceMotion ? { duration: 0 } : ENTER}
               >
-                {node.isDirectory ? (
-                  <>
-                    <motion.span
-                      className="inline-flex shrink-0"
-                      animate={{ rotate: isOpen ? 90 : 0 }}
-                      transition={
-                        reduceMotion
-                          ? { duration: 0 }
-                          : { type: 'spring', stiffness: 500, damping: 30 }
-                      }
-                    >
-                      <ChevronRight className="size-3.5" />
-                    </motion.span>
-                    {isOpen ? (
-                      <FolderOpen className="size-3.5 shrink-0" />
-                    ) : (
-                      <Folder className="size-3.5 shrink-0" />
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <span className="inline-block size-3.5 shrink-0" />
-                    {Icon && <Icon className="size-3.5 shrink-0" />}
-                  </>
-                )}
-                <span className="truncate" title={node.label}>
-                  {node.label}
-                </span>
-              </button>
-            </motion.div>
-          )
-        })}
+                <button
+                  ref={(el) => {
+                    if (el) rowRefs.current.set(node.id, el)
+                    else rowRefs.current.delete(node.id)
+                  }}
+                  type="button"
+                  role="treeitem"
+                  aria-expanded={node.isDirectory ? isOpen : undefined}
+                  aria-selected={isSelected}
+                  aria-level={node.depth + 1}
+                  aria-posinset={siblingIndex + 1}
+                  aria-setsize={siblingCount}
+                  tabIndex={focusedId === node.id ? 0 : -1}
+                  style={{ paddingLeft: BASE_PADDING + node.depth * INDENT_SIZE }}
+                  onClick={() => activateNode(node)}
+                  onFocus={() => setFocusedId(node.id)}
+                  onMouseEnter={() => setHoveredId(node.id)}
+                  onKeyDown={(event) => handleRowKeyDown(event, row, virtualRow.index)}
+                  className={cn(
+                    'flex h-full w-full items-center gap-1.5 truncate pr-3 text-left font-mono text-[13px] focus-visible:outline-none',
+                    isSelected ? 'font-medium text-foreground' : 'text-muted-foreground',
+                    'hover:text-foreground focus-visible:text-foreground'
+                  )}
+                >
+                  {node.isDirectory ? (
+                    <>
+                      <motion.span
+                        className="inline-flex shrink-0"
+                        animate={{ rotate: isOpen ? 90 : 0 }}
+                        transition={
+                          reduceMotion
+                            ? { duration: 0 }
+                            : { type: 'spring', stiffness: 500, damping: 30 }
+                        }
+                      >
+                        <ChevronRight className="size-3.5" />
+                      </motion.span>
+                      {isOpen ? (
+                        <FolderOpen className="size-3.5 shrink-0" />
+                      ) : (
+                        <Folder className="size-3.5 shrink-0" />
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <span className="inline-block size-3.5 shrink-0" />
+                      {Icon && <Icon className="size-3.5 shrink-0" />}
+                    </>
+                  )}
+                  <span className="truncate" title={node.label}>
+                    {node.label}
+                  </span>
+                </button>
+              </motion.div>
+            )
+          })}
+        </AnimatePresence>
       </div>
     </div>
   )

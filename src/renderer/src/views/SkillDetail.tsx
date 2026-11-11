@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { animate, useReducedMotion } from 'motion/react'
+import { animate, motion, useReducedMotion } from 'motion/react'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -11,6 +11,7 @@ import {
   Webhook
 } from 'lucide-react'
 import { EntityGlyph } from '@/components/EntityGlyph'
+import { GlideTitle } from '@/components/GlideTitle'
 import { InvocationGroupRow } from '@/components/InvocationGroupRow'
 import { InvocationRow } from '@/components/InvocationRow'
 import { LintFindingsPanel } from '@/components/LintFindingsPanel'
@@ -28,11 +29,15 @@ import { useProjectLabel } from '@/lib/use-project-label'
 import { ProjectName } from '@/components/ProjectName'
 import { projectRootForSkill } from '@/lib/source-filter'
 import { TRIGGER_META } from '@/lib/trigger-meta'
+import { skillTitleGlideId, useSettle } from '@/lib/transitions'
 import { cn } from '@/lib/utils'
 import type { ProjectCount, SkillRow, SkillUsageDetail, TriggerType } from '../../../shared/ipc'
 
 interface SkillDetailProps {
   skillId: number
+  // The list's row for this skill. The header renders from it before the query returns, so the
+  // title can glide in from the row (GlideTitle needs both ends in one commit).
+  summary?: SkillRow
   onBack: () => void
   onViewFiles: () => void
   onNavigate: (id: number) => void
@@ -58,6 +63,7 @@ const PROJECT_ROW_CAP = 6
 
 export function SkillDetail({
   skillId,
+  summary,
   onBack,
   onViewFiles,
   onNavigate
@@ -73,6 +79,7 @@ export function SkillDetail({
     [data]
   )
   const metadataEntries = useMemo(() => parseMetadataEntries(data?.skill.metadata_json), [data])
+  const settle = useSettle(isPending)
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
@@ -83,16 +90,13 @@ export function SkillDetail({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [onBack])
 
-  if (isPending) {
-    return (
+  const titleSkill = data?.skill ?? summary
+  if (isPending || isError || !data) {
+    const status = isPending ? (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
         Loading…
       </div>
-    )
-  }
-
-  if (isError) {
-    return (
+    ) : isError ? (
       <div
         role="alert"
         className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-muted-foreground"
@@ -101,10 +105,7 @@ export function SkillDetail({
         <TextLink onClick={() => void refetch()}>Retry</TextLink>
         <TextLink onClick={onBack}>Back</TextLink>
       </div>
-    )
-  }
-  if (!data) {
-    return (
+    ) : (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
         <p className="text-sm font-medium">Skill not found</p>
         <p className="max-w-[320px] text-sm text-muted-foreground">
@@ -116,6 +117,14 @@ export function SkillDetail({
         >
           Back to skills
         </Button>
+      </div>
+    )
+    // Without a row to title it (opened before the list loaded), the state takes the whole page.
+    if (!titleSkill) return status
+    return (
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <DetailHeader skill={titleSkill} onBack={onBack} onViewFiles={onViewFiles} />
+        {status}
       </div>
     )
   }
@@ -140,208 +149,231 @@ export function SkillDetail({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={onBack}
-            aria-label="Back to skills"
-            className="shrink-0 text-muted-foreground"
-          >
-            <ArrowLeft className="size-4" />
-          </Button>
-          <EntityGlyph entity="skills" disabled={skill.disabled_reason !== null} />
-          <h2 className="min-w-0 truncate text-base font-semibold">
-            {getSkillDisplayName(skill.name, skill.source_type, skill.plugin_name)}
-          </h2>
-        </div>
-        <Button
-          onClick={onViewFiles}
-          className="shrink-0 bg-accent-lime text-accent-lime-foreground hover:bg-accent-lime hover:opacity-90 active:opacity-80"
-        >
-          <FolderOpen className="size-4" />
-          View files
-        </Button>
-      </div>
+      <DetailHeader skill={skill} onBack={onBack} onViewFiles={onViewFiles} />
 
-      {skill.shadowed_by_skill_id !== null && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-warning/10 px-4 py-2 text-sm text-warning">
-          <AlertTriangle className="size-4 shrink-0" />
-          <span className="flex-1">
-            A global skill named &ldquo;{skill.name}&rdquo; always wins. This project skill can
-            never run.
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onNavigate(skill.shadowed_by_skill_id!)}
-            className="shrink-0 border-warning/40 text-warning hover:bg-warning/20"
-          >
-            View global skill
-          </Button>
-        </div>
-      )}
-
-      <LintFindingsPanel key={skillId} skill={skill} findings={findings} />
-
-      <div className="flex-1 overflow-y-auto">
-        <div className="flex flex-col gap-6 px-4 py-5">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <LintStatusBadge
-              status={skill.lint_status}
-              errorCount={skill.error_count}
-              warningCount={skill.warning_count}
-            />
-            <SourceBadge
-              label={
-                skill.source_type === 'project'
-                  ? resolveProjectLabel(projectRootForSkill(skill))
-                  : undefined
-              }
-              type={skill.source_type}
-              sourcePath={skill.source_path}
-              pluginName={skill.plugin_name}
-              isSynced={skill.is_synced === 1}
-            />
-            {skill.disabled_reason !== null && (
-              <InfoChip
-                icon={Power}
-                iconClass="text-dormant"
-                label="Disabled"
-                tooltip={
-                  skill.disabled_reason === 'plugin'
-                    ? 'Plugin is disabled — not loaded into context.'
-                    : 'Disabled via /skills — not loaded into context.'
-                }
-              />
-            )}
-            {userInvocableOnly && (
-              <InfoChip
-                icon={BotOff}
-                iconClass="text-muted-foreground"
-                label="User-invocable only"
-                tooltip={
-                  <>
-                    User-invocable only — Claude won&apos;t auto-invoke this. Run it with{' '}
-                    <span className="font-mono">/{skill.name}</span>.
-                  </>
-                }
-              />
-            )}
-            {skill.hook_events !== null && (
-              <InfoChip
-                icon={Webhook}
-                iconClass="text-muted-foreground"
-                label="Hooks"
-                tooltip={`Also runs via hooks: ${hookEvents}`}
-              />
-            )}
+      <motion.div {...settle} className="flex min-h-0 flex-1 flex-col">
+        {skill.shadowed_by_skill_id !== null && (
+          <div className="flex shrink-0 items-center gap-2 border-b border-border bg-warning/10 px-4 py-2 text-sm text-warning">
+            <AlertTriangle className="size-4 shrink-0" />
+            <span className="flex-1">
+              A global skill named &ldquo;{skill.name}&rdquo; always wins. This project skill can
+              never run.
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onNavigate(skill.shadowed_by_skill_id!)}
+              className="shrink-0 border-warning/40 text-warning hover:bg-warning/20"
+            >
+              View global skill
+            </Button>
           </div>
+        )}
 
-          <div className="grid grid-cols-5 border-y border-border">
-            <StatCell
-              label="Uses"
-              value={
-                skill.total_invocations === 0 ? 'Never' : skill.total_invocations.toLocaleString()
-              }
-            />
-            <StatCell
-              label="Listing tokens"
-              // A user-invocable-only skill's description is kept out of the listing, so its
-              // live listing cost is 0 — est_listing_tokens is only the hypothetical "if listed".
-              value={userInvocableOnly ? '0' : skill.est_listing_tokens.toLocaleString()}
-              title={
-                userInvocableOnly
-                  ? 'Not listed — user-invocable only, so no idle token cost.'
-                  : undefined
-              }
-            />
-            <StatCell label="Body tokens" value={skill.est_body_tokens.toLocaleString()} />
-            <StatCell
-              label="Last used"
-              value={
-                skill.last_invoked_at ? new Date(skill.last_invoked_at).toLocaleDateString() : '—'
-              }
-              title={
-                skill.last_invoked_at ? new Date(skill.last_invoked_at).toLocaleString() : undefined
-              }
-            />
-            {skill.modified_at ? (
-              <StatCell
-                label="Modified"
-                value={new Date(skill.modified_at).toLocaleDateString()}
-                title={new Date(skill.modified_at).toLocaleString()}
+        <LintFindingsPanel key={skillId} skill={skill} findings={findings} />
+
+        <div className="flex-1 overflow-y-auto">
+          <div className="flex flex-col gap-6 px-4 py-5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <LintStatusBadge
+                status={skill.lint_status}
+                errorCount={skill.error_count}
+                warningCount={skill.warning_count}
               />
-            ) : (
-              <StatCell
-                label="Scanned"
-                value={new Date(skill.last_scanned_at).toLocaleDateString()}
-                title={new Date(skill.last_scanned_at).toLocaleString()}
+              <SourceBadge
+                label={
+                  skill.source_type === 'project'
+                    ? resolveProjectLabel(projectRootForSkill(skill))
+                    : undefined
+                }
+                type={skill.source_type}
+                sourcePath={skill.source_path}
+                pluginName={skill.plugin_name}
+                isSynced={skill.is_synced === 1}
               />
-            )}
-          </div>
-
-          <section className="space-y-2" aria-labelledby="skill-description-heading">
-            <p
-              id="skill-description-heading"
-              className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
-            >
-              Description
-            </p>
-            <p
-              className={cn(
-                'text-[13px] leading-relaxed',
-                skill.description ? 'text-foreground' : 'text-muted-foreground'
-              )}
-            >
-              {skill.description ?? 'No description provided.'}
-            </p>
-            {data.skillMdContent !== null && (
-              <TextLink
-                onClick={onViewFiles}
-                className="gap-1.5 text-[13px] font-medium text-foreground"
-              >
-                <FileText className="size-3.5 shrink-0" />
-                View SKILL.md
-              </TextLink>
-            )}
-          </section>
-
-          <UsageSection usage={usage} skill={skill} />
-
-          <section className="space-y-2" aria-labelledby="skill-details-heading">
-            <p
-              id="skill-details-heading"
-              className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
-            >
-              Details
-            </p>
-            <dl className="grid gap-x-8 gap-y-2 min-[900px]:grid-cols-2">
-              <DetailRow label="Path" value={skill.source_path} mono breakAll />
-              {skill.hook_events !== null && <DetailRow label="Hooks" value={hookEvents} />}
-              {userInvocableOnly && <DetailRow label="Invocation" value={invocationValue} />}
               {skill.disabled_reason !== null && (
-                <DetailRow
+                <InfoChip
+                  icon={Power}
+                  iconClass="text-dormant"
                   label="Disabled"
-                  value={skill.disabled_reason === 'plugin' ? 'Plugin' : '/skills override'}
+                  tooltip={
+                    skill.disabled_reason === 'plugin'
+                      ? 'Plugin is disabled — not loaded into context.'
+                      : 'Disabled via /skills — not loaded into context.'
+                  }
                 />
               )}
-              {metadataEntries.map(([key, value]) => (
-                <DetailRow
-                  key={`meta-${key}`}
-                  label={key}
-                  value={formatMetadataValue(value)}
-                  mono
+              {userInvocableOnly && (
+                <InfoChip
+                  icon={BotOff}
+                  iconClass="text-muted-foreground"
+                  label="User-invocable only"
+                  tooltip={
+                    <>
+                      User-invocable only — Claude won&apos;t auto-invoke this. Run it with{' '}
+                      <span className="font-mono">/{skill.name}</span>.
+                    </>
+                  }
                 />
-              ))}
-              {extraFrontmatterFields.map(([key, value]) => (
-                <DetailRow key={`fm-${key}`} label={key} value={String(value)} mono />
-              ))}
-            </dl>
-          </section>
+              )}
+              {skill.hook_events !== null && (
+                <InfoChip
+                  icon={Webhook}
+                  iconClass="text-muted-foreground"
+                  label="Hooks"
+                  tooltip={`Also runs via hooks: ${hookEvents}`}
+                />
+              )}
+            </div>
+
+            <div className="grid grid-cols-5 border-y border-border">
+              <StatCell
+                label="Uses"
+                value={
+                  skill.total_invocations === 0 ? 'Never' : skill.total_invocations.toLocaleString()
+                }
+              />
+              <StatCell
+                label="Listing tokens"
+                // A user-invocable-only skill's description is kept out of the listing, so its
+                // live listing cost is 0 — est_listing_tokens is only the hypothetical "if listed".
+                value={userInvocableOnly ? '0' : skill.est_listing_tokens.toLocaleString()}
+                title={
+                  userInvocableOnly
+                    ? 'Not listed — user-invocable only, so no idle token cost.'
+                    : undefined
+                }
+              />
+              <StatCell label="Body tokens" value={skill.est_body_tokens.toLocaleString()} />
+              <StatCell
+                label="Last used"
+                value={
+                  skill.last_invoked_at ? new Date(skill.last_invoked_at).toLocaleDateString() : '—'
+                }
+                title={
+                  skill.last_invoked_at
+                    ? new Date(skill.last_invoked_at).toLocaleString()
+                    : undefined
+                }
+              />
+              {skill.modified_at ? (
+                <StatCell
+                  label="Modified"
+                  value={new Date(skill.modified_at).toLocaleDateString()}
+                  title={new Date(skill.modified_at).toLocaleString()}
+                />
+              ) : (
+                <StatCell
+                  label="Scanned"
+                  value={new Date(skill.last_scanned_at).toLocaleDateString()}
+                  title={new Date(skill.last_scanned_at).toLocaleString()}
+                />
+              )}
+            </div>
+
+            <section className="space-y-2" aria-labelledby="skill-description-heading">
+              <p
+                id="skill-description-heading"
+                className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
+              >
+                Description
+              </p>
+              <p
+                className={cn(
+                  'text-[13px] leading-relaxed',
+                  skill.description ? 'text-foreground' : 'text-muted-foreground'
+                )}
+              >
+                {skill.description ?? 'No description provided.'}
+              </p>
+              {data.skillMdContent !== null && (
+                <TextLink
+                  onClick={onViewFiles}
+                  className="gap-1.5 text-[13px] font-medium text-foreground"
+                >
+                  <FileText className="size-3.5 shrink-0" />
+                  View SKILL.md
+                </TextLink>
+              )}
+            </section>
+
+            <UsageSection usage={usage} skill={skill} />
+
+            <section className="space-y-2" aria-labelledby="skill-details-heading">
+              <p
+                id="skill-details-heading"
+                className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
+              >
+                Details
+              </p>
+              <dl className="grid gap-x-8 gap-y-2 min-[900px]:grid-cols-2">
+                <DetailRow label="Path" value={skill.source_path} mono breakAll />
+                {skill.hook_events !== null && <DetailRow label="Hooks" value={hookEvents} />}
+                {userInvocableOnly && <DetailRow label="Invocation" value={invocationValue} />}
+                {skill.disabled_reason !== null && (
+                  <DetailRow
+                    label="Disabled"
+                    value={skill.disabled_reason === 'plugin' ? 'Plugin' : '/skills override'}
+                  />
+                )}
+                {metadataEntries.map(([key, value]) => (
+                  <DetailRow
+                    key={`meta-${key}`}
+                    label={key}
+                    value={formatMetadataValue(value)}
+                    mono
+                  />
+                ))}
+                {extraFrontmatterFields.map(([key, value]) => (
+                  <DetailRow key={`fm-${key}`} label={key} value={String(value)} mono />
+                ))}
+              </dl>
+            </section>
+          </div>
         </div>
+      </motion.div>
+    </div>
+  )
+}
+
+function DetailHeader({
+  skill,
+  onBack,
+  onViewFiles
+}: {
+  skill: SkillRow
+  onBack: () => void
+  onViewFiles: () => void
+}): React.JSX.Element {
+  return (
+    <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onBack}
+          aria-label="Back to skills"
+          className="shrink-0 text-muted-foreground"
+        >
+          <ArrowLeft className="size-4" />
+        </Button>
+        <EntityGlyph entity="skills" disabled={skill.disabled_reason !== null} />
+        <GlideTitle
+          as="h2"
+          glideId={skillTitleGlideId(skill.id)}
+          level="detail"
+          className="min-w-0 truncate text-base font-semibold"
+        >
+          {getSkillDisplayName(skill.name, skill.source_type, skill.plugin_name)}
+        </GlideTitle>
       </div>
+      <Button
+        onClick={onViewFiles}
+        className="shrink-0 bg-accent-lime text-accent-lime-foreground hover:bg-accent-lime hover:opacity-90 active:opacity-80"
+      >
+        <FolderOpen className="size-4" />
+        View files
+      </Button>
     </div>
   )
 }
