@@ -1197,7 +1197,7 @@ export const scenarios = [
     }
   },
   {
-    // The rail gear's ink update dot plus its tooltip label. Dev builds report 'unsupported',
+    // The rail gear's info-tone update dot plus its tooltip label. Dev builds report 'unsupported',
     // so the fixture supplies a state; on macOS 'available' is what a real check produces.
     name: 'rail-update-dot-tooltip',
     screen: 'settings-dialog',
@@ -1563,9 +1563,9 @@ export const scenarios = [
     }
   },
   {
-    // The table Name column's disabled-skill indicator: a red Power icon (promoted
-    // from a neutral CircleSlash to its own flag color — see DESIGN.md's Disabled
-    // Flag entry). Real local data may have no disabled skills, in which case this
+    // The table Name column's disabled-skill indicator: a Power icon in the dormant
+    // tone (see DESIGN.md's Status tones, Dormant). Real local data may have no
+    // disabled skills, in which case this
     // scenario is visibly skipped rather than failing the rest of verification.
     name: 'table-disabled-icon-tooltip',
     screen: 'skill-inventory',

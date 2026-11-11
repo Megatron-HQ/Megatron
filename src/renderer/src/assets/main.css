@@ -17,38 +17,57 @@
   -webkit-app-region: drag;
 }
 
+/* Neutral fills and tones were tuned against the sheet (--background). On the darker light frame
+   --muted/--accent fall to 1.05:1 and --warning to 2.85:1, so the frame rescopes them to its own
+   steps here and rail/sidebar components keep writing bg-muted, bg-accent and bg-warning. */
+@utility frame-surface {
+  --muted: var(--frame-muted);
+  --accent: var(--frame-muted);
+  --warning: var(--frame-warning);
+}
+
+/* Warm paper neutrals (DESIGN.md, Neutral). Surfaces carry the full tint (C 0.011 h82 light,
+   0.008 h75 dark); text and ink fills carry half, because pure-ish ink reads sharper. Hex values
+   are the validated Palette Lab outputs; oklch() values are derived tokens at the same tint. */
 :root {
-  --background: oklch(0.99 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --warning: oklch(0.769 0.188 70.08);
-  --success: oklch(0.723 0.219 149.579);
-  --disabled-flag: oklch(0.577 0.12 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --background: #fefdfb;
+  --frame: #f6f2ea;
+  --frame-muted: #ece8e0;
+  --foreground: #13110f;
+  --card: #ffffff;
+  --card-foreground: #13110f;
+  --popover: #ffffff;
+  --popover-foreground: #13110f;
+  --primary: oklch(0.205 0.0055 82);
+  --primary-foreground: oklch(0.985 0.0055 82);
+  --secondary: #f0ece5;
+  --secondary-foreground: oklch(0.205 0.0055 82);
+  --muted: #f0ece5;
+  --muted-foreground: #6c6862;
+  --accent: #f0ece5;
+  --accent-foreground: oklch(0.205 0.0055 82);
+  /* Status tones (DESIGN.md, Status tones). A new state reuses one of these five plus its own
+     icon; a sixth tone is a design decision. */
+  --destructive: #c51e21;
+  --warning: #d17c06;
+  --frame-warning: #c97400;
+  --success: #059f64;
+  --info: #2c70d1;
+  --dormant: #8f73a1;
+  --border: #e3dfd8;
+  --input: #e3dfd8;
+  --ring: oklch(0.708 0.011 82);
   --radius: 0.625rem;
+  --sheet-shadow: 0 1px 3px 0 rgb(19 17 15 / 0.07), 0 1px 2px -1px rgb(19 17 15 / 0.07);
   /* Acid lime brand accent — same literal value in both themes, per DESIGN.md */
   --accent-lime: #e4f222;
   --accent-lime-foreground: oklch(0.145 0 0);
   /* Usage view chart ink — monochrome, no hue, no second accent (DESIGN.md, Monochrome-Chart-Ink
      Rule). `--usage-bar` is the default full-ink bar fill; `--usage-bar-quiet` is opt-in per
      chart for context / de-emphasized bars. */
-  --usage-bar: oklch(0.145 0 0);
-  --usage-bar-quiet: oklch(0.7 0 0);
-  /* Data-series color (DESIGN.md, Data-series and its Stays-In-Its-Lane Rule). Chart *series
+  --usage-bar: var(--foreground);
+  --usage-bar-quiet: oklch(0.7 0.011 82);
+  /* Model series color (DESIGN.md, Model series and the Channel Rule). Chart *series
      identity* only, scoped to by-model charts (Cost spend bar, Models panel).
      Assigned by model family, never by rank; older versions are color-mix tints of their family's
      slot (lib/model-identity.ts). Slots 1-3 are `dataviz` reference slots; slot 4 is its violet
@@ -58,49 +77,57 @@
   --usage-series-2: #eb6834; /* opus */
   --usage-series-3: #1baf7a; /* haiku */
   --usage-series-4: #4a3aa7; /* fable */
-  /* Resident Tax category identity only; never applied to text or row surfaces. */
-  --resident-skills: #8064b5;
-  --resident-mcp: #427db3;
-  --resident-memory: #328779;
-  --resident-agents: #b56887;
+  /* Entity identity (DESIGN.md, Entity identity and the Channel Rule): entity marks only, never
+     text, rows, selection, or section icons. Validated all-pairs, since entity marks can sit next
+     to each other in any order. */
+  --entity-skills: #6b50c2;
+  --entity-mcp: #089ac3;
+  --entity-memory: #ae316e;
+  --entity-agents: #d36d02;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --usage-bar: oklch(0.985 0 0);
-  --usage-bar-quiet: oklch(0.45 0 0);
+  --background: #1b1815;
+  --frame: #100e0b;
+  --frame-muted: var(--muted);
+  --frame-warning: var(--warning);
+  --sheet-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.5), 0 1px 2px -1px rgb(0 0 0 / 0.5);
+  --foreground: #f5f3f0;
+  --usage-bar-quiet: oklch(0.45 0.008 75);
   --usage-series-1: #3987e5; /* sonnet */
   --usage-series-2: #d95926; /* opus */
   --usage-series-3: #199e70; /* haiku */
   --usage-series-4: #7b3fe4; /* fable — not dataviz's #9085e9, which collides with slot 1 (protan ΔE 1.9) */
-  --resident-skills: #ad94d8;
-  --resident-mcp: #7eafe0;
-  --resident-memory: #6bb8a8;
-  --resident-agents: #d798b1;
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --warning: oklch(0.828 0.189 84.429);
-  --success: oklch(0.792 0.209 151.711);
-  --disabled-flag: oklch(0.704 0.094 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  /* Dark entity steps run up to L 0.70, past the dataviz band, so glyphs clear 3:1. */
+  --entity-skills: #816dd2;
+  --entity-mcp: #0cb0d4;
+  --entity-memory: #c25485;
+  --entity-agents: #c9690c;
+  --card: #23201c;
+  --card-foreground: #f5f3f0;
+  --popover: #23201c;
+  --popover-foreground: #f5f3f0;
+  --primary: oklch(0.922 0.004 75);
+  --primary-foreground: oklch(0.205 0.004 75);
+  --secondary: #292622;
+  --secondary-foreground: #f5f3f0;
+  --muted: #292622;
+  --muted-foreground: #a4a19c;
+  --accent: #292622;
+  --accent-foreground: #f5f3f0;
+  --destructive: #f3625f;
+  --warning: #f7b83d;
+  --success: #4ed799;
+  --info: #63aaf8;
+  --dormant: #b497c7;
+  --border: #302d29;
+  --input: #302d29;
+  --ring: oklch(0.556 0.008 75);
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-frame: var(--frame);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
@@ -117,7 +144,8 @@
   --color-destructive: var(--destructive);
   --color-warning: var(--warning);
   --color-success: var(--success);
-  --color-disabled-flag: var(--disabled-flag);
+  --color-info: var(--info);
+  --color-dormant: var(--dormant);
   --color-accent-lime: var(--accent-lime);
   --color-accent-lime-foreground: var(--accent-lime-foreground);
   --color-usage-bar: var(--usage-bar);
@@ -133,6 +161,7 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --shadow-sheet: var(--sheet-shadow);
   --font-sans: 'Geist Sans', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'Geist Mono', ui-monospace, monospace;
   /* SkillDetail's usage bar eases open on mount — CSS only, and skipped under reduced motion. */
@@ -208,7 +237,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground font-sans;
+    @apply bg-frame text-foreground font-sans;
   }
   ::-webkit-scrollbar {
     width: 10px;

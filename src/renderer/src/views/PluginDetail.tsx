@@ -491,9 +491,7 @@ function InstallRow({
             size="sm"
             disabled={anyPending || !actionable}
             onClick={onUpdate}
-            className={cn(
-              hasUpdate && 'border-warning/50 text-warning hover:bg-warning/10 hover:text-warning'
-            )}
+            className={cn(hasUpdate && 'border-info/50 text-info hover:bg-info/10 hover:text-info')}
           >
             {isPending('update') ? (
               <Loader2 className="size-3.5 animate-spin" />

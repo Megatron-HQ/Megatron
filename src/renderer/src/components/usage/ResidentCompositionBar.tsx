@@ -8,11 +8,11 @@ import { resolveDrillTarget, type DrillTarget } from './resident-drill'
 type Fill = { kind: 'ink'; opacity: number; color: string } | { kind: 'buffer' } | { kind: 'free' }
 
 const CATEGORY_COLORS: Record<string, string> = {
-  skills: 'var(--resident-skills)',
-  'mcp tools': 'var(--resident-mcp)',
-  'mcp server instructions': 'var(--resident-mcp)',
-  'memory files': 'var(--resident-memory)',
-  'custom agents': 'var(--resident-agents)'
+  skills: 'var(--entity-skills)',
+  'mcp tools': 'var(--entity-mcp)',
+  'mcp server instructions': 'var(--entity-mcp)',
+  'memory files': 'var(--entity-memory)',
+  'custom agents': 'var(--entity-agents)'
 }
 
 function categoryColor(category: ContextCategory): string | undefined {

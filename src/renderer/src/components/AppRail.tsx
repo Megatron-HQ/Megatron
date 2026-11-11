@@ -81,11 +81,12 @@ export function AppRail({
               className="relative flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             >
               <Settings className="size-4" />
-              {/* Ink, never lime or a flag color: an ambient notice, labeled by the tooltip. */}
+              {/* Info tone, the one "update available" signal app-wide; never lime, since it isn't
+                  the active thing. An ambient notice, labeled by the tooltip. */}
               {updateNotice && (
                 <span
                   aria-hidden="true"
-                  className="pointer-events-none absolute top-1 right-1 size-1.5 rounded-full bg-foreground"
+                  className="pointer-events-none absolute top-1 right-1 size-1.5 rounded-full bg-info"
                 />
               )}
             </button>

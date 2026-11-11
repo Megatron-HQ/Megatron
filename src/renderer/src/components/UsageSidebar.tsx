@@ -40,7 +40,7 @@ export function UsageSidebar({
   const highlightIndex = hoveredId !== null ? PANELS.findIndex((p) => p.key === hoveredId) : -1
 
   return (
-    <div className="flex w-[220px] shrink-0 flex-col border-r border-border">
+    <div className="flex w-[220px] shrink-0 flex-col">
       <div className="flex h-10 shrink-0 items-center px-4">
         <span className="text-sm font-semibold">Megatron</span>
       </div>

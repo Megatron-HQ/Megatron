@@ -205,7 +205,7 @@ export function SkillDetail({
             {skill.disabled_reason !== null && (
               <InfoChip
                 icon={Power}
-                iconClass="text-disabled-flag"
+                iconClass="text-dormant"
                 label="Disabled"
                 tooltip={
                   skill.disabled_reason === 'plugin'

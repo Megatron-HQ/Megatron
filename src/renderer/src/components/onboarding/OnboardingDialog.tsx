@@ -3,14 +3,17 @@ import { useQuery } from '@tanstack/react-query'
 import { AnimatePresence, motion, useReducedMotion, type Variants } from 'motion/react'
 import {
   ArrowRight,
+  ArrowUpCircle,
   BarChart3,
   Blocks,
   BrainCircuit,
+  CircleX,
   HardDrive,
   LoaderCircle,
   Lock,
   RotateCw,
   ScanSearch,
+  TriangleAlert,
   type LucideIcon
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -301,6 +304,11 @@ function OverviewStep({
     return <NoDataStep />
 
   const attention = skills.filter((skill) => skill.lint_status !== 'clean').length
+  // Same icon and tone LintStatusBadge gives the worst status, so the count reads as the signal
+  // the Skills table will show.
+  const attentionTone: DetailTone = skills.some((skill) => skill.lint_status === 'error')
+    ? { icon: CircleX, className: 'text-destructive' }
+    : { icon: TriangleAlert, className: 'text-warning' }
   const updates = plugins.filter((plugin) => pluginUpdateDetails(plugin).hasUpdate).length
   const prompts = usage?.activity.last30d.prompts
 
@@ -317,6 +325,7 @@ function OverviewStep({
           value={skills.length}
           settled={scanComplete}
           detail={attention > 0 ? `${attention} need attention` : null}
+          detailTone={attentionTone}
           line="Every global, project and plugin skill, linted."
         />
         <OverviewCard
@@ -326,6 +335,7 @@ function OverviewStep({
           value={plugins.length}
           settled={scanComplete}
           detail={updates > 0 ? `${updates} ${updates === 1 ? 'update' : 'updates'}` : null}
+          detailTone={{ icon: ArrowUpCircle, className: 'text-info' }}
           line="Enable, disable, update or remove, scoped per project."
         />
         <OverviewCard
@@ -342,6 +352,8 @@ function OverviewStep({
   )
 }
 
+type DetailTone = { icon: LucideIcon; className: string }
+
 function OverviewCard({
   index,
   icon: Icon,
@@ -349,6 +361,7 @@ function OverviewCard({
   value,
   settled,
   detail,
+  detailTone,
   line
 }: {
   index: number
@@ -357,6 +370,8 @@ function OverviewCard({
   value: number | undefined
   settled: boolean
   detail: string | null
+  // A status detail pairs its tone with an icon (Tones-Aren't-The-Stamp); the text stays muted.
+  detailTone?: DetailTone
   line: string
 }): React.JSX.Element {
   const reduceMotion = useReducedMotion() === true
@@ -385,7 +400,17 @@ function OverviewCard({
               <span className="font-mono text-3xl leading-none font-medium tracking-tight">
                 <CountUp value={value} />
               </span>
-              {detail && <span className="text-xs text-muted-foreground">{detail}</span>}
+              {detail && (
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  {detailTone && (
+                    <detailTone.icon
+                      className={cn('size-3 shrink-0', detailTone.className)}
+                      aria-hidden
+                    />
+                  )}
+                  {detail}
+                </span>
+              )}
             </motion.div>
           )}
         </div>

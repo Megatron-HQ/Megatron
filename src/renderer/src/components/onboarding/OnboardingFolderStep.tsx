@@ -126,7 +126,7 @@ export function OnboardingFolderStep({
                         initial={reduceMotion ? false : { scale: 0.3, opacity: 0 }}
                         animate={{ scale: 1, opacity: 1 }}
                         transition={{ type: 'spring', stiffness: 520, damping: 20 }}
-                        className="flex size-4 items-center justify-center rounded-full bg-foreground text-background"
+                        className="flex size-4 items-center justify-center rounded-full bg-success text-background"
                       >
                         <Check className="size-3" strokeWidth={3} aria-hidden />
                       </motion.span>

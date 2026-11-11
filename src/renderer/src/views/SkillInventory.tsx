@@ -122,7 +122,7 @@ const nameColumn = columnHelper.accessor(
           {row.disabled_reason !== null && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <Power className="size-3 shrink-0 text-disabled-flag" />
+                <Power className="size-3 shrink-0 text-dormant" />
               </TooltipTrigger>
               <TooltipContent>
                 {row.disabled_reason === 'plugin'
