@@ -38,3 +38,17 @@ export function resolveDrillTarget(
   const view = category.group === 'used' ? RECORDED_VIEWS[key] : undefined
   return view === undefined ? null : { kind: 'recorded', category, view }
 }
+
+// 200K is the default window. Scaled to a 1M window, a ~30K resident baseline fills ~3% of the
+// bar and its categories blur into slivers, so larger windows are drawn against 200K instead.
+export const BAR_REFERENCE_TOKENS = 200_000
+
+// Free space gets only the leftover: the bar is a flex row, and segments summing past 100%
+// would shrink back to whole-window proportions.
+export function barScale(usage: ContextUsage): { scaleTokens: number; freeTokens: number } {
+  const loaded = usage.categories
+    .filter((category) => category.group === 'used' || category.group === 'buffer')
+    .reduce((sum, category) => sum + category.tokens, 0)
+  const scaleTokens = Math.min(usage.windowTokens, Math.max(BAR_REFERENCE_TOKENS, loaded))
+  return { scaleTokens, freeTokens: Math.max(0, scaleTokens - loaded) }
+}

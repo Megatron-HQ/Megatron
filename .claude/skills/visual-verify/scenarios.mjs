@@ -2642,8 +2642,8 @@ export const scenarios = [
     }
   },
   {
-    // Hero (used / window · %), the window-spanning bar (used ramp → buffer stripes → free
-    // track), the in-window ledger, and the separate "Deferred, not loaded" group.
+    // Hero (used / window · %), the bar scaled to 200K with its caption (used ramp → buffer
+    // stripes → free track), the in-window ledger, and the separate "Deferred, not loaded" group.
     name: 'usage-resident-tax',
     screen: 'usage',
     async run(window, app) {

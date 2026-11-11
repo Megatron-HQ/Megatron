@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ContextCategory, ContextUsage } from '../../../../shared/ipc'
-import { resolveDrillTarget } from './resident-drill'
+import { barScale, resolveDrillTarget } from './resident-drill'
 
 function category(name: string, group: ContextCategory['group']): ContextCategory {
   return { name, display: '1k', tokens: 1_000, group }
@@ -62,5 +62,54 @@ describe('resolveDrillTarget', () => {
     ]) {
       expect(resolveDrillTarget(usage([unexplained]), unexplained)).toBeNull()
     }
+  })
+})
+
+describe('barScale', () => {
+  const sized = (
+    name: string,
+    group: ContextCategory['group'],
+    tokens: number
+  ): ContextCategory => ({
+    ...category(name, group),
+    tokens
+  })
+  const withWindow = (windowTokens: number, categories: ContextCategory[]): ContextUsage => ({
+    ...usage(categories),
+    windowTokens
+  })
+
+  it('spans 200K on a 1M window, giving free space only the leftover', () => {
+    const scale = barScale(
+      withWindow(1_000_000, [
+        sized('System prompt', 'used', 20_000),
+        sized('MCP tools (deferred)', 'deferred', 900_000),
+        sized('Free space', 'free', 947_000),
+        sized('Autocompact buffer', 'buffer', 33_000)
+      ])
+    )
+    expect(scale).toEqual({ scaleTokens: 200_000, freeTokens: 147_000 })
+  })
+
+  it('keeps the real window when it is 200K or smaller', () => {
+    const scale = barScale(
+      withWindow(128_000, [
+        sized('System prompt', 'used', 20_000),
+        sized('Free space', 'free', 75_000),
+        sized('Autocompact buffer', 'buffer', 33_000)
+      ])
+    )
+    expect(scale).toEqual({ scaleTokens: 128_000, freeTokens: 75_000 })
+  })
+
+  it('grows past 200K rather than clipping a resident set that outgrows it', () => {
+    const scale = barScale(
+      withWindow(1_000_000, [
+        sized('MCP tools', 'used', 190_000),
+        sized('Free space', 'free', 777_000),
+        sized('Autocompact buffer', 'buffer', 33_000)
+      ])
+    )
+    expect(scale).toEqual({ scaleTokens: 223_000, freeTokens: 0 })
   })
 })

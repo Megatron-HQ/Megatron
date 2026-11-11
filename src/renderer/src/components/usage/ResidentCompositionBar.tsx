@@ -3,7 +3,7 @@ import { ChevronRight } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
 import { cn } from '@/lib/utils'
 import type { ContextCategory, ContextUsage } from '../../../../shared/ipc'
-import { resolveDrillTarget, type DrillTarget } from './resident-drill'
+import { barScale, resolveDrillTarget, type DrillTarget } from './resident-drill'
 
 type Fill = { kind: 'ink'; opacity: number; color: string } | { kind: 'buffer' } | { kind: 'free' }
 
@@ -79,6 +79,9 @@ export function ResidentCompositionBar({
     ...usage.categories.filter((category) => category.group === 'free')
   ]
   const deferred = usage.categories.filter((category) => category.group === 'deferred')
+  const { scaleTokens, freeTokens } = barScale(usage)
+  const drawnTokens = (category: ContextCategory): number =>
+    category.group === 'free' ? freeTokens : category.tokens
   const highlight = (
     name: string
   ): Record<'onMouseEnter' | 'onMouseLeave' | 'onFocus' | 'onBlur', () => void> => ({
@@ -154,39 +157,47 @@ export function ResidentCompositionBar({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex h-3 w-full overflow-hidden rounded-[1px] bg-muted">
-        {inWindow
-          .filter((category) => category.tokens > 0)
-          .map((category, index) => {
-            const fill = fillOf(category, used)
-            const dimmed = active !== null && active !== category.name
-            const opacity = fill.kind === 'ink' ? fill.opacity : 1
-            return (
-              <motion.div
-                key={category.name}
-                tabIndex={0}
-                role="img"
-                aria-label={`${category.name}, ${category.display} tokens, ${percentOfWindow(category.tokens, usage.windowTokens)} of the context window`}
-                className={cn(
-                  'h-full min-w-px origin-left outline-none transition-opacity duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
-                  fill.kind === 'buffer' && 'usage-fill-unrecorded'
-                )}
-                style={{
-                  width: `${(category.tokens / Math.max(usage.windowTokens, 1)) * 100}%`,
-                  backgroundColor: fill.kind === 'ink' ? fill.color : undefined,
-                  opacity: dimmed ? opacity * 0.35 : opacity
-                }}
-                {...highlight(category.name)}
-                initial={reduceMotion ? false : { scaleX: 0 }}
-                animate={{ scaleX: 1 }}
-                transition={
-                  reduceMotion
-                    ? { duration: 0 }
-                    : { duration: 0.3, ease: 'easeOut', delay: index * 0.05 }
-                }
-              />
-            )
-          })}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex h-3 w-full overflow-hidden rounded-[1px] bg-muted">
+          {inWindow
+            .filter((category) => drawnTokens(category) > 0)
+            .map((category, index) => {
+              const fill = fillOf(category, used)
+              const dimmed = active !== null && active !== category.name
+              const opacity = fill.kind === 'ink' ? fill.opacity : 1
+              return (
+                <motion.div
+                  key={category.name}
+                  tabIndex={0}
+                  role="img"
+                  aria-label={`${category.name}, ${category.display} tokens, ${percentOfWindow(category.tokens, usage.windowTokens)} of the context window`}
+                  className={cn(
+                    'h-full min-w-px origin-left outline-none transition-opacity duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+                    fill.kind === 'buffer' && 'usage-fill-unrecorded'
+                  )}
+                  style={{
+                    width: `${(drawnTokens(category) / Math.max(scaleTokens, 1)) * 100}%`,
+                    backgroundColor: fill.kind === 'ink' ? fill.color : undefined,
+                    opacity: dimmed ? opacity * 0.35 : opacity
+                  }}
+                  {...highlight(category.name)}
+                  initial={reduceMotion ? false : { scaleX: 0 }}
+                  animate={{ scaleX: 1 }}
+                  transition={
+                    reduceMotion
+                      ? { duration: 0 }
+                      : { duration: 0.3, ease: 'easeOut', delay: index * 0.05 }
+                  }
+                />
+              )
+            })}
+        </div>
+        {scaleTokens < usage.windowTokens && (
+          <span className="self-end font-mono text-[11px] tabular-nums text-muted-foreground">
+            Bar shows the first {Math.round(scaleTokens / 1000)}K of{' '}
+            {usage.windowDisplay.toUpperCase()}
+          </span>
+        )}
       </div>
 
       <div className="flex flex-col divide-y divide-border">{inWindow.map(ledgerRow)}</div>
