@@ -148,13 +148,20 @@ export function projectTreeFixture(channel, args, original, mode) {
         : null,
       scanSummary: { outcome: 'complete', completedAt: '2026-10-15T12:00:00.000Z', sources: [] }
     }
-  if (channel === 'plugins:detail')
-    return {
-      plugin: currentPlugins.find((plugin) => plugin.name === args[0]),
-      skills: [],
-      totalInvocations: 0,
-      errorCount: 0,
-      warningCount: 0
-    }
+  // Mirrors getPluginDetail (src/main/db/queries.ts): null for an unknown plugin, and every field
+  // PluginDetail reads, or its scoping throws and blanks the renderer.
+  if (channel === 'plugins:detail') {
+    const plugin = currentPlugins.find((candidate) => candidate.name === args[0])
+    return plugin
+      ? {
+          plugin,
+          skills: [],
+          components: [],
+          totalInvocations: 0,
+          errorCount: 0,
+          warningCount: 0
+        }
+      : null
+  }
   return original
 }
