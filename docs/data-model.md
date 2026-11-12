@@ -73,9 +73,11 @@ identity). Attribution follows Claude Code's precedence (`docs/skill-scanner.md`
   name-to-row resolution ("which row wins this name": global > project > synced) encode the same
   precedence twice; change both together.
 
-**Cost rows are stored as parsed.** Every dollar aggregate filters to priced lineage terminals:
-`session_cost.is_zeroed = 0 AND sessions_meta.continued_in_session_id IS NULL`. See
-`docs/usage-analytics.md` for why `cost-state` needs it.
+**Cost rows are stored as parsed; aggregates read lineages.** `session_cost` mirrors each file's
+counter. After every scan `rebuildCostLineages` derives `cost_lineage` (each session's priced head),
+`lineage_cost`, and `lineage_model_cost` (each head's exact lineage spend), and every dollar or
+token aggregate, the skill-cost allocation, and the archive read those, never raw counters. See
+`docs/usage-analytics.md`, hazard 3, for the rule.
 
 **Plugin enablement can be unknowable.** A project/local install's settings live under a Tier 2
 root, readable only once granted. The scanner never guesses: `disabled_reason` stays `NULL`, and
@@ -112,7 +114,10 @@ The one deliberate exception to the derived-cache rule: a private, local-only ar
 delete it, and nothing syncs off device.
 
 - **Metadata only.** Successful scans copy prompt multiplicities, session/project/model
-  identifiers, timestamps, continuation links, and numeric token counters. Full scans also record
+  identifiers, timestamps, continuation links, and numeric token counters. A fork lineage arrives
+  as plain continuation links: each member points at its head, and the head's models row holds the
+  lineage's tokens. A link to a head since pruned from the index is kept, so its surviving branches
+  aren't counted a second time; rows archived before this rule are left as they are. Full scans also record
   when each plugin skill was first seen, keyed by plugin identity (`name@marketplace`) and the
   namespaced skill name, never the version-addressed `source_path`. No prompt or response content.
   Failed or partial usage sources are not copied; archive writes and the recomputed token shares

@@ -150,12 +150,14 @@ CREATE INDEX IF NOT EXISTS idx_lint_findings_skill_id ON lint_findings(skill_id)
 -- Cost-state mirror for the Usage view's Cost section (docs/usage-analytics.md). Read
 -- verbatim from Claude Code's `cost-state` line — no bottom-up token pricing. Derived cache like
 -- every table here: no scan-cache columns, freshness rides sessions_meta's mtime/size/parser-version
--- gate. Rows are stored as parsed; getCostStats joins sessions_meta to identify lineage terminals.
+-- gate. Rows are stored as parsed; cost_lineage below resolves which counters to count.
 CREATE TABLE IF NOT EXISTS session_cost (
   session_id TEXT PRIMARY KEY REFERENCES sessions_meta(session_id),
   total_cost_usd REAL NOT NULL,
   has_unknown_model_cost INTEGER NOT NULL DEFAULT 0,  -- CC couldn't price a model — total is a low estimate
-  is_zeroed INTEGER NOT NULL DEFAULT 0                -- cost-state present but 0/empty (CC v2.1.241-246 artifact)
+  is_zeroed INTEGER NOT NULL DEFAULT 0,               -- cost-state present but 0/empty (CC v2.1.241-246 artifact)
+  cost_state_start_time TEXT                          -- cost-state.startTime as ISO 8601; NULL when absent.
+                                                      -- With sessions_meta.started_at it groups fork lineages
 );
 
 CREATE TABLE IF NOT EXISTS session_model_cost (
@@ -195,6 +197,44 @@ CREATE TABLE IF NOT EXISTS turn_usage (
   agent_id TEXT,
   active_skill TEXT,
   invoked_at TEXT NOT NULL
+);
+
+-- Every turn each session's files hold, replayed copies included. turn_usage keeps one canonical
+-- owner per turn, so this is the only record of which turns a fork shares with its source.
+CREATE TABLE IF NOT EXISTS session_turn (
+  session_id TEXT NOT NULL REFERENCES sessions_meta(session_id) ON DELETE CASCADE,
+  logical_turn_key TEXT NOT NULL,
+  PRIMARY KEY (session_id, logical_turn_key)
+) WITHOUT ROWID;
+
+-- Fork lineages (src/main/ingest/cost-lineage.ts, docs/usage-analytics.md hazard 3), rebuilt after
+-- every scan. One row per session whose cost resolves to a priced head; the head carries the
+-- lineage's exact spend in lineage_cost, so cost consumers read heads, never raw session_cost.
+CREATE TABLE IF NOT EXISTS cost_lineage (
+  session_id TEXT PRIMARY KEY,
+  head_session_id TEXT NOT NULL,
+  parent_session_id TEXT              -- the member whose counter this one started from; NULL for a
+                                       -- root and for sessions linked only by continued-in
+);
+
+CREATE TABLE IF NOT EXISTS lineage_cost (
+  head_session_id TEXT PRIMARY KEY REFERENCES session_cost(session_id) ON DELETE CASCADE,
+  total_cost_usd REAL NOT NULL,
+  has_unknown_model_cost INTEGER NOT NULL,
+  is_estimate INTEGER NOT NULL        -- a shared ancestor was pruned; total is the head's own counter
+);
+
+CREATE TABLE IF NOT EXISTS lineage_model_cost (
+  head_session_id TEXT NOT NULL REFERENCES lineage_cost(head_session_id) ON DELETE CASCADE,
+  model TEXT NOT NULL,
+  cost_usd REAL NOT NULL,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  thinking_tokens INTEGER NOT NULL,
+  cache_read_tokens INTEGER NOT NULL,
+  cache_creation_tokens INTEGER NOT NULL,
+  web_search_requests INTEGER NOT NULL,
+  PRIMARY KEY (head_session_id, model)
 );
 
 CREATE INDEX IF NOT EXISTS idx_turn_usage_session_id ON turn_usage(session_id);

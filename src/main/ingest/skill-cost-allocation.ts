@@ -2,16 +2,9 @@ import type Database from 'better-sqlite3'
 
 const COST_ROUNDING_EPSILON = 0.000000001
 
-interface SessionCostRow {
+interface LineageCostRow {
   session_id: string
   total_cost_usd: number
-  is_zeroed: number
-  continued_in_session_id: string | null
-}
-
-interface SessionLineageRow {
-  session_id: string
-  continued_in_session_id: string | null
 }
 
 interface ModelCostRow {
@@ -64,40 +57,19 @@ function addAmount(
   allocations.set(skillName, (allocations.get(skillName) ?? 0) + amount)
 }
 
-function resolveTerminalSession(
-  sessionId: string,
-  nextSessionById: Map<string, string | null>,
-  terminalIds: Set<string>
-): string | null {
-  const visited = new Set<string>()
-  let current = sessionId
-  while (!visited.has(current)) {
-    if (terminalIds.has(current)) return current
-    visited.add(current)
-    const next = nextSessionById.get(current)
-    if (next === undefined || next === null) return null
-    current = next
-  }
-  return null
-}
-
+// Reads the lineage tables, so rebuildCostLineages must run first. Every turn of a lineage, from
+// any member, is weighted under its head against the lineage's exact spend.
 export function rebuildSessionSkillCosts(db: Database.Database): void {
-  const sessionCosts = db
-    .prepare(
-      `SELECT sc.session_id, sc.total_cost_usd, sc.is_zeroed, sm.continued_in_session_id
-       FROM session_cost sc
-       JOIN sessions_meta sm ON sm.session_id = sc.session_id`
-    )
-    .all() as SessionCostRow[]
-  const terminalCosts = sessionCosts.filter(
-    (row) => row.is_zeroed === 0 && row.continued_in_session_id === null
-  )
-  const terminalIds = new Set(terminalCosts.map((row) => row.session_id))
-  const lineageRows = db
-    .prepare('SELECT session_id, continued_in_session_id FROM sessions_meta')
-    .all() as SessionLineageRow[]
-  const nextSessionById = new Map(
-    lineageRows.map((row) => [row.session_id, row.continued_in_session_id] as const)
+  const terminalCosts = db
+    .prepare('SELECT head_session_id AS session_id, total_cost_usd FROM lineage_cost')
+    .all() as LineageCostRow[]
+  const headBySession = new Map(
+    (
+      db.prepare('SELECT session_id, head_session_id FROM cost_lineage').all() as Array<{
+        session_id: string
+        head_session_id: string
+      }>
+    ).map((row) => [row.session_id, row.head_session_id] as const)
   )
 
   const turnsByTerminalAndModel = new Map<string, Map<string, TurnWeightRow[]>>()
@@ -105,8 +77,8 @@ export function rebuildSessionSkillCosts(db: Database.Database): void {
     .prepare('SELECT session_id, model, output_tokens, active_skill, invoked_at FROM turn_usage')
     .all() as TurnWeightRow[]
   for (const turn of turns) {
-    const terminalId = resolveTerminalSession(turn.session_id, nextSessionById, terminalIds)
-    if (terminalId === null) continue
+    const terminalId = headBySession.get(turn.session_id)
+    if (terminalId === undefined) continue
     const turnsByModel = turnsByTerminalAndModel.get(terminalId) ?? new Map()
     const modelTurns = turnsByModel.get(turn.model) ?? []
     modelTurns.push(turn)
@@ -116,7 +88,7 @@ export function rebuildSessionSkillCosts(db: Database.Database): void {
 
   const modelCostsByTerminal = new Map<string, ModelCostRow[]>()
   const modelCosts = db
-    .prepare('SELECT session_id, model, cost_usd FROM session_model_cost')
+    .prepare('SELECT head_session_id AS session_id, model, cost_usd FROM lineage_model_cost')
     .all() as ModelCostRow[]
   for (const modelCost of modelCosts) {
     const rows = modelCostsByTerminal.get(modelCost.session_id) ?? []

@@ -398,12 +398,17 @@ describe('parseTranscript', () => {
     expect(parseTranscript(filePath).invocations).toEqual([])
   })
 
-  it('keys the session on sessionId (camelCase), not session_id (snake_case)', () => {
+  it('keys the session and its rows on the transcript filename, not a copied record sessionId', () => {
     const filePath = writeTranscriptFile(tmpDir, 'sess-1', [
-      metaLine({ session_id: 'wrong-id', sessionId: 'correct-id' })
+      metaLine({ sessionId: 'copied-parent' }),
+      skillInvocationLine({ sessionId: 'copied-parent' }),
+      assistantUsageLine({ sessionId: 'copied-parent' })
     ])
 
-    expect(parseTranscript(filePath).session?.session_id).toBe('correct-id')
+    const parsed = parseTranscript(filePath)
+    expect(parsed.session?.session_id).toBe('sess-1')
+    expect(parsed.invocations.map((row) => row.session_id)).toEqual(['sess-1'])
+    expect(parsed.turns.map((row) => row.session_id)).toEqual(['sess-1'])
   })
 
   it('produces no session when no line carries a cwd field', () => {
@@ -1805,6 +1810,96 @@ describe('scanTranscripts', () => {
 
       expect(getSession('sess-1')).toMatchObject({ continued_in_session_id: 'sess-2' })
       expect(costRow('sess-1')).not.toHaveProperty('continued_in_session_id')
+    })
+
+    it('stores the cost-state startTime that groups a fork lineage', () => {
+      writeTranscriptFile(join(projectsDir, 'project-a'), 'sess-1', [metaLine(), costStateLine()])
+
+      scanTranscripts(db, projectsDir)
+
+      expect(costRow('sess-1')).toMatchObject({
+        cost_state_start_time: '2024-01-01T00:05:00.000Z'
+      })
+    })
+
+    it('keys a desktop fork that copied its parent sessionId by its own filename', () => {
+      const projectDir = join(projectsDir, 'project-a')
+      const parentLines = [
+        metaLine({ sessionId: 'parent' }),
+        skillInvocationLine({ sessionId: 'parent' }),
+        assistantUsageLine({ sessionId: 'parent' }),
+        costStateLine({ sessionId: 'parent', totalCostUSD: 1 })
+      ]
+      writeTranscriptFile(projectDir, 'parent', parentLines)
+      writeTranscriptFile(projectDir, 'fork', [
+        ...parentLines,
+        metaLine({
+          sessionId: 'parent',
+          uuid: 'uuid-fork-question',
+          timestamp: '2024-01-03T00:00:00.000Z'
+        }),
+        assistantUsageLine({
+          sessionId: 'parent',
+          uuid: 'uuid-fork-turn',
+          requestId: 'request-fork',
+          message: { id: 'message-fork', model: 'claude-opus-5', content: [] }
+        }),
+        costStateLine({ sessionId: 'fork', totalCostUSD: 2 })
+      ])
+
+      scanTranscripts(db, projectsDir)
+      scanTranscripts(db, projectsDir)
+
+      expect(getSession('parent')).toMatchObject({ message_count: 3 })
+      expect(getSession('fork')).toMatchObject({ message_count: 5 })
+      expect(costRow('parent')).toMatchObject({ total_cost_usd: 1 })
+      expect(costRow('fork')).toMatchObject({ total_cost_usd: 2 })
+      expect(
+        db
+          .prepare(
+            "SELECT session_id FROM turn_usage WHERE logical_turn_key = 'message:message-fork'"
+          )
+          .get()
+      ).toEqual({ session_id: 'fork' })
+    })
+
+    it('records every turn a session holds, replayed copies included', () => {
+      const projectDir = join(projectsDir, 'project-a')
+      const replayed = assistantUsageLine({ sessionId: 'sess-original' })
+      writeTranscriptFile(projectDir, 'sess-original', [
+        metaLine({ sessionId: 'sess-original' }),
+        replayed
+      ])
+      writeTranscriptFile(projectDir, 'sess-resumed', [
+        metaLine({ sessionId: 'sess-resumed', timestamp: '2024-01-02T00:00:00.000Z' }),
+        { ...replayed, sessionId: 'sess-resumed' },
+        assistantUsageLine({
+          sessionId: 'sess-resumed',
+          uuid: 'uuid-resumed-new',
+          requestId: 'request-resumed-new',
+          message: { id: 'message-resumed-new', model: 'claude-opus-5', content: [] }
+        })
+      ])
+      writeSubagentTranscriptFile(projectDir, 'sess-resumed', 'agent-a', [
+        assistantUsageLine({
+          sessionId: 'sess-resumed',
+          isSidechain: true,
+          uuid: 'uuid-agent',
+          requestId: 'request-agent',
+          message: { id: 'message-agent', model: 'claude-haiku-5', content: [] }
+        })
+      ])
+
+      scanTranscripts(db, projectsDir)
+
+      expect(
+        db.prepare('SELECT session_id, logical_turn_key FROM session_turn ORDER BY 1, 2').all()
+      ).toEqual([
+        { session_id: 'sess-original', logical_turn_key: 'message:message-1' },
+        { session_id: 'sess-resumed', logical_turn_key: 'message:message-1' },
+        { session_id: 'sess-resumed', logical_turn_key: 'message:message-agent' },
+        { session_id: 'sess-resumed', logical_turn_key: 'message:message-resumed-new' }
+      ])
     })
 
     it('stores an all-zeroed cost-state row flagged is_zeroed with no model rows', () => {

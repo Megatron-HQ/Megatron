@@ -1,7 +1,9 @@
 import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applySchema } from './schema'
-import { getCostStats } from './queries'
+import { getCostStats as readCostStats } from './queries'
+import { rebuildCostLineages } from '../ingest/cost-lineage'
+import { rebuildSessionSkillCosts } from '../ingest/skill-cost-allocation'
 
 const NOW = new Date('2026-09-07T12:00:00.000Z')
 let db: Database.Database
@@ -32,6 +34,52 @@ function addShare(
     `INSERT INTO timed_skill_cost (session_id, skill_name, model, allocated_at, est_cost_usd)
      VALUES (?, NULL, ?, ?, ?)`
   ).run(sessionId, model, timestamp, cost)
+}
+
+// The scan rebuilds lineages before any read; these fixtures write the raw tables directly.
+function getCostStats(database: Database.Database, now: Date): ReturnType<typeof readCostStats> {
+  rebuildCostLineages(database)
+  return readCostStats(database, now)
+}
+
+const FORK_START = '2026-09-07T09:00:00.000Z'
+
+// A priced session in one fork lineage: shared startTime and first record, opus-only counter.
+function addForkSession(
+  sessionId: string,
+  total: number,
+  turns: Record<string, number>,
+  options: { project?: string; startedAt?: string } = {}
+): void {
+  db.prepare(
+    `INSERT INTO sessions_meta (session_id, cwd, started_at, message_count, source_mtime_ms)
+     VALUES (?, ?, ?, 1, 0)`
+  ).run(sessionId, options.project ?? '/repo-a', options.startedAt ?? FORK_START)
+  db.prepare(
+    `INSERT INTO session_cost (session_id, total_cost_usd, cost_state_start_time) VALUES (?, ?, ?)`
+  ).run(sessionId, total, FORK_START)
+  const output = Object.values(turns).reduce((sum, tokens) => sum + tokens, 0)
+  db.prepare(
+    `INSERT INTO session_model_cost
+       (session_id, model, cost_usd, input_tokens, output_tokens, thinking_tokens,
+        cache_read_tokens, cache_creation_tokens, web_search_requests)
+     VALUES (?, 'claude-opus-5', ?, 0, ?, 0, 0, 0, 0)`
+  ).run(sessionId, total, output)
+  for (const [key, tokens] of Object.entries(turns)) {
+    db.prepare(
+      `INSERT OR IGNORE INTO turn_usage
+         (logical_turn_key, source_uuid, session_id, turn_index, model, input_tokens,
+          cache_read_tokens, cache_creation_tokens, cache_creation_5m_tokens,
+          cache_creation_1h_tokens, output_tokens, invoked_at)
+       VALUES (?, ?, ?, 0, 'claude-opus-5', 0, 0, 0, 0, 0, ?, '2026-09-07T10:00:00.000Z')`
+    ).run(key, key, sessionId, tokens)
+    db.prepare('INSERT INTO session_turn VALUES (?, ?)').run(sessionId, key)
+  }
+}
+
+function rebuildCosts(): void {
+  rebuildCostLineages(db)
+  rebuildSessionSkillCosts(db)
 }
 
 beforeEach(() => {
@@ -269,5 +317,58 @@ describe('rolling Cost windows', () => {
       if (previousTimezone === undefined) delete process.env.TZ
       else process.env.TZ = previousTimezone
     }
+  })
+})
+
+describe('fork lineages', () => {
+  function addSiblings(): void {
+    addForkSession('p', 1, { t1: 100, t2: 100 })
+    addForkSession('a', 1.6, { t1: 100, t2: 100, a1: 150 })
+    addForkSession('b', 1.4, { t1: 100, t2: 100, b1: 100 })
+  }
+
+  it('totals and splits projects by lineage spend, not by summing every fork counter', () => {
+    addSiblings()
+    addSession('other', 1, { project: '/repo-b' })
+    rebuildCosts()
+    addShare('other', '2026-09-07T10:00:00.000Z', 1)
+
+    const stats = getCostStats(db, NOW)!
+    expect(stats.totalTrackedCostUsd).toBeCloseTo(3, 10)
+    expect(stats.pricedSessionCount).toBe(2)
+    expect(stats.last24h.totalCostUsd).toBeCloseTo(3, 10)
+    expect(stats.last24h.pricedSessionCount).toBe(2)
+    expect(stats.last24h.byProject.map((row) => row.project)).toEqual(['/repo-a', '/repo-b'])
+    expect(stats.last24h.byProject[0].costUsd).toBeCloseTo(2, 10)
+    expect(stats.last24h.hasEstimatedCost).toBe(false)
+  })
+
+  it('flags a window holding a lineage whose shared ancestor was pruned', () => {
+    addForkSession('a', 1.6, { t1: 100, t2: 100, a1: 150 })
+    addForkSession('b', 1.4, { t1: 100, t2: 100, b1: 100 })
+    rebuildCosts()
+
+    const stats = getCostStats(db, NOW)!
+    expect(stats.totalTrackedCostUsd).toBe(1.6)
+    expect(stats.last24h.hasEstimatedCost).toBe(true)
+    expect(stats.last24h.byHourChronological[22].hasEstimatedCost).toBe(true)
+    expect(stats.last7d.byDay.at(-1)?.hasEstimatedCost).toBe(true)
+  })
+
+  it('moves the lineage head when a newer fork arrives on rescan', () => {
+    addForkSession('c1', 1, { t1: 100 })
+    addForkSession('c2', 2, { t1: 100, t2: 100 }, { project: '/repo-a' })
+    rebuildCosts()
+    expect(getCostStats(db, NOW)!.totalTrackedCostUsd).toBe(2)
+
+    addForkSession('c3', 3, { t1: 100, t2: 100, t3: 100 }, { project: '/repo-moved' })
+    rebuildCosts()
+
+    const stats = getCostStats(db, NOW)!
+    expect(stats.totalTrackedCostUsd).toBeCloseTo(3, 10)
+    expect(stats.pricedSessionCount).toBe(1)
+    expect(stats.last24h.byProject).toEqual([
+      { project: '/repo-moved', costUsd: expect.closeTo(3, 10) }
+    ])
   })
 })

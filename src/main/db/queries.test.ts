@@ -13,13 +13,13 @@ import {
   deleteSkillsForProjectRoot,
   getActivityStats,
   getContextBudget,
-  getCostStats,
+  getCostStats as readCostStats,
   getModelStats,
   getPluginDetail,
   getSkillById,
   getSkillInvocationLog,
   getSkillInvocationSlice,
-  getSkillStats,
+  getSkillStats as readSkillStats,
   getSkillUsageDetail,
   insertLintFindings,
   listPlugins,
@@ -27,8 +27,21 @@ import {
   writeSkillScan,
   writeSkillScanAuthoritative
 } from './queries'
+import { rebuildCostLineages } from '../ingest/cost-lineage'
 
 let db: Database.Database
+
+// The scan rebuilds lineages before any read; these fixtures write the raw tables directly.
+function getCostStats(...args: Parameters<typeof readCostStats>): ReturnType<typeof readCostStats> {
+  rebuildCostLineages(args[0])
+  return readCostStats(...args)
+}
+function getSkillStats(
+  ...args: Parameters<typeof readSkillStats>
+): ReturnType<typeof readSkillStats> {
+  rebuildCostLineages(args[0])
+  return readSkillStats(...args)
+}
 
 function allSkills(): {
   name: string
@@ -3211,6 +3224,63 @@ describe('getSkillStats', () => {
     })
 
     expect(getSkillStats(db, NOW).pricedSessionsWithoutSkill).toBe(0)
+  })
+
+  // p → a and p → b are CLI forks: shared startTime and first record, b under a on every field.
+  function insertForkLineage(): void {
+    for (const [id, total, output, turns] of [
+      ['p', 1, 200, ['t1', 't2']],
+      ['a', 1.6, 350, ['t1', 't2', 'a1']],
+      ['b', 1.4, 300, ['t1', 't2', 'b1']]
+    ] as const) {
+      insertSession(id, '2026-09-09T14:00:00.000Z')
+      insertCost({ sessionId: id, totalCostUsd: total })
+      db.prepare(
+        "UPDATE session_cost SET cost_state_start_time = '2026-09-09T13:59:00.000Z' WHERE session_id = ?"
+      ).run(id)
+      db.prepare(
+        `INSERT INTO session_model_cost
+           (session_id, model, cost_usd, input_tokens, output_tokens, thinking_tokens,
+            cache_read_tokens, cache_creation_tokens, web_search_requests)
+         VALUES (?, 'claude-opus-5', ?, 0, ?, 0, 0, 0, 0)`
+      ).run(id, total, output)
+      for (const turn of turns) {
+        db.prepare(
+          `INSERT OR IGNORE INTO turn_usage
+             (logical_turn_key, source_uuid, session_id, turn_index, model, input_tokens,
+              cache_read_tokens, cache_creation_tokens, cache_creation_5m_tokens,
+              cache_creation_1h_tokens, output_tokens, invoked_at)
+           VALUES (?, ?, ?, 0, 'claude-opus-5', 0, 0, 0, 0, 0, ?, '2026-09-09T14:00:00.000Z')`
+        ).run(turn, turn, id, turn === 'a1' ? 150 : 100)
+        db.prepare('INSERT INTO session_turn VALUES (?, ?)').run(id, turn)
+      }
+    }
+  }
+
+  it('credits a fork lineage head, at the lineage cost, with an invocation in another branch', () => {
+    insertForkLineage()
+    insertInvocation({
+      uuid: 'b-1',
+      sessionId: 'b',
+      skillName: 'alpha',
+      invokedAt: '2026-09-09T14:05:00.000Z'
+    })
+
+    const stats = getSkillStats(db, NOW)
+    expect(stats.last24h.unpricedInvocationCount).toBe(0)
+    expect(stats.last24h.associations[0]).toMatchObject({
+      skillName: 'alpha',
+      sessionCount: 1,
+      trackedSessionCount: 1,
+      associatedOutputTokens: 450
+    })
+    expect(stats.last24h.associations[0].associatedCostUsd).toBeCloseTo(2, 10)
+  })
+
+  it('counts a skill-less fork lineage once toward pricedSessionsWithoutSkill', () => {
+    insertForkLineage()
+
+    expect(getSkillStats(db, NOW).pricedSessionsWithoutSkill).toBe(1)
   })
 
   it('reconciles displayed cents within the selected window', () => {

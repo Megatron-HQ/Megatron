@@ -59,6 +59,9 @@ function archivePrompts(index: Database.Database, archive: Database.Database, no
   archive.prepare('INSERT INTO history_coverage VALUES (?, ?)').run(earliest, end)
 }
 
+// Fork lineages (cost-lineage.ts) reach the archive as plain continued-in links: every member
+// points at its head, and the head carries the lineage's tokens, so rebuildTokenShares needs no
+// lineage logic of its own.
 function copyTokenSources(index: Database.Database, archive: Database.Database): void {
   const insertSession = archive.prepare(`INSERT INTO history_sessions VALUES
     (@session_id, @project, @started_at, @continued_in_session_id, @has_totals, @is_zeroed)
@@ -66,22 +69,43 @@ function copyTokenSources(index: Database.Database, archive: Database.Database):
       continued_in_session_id=excluded.continued_in_session_id,
       has_totals=excluded.has_totals, is_zeroed=excluded.is_zeroed`)
   const deleteModels = archive.prepare('DELETE FROM history_models WHERE session_id = ?')
+  const selectHeadModels = index.prepare(
+    `SELECT head_session_id AS session_id,model,${TOKEN_COLUMNS.join(',')}
+     FROM lineage_model_cost WHERE head_session_id = ?`
+  )
   const selectModels = index.prepare(
     `SELECT session_id,model,${TOKEN_COLUMNS.join(',')} FROM session_model_cost WHERE session_id = ?`
   )
   const insertModel = archive.prepare(`INSERT INTO history_models VALUES
     (@session_id,@model,@input_tokens,@output_tokens,@cache_read_tokens,@cache_creation_tokens)`)
+  const storedNext = archive
+    .prepare('SELECT continued_in_session_id FROM history_sessions WHERE session_id = ?')
+    .pluck()
+  const indexed = new Set(index.prepare('SELECT session_id FROM sessions_meta').pluck().all())
   for (const row of index
     .prepare(
       `SELECT sm.session_id, sm.cwd AS project, sm.started_at,
-      sm.continued_in_session_id, CASE WHEN sc.session_id IS NULL THEN 0 ELSE 1 END AS has_totals,
-      COALESCE(sc.is_zeroed,0) AS is_zeroed
-      FROM sessions_meta sm LEFT JOIN session_cost sc ON sm.session_id=sc.session_id`
+      CASE WHEN cl.session_id IS NULL THEN sm.continued_in_session_id
+           ELSE NULLIF(cl.head_session_id, sm.session_id) END AS continued_in_session_id,
+      CASE WHEN sc.session_id IS NULL THEN 0 ELSE 1 END AS has_totals,
+      COALESCE(sc.is_zeroed,0) AS is_zeroed, cl.head_session_id = sm.session_id AS is_head
+      FROM sessions_meta sm LEFT JOIN session_cost sc ON sm.session_id=sc.session_id
+      LEFT JOIN cost_lineage cl ON cl.session_id = sm.session_id`
     )
-    .iterate() as Iterable<ArchivedSession>) {
-    insertSession.run(row)
-    deleteModels.run(row.session_id)
-    for (const model of selectModels.iterate(row.session_id)) insertModel.run(model)
+    .iterate() as Iterable<ArchivedSession & { is_head: number | null }>) {
+    const { is_head: isHead, ...session } = row
+    // A head pruned from the index left its lineage's tokens in the archive. Its surviving
+    // members now resolve to a new head in the index, so they keep pointing at the archived one
+    // rather than being counted a second time. A link to a session still indexed is never kept:
+    // the index's own resolution of it is current.
+    const previous = storedNext.get(session.session_id) as string | null | undefined
+    if (session.continued_in_session_id === null && previous && !indexed.has(previous)) {
+      session.continued_in_session_id = previous
+    }
+    insertSession.run(session)
+    deleteModels.run(session.session_id)
+    const models = isHead === 1 ? selectHeadModels : selectModels
+    for (const model of models.iterate(session.session_id)) insertModel.run(model)
   }
   const insertTurn = archive.prepare(`INSERT INTO history_turns VALUES
     (@logical_turn_key,@source_uuid,@session_id,@model,@invoked_at,

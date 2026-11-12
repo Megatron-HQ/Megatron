@@ -71,6 +71,12 @@ export function CostSection({
             estimate.
           </p>
         )}
+        {window.hasEstimatedCost && (
+          <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+            <TriangleAlert className="mt-px size-3 shrink-0 text-warning" />
+            Part of a branched conversation was cleaned up by Claude Code; its cost is an estimate.
+          </p>
+        )}
         <p className="max-w-[520px] text-[11px] text-muted-foreground">
           What this would cost at pay-as-you-go API rates — not a charge. Most Claude Code usage
           runs on a subscription billed separately, and these estimates may not match your actual

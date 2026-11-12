@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3'
 import { homedir } from 'os'
-import { basename, join, resolve } from 'path'
+import { basename, dirname, join, resolve } from 'path'
 import {
   allowedStatSync,
   isPathAllowed,
@@ -17,6 +17,7 @@ import {
   type SessionCost,
   type TurnUsageRow
 } from './cost-parser'
+import { rebuildCostLineages } from './cost-lineage'
 import { rebuildSessionSkillCosts } from './skill-cost-allocation'
 
 export interface TranscriptSession {
@@ -53,8 +54,9 @@ const PRECEDING_TEXT_MAX_CHARS = 2000
 // 6→7: independent lineage plus numeric resident-context samples;
 // 7→8: reject incomplete reads and reconcile replayed turns after owner changes;
 // 8→9: normalize timestamps, reject invalid counters, keep sidechain users out of main-chain
-// attribution.
-const TRANSCRIPT_PARSER_VERSION = 9
+// attribution; 9→10: filename session identity, cost-state startTime, per-session turn
+// membership (fork lineage).
+const TRANSCRIPT_PARSER_VERSION = 10
 
 function truncatePrecedingText(text: string | null): string | null {
   return text === null ? null : text.slice(0, PRECEDING_TEXT_MAX_CHARS)
@@ -138,7 +140,10 @@ function parseLines(
   }
 }
 
-function extractSession(records: Record<string, unknown>[]): TranscriptSession | null {
+function extractSession(
+  records: Record<string, unknown>[],
+  fileSessionId: string
+): TranscriptSession | null {
   const metaRecord = records.find((record) => typeof record.cwd === 'string')
   if (metaRecord === undefined) return null
   if (typeof metaRecord.sessionId !== 'string') return null
@@ -166,7 +171,7 @@ function extractSession(records: Record<string, unknown>[]): TranscriptSession |
   }, null)
 
   return {
-    session_id: metaRecord.sessionId,
+    session_id: fileSessionId || metaRecord.sessionId,
     cwd: metaRecord.cwd as string,
     git_branch: gitBranch,
     started_at: startedAt,
@@ -425,11 +430,26 @@ export function parseTranscript(
     if (!(error instanceof InvalidCostStateError)) throw error
     return { session: null, invocations: [], turns: [], cost: null }
   }
+  const session = extractSession(records, basename(filePath, '.jsonl'))
   return {
-    session: extractSession(records),
-    invocations: extractInvocations(records),
-    turns: extractTurnUsage(records),
+    session,
+    ...keyedTo(session?.session_id ?? null, extractInvocations(records), extractTurnUsage(records)),
     cost
+  }
+}
+
+// The filename, not a record's sessionId, is a transcript's identity: a Claude desktop fork copies
+// its parent's records with the parent's sessionId, which would otherwise overwrite the parent's
+// row and file the fork's turns under a session that may since have been pruned.
+function keyedTo(
+  sessionId: string | null,
+  invocations: TranscriptInvocation[],
+  turns: TurnUsageRow[]
+): { invocations: TranscriptInvocation[]; turns: TurnUsageRow[] } {
+  if (sessionId === null) return { invocations, turns }
+  return {
+    invocations: invocations.map((row) => ({ ...row, session_id: sessionId })),
+    turns: turns.map((row) => ({ ...row, session_id: sessionId }))
   }
 }
 
@@ -443,10 +463,12 @@ function parseSubagent(filePath: string): SubagentParse | null {
   const agentId = basename(filePath, '.jsonl')
   const records = parseLines(filePath)
   if (records === null) return null
-  return {
-    invocations: extractInvocations(records, agentId),
-    turns: extractTurnUsage(records, agentId)
-  }
+  // <project>/<session>/subagents/<agent>.jsonl belongs to the <session>.jsonl beside it.
+  return keyedTo(
+    basename(dirname(dirname(filePath))),
+    extractInvocations(records, agentId),
+    extractTurnUsage(records, agentId)
+  )
 }
 
 // Deliberately never calls extractSession: every record in a subagent file carries the parent
@@ -588,10 +610,14 @@ export function scanTranscripts(
 
   const insertSessionCost = db.prepare(`
     INSERT INTO session_cost
-      (session_id, total_cost_usd, has_unknown_model_cost, is_zeroed)
+      (session_id, total_cost_usd, has_unknown_model_cost, is_zeroed, cost_state_start_time)
     VALUES
-      (@session_id, @total_cost_usd, @has_unknown_model_cost, @is_zeroed)
+      (@session_id, @total_cost_usd, @has_unknown_model_cost, @is_zeroed, @cost_state_start_time)
   `)
+  const deleteSessionTurnKeys = db.prepare('DELETE FROM session_turn WHERE session_id = ?')
+  const insertSessionTurnKey = db.prepare(
+    'INSERT OR IGNORE INTO session_turn (session_id, logical_turn_key) VALUES (?, ?)'
+  )
 
   const insertModelCost = db.prepare(`
     INSERT INTO session_model_cost
@@ -723,13 +749,15 @@ export function scanTranscripts(
         })
         deleteSessionInvocations.run(parsed.session.session_id)
         deleteSessionTurns.run(parsed.session.session_id)
+        deleteSessionTurnKeys.run(parsed.session.session_id)
         deleteSessionCost.run(parsed.session.session_id)
         if (parsed.cost !== null) {
           insertSessionCost.run({
             session_id: parsed.session.session_id,
             total_cost_usd: parsed.cost.totalCostUsd,
             has_unknown_model_cost: parsed.cost.hasUnknownModelCost ? 1 : 0,
-            is_zeroed: parsed.cost.isZeroed ? 1 : 0
+            is_zeroed: parsed.cost.isZeroed ? 1 : 0,
+            cost_state_start_time: parsed.cost.costStateStartTime
           })
           for (const row of toModelCostRows(parsed.cost)) {
             insertModelCost.run({ session_id: parsed.session.session_id, ...row })
@@ -741,6 +769,7 @@ export function scanTranscripts(
         }
         for (const turn of parsed.turns) {
           insertTurn.run(turn)
+          insertSessionTurnKey.run(turn.session_id, turn.logical_turn_key)
           parsedTurns.push(turn)
         }
         for (const subagent of subagents) {
@@ -751,6 +780,7 @@ export function scanTranscripts(
           }
           for (const turn of subagent.turns) {
             insertTurn.run(turn)
+            insertSessionTurnKey.run(turn.session_id, turn.logical_turn_key)
             parsedTurns.push(turn)
           }
         }
@@ -766,6 +796,7 @@ export function scanTranscripts(
         insertInvocation
       )
       reconcileReplayedTurns(db, previousTurns, parsedTurns, unchangedSources, insertTurn)
+      rebuildCostLineages(db)
       rebuildSessionSkillCosts(db)
       return { status: 'partial' as const }
     }
@@ -810,6 +841,7 @@ export function scanTranscripts(
       insertInvocation
     )
     reconcileReplayedTurns(db, previousTurns, parsedTurns, unchangedSources, insertTurn)
+    rebuildCostLineages(db)
     rebuildSessionSkillCosts(db)
     return { status: 'complete' as const }
   })
