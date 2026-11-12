@@ -19,7 +19,11 @@ let fixtureRoot: string | undefined
 afterEach(() => {
   vi.unstubAllEnvs()
   resetGrantedPaths()
-  if (fixtureRoot) rmSync(fixtureRoot, { recursive: true, force: true })
+  // The fixtures run a copied node.exe or a freshly compiled claude.exe. Windows can keep that file
+  // locked briefly after the child exits (process teardown, antivirus scanning a new executable),
+  // and a single unlink attempt failed CI with EBUSY after every assertion had passed.
+  if (fixtureRoot)
+    rmSync(fixtureRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
   fixtureRoot = undefined
 })
 
