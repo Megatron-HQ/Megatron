@@ -100,9 +100,30 @@ these; this is why cost reads `cost-state` rather than computing it.
    re-include content.
 2. **Resume/continue replay is not marked by `isSidechain`.** The invocation rule in
    `docs/transcript-ingest.md` doesn't cover it; the global turn identities do.
-3. **`cost-state` carries forward across continued lineages.** A continued session's total
-   includes its predecessor's, so only the lineage terminal (built from `continuedInSessionId`)
-   counts.
+3. **`cost-state` carries forward across lineages, most of them unlinked.** A new session file
+   whose counter starts from its source's final total is written by a `continued-in` resume, but
+   also by a Claude desktop resume, rewind, or fork and by the CLI's `--fork-session` and `/branch`,
+   none of which leave a link. Summing every file overstated real local data by about $15 of $496
+   (verified 2026-11-12). `src/main/ingest/cost-lineage.ts` counts each lineage once:
+   - **Group.** Priced, non-zeroed members share `cost-state.startTime` **and** the first `cwd`
+     record's timestamp; a `continued-in` edge also joins. `/clear` resets `startTime`, and the
+     second key keeps apart sessions that start in the same millisecond. Sessions without
+     `startTime`, and `hasUnknownModelCost` ones, keep the plain `continued-in` terminal rule.
+   - **Parent.** An explicit `continued-in` source, else the strictly earlier member (by
+     `(total, session_id)`) whose counter M's covers on every model and token field after
+     subtracting the turns M holds that it lacks, with the smallest residual. Forks with identical
+     counters exist (Rotto Assessment has two), so the strict order is what prevents cycles.
+   - **Cost** = Σ (member − parent) per model; for a chain that is the last counter. **Head** = the
+     highest `(total, session_id)`; every member resolves to it.
+   - **Pruned ancestor.** More than one root means Claude Code's cleanup deleted a shared
+     ancestor; the head's own counter stands in, flagged as an estimate.
+
+   Rejected: counting the max or dominant counter (a real `--fork-session` experiment produced a
+   branch whose counter sits under its sibling's on every field, so dominance mistakes it for an
+   ancestor and drops its spend: $0.01498 against the true $0.02219), and parenting by transcript
+   content (a desktop rewind holds fewer records than its source yet inherits its whole counter).
+   The check compares integer token counts, so it needs no price table.
+
 4. **A file can hold several `cost-state` lines** (resume checkpoints; 9 of 53). Take the last: it
    is cumulative.
 5. **Subagent cost is already inside the parent's `cost-state` total.** Pricing
@@ -134,7 +155,8 @@ reliable-enough signal that needs guards.
 So:
 
 - Store core fields only: `totalCostUSD`, per-model `costUSD` and token counts,
-  `hasUnknownModelCost`. Peripheral fields may churn; read them ad hoc, never give them columns.
+  `hasUnknownModelCost`, and `startTime` (the lineage key, hazard 3). Peripheral fields may churn;
+  read them ad hoc, never give them columns.
 - `FROZEN_COST_STATE` in `cost-parser.test.ts` snapshots the shape, so a silent rename fails CI
   instead of shipping wrong dollars.
 - Cost parsing shares the walk's single parser version (`docs/transcript-ingest.md`).
@@ -143,7 +165,8 @@ So:
 
 1. Read only the **last** `cost-state` line of each main transcript; never subagent files.
 2. Store the `continued-in` link whether or not a `cost-state` exists. Every dollar aggregate
-   filters to priced lineage terminals (the predicate is in `docs/data-model.md`).
+   reads lineage heads at their lineage cost (hazard 3; tables in `docs/data-model.md`), never raw
+   per-session counters.
 3. A session with no `cost-state` gets no cost row. It counts as pre-tracking (before the first
    tracked session) or unusable (after it), never as a dollar figure.
 4. A lineage terminal with no `cost-state` is unusable; it is never back-filled from a
@@ -163,7 +186,8 @@ the real total:
   for the turns after it.
 - **Subagent turns count**, attributed to the skills invoked in that agent file, so subagent-run
   skills don't dump their cost into General work.
-- **Lineage.** Turns roll up to the same priced terminal the cost totals use.
+- **Lineage.** Turns from every lineage member roll up to the head the cost totals use, weighted
+  against the lineage's cost.
 - **General work.** Turns with no active skill form one explicit bucket (`skill_name IS NULL`).
 - **Unpriced lineages.** Invocations whose lineage has no usable priced terminal still count as
   activity, but contribute no dollars and never land in General work.

@@ -18,6 +18,19 @@ describe('isSuggestableFolder', () => {
   })
 
   it.each([
+    [
+      '/Users/sai/Library/Application Support/Claude/scratch-workspaces/a/b/scratch-2026-11-06-0f5802',
+      '/Users/sai'
+    ],
+    [
+      'C:\\Users\\Sai\\AppData\\Roaming\\Claude\\scratch-workspaces\\a\\b\\scratch-2026-11-06-0f5802',
+      'C:\\Users\\Sai'
+    ]
+  ])('rejects the Claude app chat folder %s, which lives in app data', (path, home) => {
+    expect(isSuggestableFolder(path, home)).toBe(false)
+  })
+
+  it.each([
     ['/Users/sai/code', '/Users/sai'],
     ['/opt/src', '/Users/sai'],
     ['D:\\src', 'C:\\Users\\Sai'],
@@ -29,6 +42,17 @@ describe('isSuggestableFolder', () => {
 
 describe('suggestGrantStart', () => {
   const home = '/Users/sai'
+
+  it('never opens the picker inside Claude app data for its chat folders', () => {
+    const chats = '/Users/sai/Library/Application Support/Claude/scratch-workspaces/a/b'
+    expect(
+      suggestGrantStart(
+        [`${chats}/scratch-2026-11-06-0f5802`, `${chats}/scratch-2026-11-07-c3ed3c`],
+        [],
+        home
+      )
+    ).toBeUndefined()
+  })
 
   it('opens in the folder that holds sibling repos', () => {
     expect(suggestGrantStart(['/Users/sai/code/a', '/Users/sai/code/b'], [], home)).toBe(

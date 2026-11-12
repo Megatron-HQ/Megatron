@@ -5,7 +5,6 @@ import type { CostDay, CostHour, CostStats, CostWindow } from '../../shared/ipc'
 const HOUR_MS = 60 * 60 * 1000
 const DAY_MS = 24 * HOUR_MS
 const COST_EPSILON = 0.000001
-const PRICED_TERMINAL = 'sc.is_zeroed = 0 AND sm.continued_in_session_id IS NULL'
 
 interface TimedCostRow {
   sessionId: string
@@ -14,6 +13,7 @@ interface TimedCostRow {
   allocatedAt: string
   costUsd: number
   unknownModel: number
+  estimate: number
 }
 
 function localDateKey(date: Date): string {
@@ -24,13 +24,19 @@ function summarizeShares(
   rows: TimedCostRow[]
 ): Pick<
   CostWindow,
-  'totalCostUsd' | 'pricedSessionCount' | 'hasUnknownModelCost' | 'byModel' | 'byProject'
+  | 'totalCostUsd'
+  | 'pricedSessionCount'
+  | 'hasUnknownModelCost'
+  | 'hasEstimatedCost'
+  | 'byModel'
+  | 'byProject'
 > {
   const models = new Map<string, number>()
   const projects = new Map<string, number>()
   const sessions = new Set<string>()
   let totalCostUsd = 0
   let hasUnknownModelCost = false
+  let hasEstimatedCost = false
   for (const row of rows) {
     const model = row.model ?? UNATTRIBUTED_COST_MODEL
     models.set(model, (models.get(model) ?? 0) + row.costUsd)
@@ -38,11 +44,13 @@ function summarizeShares(
     sessions.add(row.sessionId)
     totalCostUsd += row.costUsd
     hasUnknownModelCost ||= row.unknownModel === 1
+    hasEstimatedCost ||= row.estimate === 1
   }
   return {
     totalCostUsd,
     pricedSessionCount: sessions.size,
     hasUnknownModelCost,
+    hasEstimatedCost,
     byModel: [...models]
       .map(([model, costUsd]) => ({ model, costUsd }))
       .sort((a, b) => b.costUsd - a.costUsd || a.model.localeCompare(b.model)),
@@ -74,6 +82,7 @@ function buildDailyCost(rows: TimedCostRow[], startAt: Date, endAt: Date): CostD
       costUsd: summary.totalCostUsd,
       pricedSessionCount: summary.pricedSessionCount,
       hasUnknownModelCost: summary.hasUnknownModelCost,
+      hasEstimatedCost: summary.hasEstimatedCost,
       byModel: summary.byModel,
       byProject: summary.byProject,
       startAt: new Date(Math.max(cursor.getTime(), startAt.getTime())).toISOString(),
@@ -138,14 +147,14 @@ function buildCostWindow(rows: TimedCostRow[], now: Date, days: 1 | 7 | 30): Cos
 }
 
 export function getCostStats(db: Database.Database, now: Date = new Date()): CostStats | null {
+  // lineage_cost holds one row per priced lineage head, at the lineage's exact spend.
   const coverageRows = db
     .prepare(
-      `SELECT sc.total_cost_usd AS totalCostUsd, sm.started_at AS startedAt,
+      `SELECT lc.total_cost_usd AS totalCostUsd, sm.started_at AS startedAt,
             COALESCE(timed.total, 0) AS timedCostUsd
-     FROM session_cost sc JOIN sessions_meta sm ON sm.session_id = sc.session_id
+     FROM lineage_cost lc JOIN sessions_meta sm ON sm.session_id = lc.head_session_id
      LEFT JOIN (SELECT session_id, SUM(est_cost_usd) AS total FROM timed_skill_cost GROUP BY session_id) timed
-       ON timed.session_id = sc.session_id
-     WHERE ${PRICED_TERMINAL}`
+       ON timed.session_id = lc.head_session_id`
     )
     .all() as Array<{ totalCostUsd: number; startedAt: string; timedCostUsd: number }>
   if (coverageRows.length === 0) return null
@@ -161,10 +170,10 @@ export function getCostStats(db: Database.Database, now: Date = new Date()): Cos
     .prepare(
       `SELECT t.session_id AS sessionId, sm.cwd AS project, t.model,
             t.allocated_at AS allocatedAt, t.est_cost_usd AS costUsd,
-            sc.has_unknown_model_cost AS unknownModel
-     FROM timed_skill_cost t JOIN session_cost sc ON sc.session_id = t.session_id
-     JOIN sessions_meta sm ON sm.session_id = sc.session_id
-     WHERE ${PRICED_TERMINAL} AND t.est_cost_usd > 0 AND t.allocated_at >= ? AND t.allocated_at <= ?
+            lc.has_unknown_model_cost AS unknownModel, lc.is_estimate AS estimate
+     FROM timed_skill_cost t JOIN lineage_cost lc ON lc.head_session_id = t.session_id
+     JOIN sessions_meta sm ON sm.session_id = t.session_id
+     WHERE t.est_cost_usd > 0 AND t.allocated_at >= ? AND t.allocated_at <= ?
      ORDER BY t.allocated_at, t.id`
     )
     .all(new Date(now.getTime() - 30 * DAY_MS).toISOString(), now.toISOString()) as TimedCostRow[]

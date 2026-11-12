@@ -996,34 +996,20 @@ interface SkillStatsInvocationRow {
   cwd: string
 }
 
+// A priced lineage head (cost_lineage / lineage_cost), at the lineage's exact spend.
 interface SkillStatsCostRow {
   session_id: string
   cwd: string
   total_cost_usd: number
-  is_zeroed: number
-  has_cost: number
-  continued_in_session_id: string | null
   output_tokens: number
 }
 
+// costsBySession maps every lineage member to its head's row.
 function resolvePricedTerminal(
   sessionId: string,
   costsBySession: Map<string, SkillStatsCostRow>
 ): SkillStatsCostRow | null {
-  const visited = new Set<string>()
-  let currentSessionId = sessionId
-
-  while (!visited.has(currentSessionId)) {
-    visited.add(currentSessionId)
-    const cost = costsBySession.get(currentSessionId)
-    if (cost === undefined) return null
-    if (cost.continued_in_session_id === null) {
-      return cost.has_cost === 1 && cost.is_zeroed === 0 ? cost : null
-    }
-    currentSessionId = cost.continued_in_session_id
-  }
-
-  return null
+  return costsBySession.get(sessionId) ?? null
 }
 
 function buildSkillTrend(
@@ -1281,9 +1267,9 @@ function getSkillCostAttribution(
   const summary = db
     .prepare(
       `SELECT COUNT(DISTINCT ssc.session_id) AS tracked_session_count,
-              COALESCE(MAX(sc.has_unknown_model_cost), 0) AS has_unknown_model_cost
+              COALESCE(MAX(lc.has_unknown_model_cost), 0) AS has_unknown_model_cost
        FROM timed_skill_cost ssc
-       JOIN session_cost sc ON sc.session_id = ssc.session_id
+       JOIN lineage_cost lc ON lc.head_session_id = ssc.session_id
        WHERE ssc.allocated_at >= ? AND ssc.allocated_at <= ?`
     )
     .get(cutoff, asOf) as { tracked_session_count: number; has_unknown_model_cost: number }
@@ -1306,30 +1292,32 @@ export function getSkillStats(db: Database.Database, now: Date = new Date()): Sk
        WHERE si.invoked_at >= ?`
     )
     .all(new Date(now.getTime() - 30 * DAY_MS).toISOString()) as SkillStatsInvocationRow[]
-  const costRows = db
-    .prepare(
-      `SELECT
-         sm.session_id,
-         sm.cwd,
-         COALESCE(sc.total_cost_usd, 0) AS total_cost_usd,
-         COALESCE(sc.is_zeroed, 1) AS is_zeroed,
-         CASE WHEN sc.session_id IS NULL THEN 0 ELSE 1 END AS has_cost,
-         sm.continued_in_session_id,
-         COALESCE(SUM(smc.output_tokens), 0) AS output_tokens
-       FROM sessions_meta sm
-       LEFT JOIN session_cost sc ON sc.session_id = sm.session_id
-       LEFT JOIN session_model_cost smc ON smc.session_id = sc.session_id
-       GROUP BY sm.session_id`
-    )
-    .all() as SkillStatsCostRow[]
-  const costsBySession = new Map(costRows.map((row) => [row.session_id, row]))
+  const heads = new Map(
+    (
+      db
+        .prepare(
+          `SELECT lc.head_session_id AS session_id, sm.cwd, lc.total_cost_usd,
+             COALESCE((SELECT SUM(output_tokens) FROM lineage_model_cost lmc
+                       WHERE lmc.head_session_id = lc.head_session_id), 0) AS output_tokens
+           FROM lineage_cost lc JOIN sessions_meta sm ON sm.session_id = lc.head_session_id`
+        )
+        .all() as SkillStatsCostRow[]
+    ).map((row) => [row.session_id, row])
+  )
+  const costsBySession = new Map<string, SkillStatsCostRow>()
   const lineageCwdsByTerminal = new Map<string, Set<string>>()
-  for (const row of costRows) {
-    const terminal = resolvePricedTerminal(row.session_id, costsBySession)
-    if (terminal === null) continue
-    const cwds = lineageCwdsByTerminal.get(terminal.session_id) ?? new Set<string>()
-    cwds.add(row.cwd)
-    lineageCwdsByTerminal.set(terminal.session_id, cwds)
+  for (const member of db
+    .prepare(
+      `SELECT cl.session_id, cl.head_session_id, sm.cwd
+       FROM cost_lineage cl JOIN sessions_meta sm ON sm.session_id = cl.session_id`
+    )
+    .all() as Array<{ session_id: string; head_session_id: string; cwd: string }>) {
+    const head = heads.get(member.head_session_id)
+    if (head === undefined) continue
+    costsBySession.set(member.session_id, head)
+    const cwds = lineageCwdsByTerminal.get(head.session_id) ?? new Set<string>()
+    cwds.add(member.cwd)
+    lineageCwdsByTerminal.set(head.session_id, cwds)
   }
   const skillTargets = loadSkillTargets(db)
   const costCoverage = db
@@ -1390,21 +1378,18 @@ export function getSkillStats(db: Database.Database, now: Date = new Date()): Sk
         hasUndatedCost
       )
     ),
-    pricedSessionsWithoutSkill: countPricedSessionsWithoutSkill(db, costRows, costsBySession)
+    pricedSessionsWithoutSkill: countPricedSessionsWithoutSkill(db, heads.size, costsBySession)
   }
 }
 
-// Priced terminals that no skill invocation — over ALL history, not the 30-day slice — resolves
-// to. Reuses resolvePricedTerminal so it stays consistent with the association math: an
-// invocation in an ancestor session credits its terminal, so that terminal is not skill-less.
+// Priced lineage heads that no skill invocation — over ALL history, not the 30-day slice —
+// resolves to. Reuses resolvePricedTerminal so it stays consistent with the association math: an
+// invocation in any lineage member credits its head, so that head is not skill-less.
 function countPricedSessionsWithoutSkill(
   db: Database.Database,
-  costRows: SkillStatsCostRow[],
+  pricedTerminalCount: number,
   costsBySession: Map<string, SkillStatsCostRow>
 ): number {
-  const pricedTerminalCount = costRows.filter(
-    (row) => row.has_cost === 1 && row.is_zeroed === 0 && row.continued_in_session_id === null
-  ).length
   const reachedTerminals = new Set<string>()
   const sessionIds = db.prepare(`SELECT DISTINCT session_id FROM skill_invocations`).all() as {
     session_id: string

@@ -93,6 +93,11 @@ export function CostDetailsDialog({
             Some usage ran on a model Claude Code couldn&apos;t price; this is a low estimate.
           </p>
         )}
+        {bucket.hasEstimatedCost && (
+          <p className="text-[11px] text-muted-foreground">
+            Part of a branched conversation was cleaned up by Claude Code; its cost is an estimate.
+          </p>
+        )}
         <ChartBlock label="By project">
           <ProjectRankedList
             key={bucket.startAt}

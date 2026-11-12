@@ -464,6 +464,7 @@ export interface CostDay {
   partial: boolean
   pricedSessionCount: number
   hasUnknownModelCost: boolean
+  hasEstimatedCost: boolean
   byModel: CostModelSpend[]
   byProject: CostProjectSpend[]
 }
@@ -474,6 +475,7 @@ export interface CostHour {
   costUsd: number
   pricedSessionCount: number
   hasUnknownModelCost: boolean
+  hasEstimatedCost: boolean
   byModel: CostModelSpend[]
   byProject: CostProjectSpend[]
 }
@@ -485,6 +487,9 @@ export interface CostWindow {
   totalCostUsd: number
   pricedSessionCount: number // distinct priced terminals contributing timestamped shares
   hasUnknownModelCost: boolean
+  // A contributing fork lineage lost a shared ancestor to Claude Code's cleanup, so its cost is
+  // the head's own counter rather than the exact branch sum.
+  hasEstimatedCost: boolean
   byModel: CostModelSpend[]
   byProject: CostProjectSpend[]
   byDay: CostDay[] // all local dates intersecting the rolling window, zero-filled

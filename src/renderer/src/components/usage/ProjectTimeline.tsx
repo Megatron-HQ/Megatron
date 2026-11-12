@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { ChevronRight } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -10,9 +11,20 @@ import { percentLabel } from './share-bars'
 import { useUsageProjects } from '@/lib/use-usage-projects'
 import { ProjectSearch } from './ProjectSearch'
 import { matchesUsageProjectSearch } from '../../../../shared/usage-projects'
+import { CLAUDE_APP_CHATS_LABEL, splitClaudeAppChats } from '@/lib/claude-app-chats'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const VISIBLE_PROJECTS = 8
+
+interface TimelineRow {
+  key: string
+  label: string
+  tooltip: string
+  total: number
+  byMonth: number[]
+  chat?: boolean // one Claude app chat, shown inside the group: free-text title, indented
+  group?: boolean // the Claude app chats group row
+}
 
 export function ProjectTimeline({
   data,
@@ -24,6 +36,7 @@ export function ProjectTimeline({
   const reduceMotion = useReducedMotion() === true
   const [expanded, setExpanded] = useState(false)
   const [search, setSearch] = useState('')
+  const [chatsOpen, setChatsOpen] = useState(false)
   const { projectTooltip } = useUsageProjects()
   const [focusedCell, setFocusedCell] = useState<string | null>(null)
   const cells = useRef(new Map<string, HTMLSpanElement>())
@@ -32,13 +45,41 @@ export function ProjectTimeline({
     [data.byProject]
   )
   const needle = search.trim().toLowerCase()
-  const matching = data.byProject.filter((project) =>
-    matchesUsageProjectSearch(needle, [
-      resolveProjectLabel(project.project),
-      ...projectTooltip(project.project).split('\n')
-    ])
+  const split = splitClaudeAppChats(data.byProject, (project) => project.project)
+  const toRow = (project: UsageCalendar['byProject'][number], chat = false): TimelineRow => ({
+    key: project.project,
+    label: resolveProjectLabel(project.project),
+    tooltip: projectTooltip(project.project),
+    total: project.total,
+    byMonth: project.byMonth,
+    chat
+  })
+  const matchesNeedle = (row: TimelineRow): boolean =>
+    matchesUsageProjectSearch(needle, [row.label, ...row.tooltip.split('\n')])
+  const matching = split.rows.map((project) => toRow(project)).filter(matchesNeedle)
+  const chats = split.chats.map((project) => toRow(project, true))
+  const groupMatches = matchesUsageProjectSearch(needle, [CLAUDE_APP_CHATS_LABEL])
+  const matchingChats = groupMatches ? chats : chats.filter(matchesNeedle)
+  if (matchingChats.length > 0) {
+    const count = split.chats.filter((project) => project.total > 0).length
+    const total = split.chats.reduce((sum, project) => sum + project.total, 0)
+    const rank = matching.findIndex((row) => row.total < total)
+    matching.splice(rank < 0 ? matching.length : rank, 0, {
+      key: CLAUDE_APP_CHATS_LABEL,
+      label: `${CLAUDE_APP_CHATS_LABEL} (${count})`,
+      tooltip: `${count} chat${count === 1 ? '' : 's'} started in the Claude app without a project folder`,
+      total,
+      byMonth: MONTHS.map((_, index) =>
+        split.chats.reduce((sum, project) => sum + project.byMonth[index], 0)
+      ),
+      group: true
+    })
+  }
+  const showChats = chatsOpen || (needle !== '' && !groupMatches)
+  const projects = (expanded || needle ? matching : matching.slice(0, VISIBLE_PROJECTS)).flatMap(
+    (row) => (row.group && showChats ? [row, ...matchingChats] : [row])
   )
-  const projects = expanded || needle ? matching : matching.slice(0, VISIBLE_PROJECTS)
+  const topLevelCount = split.rows.length + (split.chats.length > 0 ? 1 : 0)
   const firstMonth = data.months.findIndex((month) => month.coverage !== 'future')
   const tabCell =
     focusedCell !== null && Number(focusedCell.split(':')[0]) < projects.length
@@ -60,8 +101,8 @@ export function ProjectTimeline({
             setSearch(value)
             setFocusedCell(null)
           }}
-          visible={projects.length}
-          total={data.byProject.length}
+          visible={projects.filter((row) => !row.chat).length}
+          total={topLevelCount}
           label="Search project timeline"
         />
       )}
@@ -101,19 +142,47 @@ export function ProjectTimeline({
             </thead>
             <tbody>
               {projects.map((project, rowIndex) => (
-                <tr key={project.project} className="border-b border-border/60">
-                  <th scope="row" className="py-2 pr-3 text-left text-[12px] font-normal">
+                <tr key={project.key} className="border-b border-border/60">
+                  <th
+                    scope="row"
+                    className={cn(
+                      'py-2 pr-3 text-left text-[12px] font-normal',
+                      project.chat && 'pl-4'
+                    )}
+                  >
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <span
-                          tabIndex={0}
-                          className="flex min-w-0 rounded-[2px] outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                        >
-                          <ProjectName label={resolveProjectLabel(project.project)} />
-                        </span>
+                        {project.group ? (
+                          <button
+                            type="button"
+                            onClick={() => setChatsOpen((open) => !open)}
+                            aria-expanded={showChats}
+                            className="flex w-full min-w-0 items-center gap-1 rounded-[2px] text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          >
+                            <ChevronRight
+                              aria-hidden
+                              className={cn(
+                                'size-3 shrink-0 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none',
+                                showChats && 'rotate-90'
+                              )}
+                            />
+                            <span className="truncate">{project.label}</span>
+                          </button>
+                        ) : (
+                          <span
+                            tabIndex={0}
+                            className="flex min-w-0 rounded-[2px] outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          >
+                            {project.chat ? (
+                              <span className="min-w-0 truncate">{project.label}</span>
+                            ) : (
+                              <ProjectName label={project.label} />
+                            )}
+                          </span>
+                        )}
                       </TooltipTrigger>
                       <TooltipContent className="whitespace-pre-line">
-                        {projectTooltip(project.project)}
+                        {project.tooltip}
                       </TooltipContent>
                     </Tooltip>
                   </th>
@@ -129,7 +198,7 @@ export function ProjectTimeline({
                         ? `${percentLabel(count, month.count)} of this month’s prompts`
                         : null
                     const partial = month.coverage === 'partial'
-                    const label = `${resolveProjectLabel(project.project)} · ${MONTHS[monthIndex]} ${data.year} · ${valueLabel}${share ? ` · ${share}` : ''}${partial ? ' · Partial history' : ''}`
+                    const label = `${project.label} · ${MONTHS[monthIndex]} ${data.year} · ${valueLabel}${share ? ` · ${share}` : ''}${partial ? ' · Partial history' : ''}`
                     return (
                       <td key={month.month} className="px-[2px] py-2">
                         {month.coverage === 'future' ? (
@@ -190,8 +259,7 @@ export function ProjectTimeline({
                             </TooltipTrigger>
                             <TooltipContent>
                               <p>
-                                {resolveProjectLabel(project.project)} · {MONTHS[monthIndex]}{' '}
-                                {data.year}
+                                {project.label} · {MONTHS[monthIndex]} {data.year}
                               </p>
                               <p className="mt-1">{valueLabel}</p>
                               {share && <p className="mt-1 opacity-75">{share}</p>}
@@ -220,16 +288,14 @@ export function ProjectTimeline({
           </table>
           <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
             <span>Stronger shading means more prompts · dashed cells: unavailable history</span>
-            {!needle && data.byProject.length > VISIBLE_PROJECTS && (
+            {!needle && matching.length > VISIBLE_PROJECTS && (
               <button
                 type="button"
                 onClick={() => setExpanded((value) => !value)}
                 aria-expanded={expanded}
                 className="rounded-[2px] font-medium outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
               >
-                {expanded
-                  ? 'Show fewer'
-                  : `+ ${data.byProject.length - VISIBLE_PROJECTS} more projects`}
+                {expanded ? 'Show fewer' : `+ ${matching.length - VISIBLE_PROJECTS} more projects`}
               </button>
             )}
           </div>

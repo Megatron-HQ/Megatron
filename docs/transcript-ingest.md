@@ -17,6 +17,13 @@ against real transcripts:
   even when a subagent forks further. Its records carry the parent's `sessionId`.
 - Every line carries top-level `timestamp`, `cwd`, `gitBranch`, `isSidechain`, and `sessionId`. Use
   `sessionId` (camelCase) only: a top-level `session_id` also appears and is not a duplicate.
+- A Claude desktop fork can copy its parent's records **with the parent's `sessionId`**, so a
+  record's `sessionId` doesn't identify the file that holds it (verified 2026-11-12: every
+  user/assistant record of one fork carried its parent's id; only its own `cost-state` and title
+  records carried its own).
+- `cost-state.startTime` (epoch ms) survives resumes, rewinds, and forks and resets on `/clear`; with
+  the first `cwd` record's timestamp it is the fork-lineage key (`docs/usage-analytics.md`, hazard
+  3).
 - A `Skill` call is a `message.content[]` block with `type: "tool_use"`, `name: "Skill"`,
   `input.skill`, and `input.args`. Its `caller.type` is `"direct"` on every observed call, so nothing
   on the block distinguishes a user-explicit invocation from a model-triggered one.
@@ -28,6 +35,8 @@ against real transcripts:
 | Transcript double-count | Filter `isSidechain === false` on a main transcript's own lines. A `subagents/*.jsonl` file is read in full, tagged `trigger_type = 'subagent'`, under the parent's `session_id` with an `agent_id`                       | `isSidechain` marks sidechain records interleaved in a main transcript, which duplicate subagent work. A subagent file is 100% `isSidechain: true` by construction, so the flat filter would drop it entirely                                                |
 | Cost is main-only       | Cost is extracted from main transcripts only, never from subagent files                                                                                                                                                   | A subagent's tokens are already inside the parent session's `cost-state` total (`docs/usage-analytics.md`, double-counting hazards); pricing subagent files too double-counts                                                                                |
 | Global turn identity    | `turn_usage.logical_turn_key` and `source_uuid` are unique across the whole index, never scoped to `session_id`; a collision keeps one canonical row                                                                      | A resume/continue copies prior assistant records into a new session file without `isSidechain`, and a main/subagent pair can expose the same record twice. Per-session keys store the replay twice and corrupt model/effort counts and skill-cost allocation |
+| Session identity        | A transcript's filename stem is its `session_id`, for the session row and for every invocation and turn read from it and its `subagents/` files; the record `sessionId` is only a fallback                                | A fork that copied its parent's `sessionId` otherwise overwrote the parent's row and filed its turns under a session that may since have been pruned                                                                                                         |
+| Per-session turns       | `session_turn` records every turn key each session's files hold, replayed copies included, alongside the one canonical `turn_usage` row                                                                                   | The lineage parent check needs the turns a fork holds that its candidate source lacks, which canonical ownership alone can't answer                                                                                                                          |
 | One parser version      | `TRANSCRIPT_PARSER_VERSION` covers every consumer of the walk: invocations, session meta, `cost-state`, turns. Any semantic change to any of them, `cost-parser.ts` included, bumps it; there is no separate cost version | A bump forces one reindex of already-indexed history even when mtime and size are unchanged, so a newly supported format applies to old sessions, not just new writes                                                                                        |
 
 ## Scan cadence

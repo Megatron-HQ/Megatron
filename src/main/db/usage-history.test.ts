@@ -6,6 +6,7 @@ import { join } from 'path'
 import { applySchema } from './schema'
 import { openUsageArchive } from './usage-archive'
 import { archiveUsageHistory } from '../ingest/usage-history'
+import { rebuildCostLineages } from '../ingest/cost-lineage'
 import {
   getTokenStats,
   getUsageCalendar,
@@ -58,8 +59,41 @@ function turn(id: string, day: number, weight: number, owner = 'session', hour =
 function prompt(timestamp = at(3), owner = 'session', slash = 0): void {
   index.prepare("INSERT INTO prompt_history VALUES (?, '/repo', ?, ?)").run(owner, timestamp, slash)
 }
+// The scan rebuilds lineages before archiving; these fixtures write the raw tables directly.
 function sync(): void {
+  rebuildCostLineages(index)
   archiveUsageHistory(index, archive, { prompts: true, tokens: true }, now)
+}
+
+// p → a and p → b are CLI forks: shared startTime and first record, b under a on every field.
+// Lineage tokens: input 10 + 20 + 15 = 45, output 200 + 150 + 100 = 450.
+function forkLineage(): void {
+  for (const [id, input, output, turns] of [
+    ['p', 10, 200, ['t1', 't2']],
+    ['a', 30, 350, ['t1', 't2', 'a1']],
+    ['b', 25, 300, ['t1', 't2', 'b1']]
+  ] as const) {
+    session(id)
+    index
+      .prepare(
+        'INSERT INTO session_cost (session_id,total_cost_usd,cost_state_start_time) VALUES (?, ?, ?)'
+      )
+      .run(id, output / 100, at(1))
+    index
+      .prepare(`INSERT INTO session_model_cost VALUES (?, 'claude-sonnet-5', ?, ?, ?, 0, 0, 0, 0)`)
+      .run(id, output / 100, input, output)
+    for (const key of turns) {
+      index
+        .prepare(
+          `INSERT OR IGNORE INTO turn_usage
+          (logical_turn_key,source_uuid,session_id,turn_index,model,input_tokens,output_tokens,
+           cache_read_tokens,cache_creation_tokens,cache_creation_5m_tokens,cache_creation_1h_tokens,invoked_at)
+          VALUES (?, ?, ?, 0, 'claude-sonnet-5', ?, ?, 0, 0, 0, 0, ?)`
+        )
+        .run(key, key, id, key === 'a1' ? 10 : 5, key === 'a1' ? 150 : 100, at(3))
+      index.prepare('INSERT INTO session_turn VALUES (?, ?)').run(id, key)
+    }
+  }
 }
 
 beforeEach(() => {
@@ -367,6 +401,25 @@ describe('persistent usage history', () => {
       .run()
     sync()
     expect(getTokenStats(archive, now).last7d.tokens?.total).toBe(1000)
+  })
+
+  it('archives a fork lineage at its head with the lineage tokens, not every fork counter', () => {
+    forkLineage()
+    sync()
+    expect(getTokenStats(archive, now).last7d.tokens).toMatchObject({
+      input: 45,
+      output: 450,
+      total: 495
+    })
+  })
+
+  it('keeps a pruned head linked so its surviving branches are not counted again', () => {
+    forkLineage()
+    sync()
+    for (const table of ['session_turn', 'turn_usage', 'session_cost', 'sessions_meta'])
+      index.prepare(`DELETE FROM ${table} WHERE session_id = 'a'`).run()
+    sync()
+    expect(getTokenStats(archive, now).last7d.tokens?.total).toBe(495)
   })
 
   it('does not invent timestamps or token totals for untracked sessions', () => {

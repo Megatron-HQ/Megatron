@@ -1,9 +1,16 @@
 import Database from 'better-sqlite3'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { applySchema } from '../db/schema'
-import { rebuildSessionSkillCosts } from './skill-cost-allocation'
+import { rebuildCostLineages } from './cost-lineage'
+import { rebuildSessionSkillCosts as allocate } from './skill-cost-allocation'
 
 let db: Database.Database
+
+// The scan rebuilds lineages first; these fixtures write the raw tables directly.
+function rebuildSessionSkillCosts(database: Database.Database): void {
+  rebuildCostLineages(database)
+  allocate(database)
+}
 
 function addSession(sessionId: string): void {
   db.prepare(
@@ -256,5 +263,46 @@ describe('rebuildSessionSkillCosts', () => {
     const rows = allocations()
     expect(rows).toHaveLength(2)
     expect(rows.reduce((total, row) => total + row.est_cost_usd, 0)).toBeCloseTo(1, 12)
+  })
+
+  it('places a fork lineage on its head alone, at every branch turn time, at the lineage cost', () => {
+    const fork = (id: string, total: number, output: number, turns: string[]): void => {
+      addSession(id)
+      addCost(id, total)
+      db.prepare(
+        "UPDATE session_cost SET cost_state_start_time = '2026-01-01T00:00:00.000Z' WHERE session_id = ?"
+      ).run(id)
+      db.prepare(
+        `INSERT INTO session_model_cost
+           (session_id, model, cost_usd, input_tokens, output_tokens, thinking_tokens,
+            cache_read_tokens, cache_creation_tokens, web_search_requests)
+         VALUES (?, 'claude-opus-5', ?, 0, ?, 0, 0, 0, 0)`
+      ).run(id, total, output)
+      for (const turn of turns)
+        db.prepare('INSERT INTO session_turn VALUES (?, ?)').run(id, `message:${turn}`)
+    }
+    fork('p', 1, 200, ['t1', 't2'])
+    fork('a', 1.6, 350, ['t1', 't2', 'a1'])
+    fork('b', 1.4, 300, ['t1', 't2', 'b1'])
+    addTurn('p', 't1', 'claude-opus-5', 100, null, '2026-01-01T01:00:00.000Z')
+    addTurn('p', 't2', 'claude-opus-5', 100, 'review', '2026-01-01T02:00:00.000Z')
+    addTurn('a', 'a1', 'claude-opus-5', 150, null, '2026-01-01T03:00:00.000Z')
+    addTurn('b', 'b1', 'claude-opus-5', 100, null, '2026-01-01T04:00:00.000Z')
+
+    rebuildSessionSkillCosts(db)
+
+    const rows = db
+      .prepare('SELECT session_id, allocated_at, est_cost_usd FROM timed_skill_cost ORDER BY 2')
+      .all() as Array<{ session_id: string; allocated_at: string; est_cost_usd: number }>
+    expect(rows.map((row) => [row.session_id, row.allocated_at])).toEqual([
+      ['a', '2026-01-01T01:00:00.000Z'],
+      ['a', '2026-01-01T02:00:00.000Z'],
+      ['a', '2026-01-01T03:00:00.000Z'],
+      ['a', '2026-01-01T04:00:00.000Z']
+    ])
+    // 2.00 of lineage spend over 450 output tokens.
+    expect(rows[2].est_cost_usd).toBeCloseTo(2 * (150 / 450), 12)
+    expect(rows.reduce((total, row) => total + row.est_cost_usd, 0)).toBeCloseTo(2, 12)
+    expect(allocations().map((row) => row.session_id)).toEqual(['a', 'a'])
   })
 })

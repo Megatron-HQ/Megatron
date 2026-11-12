@@ -1,8 +1,20 @@
 import { normalizeProjectPath } from '../../../shared/project-path'
 import type { ProjectLabelResolver } from './project-tree'
 import { getFolderBasename } from './source-name'
-import type { UsageProjectCatalog } from '../../../shared/usage-projects'
+import type { UsageProject, UsageProjectCatalog } from '../../../shared/usage-projects'
 import { resolveUsageProjectPath } from '../../../shared/usage-projects'
+
+// A chat's folder name is a UTC date plus a random suffix, so the fallback names it by the local
+// date it started instead.
+export function claudeAppChatLabel(chat: NonNullable<UsageProject['chat']>): string {
+  if (chat.title) return chat.title
+  if (!chat.startedAt) return 'Claude app chat'
+  return `Claude app chat · ${new Date(chat.startedAt).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  })}`
+}
 
 interface UsageProjectLabel {
   parts: string[]
@@ -35,7 +47,10 @@ export function createUsageProjectLabelResolver(
 ): ProjectLabelResolver {
   if (catalog) {
     const labels = new Map(
-      catalog.projects.map((project) => [normalizeProjectPath(project.path), project.label])
+      catalog.projects.map((project) => [
+        normalizeProjectPath(project.path),
+        project.chat ? claudeAppChatLabel(project.chat) : project.label
+      ])
     )
     return (path) =>
       !path
