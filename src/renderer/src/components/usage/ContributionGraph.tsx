@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { motion, useReducedMotion } from 'motion/react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { ContributionDay, UsageCalendar } from '../../../../shared/ipc'
@@ -40,6 +41,7 @@ export function ContributionGraph({
   data: UsageCalendar
   onSelectDay: (date: string, trigger: HTMLButtonElement) => void
 }): React.JSX.Element {
+  const reduceMotion = useReducedMotion() === true
   const [focusedDate, setFocusedDate] = useState<string | null>(null)
   const buttons = useRef(new Map<string, HTMLButtonElement>())
   const { year } = data
@@ -116,11 +118,24 @@ export function ContributionGraph({
                     <span key={day.date} className="aspect-square" aria-label={dayLabel(day)} />
                   )
                 const canOpen = day.coverage !== 'unavailable' || day.tokens !== null
+                const gridPosition = firstWeekday + index
+                // Sweeps in diagonally (week column + weekday row), like Activity's Punchcard.
+                const enterDelay = Math.min(
+                  (Math.floor(gridPosition / 7) + (gridPosition % 7)) * 0.006,
+                  0.4
+                )
                 return (
                   <Tooltip key={day.date}>
                     <TooltipTrigger asChild>
-                      <button
+                      <motion.button
                         type="button"
+                        initial={reduceMotion ? false : { opacity: 0, scale: 0.6 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={
+                          reduceMotion
+                            ? { duration: 0 }
+                            : { duration: 0.24, ease: 'easeOut', delay: enterDelay }
+                        }
                         ref={(element) => {
                           if (element) buttons.current.set(day.date, element)
                           else buttons.current.delete(day.date)
