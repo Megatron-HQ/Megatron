@@ -27,6 +27,7 @@ export interface TranscriptSession {
   started_at: string
   message_count: number
   continued_in_session_id: string | null
+  title: string | null
 }
 
 export interface TranscriptInvocation {
@@ -48,6 +49,7 @@ interface InvocationCandidate {
 }
 
 const PRECEDING_TEXT_MAX_CHARS = 2000
+const TITLE_MAX_CHARS = 200
 // Bumps on any parser-semantic change across the whole walk, cost-state included (no separate
 // cost_parser_version — see docs/transcript-ingest.md). A bump forces one safe reindex of all
 // already-indexed sessions. 3→4: cost-state; 4→5: turn usage; 5→6: replay dedup;
@@ -55,7 +57,7 @@ const PRECEDING_TEXT_MAX_CHARS = 2000
 // 7→8: reject incomplete reads and reconcile replayed turns after owner changes;
 // 8→9: normalize timestamps, reject invalid counters, keep sidechain users out of main-chain
 // attribution; 9→10: filename session identity, cost-state startTime, per-session turn
-// membership (fork lineage).
+// membership (fork lineage), session titles.
 const TRANSCRIPT_PARSER_VERSION = 10
 
 function truncatePrecedingText(text: string | null): string | null {
@@ -172,12 +174,27 @@ function extractSession(
 
   return {
     session_id: fileSessionId || metaRecord.sessionId,
+    title:
+      lastTitle(records, 'custom-title', 'customTitle') ??
+      lastTitle(records, 'ai-title', 'aiTitle'),
     cwd: metaRecord.cwd as string,
     git_branch: gitBranch,
     started_at: startedAt,
     message_count: messageCount,
     continued_in_session_id: continuedInSessionId
   }
+}
+
+// A rename the user typed outranks Claude's own generated title, whichever came later.
+function lastTitle(records: Record<string, unknown>[], type: string, field: string): string | null {
+  let title: string | null = null
+  for (const record of records) {
+    const value = record.type === type ? record[field] : undefined
+    if (typeof value === 'string' && value.trim() !== '') {
+      title = value.trim().slice(0, TITLE_MAX_CHARS)
+    }
+  }
+  return title
 }
 
 function escapeRegExp(value: string): string {
@@ -562,12 +579,13 @@ export function scanTranscripts(
   const upsertSession = db.prepare(`
     INSERT INTO sessions_meta
       (session_id, cwd, git_branch, started_at, message_count, continued_in_session_id,
-       source_mtime_ms, source_size_bytes, transcript_parser_version)
+       source_mtime_ms, source_size_bytes, transcript_parser_version, title)
     VALUES
       (@session_id, @cwd, @git_branch, @started_at, @message_count, @continued_in_session_id,
-       @source_mtime_ms, @source_size_bytes, @transcript_parser_version)
+       @source_mtime_ms, @source_size_bytes, @transcript_parser_version, @title)
     ON CONFLICT(session_id) DO UPDATE SET
       cwd = excluded.cwd,
+      title = excluded.title,
       git_branch = excluded.git_branch,
       started_at = excluded.started_at,
       message_count = excluded.message_count,

@@ -19,6 +19,20 @@ export interface UsageProject {
   label: string
   locations: UsageProjectLocation[]
   possibleMatches: string[]
+  // Set only on a Claude app chat, at read time; never persisted. The title is the chat's own
+  // (custom, else AI-generated), so it stays out of preferences.json and the usage archive.
+  chat?: { title: string | null; startedAt: string | null }
+}
+
+// A Claude desktop chat started without a folder runs in
+// <Claude app data>/scratch-workspaces/<id>/<id>/scratch-YYYY-MM-DD-<hex>. The app-data root
+// differs by platform and install (macOS Application Support, Windows Roaming, MSIX
+// LocalCache\Roaming), so only the tail is matched, with either separator and any case.
+const CLAUDE_APP_SCRATCH_PATH =
+  /[\\/]claude[\\/]scratch-workspaces[\\/][^\\/]+[\\/][^\\/]+[\\/]scratch-\d{4}-\d{2}-\d{2}-[0-9a-f]+[\\/]?$/i
+
+export function isClaudeAppScratchPath(path: string): boolean {
+  return CLAUDE_APP_SCRATCH_PATH.test(path)
 }
 
 export interface UsageProjectCatalog {

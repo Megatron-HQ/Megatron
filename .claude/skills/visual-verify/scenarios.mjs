@@ -1840,6 +1840,63 @@ export const scenarios = [
     }
   },
   {
+    // Folderless Claude app chats fold into one ranked row, collapsed by default.
+    name: 'usage-claude-app-chats-collapsed',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:overview', 'usage-history-chats')
+      )
+      await openUsagePanel(window, 'Tokens')
+      await window.getByRole('button', { name: 'Claude app chats (12)', exact: true }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // Opened: the chats rank beneath it by title, with the date fallback for an untitled chat
+    // and the group's own show-more.
+    name: 'usage-claude-app-chats-expanded',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:overview', 'usage-history-chats')
+      )
+      await openUsagePanel(window, 'Tokens')
+      await window.getByRole('button', { name: 'Claude app chats (12)', exact: true }).click()
+      await window.getByRole('button', { name: /more chats/ }).scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'usage-claude-app-chats-expanded-dark',
+    screen: 'usage',
+    async run(window, app) {
+      await setDarkTheme(window)
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:overview', 'usage-history-chats')
+      )
+      await openUsagePanel(window, 'Tokens')
+      await window.getByRole('button', { name: 'Claude app chats (12)', exact: true }).click()
+      await window.getByRole('button', { name: /more chats/ }).scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'usage-history-claude-app-chats-expanded',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:calendar', 'usage-history-chats')
+      )
+      await openUsagePanel(window, 'History')
+      const timeline = window.getByRole('region', { name: 'Project timeline' })
+      await timeline.getByRole('button', { name: /more projects/ }).click()
+      await timeline.getByRole('button', { name: /^Claude app chats \(\d+\)$/ }).click()
+      await timeline.getByText('Fix the CI/CD flake', { exact: true }).scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
     name: 'usage-history-project-search',
     screen: 'usage',
     async run(window, app) {

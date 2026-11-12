@@ -144,6 +144,10 @@ One radius scale rooted at `--radius: 0.625rem`, the same for every skill source
 - Fixed row height and `table-fixed` columns, with Description filling the remainder: no horizontal scroll, no variable row height.
 - Hover and selection share one absolutely-positioned highlight box that glides between rows on a spring instead of each row repainting; full-bleed and unrounded, matching the flat elevation.
 
+### Usage project lists
+
+Claude app chats (folderless Claude desktop chats) fold into one "Claude app chats (N)" row in every project ranked list and the Project timeline, including the day and hour detail dialogs. It ranks and takes a share like any project, from the sum of its chats. A chevron toggle opens the chats beneath it, indented, as a nested ranked list with its own show-more; each chat's share stays of the whole window. Chats show their title, else "Claude app chat · <local start date>", in plain text (a title can hold `/`), and never their folder path.
+
 ### Rail (section switcher)
 
 - Icon-only, tooltip-labeled, behind one rule-line, no shadow. The active section is ink-fill (`--frame-muted` + ledger ink), never lime: the rail switches which section shows, while selecting within a section is the sidebar's lime filter.

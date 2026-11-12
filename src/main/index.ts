@@ -28,10 +28,11 @@ import {
   getProjectUsageDay,
   readUsageProjectLocations,
   usageProjectCatalog,
+  readClaudeAppChats,
   linkUsageProjects,
   unlinkUsageProject
 } from './usage-projects'
-import type { UsageProjectLocation } from '../shared/usage-projects'
+import type { UsageProjectCatalog, UsageProjectLocation } from '../shared/usage-projects'
 import { createScanSession, type ScanUrgency } from './scan-session'
 import { disableChromiumHttpCache } from './chromium-cache'
 import { changeAllowedPaths, listAllowedPaths, normalizeAllowedPaths } from './folder-grants'
@@ -135,6 +136,10 @@ function usageProjectLocations(): UsageProjectLocation[] {
   if (JSON.stringify(locations) !== JSON.stringify(saved))
     themeStore.set('usageProjects', locations)
   return locations
+}
+// Chat titles decorate this IPC result only; usageProjectLocations() persists locations alone.
+function usageProjectCatalogWithChats(locations: UsageProjectLocation[]): UsageProjectCatalog {
+  return usageProjectCatalog(locations, readClaudeAppChats(getDb(), getUsageArchive()))
 }
 let scanComplete = false
 let usageComplete = false
@@ -589,19 +594,21 @@ app.whenReady().then(() => {
   secureIpc.handle(IPC_CHANNELS.usageDay, (_event, date: string) =>
     getProjectUsageDay(getUsageArchive(), date, usageProjectLocations())
   )
-  secureIpc.handle(IPC_CHANNELS.usageProjects, () => usageProjectCatalog(usageProjectLocations()))
+  secureIpc.handle(IPC_CHANNELS.usageProjects, () =>
+    usageProjectCatalogWithChats(usageProjectLocations())
+  )
   secureIpc.handle(
     IPC_CHANNELS.usageLinkProjects,
     (_event, input: { sourceId: string; targetId: string }) => {
       const locations = linkUsageProjects(usageProjectLocations(), input.sourceId, input.targetId)
       themeStore.set('usageProjects', locations)
-      return usageProjectCatalog(locations)
+      return usageProjectCatalogWithChats(locations)
     }
   )
   secureIpc.handle(IPC_CHANNELS.usageUnlinkProject, (_event, locationId: string) => {
     const locations = unlinkUsageProject(usageProjectLocations(), locationId)
     themeStore.set('usageProjects', locations)
-    return usageProjectCatalog(locations)
+    return usageProjectCatalogWithChats(locations)
   })
 
   secureIpc.handle(

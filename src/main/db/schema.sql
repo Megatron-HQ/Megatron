@@ -48,8 +48,10 @@ CREATE TABLE IF NOT EXISTS sessions_meta (
   source_size_bytes INTEGER NOT NULL DEFAULT -1,
                                      -- total bytes across the parent transcript and its subagents;
                                      -- pairs with mtime to detect appends that retain the same mtime
-  transcript_parser_version INTEGER NOT NULL DEFAULT 0
+  transcript_parser_version INTEGER NOT NULL DEFAULT 0,
                                      -- bumps when parser semantics change, forcing a safe one-time reindex
+  title TEXT                          -- last custom-title, else last ai-title. Index only: the archive
+                                     -- copies explicit columns, so a chat's own words never outlive it
 );
 
 CREATE TABLE IF NOT EXISTS skill_invocations (

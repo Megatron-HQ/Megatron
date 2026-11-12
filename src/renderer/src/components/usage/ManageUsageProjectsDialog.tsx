@@ -10,7 +10,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useUsageProjects, USAGE_PROJECTS_QUERY_KEY } from '@/lib/use-usage-projects'
-import type { UsageProjectCatalog } from '../../../../shared/usage-projects'
+import { claudeAppChatLabel } from '@/lib/usage-project-label'
+import type { UsageProject, UsageProjectCatalog } from '../../../../shared/usage-projects'
 import { matchesUsageProjectSearch } from '../../../../shared/usage-projects'
 
 const STATUS_LABEL = {
@@ -18,6 +19,12 @@ const STATUS_LABEL = {
   missing: 'Folder missing',
   unavailable: 'Folder inaccessible',
   needs_access: 'Folder access not granted'
+}
+
+// A Claude app chat's folder sits in Claude's own app data, which Megatron never asks to read, so
+// it gets no folder-access status.
+function projectName(project: UsageProject): string {
+  return project.chat ? claudeAppChatLabel(project.chat) : project.label
 }
 
 export function ManageUsageProjectsDialog({
@@ -60,7 +67,7 @@ export function ManageUsageProjectsDialog({
   const needle = search.trim().toLowerCase()
   const visible = (projects.data?.projects ?? []).filter((project) =>
     matchesUsageProjectSearch(needle, [
-      project.label,
+      projectName(project),
       ...project.locations.map((location) => location.path)
     ])
   )
@@ -109,7 +116,7 @@ export function ManageUsageProjectsDialog({
             visible.map((project) => (
               <article
                 key={project.id}
-                aria-label={project.label}
+                aria-label={projectName(project)}
                 className="flex flex-col gap-3 border-b border-border py-4 first:pt-1 last:border-0"
               >
                 <h3
@@ -120,7 +127,7 @@ export function ManageUsageProjectsDialog({
                   }}
                   className="rounded-sm text-[13px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
-                  {project.label}
+                  {projectName(project)}
                 </h3>
                 <ul className="flex flex-col gap-2">
                   {project.locations.map((location) => (
@@ -134,7 +141,7 @@ export function ManageUsageProjectsDialog({
                           {location.id === project.id
                             ? 'Primary location · '
                             : 'Linked location · '}
-                          {STATUS_LABEL[location.status]}
+                          {project.chat ? 'Claude app chat' : STATUS_LABEL[location.status]}
                         </p>
                       </div>
                       {location.linkedTo && !location.inferredOwner && (
@@ -162,7 +169,7 @@ export function ManageUsageProjectsDialog({
                 {(projects.data?.projects.length ?? 0) > 1 && (
                   <div className="flex min-w-0 flex-wrap gap-2">
                     <select
-                      aria-label={`Link ${project.label} to project`}
+                      aria-label={`Link ${projectName(project)} to project`}
                       value={targets[project.id] ?? ''}
                       disabled={mutation.isPending}
                       onChange={(event) =>
@@ -180,7 +187,7 @@ export function ManageUsageProjectsDialog({
                         )
                         .map((target) => (
                           <option key={target.id} value={target.id}>
-                            {target.label} · {target.path}
+                            {projectName(target)} · {target.path}
                           </option>
                         ))}
                     </select>

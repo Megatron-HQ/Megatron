@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { ChevronRight } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TextLink } from '@/components/TextLink'
 import { ProjectName } from '@/components/ProjectName'
@@ -15,6 +17,13 @@ export interface RankedItem {
   actionLabel?: string
   swatch?: string // CSS color — model lists only (§C4); the row fill stays monochrome
   project?: boolean // label is a project name; its disambiguating parent folders give way first
+  id?: string // row identity when fullLabel can repeat
+  // A group row: its label toggles `children` open beneath it as their own ranked list, with
+  // shares still of this list's total.
+  children?: RankedItem[]
+  childNoun?: string
+  open?: boolean
+  onToggle?: () => void
 }
 
 interface RankedListProps {
@@ -56,67 +65,103 @@ export function RankedList({
   const row = (item: RankedItem, index: number): React.JSX.Element => {
     const pct = total > 0 ? (item.value / total) * 100 : 0
     return (
-      <motion.div
-        key={item.fullLabel}
-        className="group relative flex h-7 items-center border-b border-border last:border-b-0"
-        initial={reduceMotion ? false : { opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={
-          reduceMotion ? { duration: 0 } : { duration: 0.2, delay: Math.min(index * 0.02, 0.2) }
-        }
-      >
-        <span
-          aria-hidden
-          className="absolute inset-y-0 left-0 bg-usage-bar/[0.07] transition-colors duration-150 group-hover:bg-usage-bar/[0.11] dark:bg-usage-bar/[0.12] dark:group-hover:bg-usage-bar/[0.17]"
-          style={{ width: `${pct}%`, minWidth: item.value > 0 ? 2 : undefined }}
-        />
-        {item.swatch && (
+      <Fragment key={item.id ?? item.fullLabel}>
+        <motion.div
+          className="group relative flex h-7 items-center border-b border-border last:border-b-0"
+          initial={reduceMotion ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={
+            reduceMotion ? { duration: 0 } : { duration: 0.2, delay: Math.min(index * 0.02, 0.2) }
+          }
+        >
           <span
             aria-hidden
-            className="relative mr-1.5 size-2 shrink-0 rounded-full"
-            style={{ backgroundColor: item.swatch }}
+            className="absolute inset-y-0 left-0 bg-usage-bar/[0.07] transition-colors duration-150 group-hover:bg-usage-bar/[0.11] dark:bg-usage-bar/[0.12] dark:group-hover:bg-usage-bar/[0.17]"
+            style={{ width: `${pct}%`, minWidth: item.value > 0 ? 2 : undefined }}
           />
-        )}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            {item.onSelect ? (
-              <TextLink
-                onClick={item.onSelect}
-                aria-label={item.actionLabel}
-                className="min-w-0 flex-1 truncate pr-3 text-left text-[13px]"
-              >
-                {item.project ? <ProjectName label={item.label} /> : item.label}
-              </TextLink>
-            ) : item.project ? (
-              <span className="relative flex min-w-0 flex-1 pr-3 text-[13px]">
-                <ProjectName label={item.label} />
-              </span>
-            ) : (
-              <span className="relative flex-1 truncate pr-3 text-[13px]">{item.label}</span>
-            )}
-          </TooltipTrigger>
-          <TooltipContent className="whitespace-pre-line">{item.fullLabel}</TooltipContent>
-        </Tooltip>
-        <span className="relative flex w-[110px] shrink-0 justify-end gap-2 font-mono text-[12px] tabular-nums text-muted-foreground">
-          {formatExactValue ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span
-                  tabIndex={0}
-                  aria-label={formatExactValue(item.value)}
-                  className="rounded-[2px] outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                  {formatValue(item.value)}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{formatExactValue(item.value)}</TooltipContent>
-            </Tooltip>
-          ) : (
-            <span>{formatValue(item.value)}</span>
+          {item.swatch && (
+            <span
+              aria-hidden
+              className="relative mr-1.5 size-2 shrink-0 rounded-full"
+              style={{ backgroundColor: item.swatch }}
+            />
           )}
-          <span className="w-8 text-right">{percentLabel(item.value, total)}</span>
-        </span>
-      </motion.div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              {item.children ? (
+                <button
+                  type="button"
+                  onClick={item.onToggle}
+                  aria-expanded={item.open}
+                  className="relative flex min-w-0 flex-1 items-center gap-1 rounded-[2px] pr-3 text-left text-[13px] outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <ChevronRight
+                    aria-hidden
+                    className={cn(
+                      'size-3 shrink-0 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none',
+                      item.open && 'rotate-90'
+                    )}
+                  />
+                  <span className="truncate">{item.label}</span>
+                </button>
+              ) : item.onSelect ? (
+                <TextLink
+                  onClick={item.onSelect}
+                  aria-label={item.actionLabel}
+                  className="min-w-0 flex-1 truncate pr-3 text-left text-[13px]"
+                >
+                  {item.project ? <ProjectName label={item.label} /> : item.label}
+                </TextLink>
+              ) : item.project ? (
+                <span className="relative flex min-w-0 flex-1 pr-3 text-[13px]">
+                  <ProjectName label={item.label} />
+                </span>
+              ) : (
+                <span className="relative flex-1 truncate pr-3 text-[13px]">{item.label}</span>
+              )}
+            </TooltipTrigger>
+            <TooltipContent className="whitespace-pre-line">{item.fullLabel}</TooltipContent>
+          </Tooltip>
+          <span className="relative flex w-[110px] shrink-0 justify-end gap-2 font-mono text-[12px] tabular-nums text-muted-foreground">
+            {formatExactValue ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    tabIndex={0}
+                    aria-label={formatExactValue(item.value)}
+                    className="rounded-[2px] outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    {formatValue(item.value)}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{formatExactValue(item.value)}</TooltipContent>
+              </Tooltip>
+            ) : (
+              <span>{formatValue(item.value)}</span>
+            )}
+            <span className="w-8 text-right">{percentLabel(item.value, total)}</span>
+          </span>
+        </motion.div>
+        <AnimatePresence initial={false}>
+          {item.children && item.open && (
+            <motion.div
+              className="overflow-hidden border-b border-border pl-4"
+              initial={reduceMotion ? false : { height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={reduceMotion ? { opacity: 0 } : { height: 0, opacity: 0 }}
+              transition={{ duration: 0.15, ease: 'easeOut' }}
+            >
+              <RankedList
+                items={item.children}
+                totalValue={total}
+                formatValue={formatValue}
+                formatExactValue={formatExactValue}
+                noun={item.childNoun ?? noun}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </Fragment>
     )
   }
 

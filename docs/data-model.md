@@ -106,6 +106,13 @@ rediscovery at the same path.
 - A changed path or a matching name never proves a move. Missing folders and revoked grants keep
   their identity and links; ungranted locations are never probed.
 - Nothing is written into user repositories.
+- **Claude app chats.** A Claude desktop chat started without a folder runs in
+  `<Claude app data>/scratch-workspaces/<id>/<id>/scratch-YYYY-MM-DD-<hex>`
+  (`isClaudeAppScratchPath`). It stays an ordinary location, but the catalog marks it as a chat at
+  read time with its title and earliest known start, and grant suggestions skip it: Megatron never
+  asks to read Claude's app data. Titles (`sessions_meta.title`: last custom title, else last AI
+  title) live in the index only. They are never written to `preferences.json` or the archive,
+  which copies explicit columns, so a chat's own words go when its transcript does.
 
 ## `usage-history.db`
 

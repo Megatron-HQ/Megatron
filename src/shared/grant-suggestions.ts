@@ -1,4 +1,5 @@
 import { isWithinProjectPath, normalizeProjectPath } from './project-path'
+import { isClaudeAppScratchPath } from './usage-projects'
 
 // String-only, no `path`: the renderer filters onboarding rows with the same rule main uses to
 // pick the folder picker's starting point, and the sandboxed renderer has no Node modules.
@@ -11,9 +12,10 @@ function isRoot(path: string): boolean {
 }
 
 // Most people have run `claude` in their home folder at some point. Offering home, anything
-// above it, or a drive/share root invites a grant far wider than any one project needs.
+// above it, or a drive/share root invites a grant far wider than any one project needs. A Claude
+// app chat folder lives in Claude's own app data, which Megatron never asks to read.
 export function isSuggestableFolder(path: string, home: string): boolean {
-  return !isRoot(path) && !isWithinProjectPath(home, path)
+  return !isRoot(path) && !isWithinProjectPath(home, path) && !isClaudeAppScratchPath(path)
 }
 
 // Ancestors in the recorded form, separators and casing intact, because the result is handed

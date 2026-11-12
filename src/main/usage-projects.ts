@@ -1,6 +1,11 @@
 import type { ProjectFolder } from '../shared/ipc'
-import type { UsageProjectCatalog, UsageProjectLocation } from '../shared/usage-projects'
+import type {
+  UsageProject,
+  UsageProjectCatalog,
+  UsageProjectLocation
+} from '../shared/usage-projects'
 import {
+  isClaudeAppScratchPath,
   primaryUsageProject,
   usageProjectOwner,
   groupProjectCounts,
@@ -308,7 +313,43 @@ function basename(path: string): string {
   return path.replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop() || path
 }
 
-export function usageProjectCatalog(locations: UsageProjectLocation[]): UsageProjectCatalog {
+type ClaudeAppChat = NonNullable<UsageProject['chat']>
+
+// Keyed by normalized chat folder. The title is the newest titled transcript's; the start is the
+// earliest the index or the archive knows, so a chat whose transcripts were pruned keeps its date.
+export function readClaudeAppChats(
+  index: Database.Database,
+  archive: Database.Database
+): Map<string, ClaudeAppChat> {
+  const chats = new Map<string, ClaudeAppChat>()
+  const sessions = [
+    ...(index
+      .prepare(
+        `SELECT cwd AS project, started_at, title FROM sessions_meta
+         ORDER BY source_mtime_ms DESC`
+      )
+      .all() as Array<{ project: string; started_at: string; title: string | null }>),
+    ...(archive
+      .prepare('SELECT project, started_at, NULL AS title FROM history_sessions')
+      .all() as Array<{ project: string; started_at: string; title: null }>)
+  ]
+  for (const session of sessions) {
+    if (!isClaudeAppScratchPath(session.project)) continue
+    const key = normalizeProjectPath(session.project)
+    const chat = chats.get(key) ?? { title: null, startedAt: null }
+    chat.title ??= session.title
+    if (chat.startedAt === null || session.started_at < chat.startedAt)
+      chat.startedAt = session.started_at
+    chats.set(key, chat)
+  }
+  return chats
+}
+
+// chats only decorates the returned projects; locations, which index.ts persists, never carry it.
+export function usageProjectCatalog(
+  locations: UsageProjectLocation[],
+  chats: Map<string, ClaudeAppChat> = new Map()
+): UsageProjectCatalog {
   const roots = locations.filter((entry) => !entry.linkedTo)
   const labels = roots.map((entry) => ({
     entry,
@@ -347,7 +388,15 @@ export function usageProjectCatalog(locations: UsageProjectLocation[]): UsagePro
               candidate.id !== entry.id &&
               basename(candidate.path).toLowerCase() === basename(entry.path).toLowerCase()
           )
-          .map((candidate) => candidate.id)
+          .map((candidate) => candidate.id),
+        ...(isClaudeAppScratchPath(entry.path)
+          ? {
+              chat: chats.get(normalizeProjectPath(entry.path)) ?? {
+                title: null,
+                startedAt: null
+              }
+            }
+          : {})
       }))
       .sort((a, b) => a.label.localeCompare(b.label) || a.path.localeCompare(b.path))
   }

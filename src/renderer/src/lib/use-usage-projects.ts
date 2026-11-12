@@ -28,6 +28,13 @@ export function useUsageProjects(): UseQueryResult<UsageProjectCatalog> & {
     const root = normalizeProjectPath(resolveUsageProjectPath(path, query.data.locations))
     const project = query.data.projects.find((entry) => normalizeProjectPath(entry.path) === root)
     if (!project) return path
+    if (project.chat)
+      return project.chat.startedAt
+        ? `Claude app chat · started ${new Date(project.chat.startedAt).toLocaleString(undefined, {
+            dateStyle: 'medium',
+            timeStyle: 'short'
+          })}`
+        : 'Claude app chat'
     const paths = project.locations.map((location) => location.path)
     if (!paths.some((entry) => normalizeProjectPath(entry) === normalizeProjectPath(path)))
       paths.push(path)

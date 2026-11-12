@@ -12,6 +12,22 @@ const HISTORY_PROJECT_NAMES = [
   'Internal\\Atlas'
 ]
 
+// Claude app chats (folderless Claude desktop chats): twelve, so the folded group's own list
+// overflows its show-more. One title holds a `/`; one has no title and only an archived start
+// date, the label a chat falls back to once its transcript is pruned.
+const CHATS = Array.from({ length: 12 }, (_, index) => ({
+  path: `C:\\Users\\Visual\\AppData\\Roaming\\Claude\\scratch-workspaces\\ws\\acct\\scratch-2026-10-${String(index + 10)}-a${index.toString(16)}0f58`,
+  chat:
+    index === 1
+      ? { title: 'Fix the CI/CD flake', startedAt: '2026-10-11T15:00:00.000Z' }
+      : index === 2
+        ? { title: null, startedAt: '2026-10-12T09:30:00.000Z' }
+        : {
+            title: `Plan launch email ${index + 1}`,
+            startedAt: `2026-10-${index + 10}T12:00:00.000Z`
+          }
+}))
+
 function counts(multiplier = 1) {
   return {
     input: 12000 * multiplier,
@@ -100,15 +116,32 @@ export function usageHistoryFixture(channel, args, original, mode) {
       kind: 'repository',
       status: 'available'
     }))
+    const chats = mode === 'usage-history-chats' ? CHATS : []
+    const chatLocations = chats.map((entry, index) => ({
+      id: `visual-chat:${index}`,
+      path: entry.path,
+      kind: 'folder',
+      status: 'needs_access'
+    }))
     return {
-      locations,
-      projects: locations.map((location, index) => ({
-        id: location.id,
-        path: location.path,
-        label: names[index].replace(/\\/g, '/'),
-        locations: [location],
-        possibleMatches: []
-      }))
+      locations: [...locations, ...chatLocations],
+      projects: [
+        ...locations.map((location, index) => ({
+          id: location.id,
+          path: location.path,
+          label: names[index].replace(/\\/g, '/'),
+          locations: [location],
+          possibleMatches: []
+        })),
+        ...chatLocations.map((location, index) => ({
+          id: location.id,
+          path: location.path,
+          label: location.path.split('\\').pop(),
+          locations: [location],
+          possibleMatches: [],
+          chat: chats[index].chat
+        }))
+      ]
     }
   }
   if (channel === 'usage:overview' && mode === 'usage-history-format') {
@@ -118,6 +151,26 @@ export function usageHistoryFixture(channel, args, original, mode) {
         last24h: formatWindow(1),
         last7d: formatWindow(7),
         last30d: formatWindow(30),
+        missingSessionCount: 0,
+        undatedTokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+      }
+    }
+  }
+  if (channel === 'usage:overview' && mode === 'usage-history-chats') {
+    const window = (days) => ({
+      ...tokenWindow(days, false),
+      byProject: [
+        { key: 'C:\\Projects\\Megatron', tokens: counts(100) },
+        ...CHATS.map((entry, index) => ({ key: entry.path, tokens: counts(12 - index) })),
+        { key: 'C:\\Projects\\Website', tokens: counts(30) }
+      ].sort((a, b) => b.tokens.total - a.tokens.total)
+    })
+    return {
+      ...original,
+      tokens: {
+        last24h: window(1),
+        last7d: window(7),
+        last30d: window(30),
         missingSessionCount: 0,
         undatedTokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
       }
@@ -200,6 +253,20 @@ export function usageHistoryFixture(channel, args, original, mode) {
           byMonth
         }
       })
+      .concat(
+        mode === 'usage-history-chats'
+          ? CHATS.map((entry, index) => {
+              const byMonth = months.map((month) =>
+                month.month >= 10 && month.coverage !== 'future' ? 12 - index : 0
+              )
+              return {
+                project: entry.path,
+                total: byMonth.reduce((sum, count) => sum + count, 0),
+                byMonth
+              }
+            })
+          : []
+      )
       .filter((project) => project.total > 0)
       .sort((a, b) => b.total - a.total)
     let longestStreak = null

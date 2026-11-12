@@ -167,7 +167,8 @@ describe('parseTranscript', () => {
       git_branch: 'main',
       started_at: '2024-01-01T00:00:00.000Z',
       message_count: 1,
-      continued_in_session_id: null
+      continued_in_session_id: null,
+      title: null
     })
   })
 
@@ -409,6 +410,26 @@ describe('parseTranscript', () => {
     expect(parsed.session?.session_id).toBe('sess-1')
     expect(parsed.invocations.map((row) => row.session_id)).toEqual(['sess-1'])
     expect(parsed.turns.map((row) => row.session_id)).toEqual(['sess-1'])
+  })
+
+  it('titles the session with its last custom title, else its last AI title', () => {
+    const custom = writeTranscriptFile(join(tmpDir, 'custom'), 'sess-1', [
+      { type: 'custom-title', customTitle: 'First name', sessionId: 'sess-1' },
+      metaLine(),
+      { type: 'custom-title', customTitle: '  Renamed  ', sessionId: 'sess-1' },
+      { type: 'ai-title', aiTitle: 'Later AI guess', sessionId: 'sess-1' }
+    ])
+    const ai = writeTranscriptFile(join(tmpDir, 'ai'), 'sess-1', [
+      metaLine(),
+      { type: 'ai-title', aiTitle: 'Early guess', sessionId: 'sess-1' },
+      { type: 'ai-title', aiTitle: 'Refined guess', sessionId: 'sess-1' },
+      { type: 'custom-title', customTitle: '   ', sessionId: 'sess-1' }
+    ])
+    const untitled = writeTranscriptFile(join(tmpDir, 'none'), 'sess-1', [metaLine()])
+
+    expect(parseTranscript(custom).session?.title).toBe('Renamed')
+    expect(parseTranscript(ai).session?.title).toBe('Refined guess')
+    expect(parseTranscript(untitled).session?.title).toBeNull()
   })
 
   it('produces no session when no line carries a cwd field', () => {
