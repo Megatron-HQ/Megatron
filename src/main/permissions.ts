@@ -31,9 +31,17 @@ if (![string]::IsNullOrEmpty($env:MEGATRON_PRIVATE_DATA_FILES)) {
 foreach ($file in $env:MEGATRON_PRIVATE_DATA_FILES.Split([char[]]@('|'), [System.StringSplitOptions]::RemoveEmptyEntries)) {
   $fileAcl = [System.Security.AccessControl.FileSecurity]::new()
   $fileAcl.SetSecurityDescriptorSddlForm('D:P(A;;FA;;;' + $identitySid + ')(A;;FA;;;SY)(A;;FA;;;BA)', [System.Security.AccessControl.AccessControlSections]::Access)
-  [System.IO.File]::SetAccessControl($file, $fileAcl)
+  try {
+    [System.IO.File]::SetAccessControl($file, $fileAcl)
+  } catch [System.IO.FileNotFoundException] {
+    # SQLite deletes a -wal/-shm sidecar when its last connection closes, which can happen after
+    # Megatron inspected the directory. A file that no longer exists has nothing left to protect.
+  }
 }
 }
+# -EncodedCommand's exit code follows the last statement's success, which a caught exception leaves
+# false. Uncaught errors still stop the script above with a nonzero code under 'Stop'.
+exit 0
 `
 
 const TIER_1_ROOTS = ['skills', 'plugins', 'projects'].map((dir) =>
@@ -209,34 +217,79 @@ export function securePrivateDataDirectory(directory: string, ownedRoot?: string
     if (restrictDirectory) chmodSync(directory, 0o700)
     for (const file of files) chmodSync(file, 0o600)
   } else {
-    if (!restrictDirectory && files.length === 0) return
-    const powershell = join(
-      process.env.SystemRoot ?? 'C:\\Windows',
-      'System32',
-      'WindowsPowerShell',
-      'v1.0',
-      'powershell.exe'
-    )
-    execFileSync(
-      powershell,
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-EncodedCommand',
-        Buffer.from(WINDOWS_CACHE_ACL_SCRIPT, 'utf16le').toString('base64')
-      ],
-      {
-        windowsHide: true,
-        timeout: 10_000,
-        env: {
-          ...process.env,
-          MEGATRON_PRIVATE_DATA_DIRECTORY: directory,
-          MEGATRON_PRIVATE_DATA_RESTRICT_DIRECTORY: restrictDirectory ? '1' : '0',
-          MEGATRON_PRIVATE_DATA_FILES: files.join('|')
-        }
-      }
-    )
+    secureWindowsPrivateData({ directory, restrictDirectory, files })
   }
+}
+
+// Each PowerShell launch blocks the main process for roughly 300 ms, so this process changes a
+// directory or file at most once. A directory it locked carries a protected, inheritable ACL: every
+// file present then was changed in the same launch, and every file created later inherits the ACL.
+const lockedWindowsDirectories = new Set<string>()
+const securedWindowsFiles = new Set<string>()
+
+function secureWindowsPrivateData({
+  directory,
+  restrictDirectory,
+  files
+}: WindowsPrivateDataAclChange): void {
+  const directoryKey = normalizeFsPath(resolve(directory))
+  if (lockedWindowsDirectories.has(directoryKey)) return
+  const change = {
+    directory,
+    restrictDirectory,
+    files: files.filter((file) => !securedWindowsFiles.has(normalizeFsPath(file)))
+  }
+  if (!change.restrictDirectory && change.files.length === 0) return
+  try {
+    applyWindowsPrivateDataAcl(change)
+  } catch (error) {
+    // Fails open: blocked PowerShell (policy, Constrained Language Mode, endpoint security) must not
+    // make the app unusable, and the default %APPDATA% location already inherits a private ACL. The
+    // linked/special-file checks above still fail closed. Nothing is recorded, so the next call retries.
+    console.warn('[private-data] could not restrict application data permissions', error)
+    return
+  }
+  if (change.restrictDirectory) lockedWindowsDirectories.add(directoryKey)
+  for (const file of change.files) securedWindowsFiles.add(normalizeFsPath(file))
+}
+
+export interface WindowsPrivateDataAclChange {
+  directory: string
+  restrictDirectory: boolean
+  files: string[]
+}
+
+export function applyWindowsPrivateDataAcl({
+  directory,
+  restrictDirectory,
+  files
+}: WindowsPrivateDataAclChange): void {
+  const powershell = join(
+    process.env.SystemRoot ?? 'C:\\Windows',
+    'System32',
+    'WindowsPowerShell',
+    'v1.0',
+    'powershell.exe'
+  )
+  execFileSync(
+    powershell,
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-EncodedCommand',
+      Buffer.from(WINDOWS_CACHE_ACL_SCRIPT, 'utf16le').toString('base64')
+    ],
+    {
+      windowsHide: true,
+      timeout: 10_000,
+      env: {
+        ...process.env,
+        MEGATRON_PRIVATE_DATA_DIRECTORY: directory,
+        MEGATRON_PRIVATE_DATA_RESTRICT_DIRECTORY: restrictDirectory ? '1' : '0',
+        MEGATRON_PRIVATE_DATA_FILES: files.join('|')
+      }
+    }
+  )
 }
 
 // Every other fs read must go through one of these rather than calling

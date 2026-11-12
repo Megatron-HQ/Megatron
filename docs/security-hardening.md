@@ -147,9 +147,17 @@ The index contains plaintext prompt excerpts, skill arguments, repository paths 
 Megatron has no automatic upload of the index. Default macOS cache directories/files use modes
 0700/0600. Windows cache ACLs allow only the current user, SYSTEM and Administrators through a fixed
 absolute Windows PowerShell command with paths passed as environment values. Linked or special cache
-files are rejected, including hardlinks. Existing custom profile parent permissions are preserved;
-directory changes apply only to a new directory or the exact default app-owned directory. Cache
-files are protected separately. These permissions do not encrypt data or protect against another
+files are rejected, including hardlinks, on every call and before any database opens; that check
+fails closed. Existing custom profile parent permissions are preserved; directory changes apply only
+to a new directory or the exact default app-owned directory. Cache files are protected separately.
+On Windows each directory and file is changed at most once per process, and a file created after
+this process locked its directory is not changed again, because it inherits the protected,
+inheritable directory ACL. A SQLite `-wal`/`-shm` sidecar that vanishes before the change is
+skipped. If the PowerShell change itself fails (policy-blocked PowerShell, Constrained Language
+Mode, an endpoint-security block, a timeout), Megatron logs a warning and keeps running, then retries
+on the next database open: the default `%APPDATA%` location already inherits a user/SYSTEM/
+Administrators ACL, so failing open costs defense in depth, while failing closed would make the app
+unusable on locked-down machines. These permissions do not encrypt data or protect against another
 process running as the same user. Prompt history mirrors Claude retention; transcript cache rows
 reconcile after a successful authoritative scan. Failed reads can retain older rows until the next
 successful scan. To erase the derived cache, quit Megatron and remove `megatron.db`,
