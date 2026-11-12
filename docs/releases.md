@@ -64,6 +64,10 @@ universal build.
 - electron-updater emits `error` _and_ rejects `checkForUpdates()` for the same failure;
   `updater.ts` reports it once.
 - `verify-package.mjs` checks at three levels (`none`, `adhoc`, `trusted`), matching the build.
+- The unpacked folder carries only better-sqlite3's runtime (`lib/`, `package.json`, `LICENSE`)
+  and the one `prebuilds/<platform>-<arch>.node` for the build; `electron-builder.yml`'s `files`
+  excludes the rest, and `validateUnpackedEntries` fails the package on any other unpacked file or a
+  missing target build. A new native dependency needs adding to `asarUnpack` _and_ that allowlist.
 
 ## Open until the first dry run (as of 2026-11-07)
 

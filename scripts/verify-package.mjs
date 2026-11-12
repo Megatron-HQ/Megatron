@@ -50,6 +50,40 @@ export function validateArchiveEntries(entries) {
   }
 }
 
+const NATIVE_SQLITE = 'node_modules/better-sqlite3'
+const UNPACKED_ICONS = ['resources/icon.ico', 'resources/icon.png']
+const SENSITIVE_UNPACKED_FILE =
+  /(?:^|\/)(?:\.env(?:\.[^/]*)?|\.npmrc|credentials|id_rsa|id_ed25519)$/
+
+// asarUnpack exists so better-sqlite3's native build loads from disk. Anything beyond its runtime
+// files and the icons is a packaging regression or dead weight shipped to every user; the target's
+// own native build must be present, so an over-broad exclusion can't ship an app that can't open
+// its database.
+export function validateUnpackedEntries(files, { platform, arch }) {
+  const nativeBuild = `${NATIVE_SQLITE}/prebuilds/${platform}-${arch}.node`
+  const runtimeFiles = new Set([
+    ...UNPACKED_ICONS,
+    `${NATIVE_SQLITE}/package.json`,
+    `${NATIVE_SQLITE}/LICENSE`,
+    nativeBuild
+  ])
+  for (const file of files) {
+    if (SENSITIVE_UNPACKED_FILE.test(file)) throw new Error(`Sensitive unpacked file: ${file}`)
+    const isRuntimeScript = file.startsWith(`${NATIVE_SQLITE}/lib/`) && file.endsWith('.js')
+    if (!runtimeFiles.has(file) && !isRuntimeScript)
+      throw new Error(`Unexpected unpacked file: ${file}`)
+  }
+  if (!files.includes(nativeBuild)) throw new Error(`Missing native SQLite build: ${nativeBuild}`)
+}
+
+function listFilesRecursively(directory, prefix = '') {
+  return readdirSync(directory).flatMap((name) => {
+    const full = join(directory, name)
+    const relative = `${prefix}${name}`
+    return statSync(full).isDirectory() ? listFilesRecursively(full, `${relative}/`) : [relative]
+  })
+}
+
 export function validateFuseSettings(settings) {
   for (const [name, expected] of Object.entries(REQUIRED_FUSES))
     if (settings[name] !== expected) throw new Error(`Unsafe or missing Electron fuse: ${name}`)
@@ -99,7 +133,10 @@ export function macSignatureChecks(signing, appPath) {
   ]
 }
 
-export async function verifyPackage(directory, { signing = 'none' } = {}) {
+export async function verifyPackage(
+  directory,
+  { signing = 'none', platform = process.platform, arch = process.arch } = {}
+) {
   const appPath = process.platform === 'darwin' ? findMacApp(directory) : resolve(directory)
   const executable =
     process.platform === 'darwin'
@@ -123,24 +160,7 @@ export async function verifyPackage(directory, { signing = 'none' } = {}) {
   validateFuseSettings(settings)
   const unpacked = `${archive}.unpacked`
   if (!existsSync(unpacked)) throw new Error('Native dependency unpack directory is missing')
-  function inspectUnpacked(path, prefix = '') {
-    for (const name of readdirSync(path)) {
-      const relative = `${prefix}${name}`
-      const full = join(path, name)
-      if (
-        !relative.startsWith('node_modules/') &&
-        relative !== 'node_modules' &&
-        !['resources', 'resources/icon.ico', 'resources/icon.png'].includes(relative)
-      )
-        throw new Error(`Unexpected unpacked file: ${relative}`)
-      if (statSync(full).isDirectory()) inspectUnpacked(full, `${relative}/`)
-      else if (
-        /(?:^|\/)(?:\.env(?:\.[^/]*)?|\.npmrc|credentials|id_rsa|id_ed25519)$/.test(relative)
-      )
-        throw new Error(`Sensitive unpacked file: ${relative}`)
-    }
-  }
-  inspectUnpacked(unpacked)
+  validateUnpackedEntries(listFilesRecursively(unpacked), { platform, arch })
   if (process.platform === 'darwin') {
     for (const [command, args] of macSignatureChecks(signing, appPath))
       execFileSync(command, args, { stdio: 'inherit' })

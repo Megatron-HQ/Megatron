@@ -14,6 +14,10 @@ files:
   - package.json
   - resources/icon.ico
   - resources/icon.png
+  # better-sqlite3 ships C sources and prebuilt binaries for eight platforms; at runtime it loads
+  # only lib/ and prebuilds/<platform>-<arch>.node. scripts/verify-package.mjs rejects anything else.
+  - '!node_modules/better-sqlite3/{binding.gyp,README.md,src/**,deps/**,build/**}'
+  - '!node_modules/better-sqlite3/prebuilds/!(${platform}-${arch}).node'
 asar: true
 electronFuses:
   runAsNode: false
