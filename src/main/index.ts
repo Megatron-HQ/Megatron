@@ -36,6 +36,7 @@ import { createScanSession, type ScanUrgency } from './scan-session'
 import { disableChromiumHttpCache } from './chromium-cache'
 import { changeAllowedPaths, listAllowedPaths, normalizeAllowedPaths } from './folder-grants'
 import { createUpdater, type Updates } from './updater'
+import { claimSingleInstance } from './single-instance'
 import {
   deleteSkillsForProjectRoot,
   getContextBudget,
@@ -114,7 +115,11 @@ const MIN_FOCUS_SCAN_INTERVAL_MS = 10_000
 const APP_CONTENT_SECURITY_POLICY =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; worker-src 'none'"
 
-securePrivateDataDirectory(app.getPath('userData'), join(app.getPath('appData'), app.getName()))
+// Before anything touches the data folder: a second copy on the same data quits here.
+const isPrimaryInstance = claimSingleInstance(app, () => BrowserWindow.getAllWindows())
+
+if (isPrimaryInstance)
+  securePrivateDataDirectory(app.getPath('userData'), join(app.getPath('appData'), app.getName()))
 const themeStore: ThemeStore = new Store({ name: 'preferences' })
 
 function usageProjectLocations(): UsageProjectLocation[] {
@@ -347,6 +352,7 @@ function createWindow(): void {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+  if (!isPrimaryInstance) return
   session.defaultSession.setPermissionCheckHandler(() => false)
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) =>
     callback(false)

@@ -50,6 +50,8 @@ vi.mock('electron', () => {
       commandLine: { appendSwitch: vi.fn() },
       getPath: () => '/unused',
       getName: () => 'folder-access-test',
+      requestSingleInstanceLock: () => true,
+      quit: vi.fn(),
       whenReady: () => Promise.resolve(),
       on: vi.fn()
     },
