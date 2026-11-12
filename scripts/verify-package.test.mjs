@@ -4,8 +4,67 @@ import {
   macSignatureChecks,
   parseVerifyArgs,
   validateArchiveEntries,
-  validateFuseSettings
+  validateFuseSettings,
+  validateUnpackedEntries
 } from './verify-package.mjs'
+
+const SQLITE = 'node_modules/better-sqlite3'
+const WINDOWS_X64 = { platform: 'win32', arch: 'x64' }
+const slimWindowsPayload = [
+  'resources/icon.ico',
+  'resources/icon.png',
+  `${SQLITE}/package.json`,
+  `${SQLITE}/LICENSE`,
+  `${SQLITE}/lib/index.js`,
+  `${SQLITE}/lib/binding.js`,
+  `${SQLITE}/lib/methods/transaction.js`,
+  `${SQLITE}/prebuilds/win32-x64.node`
+]
+
+test('accepts the native SQLite runtime for the target platform and nothing more', () => {
+  assert.doesNotThrow(() => validateUnpackedEntries(slimWindowsPayload, WINDOWS_X64))
+  assert.doesNotThrow(() =>
+    validateUnpackedEntries(
+      [`${SQLITE}/package.json`, `${SQLITE}/lib/index.js`, `${SQLITE}/prebuilds/darwin-arm64.node`],
+      { platform: 'darwin', arch: 'arm64' }
+    )
+  )
+})
+test('rejects native builds for other platforms and SQLite build leftovers', () => {
+  for (const extra of [
+    `${SQLITE}/prebuilds/darwin-arm64.node`,
+    `${SQLITE}/prebuilds/win32-arm64.node`,
+    `${SQLITE}/deps/sqlite3/sqlite3.c`,
+    `${SQLITE}/src/addon.cpp`,
+    `${SQLITE}/build/Release/obj/better_sqlite3/better_sqlite3.tlog/Cl.items.tlog`,
+    `${SQLITE}/binding.gyp`
+  ])
+    assert.throws(
+      () => validateUnpackedEntries([...slimWindowsPayload, extra], WINDOWS_X64),
+      /Unexpected unpacked file/
+    )
+})
+test('requires the native SQLite build for the target platform', () => {
+  assert.throws(
+    () =>
+      validateUnpackedEntries(
+        slimWindowsPayload.filter((file) => !file.endsWith('win32-x64.node')),
+        WINDOWS_X64
+      ),
+    /Missing native SQLite build: .*win32-x64\.node/
+  )
+})
+test('rejects unpacked files outside the native SQLite runtime and app icons', () => {
+  for (const extra of [
+    'node_modules/other-native/build/addon.node',
+    'out/main/index.js',
+    'secret.txt'
+  ])
+    assert.throws(
+      () => validateUnpackedEntries([...slimWindowsPayload, extra], WINDOWS_X64),
+      /Unexpected unpacked file/
+    )
+})
 
 test('allows compiled runtime files and production dependencies', () => {
   assert.doesNotThrow(() =>
