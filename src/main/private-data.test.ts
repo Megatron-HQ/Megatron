@@ -13,6 +13,32 @@ afterEach(() => rmSync(root, { recursive: true, force: true }))
 const api = permissions as typeof permissions & {
   securePrivateDataDirectory: (directory: string) => void
 }
+
+// .NET rather than Get-Acl: Windows PowerShell 5.1 launched from PowerShell 7 inherits a
+// PSModulePath that can't autoload Get-Acl.
+function isAclProtected(path: string, kind: 'File' | 'Directory' = 'File'): boolean {
+  const command = Buffer.from(
+    `[System.IO.${kind}]::GetAccessControl($env:MEGATRON_TEST_PATH).AreAccessRulesProtected`,
+    'utf16le'
+  ).toString('base64')
+  const powershell = join(
+    process.env.SystemRoot ?? 'C:\\Windows',
+    'System32',
+    'WindowsPowerShell',
+    'v1.0',
+    'powershell.exe'
+  )
+  const result = execFileSync(
+    powershell,
+    ['-NoProfile', '-NonInteractive', '-EncodedCommand', command],
+    {
+      env: { ...process.env, MEGATRON_TEST_PATH: path },
+      windowsHide: true,
+      encoding: 'utf8'
+    }
+  )
+  return result.trim() === 'True'
+}
 describe('private application cache', () => {
   it.each(['usage-history.db', 'usage-history.db-wal', 'usage-history.db-shm'])(
     'rejects a special persistent archive path %s before opening it',
@@ -46,27 +72,41 @@ describe('private application cache', () => {
     () => {
       const directory = join(root, 'private-profile')
       api.securePrivateDataDirectory(directory)
-      const command = Buffer.from(
-        '[System.IO.Directory]::GetAccessControl($env:MEGATRON_TEST_DIRECTORY).AreAccessRulesProtected',
-        'utf16le'
-      ).toString('base64')
-      const powershell = join(
-        process.env.SystemRoot ?? 'C:\\Windows',
-        'System32',
-        'WindowsPowerShell',
-        'v1.0',
-        'powershell.exe'
-      )
-      const result = execFileSync(
-        powershell,
-        ['-NoProfile', '-NonInteractive', '-EncodedCommand', command],
-        {
-          env: { ...process.env, MEGATRON_TEST_DIRECTORY: directory },
-          windowsHide: true,
-          encoding: 'utf8'
-        }
-      )
-      expect(result.trim()).toBe('True')
+      expect(isAclProtected(directory, 'Directory')).toBe(true)
+    },
+    20_000
+  )
+  // SQLite deletes a -wal/-shm sidecar when its last connection closes, which can land between
+  // inspecting the directory and the PowerShell ACL change. Position matters: Windows PowerShell's
+  // -EncodedCommand exit code follows the last statement, so a vanished file listed last once
+  // failed the whole change even though it was caught.
+  it.runIf(process.platform === 'win32').each(['first', 'last'] as const)(
+    'skips a SQLite sidecar that vanished before its ACL change (listed %s) and still protects the rest',
+    (position) => {
+      const directory = join(root, 'vanished-sidecar')
+      mkdirSync(directory)
+      const present = join(directory, 'usage-history.db')
+      writeFileSync(present, 'fixture')
+      const vanished = join(directory, 'usage-history.db-wal')
+      permissions.applyWindowsPrivateDataAcl({
+        directory,
+        restrictDirectory: false,
+        files: position === 'first' ? [vanished, present] : [present, vanished]
+      })
+      expect(isAclProtected(present)).toBe(true)
+    },
+    20_000
+  )
+  it.runIf(process.platform === 'win32')(
+    'still reports an ACL change that genuinely failed',
+    () => {
+      expect(() =>
+        permissions.applyWindowsPrivateDataAcl({
+          directory: join(root, 'never-created'),
+          restrictDirectory: true,
+          files: []
+        })
+      ).toThrow()
     },
     20_000
   )
