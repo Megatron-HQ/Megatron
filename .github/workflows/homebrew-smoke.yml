@@ -1,0 +1,49 @@
+name: Homebrew smoke
+
+# Installs the published cask on an Apple Silicon runner the way a user would, then checks what
+# decides whether Gatekeeper blocks an ad-hoc signed app: the com.apple.quarantine flag. Homebrew
+# quarantines the download; the cask's postflight_steps strip it from the installed app. Run it by
+# hand after publishing a release; it also runs on a pull request that changes it or the cask.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/homebrew-smoke.yml
+      - .github/homebrew/megatron.rb
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    runs-on: macos-latest
+    steps:
+      - name: Install the cask from the tap
+        run: brew install --cask megatron-hq/tap/megatron
+      - name: Report the installed version
+        run: /usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' /Applications/Megatron.app/Contents/Info.plist
+      # Without a quarantined download, a clean app below would prove nothing about postflight_steps.
+      - name: Confirm Homebrew quarantined the download
+        run: |
+          download="$(brew --cache --cask megatron)"
+          if ! xattr -p com.apple.quarantine "$download"; then
+            echo "::error::Homebrew did not quarantine $download, so this run can't test quarantine removal"
+            exit 1
+          fi
+      - name: Confirm the installed app carries no quarantine flag
+        run: |
+          if xattr -r -l /Applications/Megatron.app | grep -q com.apple.quarantine; then
+            echo '::error::Megatron.app is still quarantined; Gatekeeper would block it'
+            exit 1
+          fi
+      - name: Verify the ad-hoc signature
+        run: codesign --verify --deep --strict /Applications/Megatron.app
+      - name: Launch the app
+        run: |
+          open -a /Applications/Megatron.app
+          for _ in $(seq 1 30); do
+            if pgrep -x Megatron >/dev/null; then echo 'Megatron is running'; exit 0; fi
+            sleep 1
+          done
+          echo '::error::Megatron did not start within 30 seconds'
+          exit 1
