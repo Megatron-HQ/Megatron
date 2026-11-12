@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { motion, useReducedMotion } from 'motion/react'
 import type { ProjectLabelResolver } from '@/lib/project-tree'
 import { seriesColor, type ModelIdentity } from '@/lib/model-identity'
 import type { SkillStatsWindowKey, TokenStats, TokenWindow } from '../../../../shared/ipc'
@@ -117,6 +118,7 @@ function TokenTrend({
   window: TokenWindow
   hourly: boolean
 }): React.JSX.Element {
+  const reduceMotion = useReducedMotion() === true
   const [focused, setFocused] = useState<number | null>(null)
   const maximum = Math.max(1, ...window.trend.map((bucket) => bucket.tokens?.total ?? 0))
   const label = (index: number): string => {
@@ -146,13 +148,22 @@ function TokenTrend({
             onBlur={() => setFocused(null)}
             className="relative flex h-full min-w-0 flex-1 items-end outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
-            <span
+            {/* Rises from the baseline, staggered, like Activity and Cost's DayStrip. */}
+            <motion.span
               aria-hidden
               className="w-full rounded-[1px] bg-usage-bar transition-opacity motion-reduce:transition-none"
               style={{
                 height: `${bucket.tokens?.total ? Math.max(3, (bucket.tokens.total / maximum) * 100) : 0}%`,
-                opacity: focused === null || focused === index ? 1 : 0.35
+                opacity: focused === null || focused === index ? 1 : 0.35,
+                transformOrigin: 'bottom'
               }}
+              initial={reduceMotion ? false : { scaleY: 0 }}
+              animate={{ scaleY: 1 }}
+              transition={
+                reduceMotion
+                  ? { duration: 0 }
+                  : { duration: 0.32, ease: 'easeOut', delay: Math.min(index * 0.012, 0.36) }
+              }
             />
           </button>
         ))}

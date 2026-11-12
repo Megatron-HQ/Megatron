@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { motion, useReducedMotion } from 'motion/react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { ProjectLabelResolver } from '@/lib/project-tree'
@@ -20,6 +21,7 @@ export function ProjectTimeline({
   data: UsageCalendar
   resolveProjectLabel: ProjectLabelResolver
 }): React.JSX.Element {
+  const reduceMotion = useReducedMotion() === true
   const [expanded, setExpanded] = useState(false)
   const [search, setSearch] = useState('')
   const { projectTooltip } = useUsageProjects()
@@ -165,11 +167,23 @@ export function ProjectTimeline({
                                   unavailable && 'border-dashed bg-transparent'
                                 )}
                               >
+                                {/* Sweeps in from the left, staggered, and settles on its
+                                    data shade, like the Resident tax bar. */}
                                 {count > 0 && (
-                                  <span
+                                  <motion.span
                                     aria-hidden
-                                    className="absolute inset-0 bg-usage-bar"
-                                    style={{ opacity: opacity(count) }}
+                                    className="absolute inset-0 origin-left bg-usage-bar"
+                                    initial={reduceMotion ? false : { opacity: 0, scaleX: 0 }}
+                                    animate={{ opacity: opacity(count), scaleX: 1 }}
+                                    transition={
+                                      reduceMotion
+                                        ? { duration: 0 }
+                                        : {
+                                            duration: 0.32,
+                                            ease: 'easeOut',
+                                            delay: Math.min((rowIndex + monthIndex) * 0.012, 0.36)
+                                          }
+                                    }
                                   />
                                 )}
                               </span>
