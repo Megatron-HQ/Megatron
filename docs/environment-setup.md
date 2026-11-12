@@ -32,6 +32,16 @@ local Electron cache. Root cause wasn't pinned down — check first whether
 `windows-latest` too (see below) — if this is a real cross-platform issue rather than a one-off
 local quirk, CI should catch it on a clean install before anyone hits it manually.
 
+## Electron 43 downloads its binary on first use, not on install
+
+`electron@43` has no install script: `node_modules/electron/index.js` downloads and extracts the
+binary the first time anything loads `electron`, so `npm ci` leaves `node_modules/electron/dist/`
+empty. Several test files load the real `electron` (through `electron-store`), and in parallel
+Vitest workers they each started that download into the same `dist/` folder. On CI's slower network
+download, two collided (`failed to create directory …\electron\dist\locales … (os error 183)`). The
+Vitest global setup `scripts/vitest-install-electron.mjs` loads `electron` once before any worker
+starts, so the download runs at most once per test run, locally, in CI and in `release.yml`.
+
 ## CI coverage
 
 CI runs the full `typecheck`/`lint`/`test` suite on both `macos-latest` and `windows-latest`
