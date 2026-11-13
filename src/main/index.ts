@@ -69,6 +69,7 @@ import {
   type ThemeStore
 } from './theme'
 import { suggestGrantStart } from '../shared/grant-suggestions'
+import { WINDOW_SIZE } from '../shared/window-size'
 import {
   createScanController,
   ScanWorkerError,
@@ -287,10 +288,10 @@ async function scanAndNotify(
 function createWindow(): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 720,
-    minWidth: 860,
-    minHeight: 500,
+    width: WINDOW_SIZE.default.width,
+    height: WINDOW_SIZE.default.height,
+    minWidth: WINDOW_SIZE.min.width,
+    minHeight: WINDOW_SIZE.min.height,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : {}),

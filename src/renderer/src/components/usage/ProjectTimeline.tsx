@@ -1,6 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
-import { motion, useReducedMotion } from 'motion/react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { ProjectLabelResolver } from '@/lib/project-tree'
@@ -15,6 +14,8 @@ import { CLAUDE_APP_CHATS_LABEL, splitClaudeAppChats } from '@/lib/claude-app-ch
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const VISIBLE_PROJECTS = 8
+const ENTER_STAGGER_MS = 6
+const MAX_ENTER_DELAY_MS = 80
 
 interface TimelineRow {
   key: string
@@ -33,7 +34,6 @@ export function ProjectTimeline({
   data: UsageCalendar
   resolveProjectLabel: ProjectLabelResolver
 }): React.JSX.Element {
-  const reduceMotion = useReducedMotion() === true
   const [expanded, setExpanded] = useState(false)
   const [search, setSearch] = useState('')
   const [chatsOpen, setChatsOpen] = useState(false)
@@ -236,23 +236,14 @@ export function ProjectTimeline({
                                   unavailable && 'border-dashed bg-transparent'
                                 )}
                               >
-                                {/* Sweeps in from the left, staggered, and settles on its
-                                    data shade, like the Resident tax bar. */}
                                 {count > 0 && (
-                                  <motion.span
+                                  <span
                                     aria-hidden
-                                    className="absolute inset-0 origin-left bg-usage-bar"
-                                    initial={reduceMotion ? false : { opacity: 0, scaleX: 0 }}
-                                    animate={{ opacity: opacity(count), scaleX: 1 }}
-                                    transition={
-                                      reduceMotion
-                                        ? { duration: 0 }
-                                        : {
-                                            duration: 0.32,
-                                            ease: 'easeOut',
-                                            delay: Math.min((rowIndex + monthIndex) * 0.012, 0.36)
-                                          }
-                                    }
+                                    className="history-timeline-fill absolute inset-0 bg-usage-bar"
+                                    style={{
+                                      opacity: opacity(count),
+                                      animationDelay: `${Math.min((rowIndex + monthIndex) * ENTER_STAGGER_MS, MAX_ENTER_DELAY_MS)}ms`
+                                    }}
                                   />
                                 )}
                               </span>

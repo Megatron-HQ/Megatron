@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { Api } from '../shared/api'
 import type { UsageProjectCatalog } from '../shared/usage-projects'
 import {
   IPC_CHANNELS,
@@ -122,6 +123,6 @@ const api = {
     ipcRenderer.on(IPC_CHANNELS.updateState, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.updateState, listener)
   }
-}
+} satisfies Api
 
 contextBridge.exposeInMainWorld('api', api)

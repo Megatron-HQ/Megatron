@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import Database from 'better-sqlite3'
 import { _electron as electron } from 'playwright-core'
-import { visualVerifierLaunchArgs } from '../.claude/skills/visual-verify/electron-launch.mjs'
+import { visualVerifierLaunchArgs } from './electron/electron-launch.mjs'
 
 if (process.platform !== 'win32') {
   console.log('Windows CLI IPC fixture skipped on this platform.')
