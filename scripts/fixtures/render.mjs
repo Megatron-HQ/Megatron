@@ -322,14 +322,17 @@ export async function importGraph(server, tree) {
     // A stylesheet's graph entry lists every file Tailwind scanned for class names, not imports.
     if (!/\.tsx?$/.test(file)) return
     await environment.transformRequest(`/@fs/${root}${file}`)
-    const node = [...(environment.moduleGraph.getModulesByFile(`${root}${file}`) ?? [])][0]
-    for (const imported of node?.importedModules ?? []) {
-      const path = imported.file
-      if (!path?.startsWith(root) || path.includes('/node_modules/')) continue
-      const relative = path.slice(root.length)
-      // The gallery reaches every fixture and the whole app; neither is something fixtures share.
-      if (file === GALLERY && (relative === SHELL || relative.endsWith('.fixture.tsx'))) continue
-      imports.push(relative)
+    // Vite can retain an unresolved /@fs/ placeholder beside the loaded module for this file.
+    // Picking one node makes coverage depend on which URL happened to be registered first.
+    for (const node of environment.moduleGraph.getModulesByFile(`${root}${file}`) ?? []) {
+      for (const imported of node.importedModules) {
+        const path = imported.file
+        if (!path?.startsWith(root) || path.includes('/node_modules/')) continue
+        const relative = path.slice(root.length)
+        // The gallery reaches every fixture and the whole app; neither is something fixtures share.
+        if (file === GALLERY && (relative === SHELL || relative.endsWith('.fixture.tsx'))) continue
+        if (!imports.includes(relative)) imports.push(relative)
+      }
     }
     for (const imported of imports) await walk(imported)
   }

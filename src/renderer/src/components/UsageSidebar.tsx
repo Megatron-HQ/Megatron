@@ -41,10 +41,6 @@ export function UsageSidebar({
 
   return (
     <div className="flex w-[220px] shrink-0 flex-col">
-      <div className="flex h-10 shrink-0 items-center px-4">
-        <span className="text-sm font-semibold">Megatron</span>
-      </div>
-
       <div className="flex-1 overflow-y-auto px-2">
         <nav
           className="relative flex flex-col gap-0.5"

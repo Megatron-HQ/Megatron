@@ -12,6 +12,7 @@ import {
 } from './fixtures/data'
 import { fixture, type Fixture, type FixtureUser } from './fixtures/define'
 import { emit } from './fixtures/fake-api'
+import { historyApi } from './fixtures/usage-data'
 
 function app(api: Partial<Api>, interact?: Fixture['interact']): Fixture {
   return fixture({ frame: 'window', api, render: () => <App />, interact })
@@ -57,6 +58,47 @@ function statusShows(text: RegExp): boolean {
 export const Inventory = app({}, (user) =>
   user.until({ role: 'row', name: /code-review/ }, 'The inventory never listed its skills.')
 )
+
+export const MainNavigation = app(historyApi(), async (user) => {
+  await user.click({ selector: 'nav[aria-label="Main navigation"] button:text-is("Plugins")' })
+  await user.until({ text: 'No plugins installed' }, 'The main navigation did not open Plugins.')
+  await user.click({ selector: 'nav[aria-label="Main navigation"] button:text-is("Usage")' })
+  await user.until(
+    { role: 'navigation', name: 'Usage panels' },
+    'The main navigation did not open Usage.'
+  )
+  await user.click({ selector: 'nav[aria-label="Main navigation"] button:text-is("Skills")' })
+  await user.until(
+    { role: 'row', name: /code-review/ },
+    'The main navigation did not return to Skills.'
+  )
+})
+
+export const HistoryReturn = app(historyApi(), async (user) => {
+  await user.click({ selector: 'nav[aria-label="Main navigation"] button:text-is("Usage")' })
+  await user.click({ role: 'button', name: 'History', exact: true })
+  await user.until(
+    { role: 'searchbox', name: 'Search project timeline' },
+    'History never loaded its project search.'
+  )
+  const calendar = document.querySelector('[aria-label^="Daily activity calendar"]')
+  await user.click({ role: 'searchbox', name: 'Search project timeline' })
+  await user.type('Internal')
+  await user.until(
+    { text: '1 of 2 projects match' },
+    'History project search did not filter its timeline.'
+  )
+  await user.click({ role: 'button', name: 'Tokens', exact: true })
+  await user.until({ role: 'radiogroup', name: 'Token usage window' }, 'Tokens did not open.')
+  await user.click({ role: 'button', name: 'History', exact: true })
+  await user.until(
+    () =>
+      document.querySelector<HTMLInputElement>('input[aria-label="Search project timeline"]')
+        ?.value === 'Internal' &&
+      document.querySelector('[aria-label^="Daily activity calendar"]') === calendar,
+    'Returning to History rebuilt its calendar or lost the project search.'
+  )
+})
 
 export const LoadError = app(
   {

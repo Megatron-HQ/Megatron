@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { AppRail } from '@/components/AppRail'
+import { AppHeader } from '@/components/AppHeader'
 import { CommandPalette } from '@/components/CommandPalette'
 import { ManageFoldersDialog } from '@/components/ManageFoldersDialog'
 import { OnboardingDialog } from '@/components/onboarding/OnboardingDialog'
@@ -632,27 +632,20 @@ function App(): React.JSX.Element {
 
   const shell = (
     <TooltipProvider>
-      <div className="flex h-screen flex-col">
-        {/* hiddenInset leaves macOS without a draggable titlebar, so this strip is it. Windows
-            keeps its native titlebar; the strip there only separates it from the sheet. */}
-        <div
-          className={
-            window.api?.platform === 'darwin' ? 'h-8 shrink-0 drag-region' : 'h-1.5 shrink-0'
-          }
+      <div className="flex h-screen flex-col overflow-hidden">
+        <AppHeader
+          section={section}
+          onSectionChange={handleSectionChange}
+          onOpenSettings={() => setSettingsOpen(true)}
+          updateNotice={updateNotice}
         />
         <div className="flex min-h-0 flex-1">
-          <div className="frame-surface flex shrink-0">
-            <AppRail
-              section={section}
-              onSectionChange={handleSectionChange}
-              onOpenSettings={() => setSettingsOpen(true)}
-              updateNotice={updateNotice}
-            />
+          <div className="frame-surface flex shrink-0 pt-2">
             <ScreenTransition screenKey={section} section={section} depth={0} className="flex">
               {sidebar}
             </ScreenTransition>
           </div>
-          {/* The inset is the sheet's own margin so the rail and sidebars still reach the window's
+          {/* The inset is the sheet's own margin so the sidebars still reach the window's
               bottom edge; overflow-hidden clips the banner and scrollbars to the radius. */}
           <main className="mr-1.5 mb-1.5 flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-sheet">
             {scanBanner.kind === 'updating' && <ScanUpdatingBanner message={scanBanner.message} />}

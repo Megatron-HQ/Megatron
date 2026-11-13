@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { usageOverviewQuery } from '@/lib/usage-overview-query'
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 import {
   Activity,
   BrainCircuit,
@@ -101,6 +101,7 @@ export function UsageView({
     enabled: panel === 'history' && data?.scanComplete === true,
     placeholderData: keepPreviousData
   })
+  const { refetch: refetchCalendar } = calendar
 
   useEffect(() => {
     scrollContainerRef.current?.scrollTo({ top: 0 })
@@ -121,6 +122,25 @@ export function UsageView({
 
   const loading = isPending || !data?.scanComplete || projects.isPending
   const { label, Icon } = PANEL_META[panel]
+  const history = useMemo(
+    () => (
+      <HistorySection
+        key={calendarYear}
+        data={calendar.data}
+        pending={calendar.isPending || calendar.isPlaceholderData}
+        loadError={calendar.isError}
+        onRetry={() => void refetchCalendar()}
+      />
+    ),
+    [
+      calendarYear,
+      calendar.data,
+      calendar.isPending,
+      calendar.isPlaceholderData,
+      calendar.isError,
+      refetchCalendar
+    ]
+  )
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -189,12 +209,15 @@ export function UsageView({
 
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
         <div className="w-full px-6">
-          <AnimatePresence mode="wait" initial={false}>
+          {!isError && !projects.isError && !loading && (
+            // Retain the dense calendar and its tooltip effects instead of reconnecting them on return.
+            <div hidden={panel !== 'history'}>{history}</div>
+          )}
+          {(panel !== 'history' || isError || projects.isError || loading) && (
             <motion.div
               key={panel}
               initial={reduceMotion ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
               transition={{ duration: reduceMotion ? 0 : 0.15, ease: 'easeOut' }}
             >
               {panel === 'resident-tax' ? (
@@ -220,14 +243,6 @@ export function UsageView({
                   activity={data?.activity ?? null}
                   windowKey={activityWindow}
                   resolveProjectLabel={resolveProjectLabel}
-                />
-              ) : panel === 'history' ? (
-                <HistorySection
-                  key={calendarYear}
-                  data={calendar.data}
-                  pending={calendar.isPending || calendar.isPlaceholderData}
-                  loadError={calendar.isError}
-                  onRetry={() => void calendar.refetch()}
                 />
               ) : panel === 'tokens' ? (
                 <TokensSection
@@ -265,7 +280,7 @@ export function UsageView({
                 <SkillsEmpty />
               )}
             </motion.div>
-          </AnimatePresence>
+          )}
         </div>
       </div>
     </div>

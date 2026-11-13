@@ -22,14 +22,14 @@ Every neutral carries one warm tint: OKLCH C≈0.011 at h82 in light, C≈0.008 
 
 The window is a flat frame around one raised content sheet (see Layout). The two read apart on lightness alone (sheet:frame 1.10:1 light, 1.09:1 dark), so the sheet's edge never depends on its shadow rendering.
 
-- **Frame** (`--frame`): the titlebar strip, rail, sidebars, and the gutter around the sheet. One step darker than the sheet in both themes.
+- **Frame** (`--frame`): the app header, sidebars, and the gutter around the sheet. One step darker than the sheet in both themes.
 - **Ledger Paper** (`--background`): the content sheet. Off pure white/black in both themes.
 - **Card** (`--card`, `--popover`): panels, popovers, and dialogs.
 - **Ledger Ink** (`--foreground`): primary text and icons.
 - **Primary Stamp** (`--primary`): the default button fill.
 - **Ink, Muted** (`--muted-foreground`): secondary text, column headers, captions, placeholders.
 - **Surface Muted** (`--muted`, `--secondary`, `--accent`): hover fills, the status-pill fill, secondary buttons.
-- **Frame Muted** (`--frame-muted`): the same fills on the frame. `--muted` and `--accent` nearly vanish on the light frame (1.05:1), so the `frame-surface` utility on the rail-and-sidebar wrapper rescopes both to this step (1.09:1), the darkest that keeps `--muted-foreground` count-pill text at 4.5:1. Dark reuses `--muted`.
+- **Frame Muted** (`--frame-muted`): the same fills on the frame. `--muted` and `--accent` nearly vanish on the light frame (1.05:1), so the `frame-surface` utility on the header and sidebar wrapper rescopes both to this step (1.09:1), the darkest that keeps `--muted-foreground` count-pill text at 4.5:1. Dark reuses `--muted`.
 - **Rule Line** (`--border`, `--input`): the 1px borders that do the elevation system's work. A solid warm step, never alpha white, so a rule reads the same over every surface it crosses.
 - **Focus Ring** (`--ring`): the one keyboard-focus indicator everywhere.
 
@@ -40,7 +40,7 @@ Five tones carry every state. States share tones rather than each taking a hue, 
 - **Danger** (`--destructive`): lint errors, the context-budget dot over budget, inline errors, destructive actions (plugin uninstall).
 - **Warning** (`--warning`): lint warnings, the budget dot past 80% (`BUDGET_WARNING_THRESHOLD` in `context-budget.ts`), Usage data-quality caveats. On the frame it takes a darker step, `--frame-warning`, because the sheet's step is 2.85:1 on the light frame. `frame-surface` swaps it in, so it's the same tone rather than a sixth, and the dot still writes `bg-warning`.
 - **Success** (`--success`): passing lint, up to date, the budget dot's default state, a granted folder in onboarding.
-- **Info** (`--info`): update available, and nothing else: the plugin update pill, PluginDetail's Update button, onboarding's update count, the rail gear's dot. Neutral notices (e.g. a folder already covered by a grant) stay muted ink even when they use the `Info` icon.
+- **Info** (`--info`): update available, and nothing else: the plugin update pill, PluginDetail's Update button, onboarding's update count, the header gear's dot. Neutral notices (e.g. a folder already covered by a grant) stay muted ink even when they use the `Info` icon.
 - **Dormant** (`--dormant`): present but inactive: a skill disabled via `skillOverrides` or a disabled plugin (`Power`), and a stale skill that hasn't run in the last 30 days of recorded sessions (`Clock`). A muted violet rather than a quieter red, so "turned off" never reads as "broken"; a skill can be both, since lint status and disabled state are independent.
 
 ### Chart ink (Usage)
@@ -71,9 +71,9 @@ Verified 2026-11-11 with the `dataviz` skill's `validate_palette.js`, against ea
 
 ### Named Rules
 
-**The One Stamp Rule.** Acid lime marks exactly one thing at a time (the active sidebar filter or a single primary CTA) and never appears as body text, a link, or a decorative fill. The rail's active section and the Settings segmented control use ink-fill instead: they switch what's showing, they don't select an item.
-**The Tones-Aren't-The-Stamp Rule.** Tones report state only and never substitute for lime. A status is never color alone: it pairs with an icon, and with a label wherever it renders as a pill. The narrow exceptions are labeled by a tooltip: the icon-only dormant `Power` and `Clock` in the table's icon tray, and two ambient dots with no icon, the context-budget dot in the sidebar footer and the update dot on the rail gear.
-**The Channel Rule.** Each color role keeps its hues in its own channel. Entity hues: entity marks only, never on the frame (rail, sidebars, titlebar strip), where `--frame-warning` is indistinguishable from Agents for deuteranopes. Model hues: Usage chart marks that split by model, direct-labeled, only inside `components/usage/`. Tones: status pills and icons, the two ambient dots, inline alerts and caveats, destructive actions. No hue ever means "active" (that's the stamp), a source tier, or a UI accent.
+**The One Stamp Rule.** Acid lime marks exactly one thing at a time (the active sidebar filter or a single primary CTA) and never appears as body text, a link, or a decorative fill. The header's active section and the Settings segmented control use ink-fill instead: they switch what's showing, they don't select an item. The app logo retains its fixed lime caps and sparkle as branding; those never signal selection or status.
+**The Tones-Aren't-The-Stamp Rule.** Tones report state only and never substitute for lime. A status is never color alone: it pairs with an icon, and with a label wherever it renders as a pill. The narrow exceptions are labeled by a tooltip: the icon-only dormant `Power` and `Clock` in the table's icon tray, and two ambient dots with no icon, the context-budget dot in the sidebar footer and the update dot on the header gear.
+**The Channel Rule.** Each color role keeps its hues in its own channel. Entity hues: entity marks only, never on the frame (header and sidebars), where `--frame-warning` is indistinguishable from Agents for deuteranopes. Model hues: Usage chart marks that split by model, direct-labeled, only inside `components/usage/`. Tones: status pills and icons, the two ambient dots, inline alerts and caveats, destructive actions. No hue ever means "active" (that's the stamp), a source tier, or a UI accent.
 **The Monochrome-Chart-Ink Rule.** Usage charts draw magnitude and emphasis in `--usage-bar` ink alone. Color in a chart only ever means identity (model or entity), never a category. A tinted "data" color was considered and rejected: it would be the second accent the ledger forbids.
 **The Every-Hue-Has-A-Role Rule.** A new hue joins exactly one role. Before it ships, re-run the validator against that role's hues (all pairs, `--pairs all`), check its closest pair in every other role, and record the numbers under Validation.
 
@@ -82,7 +82,7 @@ Verified 2026-11-11 with the `dataviz` skill's `validate_palette.js`, against ea
 **UI:** Geist Sans (`ui-sans-serif, system-ui, sans-serif` fallback). **Mono:** Geist Mono (`ui-monospace, monospace` fallback), for tabular and code-like data: paths, version strings, plugin IDs, token counts. Hierarchy comes from position and ink-vs-muted contrast, never a scale jump.
 
 - **Title** (600, 16px, 1.3 line-height): the file viewer's detail title, the largest text in the product.
-- **Label, App** (600, 14px): the sidebar wordmark.
+- **Label, App** (600, 14px): the header wordmark.
 - **Body** (400, 13px): table cells, descriptions, general UI.
 - **Label, Column** (500, 11px, uppercase, ink-muted, 0.04em tracking): column headers and chart labels.
 - **Mono Data** (400, 12px Geist Mono, tabular-nums).
@@ -97,13 +97,13 @@ Rendered markdown in the file viewer has its own scale: h1 20px, h2 16px, h3 14p
 
 ## Layout
 
-A dense, Linear-style sidebar + list/detail shell, not a spacious admin dashboard. The window is a flat **frame** holding one raised **content sheet**. The frame carries a full-width top strip (the macOS drag region under the `hiddenInset` titlebar; a thin band under Windows' native titlebar), a persistent icon rail for switching sections (Skills, Plugins, Usage), and a secondary sidebar inside each section. The sheet fills the rest with the `xl` radius, a rule-line border, and `--sheet-shadow`; its top edge is the visible content edge, so no separate titlebar bar is drawn. The scan banner, when shown, is the sheet's first row. The file viewer replaces the table when a row opens rather than layering over it. Usage renders one panel at a time in the same shell.
+A dense, Linear-style sidebar + list/detail shell, not a spacious admin dashboard. The window is a flat **frame** holding one raised **content sheet**. A persistent app header carries the wordmark, centered section navigation (Skills, Plugins, Usage), and Settings. The project/filter sidebar remains inside each section; no separate section rail. The header integrates the macOS `hiddenInset` drag region and reserves space for its traffic lights; Windows keeps its native titlebar above the header. Interactive header controls opt out of window dragging. The sheet fills the rest with the `xl` radius, a rule-line border, and `--sheet-shadow`; its top edge is the visible content edge. The scan banner, when shown, is the sheet's first row. The file viewer replaces the table when a row opens rather than layering over it. Usage renders one panel at a time in the same shell.
 
 Content is fluid width everywhere except rendered markdown prose (`72ch`). The command palette (`⌘K`) is a modal overlay, not primary navigation, and doesn't reopen the decision against a sidebar search box.
 
 ## Elevation & Depth
 
-**The Ledger-Lies-Flat Rule.** The frame is flat, and so is everything on the sheet: every on-page seam (rail/sidebar, scan banner, the file viewer's header and tree) is a 1px rule-line. The content sheet is the one at-rest surface with a shadow, and `--sheet-shadow` is its alone. Anything else casts a shadow only if it floats above the page (dropdowns, popovers, tooltips, dialogs, toasts, ⌘K), using shadcn's default scale unmodified. No gradients anywhere.
+**The Ledger-Lies-Flat Rule.** The frame is flat, and so is everything on the sheet: every on-page seam (scan banner, the file viewer's header and tree) is a 1px rule-line. The content sheet is the one at-rest surface with a shadow, and `--sheet-shadow` is its alone. Anything else casts a shadow only if it floats above the page (dropdowns, popovers, tooltips, dialogs, toasts, ⌘K), using shadcn's default scale unmodified. No gradients anywhere.
 
 ## Shapes
 
@@ -137,7 +137,7 @@ One radius scale rooted at `--radius: 0.625rem`, the same for every skill source
 - **Where:** the leading slot of ⌘K skill rows, the SkillDetail header, and PluginDetail's MCP server and agent rows. Memory renders once it has a surface of its own; plugins can't ship it. Plugins aren't an entity and get no tile; their ⌘K rows keep a muted `Blocks` in a slot of the same width so text lines up.
 - **PluginDetail components** sit between the stats card and Installs, each under an 11px uppercase caption with its count (`Agents · 3`). MCP servers and agents are two-line rows led by the tile; commands and LSP servers are dense one-line mono rows on a `--muted` panel; hooks are outline chips, one per event. Names read as the user types them, with the plugin prefix dimmed (`/vercel:deploy`, `vercel:ai-architect`). A list over five shows five and a caption-quiet "Show all N" that expands in place. Rows are static: no hover, selection, or focus stop.
 - Always beside text that names the entity, so the glyph is `aria-hidden` and identity is never color alone. Disabled skills, and the components of a plugin disabled in every scoped install, get a neutral tile (`--muted` fill, muted glyph); the header status pill names that state.
-- Never on the frame and never as a section icon: the rail, onboarding's overview cards, and the Usage panel list keep an ink `BrainCircuit`.
+- Never on the frame and never as a section icon: the header, onboarding's overview cards, and the Usage panel list keep an ink `BrainCircuit`.
 
 ### Table (the ledger's spine)
 
@@ -148,20 +148,20 @@ One radius scale rooted at `--radius: 0.625rem`, the same for every skill source
 
 Claude app chats (folderless Claude desktop chats) fold into one "Claude app chats (N)" row in every project ranked list and the Project timeline, including the day and hour detail dialogs. It ranks and takes a share like any project, from the sum of its chats. A chevron toggle opens the chats beneath it, indented, as a nested ranked list with its own show-more; each chat's share stays of the whole window. Chats show their title, else "Claude app chat · <local start date>", in plain text (a title can hold `/`), and never their folder path.
 
-### Rail (section switcher)
+### App header (section switcher)
 
-- Icon-only, tooltip-labeled, behind one rule-line, no shadow. The active section is ink-fill (`--frame-muted` + ledger ink), never lime: the rail switches which section shows, while selecting within a section is the sidebar's lime filter.
-- The footer gear opens Settings (also `Cmd+,`). When an update is ready (Windows) or available (macOS), an info-tone dot sits on the gear and its label reads "Settings · Update ready" / "Settings · Update available".
+- Flat icon-and-label tabs sit directly on the frame, centered on the whole window independently of sidebar width. No enclosing segmented-control container, shadow, or underline. The active section is ink-fill (`--frame-muted` + ledger ink), never lime: the header switches which section shows, while selecting within a section is the sidebar's lime filter. Hover uses the shared glide highlight; keyboard focus remains visible and reduced motion removes the glide travel.
+- The wordmark sits at the leading edge and the Settings gear at the trailing edge. Settings also opens with `Cmd+,` / `Ctrl+,`. When an update is ready (Windows) or available (macOS), an info-tone dot sits on the gear and its label reads "Settings · Update ready" / "Settings · Update available".
 
 ### Settings (dialog)
 
-- A modal dialog opened by the rail gear or `Cmd+,`, not a rail section, with sections separated by rule-lines. Its Light/Dark/System segmented control marks the active option with ink-fill, like the rail, never lime.
+- A modal dialog opened by the header gear or `Cmd+,`, not a navigation section, with sections separated by rule-lines. Its Light/Dark/System segmented control marks the active option with ink-fill, like the header tabs, never lime.
 
 ### Onboarding (dialog)
 
 - A three-step modal over the live app (`components/onboarding/`): what Megatron does and doesn't do, an overview of Skills / Plugins / Usage with the user's own counts, and folder access. It shows when no folder is granted and the `preferences.json` flag is unset; every exit sets the flag; Settings › About › "Show welcome" replays it.
 - **Departs from the ledger, user-authorised and scoped to this dialog:** 24px/600 step headlines, and motion-led steps: direction-aware spring slides, the dialog's height animating to each step, staggered entries, counts ticking up as the scan reports, a check popping on granted rows, progress dots stretching into a pill.
-- **Everything else holds:** lime on exactly one CTA at a time (Next, then "Choose folders…" until something is granted, then "Open Megatron"); tones per the Tones-Aren't-The-Stamp Rule; overview card icons stay ink like the rail's; no gradients, glows, or animated backgrounds. With reduced motion, steps are opacity-only and counts show their final value.
+- **Everything else holds:** lime on exactly one CTA at a time (Next, then "Choose folders…" until something is granted, then "Open Megatron"); tones per the Tones-Aren't-The-Stamp Rule; overview card icons stay ink like the header's; no gradients, glows, or animated backgrounds. With reduced motion, steps are opacity-only and counts show their final value.
 
 ### Sidebar Navigation
 
@@ -196,7 +196,8 @@ The file viewer's tree uses more motion than most surfaces: icon rotation on exp
 ### Charts (Usage)
 
 - Hand-rolled in `components/usage/`, in chart ink per the Monochrome-Chart-Ink Rule. A part-to-whole bar has no track: the whole bar is data.
-- Bars rise from the baseline, staggered, on enter. A window switch is the signature moment: bars interpolate to their new heights and stat numerals roll to the new value, on a switch only, never on mount. Panel switches crossfade. Hover dims siblings and never recolors.
+- Bars rise from the baseline, staggered, on enter. A window switch is the signature moment: bars interpolate to their new heights and stat numerals roll to the new value, on a switch only, never on mount. Panel switches arrive without waiting for an exit. Hover dims siblings and never recolors.
+- History keeps a left-to-right calendar entrance and the timeline's fill sweep, shortened to 140ms with at most 80ms of stagger. Calendar weeks rise together so the dense grid needs about 53 animations instead of 365. These are CSS opacity/transform entrances so returning to the loaded year replays the motion without rebuilding the calendar or reconnecting hundreds of tooltip or animation controllers. Project search and expansion survive panel switches. Hidden History makes no calendar requests; calendar data still refreshes on return. Reduced motion shows the final values immediately.
 
 ### Named Rules
 

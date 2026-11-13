@@ -44,12 +44,18 @@ try {
   )
 
   for (const section of SECTIONS) {
-    const button = window.getByRole('button', { name: section, exact: true })
+    const button = window
+      .getByRole('navigation', { name: 'Main navigation' })
+      .getByRole('button', { name: section, exact: true })
     await button.click()
     await window.waitForFunction(
       (label) =>
-        document.querySelector(`button[aria-label="${label}"][aria-current="page"]`) !== null &&
-        document.querySelector('main [data-slot="skeleton"]') === null,
+        document
+          .querySelector('nav[aria-label="Main navigation"] button[aria-current="page"]')
+          ?.textContent.trim() === label &&
+        ![...document.querySelectorAll('main [data-slot="skeleton"]')].some(
+          (skeleton) => skeleton.getClientRects().length > 0
+        ),
       section,
       { timeout: 60_000 }
     )
