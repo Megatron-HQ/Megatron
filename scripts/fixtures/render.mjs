@@ -198,11 +198,32 @@ async function settle() {
   observer.disconnect()
 }
 
+// Runs in the page. Rebuilds every layout object from the unchanged DOM and puts back the scroll
+// offsets that resets. Chrome otherwise carries rendering state from earlier frames into the
+// shot: a dialog whose content scrolls drew its border and shadow on either of two sub-pixel
+// rows, with identical DOM, styles and geometry (2026-11-13; see docs/ui-verification.md).
+// Animations this restarts are waited out by settle().
+function relayout() {
+  const scrolled = [...document.querySelectorAll('*')]
+    .filter((element) => element.scrollTop !== 0 || element.scrollLeft !== 0)
+    .map((element) => [element, element.scrollTop, element.scrollLeft])
+  const root = document.documentElement
+  const display = root.style.display
+  root.style.display = 'none'
+  void root.offsetHeight
+  root.style.display = display
+  for (const [element, top, left] of scrolled) {
+    element.scrollTop = top
+    element.scrollLeft = left
+  }
+}
+
 // A screenshot counts once the one after it is identical: finishing an animation can itself
 // change the page (a tooltip that unmounts when its exit ends), and a render that keeps changing
 // would otherwise show up later as a false "changed".
 async function stableShot(page) {
   let previous = null
+  await page.evaluate(relayout)
   for (let attempt = 0; attempt < SETTLE_ATTEMPTS; attempt += 1) {
     await page.evaluate(settle)
     const shot = await page.screenshot({ animations: 'disabled', caret: 'hide' })
