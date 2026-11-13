@@ -1,5 +1,4 @@
 [
-  "src/renderer/src/components/CommandPalette.tsx",
   "src/renderer/src/components/ManageFoldersDialog.tsx",
   "src/renderer/src/components/PluginActionToasts.tsx",
   "src/renderer/src/components/PluginBadges.tsx",
