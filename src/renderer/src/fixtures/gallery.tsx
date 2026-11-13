@@ -138,7 +138,7 @@ function framed(place: Place, body: ReactNode): ReactNode {
       {body}
     </div>
   )
-  const boxless = place.ancestors.reduceRight<ReactNode>(
+  return place.ancestors.reduceRight<ReactNode>(
     (child, className) => (
       <div className={className} style={{ display: 'contents' }}>
         {child}
@@ -146,10 +146,15 @@ function framed(place: Place, body: ReactNode): ReactNode {
     ),
     slot
   )
+}
+
+// What App provides to everything it renders, for a component rendered without App. A fixture
+// that renders <App /> gets App's own providers, which take precedence over these.
+function provided(body: ReactNode): ReactNode {
   return (
     <TooltipProvider>
       <ProjectLabelContext.Provider value={createProjectLabelResolver(new Map())}>
-        {boxless}
+        {body}
       </ProjectLabelContext.Provider>
     </TooltipProvider>
   )
@@ -205,7 +210,7 @@ window.mount = async (id) => {
     root.render(
       <StrictMode>
         <QueryClientProvider client={queryClient()}>
-          {place ? framed(place, <Body />) : <Body />}
+          {provided(place ? framed(place, <Body />) : <Body />)}
         </QueryClientProvider>
       </StrictMode>
     )

@@ -67,3 +67,18 @@ export const UserInvocableOnlyTooltip = inventory(
   { text: /User-invocable only/ },
   'The user-invocable-only icon showed no tooltip.'
 )
+
+export const SearchHintWindows = fixture({
+  frame: sheet('skills'),
+  platform: 'win32',
+  render: () => (
+    <SkillInventory
+      skills={baseSkills}
+      loading={false}
+      filter={{ kind: 'all' }}
+      onSelect={ignore}
+      onOpenSearch={ignore}
+    />
+  ),
+  interact: (user) => user.until({ text: 'Ctrl+K' }, 'Windows showed no Ctrl+K search hint.')
+})

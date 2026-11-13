@@ -2,7 +2,8 @@ import type { ReactNode } from 'react'
 import type { Api } from '../../../shared/api'
 import type { AppSection } from '../../../shared/ipc'
 
-// Where the gallery puts a fixture. 'window' fills the window, for fixtures that render <App />.
+// Where the gallery puts a fixture. 'window' fills the window, for fixtures that render <App />
+// and for pieces that sit outside both slots (the rail, a dialog).
 // The others place one component in the rectangle the real app gives that slot, measured from a
 // live <App /> at mount time, so no layout constant is copied here.
 export type Frame = 'window' | { slot: 'sheet' | 'sidebar'; section: AppSection }

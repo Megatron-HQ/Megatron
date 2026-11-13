@@ -47,7 +47,7 @@ export const StaleTooltip = fixture({
 })
 ```
 
-- **`frame`** places the component where the app puts it: `sheet(section)` for a screen, `sidebar(section)` for a sidebar, `'window'` for a fixture that renders `<App />`.
+- **`frame`** places the component where the app puts it: `sheet(section)` for a screen, `sidebar(section)` for a sidebar, `'window'` for a fixture that renders `<App />`, the rail, or a dialog on its own.
 - **Component or whole app.** Render the component with props when the state is the component's own. Render `<App />` when the state exists only through App's wiring (a banner, a sidebar selection, an event from the main process) and for every behaviour that crosses screens.
 - **`api`** replaces members of the fake `window.api`. Data comes from `src/renderer/src/fixtures/data.ts`: typed, synthetic, never read from `~/.claude`. A data call the fixture gives no data fails the check by name. `emit()` from `fixtures/fake-api.ts` stands in for a main-process event.
 - **`interact`** drives real browser input: `click`, `hover`, `press`, `type`. `until(target or function, message)` is the pass/fail step. End a behaviour on the `until` that proves it, with a message that states what broke.

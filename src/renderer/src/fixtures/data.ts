@@ -167,6 +167,7 @@ export function skillMeta(id: number): OpenSkillMetaResult | null {
 const PARENT = 'C:\\Projects\\Megatron HQ'
 const FIRST = `${PARENT}\\Megatron`
 const SECOND = `${PARENT}\\Megatron-site`
+const EMPTY = `${PARENT}\\Empty-repo`
 
 export type ProjectTreeMode =
   | 'available'
@@ -179,6 +180,9 @@ export type ProjectTreeMode =
   | 'live'
   | 'live-removed'
   | 'nested'
+  // The three repositories are granted one by one and the parent is not, so the sidebar groups
+  // them under a row it generates for the parent.
+  | 'grouped'
 
 function projectSkill(id: number, name: string, repository: string): InventorySkillRow {
   return skill(id, name, {
@@ -216,7 +220,7 @@ export function projectTree(mode: ProjectTreeMode = 'available'): {
             : 'available'
     },
     { path: SECOND, kind: 'repository', status: 'available' },
-    { path: `${PARENT}\\Empty-repo`, kind: 'repository', status: 'available' }
+    { path: EMPTY, kind: 'repository', status: 'available' }
   ]
   const skills = [FIRST, SECOND].flatMap((repository, repositoryIndex) =>
     ['build', 'review', 'test'].map((name, index) =>
@@ -231,7 +235,10 @@ export function projectTree(mode: ProjectTreeMode = 'available'): {
     }
   }
   return {
-    folders: [{ path: PARENT, granted_at: '' }, ...(live ? [] : [{ path: FIRST, granted_at: '' }])],
+    folders:
+      mode === 'grouped'
+        ? [FIRST, SECOND, EMPTY].map((path) => ({ path, granted_at: '' }))
+        : [{ path: PARENT, granted_at: '' }, ...(live ? [] : [{ path: FIRST, granted_at: '' }])],
     projects:
       mode === 'pending'
         ? []

@@ -58,6 +58,9 @@ export const Inventory = app({}, (user) =>
   user.until({ role: 'row', name: /code-review/ }, 'The inventory never listed its skills.')
 )
 
+// Windows keeps its native title bar, so the strip above the sheet is a thin separator.
+export const InventoryWindows: Fixture = { ...Inventory, platform: 'win32' }
+
 export const LoadError = app(
   {
     listSkills: async () => {
