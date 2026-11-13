@@ -1,8 +1,6 @@
 [
   "src/renderer/src/components/CommandPalette.tsx",
-  "src/renderer/src/components/FileTree.tsx",
   "src/renderer/src/components/ManageFoldersDialog.tsx",
-  "src/renderer/src/components/MarkdownView.tsx",
   "src/renderer/src/components/PluginActionToasts.tsx",
   "src/renderer/src/components/PluginBadges.tsx",
   "src/renderer/src/components/PluginSidebar.tsx",
@@ -43,6 +41,5 @@
   "src/renderer/src/components/usage/TokensSection.tsx",
   "src/renderer/src/views/PluginDetail.tsx",
   "src/renderer/src/views/PluginInventory.tsx",
-  "src/renderer/src/views/SkillFileViewer.tsx",
   "src/renderer/src/views/UsageView.tsx"
 ]

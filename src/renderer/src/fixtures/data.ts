@@ -7,8 +7,10 @@ import {
   type InventorySkillRow,
   type LintFindingRow,
   type OpenSkillMetaResult,
+  type OpenSkillResult,
   type ProjectFolder,
   type ScanSummary,
+  type SkillFile,
   type SkillInvocationEntry,
   type SkillsListResult,
   type SkillUsageDetail,
@@ -269,7 +271,24 @@ function skillMd(entry: InventorySkillRow): string {
     ...(entry.model_invocable === 0 ? ['disable-model-invocation: true'] : []),
     ...(EXTRA_FRONTMATTER[entry.id] ?? [])
   ]
-  return `---\n${fields.join('\n')}\n---\n\n# ${entry.name}\n\n${entry.description ?? ''}\n`
+  return `---
+${fields.join('\n')}
+---
+
+# ${entry.name}
+
+${entry.description ?? ''}
+
+## Steps
+
+1. Read the request and collect the files it touches.
+2. Work through [the checklist](references/checklist.md) in order.
+3. Run \`scripts/collect.sh\` and attach its output.
+
+\`\`\`bash
+scripts/collect.sh --since main
+\`\`\`
+`
 }
 
 export function skillMeta(id: number): OpenSkillMetaResult | null {
@@ -280,6 +299,47 @@ export function skillMeta(id: number): OpenSkillMetaResult | null {
     usage: usage(invocations(found)),
     skillMdContent: skillMd(found),
     findings: findings(found)
+  }
+}
+
+// SKILL.md plus enough references that the expanded tree outgrows the column at the minimum
+// window size, which is where its virtualized rows have to keep rendering.
+export function skillFiles(id: number, extra: SkillFile[] = []): OpenSkillResult | null {
+  const meta = skillMeta(id)
+  if (!meta) return null
+  const file = (relativePath: string, content: string | null = null): SkillFile => ({
+    relativePath,
+    content,
+    status: content === null ? 'unreadable' : 'ok'
+  })
+  const references = [
+    'checklist',
+    'naming',
+    'error-handling',
+    'testing',
+    'migrations',
+    'performance',
+    'security',
+    'accessibility',
+    'logging',
+    'dependencies',
+    'release',
+    'rollback'
+  ].map((topic) => file(`references/${topic}.md`, `# ${topic}\n\nWhat to check for ${topic}.\n`))
+  return {
+    skill: meta.skill,
+    usage: meta.usage,
+    findings: meta.findings,
+    files: [
+      file('SKILL.md', meta.skillMdContent),
+      ...references,
+      file(
+        'scripts/collect.sh',
+        '#!/usr/bin/env bash\nset -euo pipefail\ngit diff --stat "${2:-main}...HEAD"\n'
+      ),
+      file('assets/flow.png'),
+      ...extra
+    ]
   }
 }
 
