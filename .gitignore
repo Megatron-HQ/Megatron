@@ -1,8 +1,7 @@
 node_modules
 dist
 out
-.visual-verify
-.visual-verify-baselines
+.fixtures
 .impeccable
 .DS_Store
 .eslintcache

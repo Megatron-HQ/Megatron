@@ -6,7 +6,17 @@ import eslintPluginReactHooks from 'eslint-plugin-react-hooks'
 import eslintPluginReactRefresh from 'eslint-plugin-react-refresh'
 
 export default defineConfig(
-  { ignores: ['**/node_modules', '**/dist', '**/out', 'references/**', '.claude/worktrees/**'] },
+  {
+    // .fixtures/ holds the fixture runner's output, including a checkout of the base commit.
+    ignores: [
+      '**/node_modules',
+      '**/dist',
+      '**/out',
+      'references/**',
+      '.claude/worktrees/**',
+      '.fixtures/**'
+    ]
+  },
   tseslint.configs.recommended,
   eslintPluginReact.configs.flat.recommended,
   eslintPluginReact.configs.flat['jsx-runtime'],
@@ -34,6 +44,13 @@ export default defineConfig(
     files: ['src/renderer/src/components/ui/**/*.tsx'],
     rules: {
       '@typescript-eslint/explicit-function-return-type': 'off',
+      'react-refresh/only-export-components': 'off'
+    }
+  },
+  {
+    // A fixture file exports fixtures, not components, so it is never a Fast Refresh boundary.
+    files: ['**/*.fixture.tsx'],
+    rules: {
       'react-refresh/only-export-components': 'off'
     }
   },
