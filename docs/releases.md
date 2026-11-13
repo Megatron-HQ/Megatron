@@ -68,9 +68,8 @@ universal build.
   and the one `prebuilds/<platform>-<arch>.node` for the build; `electron-builder.yml`'s `files`
   excludes the rest, and `validateUnpackedEntries` fails the package on any other unpacked file or a
   missing target build. A new native dependency needs adding to `asarUnpack` _and_ that allowlist.
-
-## Open before launch
-
-- Regenerate `HOMEBREW_TAP_TOKEN` as a fine-grained token scoped to `Megatron-HQ/homebrew-tap`
-  (Contents: read and write) with an expiry. The current one dates from 2026-11-04 and works.
-  Move this to a GitHub issue and delete the section.
+- `HOMEBREW_TAP_TOKEN` (the `release` environment) is a fine-grained token scoped to
+  `Megatron-HQ/homebrew-tap`, Contents: read and write, with an expiry. An expired token fails
+  `homebrew-tap.yml` on the next publish and leaves `brew upgrade` users on the old version, so
+  rotate it before it lapses. Set it in the environment's settings page or with `gh secret set` in
+  an interactive terminal: with no terminal attached, `gh` reads stdin and stores an empty value.
