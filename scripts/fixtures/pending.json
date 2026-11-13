@@ -1,17 +1,12 @@
 [
   "src/renderer/src/components/CommandPalette.tsx",
-  "src/renderer/src/components/EntityGlyph.tsx",
   "src/renderer/src/components/FileTree.tsx",
-  "src/renderer/src/components/InvocationGroupRow.tsx",
-  "src/renderer/src/components/InvocationRow.tsx",
-  "src/renderer/src/components/LintFindingsPanel.tsx",
   "src/renderer/src/components/ManageFoldersDialog.tsx",
   "src/renderer/src/components/MarkdownView.tsx",
   "src/renderer/src/components/PluginActionToasts.tsx",
   "src/renderer/src/components/PluginBadges.tsx",
   "src/renderer/src/components/PluginSidebar.tsx",
   "src/renderer/src/components/SettingsDialog.tsx",
-  "src/renderer/src/components/SkillActivityDialog.tsx",
   "src/renderer/src/components/UsageSidebar.tsx",
   "src/renderer/src/components/onboarding/CountUp.tsx",
   "src/renderer/src/components/onboarding/OnboardingDialog.tsx",
@@ -48,7 +43,6 @@
   "src/renderer/src/components/usage/TokensSection.tsx",
   "src/renderer/src/views/PluginDetail.tsx",
   "src/renderer/src/views/PluginInventory.tsx",
-  "src/renderer/src/views/SkillDetail.tsx",
   "src/renderer/src/views/SkillFileViewer.tsx",
   "src/renderer/src/views/UsageView.tsx"
 ]

@@ -1,15 +1,21 @@
 // Synthetic data for fixtures. Nothing here reads ~/.claude, so every machine renders the same
 // thing. Times are relative to Date.now(), which the runner freezes.
-import type {
-  AllowedPathRow,
-  ContextBudget,
-  InventorySkillRow,
-  OpenSkillMetaResult,
-  ProjectFolder,
-  ScanSummary,
-  SkillsListResult
+import {
+  INVOCATION_PAGE_SIZE,
+  type AllowedPathRow,
+  type ContextBudget,
+  type InventorySkillRow,
+  type LintFindingRow,
+  type OpenSkillMetaResult,
+  type ProjectFolder,
+  type ScanSummary,
+  type SkillInvocationEntry,
+  type SkillsListResult,
+  type SkillUsageDetail,
+  type TriggerType
 } from '../../../shared/ipc'
 
+const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
 
 export function daysAgo(days: number): string {
@@ -101,7 +107,10 @@ export const baseSkills: InventorySkillRow[] = [
   pluginSkill(11, 'docs-kit@fixture-market', 'tutorial', { disabled_reason: 'plugin' }),
   pluginSkill(12, 'review-kit@other-market', 'security-pass', used(57, 1)),
   skill(13, 'commit-helper', used(211, 0)),
-  skill(14, 'design-review', used(18, 4)),
+  skill(14, 'design-review', {
+    ...used(18, 4),
+    metadata_json: JSON.stringify({ version: '2.1.0', owner: 'design-systems' })
+  }),
   skill(15, 'test-driven-development', used(76, 1)),
   skill(16, 'changelog', { ...used(5, 9), lint_status: 'warning', warning_count: 2 })
 ]
@@ -150,16 +159,134 @@ export function skillsResult(
   }
 }
 
-// The least a skill detail page needs to render. Grows when the skill detail fixtures land.
+const PROMPTS = [
+  'Review the diff on this branch before I open the PR',
+  '/commit-helper',
+  'Can you check whether the migration locks the table while it runs?',
+  'Tighten the error handling in the scan worker and keep the tests green',
+  'Why does the sidebar count disagree with the table after a rescan? Walk through the data flow from the scanner to the renderer and point at the place where the two diverge.'
+]
+// Claude Code's own placeholder for an attached screenshot, which the renderer relabels.
+const SCREENSHOT =
+  '[Image: original 2880x1800, displayed at 1440x900. Multiply coordinates by 2.00 to map to original image.]'
+// Skewed on purpose, so the usage bar and the project bars have a clear leader.
+const TRIGGER_CYCLE: TriggerType[] = [
+  'user_invoked',
+  'user_invoked',
+  'autonomous',
+  'user_invoked',
+  'autonomous',
+  'user_invoked',
+  'subagent',
+  'user_invoked'
+]
+const WORKSPACES = [
+  'megatron',
+  'megatron-site',
+  'design-system',
+  'api-gateway',
+  'mobile-app',
+  'infra',
+  'docs'
+].map((name) => `${HOME}/code/${name}`)
+const WORKSPACE_CYCLE = [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 3, 4, 5, 6]
+
+// A skill's whole invocation log, newest first as queries.ts returns it, one entry per recorded
+// use. Entries 5 to 8 are one screenshot sweep two minutes apart: the full log has a run to
+// group while the recent five stay plain prompts.
+function invocations(entry: InventorySkillRow): SkillInvocationEntry[] {
+  if (entry.last_invoked_at === null) return []
+  const newest = Date.parse(entry.last_invoked_at)
+  return Array.from({ length: entry.total_invocations }, (_, index) => {
+    const sweep = index >= 5 && index <= 8
+    const trigger = sweep ? 'user_invoked' : TRIGGER_CYCLE[index % TRIGGER_CYCLE.length]
+    const at = sweep ? newest - 15 * HOUR_MS - (index - 5) * 120_000 : newest - index * 3 * HOUR_MS
+    return {
+      preceding_user_text: sweep ? SCREENSHOT : PROMPTS[index % PROMPTS.length],
+      invoked_at: new Date(at).toISOString(),
+      trigger_type: trigger,
+      cwd: WORKSPACES[WORKSPACE_CYCLE[index % WORKSPACE_CYCLE.length]],
+      git_branch: index % 4 === 3 ? null : 'main',
+      agent_id: trigger === 'subagent' ? `agent-a${(index * 7919).toString(16)}` : null
+    }
+  })
+}
+
+function usage(entries: SkillInvocationEntry[]): SkillUsageDetail {
+  const count = (matches: (entry: SkillInvocationEntry) => boolean): number =>
+    entries.filter(matches).length
+  const triggers: TriggerType[] = ['user_invoked', 'autonomous', 'subagent']
+  return {
+    byTriggerType: triggers
+      .map((trigger_type) => ({
+        trigger_type,
+        count: count((e) => e.trigger_type === trigger_type)
+      }))
+      .filter((row) => row.count > 0),
+    byProject: WORKSPACES.map((cwd) => ({ cwd, count: count((e) => e.cwd === cwd) })).filter(
+      (row) => row.count > 0
+    ),
+    recentTriggers: entries.slice(0, 5)
+  }
+}
+
+// One finding per warning or error the inventory row counts.
+const FINDINGS: Record<number, [rule: string, severity: 'error' | 'warning', message: string][]> = {
+  2: [['broken-file-path', 'warning', 'references/style-guide.md does not exist']],
+  6: [
+    ['yaml-frontmatter', 'error', 'The frontmatter block is not valid YAML'],
+    ['missing-description', 'error', 'The frontmatter has no description']
+  ],
+  16: [
+    ['broken-file-path', 'warning', 'scripts/release.sh does not exist'],
+    ['missing-mcp-server', 'warning', 'The MCP server "linear" is not configured']
+  ]
+}
+
+function findings(entry: InventorySkillRow): LintFindingRow[] {
+  return (FINDINGS[entry.id] ?? []).map(([rule_id, severity, message], index) => ({
+    id: entry.id * 10 + index,
+    skill_id: entry.id,
+    rule_id,
+    severity,
+    message,
+    detail: null,
+    file_path: `${entry.source_path}/SKILL.md`,
+    line_number: index + 1,
+    detected_at: daysAgo(0)
+  }))
+}
+
+// Frontmatter fields beyond name and description, which the detail page lists under Details.
+const EXTRA_FRONTMATTER: Record<number, string[]> = {
+  14: ['allowed-tools: Read, Grep, Glob', 'argument-hint: "[component or screen]"']
+}
+
+function skillMd(entry: InventorySkillRow): string {
+  const fields = [
+    `name: ${JSON.stringify(entry.name)}`,
+    ...(entry.description ? [`description: ${JSON.stringify(entry.description)}`] : []),
+    ...(entry.model_invocable === 0 ? ['disable-model-invocation: true'] : []),
+    ...(EXTRA_FRONTMATTER[entry.id] ?? [])
+  ]
+  return `---\n${fields.join('\n')}\n---\n\n# ${entry.name}\n\n${entry.description ?? ''}\n`
+}
+
 export function skillMeta(id: number): OpenSkillMetaResult | null {
   const found = baseSkills.find((entry) => entry.id === id)
   if (!found) return null
   return {
     skill: found,
-    usage: { byTriggerType: [], byProject: [], recentTriggers: [] },
-    skillMdContent: `# ${found.name}\n\n${found.description ?? ''}\n`,
-    findings: []
+    usage: usage(invocations(found)),
+    skillMdContent: skillMd(found),
+    findings: findings(found)
   }
+}
+
+// One page of openSkillHistory.
+export function skillHistory(id: number, offset = 0): SkillInvocationEntry[] {
+  const found = baseSkills.find((entry) => entry.id === id)
+  return found ? invocations(found).slice(offset, offset + INVOCATION_PAGE_SIZE) : []
 }
 
 // A granted parent folder holding repositories. Windows paths on purpose: project paths are
