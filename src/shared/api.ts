@@ -71,7 +71,6 @@ export interface Api {
   checkForUpdates: () => Promise<void>
   installUpdate: () => Promise<void>
   setAutoUpdateCheck: (enabled: boolean) => Promise<void>
-  openUpdateDownload: () => Promise<void>
   onPluginUpdateProgress: (callback: (progress: PluginUpdateProgress) => void) => () => void
   onScanStarted: (callback: (activity: ScanActivity) => void) => () => void
   onScanComplete: (callback: (finished: ScanFinished) => void) => () => void

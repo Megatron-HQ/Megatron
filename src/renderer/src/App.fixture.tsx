@@ -1,7 +1,7 @@
 // Whole-app fixtures: states that only exist once App wires the sidebar, the scan banner and the
 // inventory together, and behaviours that cross screens.
 import type { Api } from '../../shared/api'
-import type { ScanActivity, ScanSummary } from '../../shared/ipc'
+import type { ScanActivity, ScanSummary, UpdateState } from '../../shared/ipc'
 import App from './App'
 import {
   daysAgo,
@@ -58,6 +58,30 @@ function statusShows(text: RegExp): boolean {
 export const Inventory = app({}, (user) =>
   user.until({ role: 'row', name: /code-review/ }, 'The inventory never listed its skills.')
 )
+
+function updateNotice(status: UpdateState['status'], notice: string): Fixture {
+  return app({}, async (user) => {
+    await user.until({ role: 'row', name: /code-review/ }, 'The inventory never loaded.')
+    emit('onUpdateState', {
+      status,
+      version: '1.1.0',
+      detail: status === 'manual' ? 'The app is on a read-only volume.' : null,
+      autoCheck: true
+    })
+    await user.until(
+      { role: 'button', name: `Settings · ${notice}`, exact: true },
+      'The update event did not reach the Settings notice.'
+    )
+    await user.hover({ role: 'button', name: `Settings · ${notice}`, exact: true })
+    await user.until(
+      { role: 'tooltip', name: `Settings · ${notice}`, exact: true },
+      'The Settings update notice showed no tooltip.'
+    )
+  })
+}
+
+export const UpdateReady = updateNotice('ready', 'Update ready')
+export const ManualUpdateNotice = updateNotice('manual', 'Update available')
 
 export const MainNavigation = app(historyApi(), async (user) => {
   await user.click({ selector: 'nav[aria-label="Main navigation"] button:text-is("Plugins")' })

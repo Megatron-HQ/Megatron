@@ -40,15 +40,19 @@ export function releaseBuildPlan(platform, signed, environment) {
   )
   env.CSC_IDENTITY_AUTO_DISCOVERY = 'false'
   if (platform === 'win') return { args, env, signing: 'none', verifyDirectory }
-  // Ad-hoc, not unsigned: arm64 macOS won't launch an unsigned binary, and electron-updater's
-  // check (not install) still works. The ad-hoc entitlements add disable-library-validation,
-  // without which hardened runtime rejects Electron's Apple-Team-signed frameworks.
+  // Ad-hoc, not unsigned: arm64 macOS won't launch an unsigned binary. The ad-hoc entitlements add
+  // disable-library-validation, without which hardened runtime rejects Electron's Apple-Team-signed
+  // frameworks. Zip only: a browser-downloaded ad-hoc DMG hits Gatekeeper's "could not verify"
+  // wall, so Homebrew and install.sh are the channels; a signed build brings the DMG back.
   return {
     args: [
-      ...args,
+      '--mac',
+      'zip',
+      '--arm64',
+      '--publish',
+      'never',
       '-c.mac.identity=-',
       '-c.mac.notarize=false',
-      '-c.dmg.sign=false',
       `-c.mac.entitlements=${AD_HOC_ENTITLEMENTS}`,
       `-c.mac.entitlementsInherit=${AD_HOC_ENTITLEMENTS}`
     ],

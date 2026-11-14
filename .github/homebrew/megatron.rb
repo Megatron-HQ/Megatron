@@ -11,10 +11,11 @@ cask "megatron" do
   desc "Inventory, lint and track usage of Claude Code skills and plugins"
   homepage "https://github.com/Megatron-HQ/Megatron"
 
+  # The app replaces its own bundle in place (src/main/mac-self-update.ts), so `brew upgrade`
+  # skips this cask unless it is named or --greedy is passed.
+  auto_updates true
   depends_on arch: :arm64
 
-  # No auto_updates stanza (the default is false): the app only reports new versions, so
-  # `brew upgrade --cask megatron` is what installs them.
   app "Megatron.app"
 
   # Megatron is ad-hoc signed, without a Developer ID, so Gatekeeper blocks a quarantined copy.

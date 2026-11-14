@@ -20,12 +20,10 @@ export const SHELL = `${SOURCE}/App.tsx`
 const THEMES = ['light', 'dark']
 // Midday UTC in the middle of a month, so no fixture sits next to a day or month boundary.
 const FIXED_TIME = new Date('2026-06-15T12:00:00Z')
-// Rasterize with SwiftShader, Chrome's software GL, not the machine's GPU. On a real GPU two
-// renders of the same page differed by a level or two at a couple of anti-aliased icon pixels
-// (measured 2026-11-12, Chrome 157, Apple GPU: one fixture split 13/27 over 40 renders, even one
-// page at a time). Plain software rendering (--disable-gpu) was worse; SwiftShader gave identical
-// bytes over every repeat, which is what lets the comparison use no tolerance.
-const BROWSER_ARGS = ['--use-angle=swiftshader']
+// The rasterization backend differs by platform: CPU rasterization on Windows, SwiftShader on
+// macOS. SwiftShader varied SVG pixels on Windows even between identical, sequential renders;
+// --disable-gpu did the same on macOS. Measurements live in docs/ui-verification.md.
+const BROWSER_ARGS = process.platform === 'win32' ? ['--disable-gpu'] : ['--use-angle=swiftshader']
 const STEP_TIMEOUT_MS = 5_000
 const MOUNT_TIMEOUT_MS = 30_000
 const SETTLE_ATTEMPTS = 6

@@ -151,7 +151,7 @@ Claude app chats (folderless Claude desktop chats) fold into one "Claude app cha
 ### App header (section switcher)
 
 - Flat icon-and-label tabs sit directly on the frame, centered on the whole window independently of sidebar width. No enclosing segmented-control container, shadow, or underline. The active section is ink-fill (`--frame-muted` + ledger ink), never lime: the header switches which section shows, while selecting within a section is the sidebar's lime filter. Hover uses the shared glide highlight; keyboard focus remains visible and reduced motion removes the glide travel.
-- The wordmark sits at the leading edge and the Settings gear at the trailing edge. Settings also opens with `Cmd+,` / `Ctrl+,`. When an update is ready (Windows) or available (macOS), an info-tone dot sits on the gear and its label reads "Settings · Update ready" / "Settings · Update available".
+- The wordmark sits at the leading edge and the Settings gear at the trailing edge. Settings also opens with `Cmd+,` / `Ctrl+,`. When an update is ready, an info-tone dot sits on the gear and its label reads "Settings · Update ready". A macOS install that requires a manual update uses the same dot with "Settings · Update available".
 
 ### Settings (dialog)
 

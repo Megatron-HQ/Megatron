@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, dialog, ipcMain, net, protocol, session } from 'electron'
-import { basename, join } from 'path'
+import { basename, join, resolve } from 'path'
 import { homedir } from 'os'
 import { pathToFileURL } from 'url'
 import {
@@ -37,6 +37,7 @@ import { createScanSession, type ScanUrgency } from './scan-session'
 import { disableChromiumHttpCache } from './chromium-cache'
 import { changeAllowedPaths, listAllowedPaths, normalizeAllowedPaths } from './folder-grants'
 import { createUpdater, type Updates } from './updater'
+import { readSwapResult, scheduleSwap, selfUpdateBlocker, stageUpdate } from './mac-self-update'
 import { claimSingleInstance } from './single-instance'
 import {
   deleteSkillsForProjectRoot,
@@ -649,6 +650,12 @@ app.whenReady().then(() => {
     event.returnValue = homedir()
   })
 
+  // Contents/MacOS/Megatron -> Megatron.app. Only the macOS self-update reads these paths; it
+  // writes nowhere but this bundle's own location, the staging folder and the result file.
+  const bundlePath = resolve(app.getPath('exe'), '..', '..', '..')
+  const swapResultFile = join(app.getPath('userData'), 'update-failure.txt')
+  // Inside electron-updater's own macOS download cache, which the Homebrew cask's zap removes.
+  const stagingDir = join(homedir(), 'Library', 'Caches', 'megatron-updater', 'staged')
   const updateService = createUpdater({
     updater: electronUpdater.autoUpdater,
     platform: process.platform,
@@ -658,11 +665,20 @@ app.whenReady().then(() => {
       for (const window of BrowserWindow.getAllWindows())
         window.webContents.send(IPC_CHANNELS.updateState, state)
     },
-    openExternal: (url) => {
-      openSafeExternal(url, (safeUrl) => {
-        void shell.openExternal(safeUrl)
-      })
-    }
+    selfUpdate: {
+      blocker: () => selfUpdateBlocker(bundlePath),
+      stage: (zipPath, version) => stageUpdate(zipPath, version, stagingDir),
+      scheduleSwap: (staged, relaunch) =>
+        scheduleSwap({
+          pid: process.pid,
+          staged,
+          target: bundlePath,
+          relaunch,
+          resultFile: swapResultFile
+        }),
+      takeFailure: () => readSwapResult(swapResultFile)
+    },
+    quit: () => app.quit()
   })
   updates = updateService
   secureIpc.handle(IPC_CHANNELS.getUpdateState, () => updateService.getState())
@@ -671,7 +687,6 @@ app.whenReady().then(() => {
   secureIpc.handle(IPC_CHANNELS.setAutoUpdateCheck, (_event, enabled: boolean) =>
     updateService.setAutoCheck(enabled)
   )
-  secureIpc.handle(IPC_CHANNELS.openUpdateDownload, () => updateService.openDownload())
 
   createWindow()
   updateService.start()
@@ -723,6 +738,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  updates?.beforeQuit()
   inventoryWatcher?.close()
   void scans.cancel()
 })

@@ -56,7 +56,12 @@ window.api = {
   listAllowedPaths: async () => [],
   listProjects: async () => [],
   listPlugins: async () => [],
-  getUpdateState: async () => ({ status: 'unsupported', version: null, autoCheck: true }),
+  getUpdateState: async () => ({
+    status: 'unsupported',
+    version: null,
+    detail: null,
+    autoCheck: true
+  }),
 
   setTheme: done,
   setLastSection: done,
@@ -66,7 +71,6 @@ window.api = {
   checkForUpdates: done,
   installUpdate: done,
   setAutoUpdateCheck: done,
-  openUpdateDownload: done,
 
   openSkill: needsData('openSkill'),
   openSkillMeta: needsData('openSkillMeta'),

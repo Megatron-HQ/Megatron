@@ -97,7 +97,6 @@ const api = {
   installUpdate: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.installUpdate),
   setAutoUpdateCheck: (enabled: boolean): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.setAutoUpdateCheck, enabled),
-  openUpdateDownload: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.openUpdateDownload),
   onPluginUpdateProgress: (callback: (progress: PluginUpdateProgress) => void): (() => void) => {
     const listener = (_event: unknown, progress: PluginUpdateProgress): void => callback(progress)
     ipcRenderer.on(IPC_CHANNELS.pluginUpdateProgress, listener)
