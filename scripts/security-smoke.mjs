@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron } from 'playwright-core'
 import Database from 'better-sqlite3'
-import { visualVerifierLaunchArgs } from '../.claude/skills/visual-verify/electron-launch.mjs'
+import { visualVerifierLaunchArgs } from './electron/electron-launch.mjs'
 
 const profile = mkdtempSync(join(tmpdir(), 'megatron-security-smoke-'))
 const entry = resolve('out/main/index.js')

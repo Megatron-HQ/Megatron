@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Megatron fixtures</title>
+    <!-- An empty icon: otherwise each browser asks for /favicon.ico once, and that 404 lands in
+         the console of whichever fixture it happened to load first. -->
+    <link rel="icon" href="data:," />
+    <!-- Dev-only page (see docs/ui-verification.md). It is not a build input, so it never ships,
+         and it carries no Content-Security-Policy because Vite's dev client needs inline script. -->
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/fixtures/gallery.tsx"></script>
+  </body>
+</html>

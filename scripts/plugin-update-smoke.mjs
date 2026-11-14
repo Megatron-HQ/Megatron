@@ -7,7 +7,7 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { _electron as electron } from 'playwright-core'
 import Database from 'better-sqlite3'
 import { Worker } from 'node:worker_threads'
-import { visualVerifierLaunchArgs } from '../.claude/skills/visual-verify/electron-launch.mjs'
+import { visualVerifierLaunchArgs } from './electron/electron-launch.mjs'
 
 if (process.platform !== 'win32') throw new Error('This CLI fixture requires Windows.')
 const root = mkdtempSync(join(tmpdir(), 'megatron-plugin-update-'))

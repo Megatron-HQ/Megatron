@@ -6,7 +6,7 @@ Local-first desktop app that inventories, lints, and tracks usage of every Claud
 
 ## Gotchas
 
-- `npm test` is vitest only. Tests for the release and packaging scripts (`scripts/*.test.mjs`) run under `npm run test:package-security`.
+- `npm test` is vitest only. Tests for the release and packaging scripts (`scripts/*.test.mjs`) run under `npm run test:package-security`; tests for the fixture runner and the Electron launch helpers run under `npm run test:fixtures`, which CI does not run.
 - `npm run db:reset` deletes only the derived index (`megatron.db`). `usage-history.db` and the folder grants in `preferences.json` survive. A `schema.sql` change rebuilds the index without it.
 - `src/renderer/src/components/ui/` is shadcn-vendored — don't hand-edit.
 - Path alias `@/*` → `src/renderer/src/*` must be declared in **both** `tsconfig.json` (so the `shadcn` CLI resolves it) and `tsconfig.web.json` (so the renderer actually compiles).
@@ -38,7 +38,7 @@ TDD is required for new code in `src/main/`, `src/preload/`, and `src/shared/` �
 
 Exceptions: pure type definitions, constants, thin IPC pass-through wiring. `src/renderer/` is excluded entirely — no `.tsx`/jsdom in `vitest.config.ts`, intentionally. Existing untested code isn't retroactively in scope.
 
-Renderer changes are verified by running the app (`npm run dev`) or the `visual-verify` skill — a rendering/regression smoke check, not an assertion suite. Behavioral E2E assertions are **not built**; don't claim an automated gate that doesn't exist.
+Renderer changes are verified with the `visual-verify` skill: component fixtures rendered in headless Chrome and compared with the base commit, with behaviours as pass/fail steps inside fixtures. A UI change adds or updates the fixtures for the states it touches. It runs locally only; CI runs none of it, so don't claim a CI gate for UI. A change in `src/main/`, `src/preload/`, or `src/shared/` also runs `npm run smoke:app`, the one check that launches the real app.
 
 Before each push, complete applicable local verification. After every push, monitor GitHub Actions for the exact pushed commit SHA and wait for **both** `check (macos-latest)` and `check (windows-latest)` to finish successfully. Do not report the commit/push task complete while either job is queued, running, failed, cancelled, or unverified. Investigate failures, fix and revalidate locally, push the correction, and verify both jobs again. Include the final commit SHA and successful CI run link in the completion report. If CI cannot be checked, state that verification is incomplete.
 
@@ -64,5 +64,6 @@ Each doc below is authoritative for the locked decisions it owns.
 | `docs/data-model.md`        | `better-sqlite3`; index rebuild rule; no-FK join; plugin identity; Usage project identity; `usage-history.db` additive-only                  | Touching `src/main/db/` or plugin parsing                                                                                                                                     |
 | `docs/usage-analytics.md`   | Usage data sources; `cost-state` hazards and ingest; per-skill cost attribution; time placement; Resident tax                                | `src/main/ingest/` usage extraction, `src/main/db/` usage tables, or the Usage view                                                                                           |
 | `DESIGN.md`                 | Visual design system — colors, type, layout, elevation, shapes, components, app icon; the Usage chart rules and their departures             | Any `src/renderer/` UI work or app-icon change                                                                                                                                |
+| `docs/ui-verification.md`   | Fixtures and app smoke: what counts as changed, coverage and `pending.json`, local-only, the gallery–runner contract, determinism            | Touching `scripts/fixtures/`, `src/renderer/src/fixtures/`, `scripts/app-smoke.mjs`, or the `visual-verify` skill                                                             |
 | `docs/releases.md`          | Publishing on macOS/Windows: unsigned-by-default signing switch, Homebrew tap, `install.sh`, updater behavior, upgrade paths to paid signing | Touching `electron-builder.yml`, `scripts/release-*.mjs`, `scripts/install.sh`, the release/tap workflows, `src/main/updater.ts` or `mac-self-update.ts`; adding code signing |
 | `docs/environment-setup.md` | M0 install quirks (npm allowlist, silent `extract-zip` no-op)                                                                                | `npm run dev` failing with `Error: Electron uninstall`                                                                                                                        |

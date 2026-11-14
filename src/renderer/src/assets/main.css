@@ -18,9 +18,13 @@
   -webkit-app-region: drag;
 }
 
+@utility no-drag-region {
+  -webkit-app-region: no-drag;
+}
+
 /* Neutral fills and tones were tuned against the sheet (--background). On the darker light frame
    --muted/--accent fall to 1.05:1 and --warning to 2.85:1, so the frame rescopes them to its own
-   steps here and rail/sidebar components keep writing bg-muted, bg-accent and bg-warning. */
+   steps here and header/sidebar components keep writing bg-muted, bg-accent and bg-warning. */
 @utility frame-surface {
   --muted: var(--frame-muted);
   --accent: var(--frame-muted);
@@ -198,6 +202,38 @@
   }
 }
 
+/* Native entrances replay when retained History is revealed, without per-cell JS controllers.
+   Backwards fill holds the starting pose during the stagger, then releases compositor layers. */
+@media (prefers-reduced-motion: no-preference) {
+  .history-calendar-week,
+  .history-timeline-fill {
+    animation-duration: 140ms;
+    animation-timing-function: ease-out;
+    animation-fill-mode: backwards;
+  }
+  .history-calendar-week {
+    animation-name: history-calendar-enter;
+  }
+  .history-timeline-fill {
+    transform-origin: left;
+    animation-name: history-timeline-enter;
+  }
+}
+
+@keyframes history-calendar-enter {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+@keyframes history-timeline-enter {
+  from {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+}
+
 /* Dialog and ⌘K motion (DESIGN.md, Transitions): the vendored ui/dialog carries tw-animate's
    zoom-95/200ms in and out. These rules are unlayered so they beat those layered utilities, and
    still would if ui/ were regenerated. Enter is tuned to 0.98 → 1 over 150ms; the overlay keeps
@@ -283,7 +319,9 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-frame text-foreground font-sans;
+    /* Views and dialogs own their scroll containers. A portal or entering sidebar must never
+       add a window scrollbar and shift the centered app navigation. */
+    @apply overflow-hidden bg-frame text-foreground font-sans;
   }
   ::-webkit-scrollbar {
     width: 10px;

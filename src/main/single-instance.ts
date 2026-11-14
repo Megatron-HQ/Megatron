@@ -13,7 +13,7 @@ export interface SingleInstanceApp {
 
 // Electron keys the lock on the userData folder, so a second copy on the same data quits instead of
 // running its own scans, writes and update downloads against it; a launch with a different
-// --user-data-dir (visual-verify, isolated smoke runs) is a separate instance and still starts.
+// --user-data-dir (the isolated smoke runs under scripts/) is a separate instance and still starts.
 export function claimSingleInstance(
   app: SingleInstanceApp,
   getWindows: () => readonly RestorableWindow[]
