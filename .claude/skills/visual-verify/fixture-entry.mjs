@@ -56,8 +56,12 @@ globalThis.megatronVisualFixtures = {
       }
       if (mode === 'empty-folders') return []
       // Dev builds are always 'unsupported'; this is the only way to render the update states.
-      if (channel === 'updates:getState' && mode.startsWith('update-'))
-        return { status: mode.slice('update-'.length), version: '0.1.1', autoCheck: true }
+      if (channel === 'updates:getState' && mode.startsWith('update-')) {
+        const status = mode.slice('update-'.length)
+        const detail =
+          status === 'manual' ? "this account can't write to /Applications/Megatron.app." : null
+        return { status, version: '0.1.1', detail, autoCheck: true }
+      }
       // Before `original`: the real handler would spawn the Claude Code CLI.
       if (mode.startsWith('context-baseline')) return contextBaselineFixture(mode)
       // Before `original`: the real handler would open the native folder picker.

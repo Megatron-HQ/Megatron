@@ -83,8 +83,7 @@ describe('renderer trust boundary', () => {
     [IPC_CHANNELS.setAutoUpdateCheck, [false]],
     [IPC_CHANNELS.getUpdateState, []],
     [IPC_CHANNELS.checkForUpdates, []],
-    [IPC_CHANNELS.installUpdate, []],
-    [IPC_CHANNELS.openUpdateDownload, []]
+    [IPC_CHANNELS.installUpdate, []]
   ])('accepts valid update requests for %s', (channel, args) => {
     expect(() => security.validateIpcArguments(channel, args)).not.toThrow()
   })
@@ -138,8 +137,8 @@ describe('renderer trust boundary', () => {
     [IPC_CHANNELS.setAutoUpdateCheck, ['true']],
     [IPC_CHANNELS.setAutoUpdateCheck, [1]],
     [IPC_CHANNELS.setAutoUpdateCheck, [true, false]],
-    // The release URL is built in main from the updater's version; the renderer never supplies one.
-    [IPC_CHANNELS.openUpdateDownload, ['https://evil.example/']]
+    // Install paths and the swap target are fixed in main; the renderer never supplies them.
+    [IPC_CHANNELS.installUpdate, ['/tmp/Megatron.app']]
   ])('rejects malformed arguments for %s', (channel, args) => {
     expect(() => security.validateIpcArguments(channel, args)).toThrow()
   })

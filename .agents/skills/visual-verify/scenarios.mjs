@@ -1207,12 +1207,12 @@ export const scenarios = [
   },
   {
     // The rail gear's info-tone update dot plus its tooltip label. Dev builds report 'unsupported',
-    // so the fixture supplies a state; on macOS 'available' is what a real check produces.
+    // so the fixture supplies a state; 'manual' is the one labeled "Update available".
     name: 'rail-update-dot-tooltip',
     screen: 'settings-dialog',
     async run(window, app) {
       await app.evaluate(() =>
-        globalThis.megatronVisualFixtures.set('updates:getState', 'update-available')
+        globalThis.megatronVisualFixtures.set('updates:getState', 'update-manual')
       )
       await window.reload()
       await window.getByRole('button', { name: 'Settings · Update available' }).hover()
@@ -1221,17 +1221,33 @@ export const scenarios = [
     }
   },
   {
-    // Settings' Updates section once a newer version exists: Download plus the
-    // select-all brew line on macOS (Windows' "Restart to update" can't render on a Mac run).
-    name: 'settings-update-available',
+    // Settings' Updates section when this install can't replace itself: the reason plus the
+    // select-all install command, which also redirects Homebrew installs to brew upgrade.
+    name: 'settings-update-manual',
     screen: 'settings-dialog',
     async run(window, app) {
       await app.evaluate(() =>
-        globalThis.megatronVisualFixtures.set('updates:getState', 'update-available')
+        globalThis.megatronVisualFixtures.set('updates:getState', 'update-manual')
       )
       await window.reload()
       await window.getByRole('button', { name: 'Settings · Update available' }).click()
-      await window.getByText('Version 0.1.1 is available.').waitFor()
+      await window
+        .getByText(/Version 0\.1\.1 is available\. Megatron can't update itself here/)
+        .waitFor()
+      await window.getByText(/releases\/latest\/download\/install\.sh \| bash/).waitFor()
+    }
+  },
+  {
+    // A staged update: "Restart to update" on both platforms now that macOS installs itself.
+    name: 'settings-update-ready',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('updates:getState', 'update-ready')
+      )
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings · Update ready' }).click()
+      await window.getByRole('button', { name: 'Restart to update' }).waitFor()
     }
   },
   {

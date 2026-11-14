@@ -42,16 +42,17 @@ export const IPC_CHANNELS = {
   checkForUpdates: 'updates:check',
   installUpdate: 'updates:install',
   setAutoUpdateCheck: 'updates:setAutoCheck',
-  openUpdateDownload: 'updates:openDownload',
   updateState: 'updates:state'
 } as const
 
+// 'manual': a newer version exists but this install can't replace itself; detail says why.
 export type UpdateStatus =
-  'unsupported' | 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'ready' | 'error'
+  'unsupported' | 'idle' | 'checking' | 'current' | 'downloading' | 'ready' | 'manual' | 'error'
 
 export interface UpdateState {
   status: UpdateStatus
   version: string | null
+  detail: string | null
   autoCheck: boolean
 }
 

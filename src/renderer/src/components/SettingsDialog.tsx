@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Download, Folder, Monitor, Moon, RefreshCw, RotateCw, Sun } from 'lucide-react'
+import { Folder, Monitor, Moon, RefreshCw, RotateCw, Sun } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { TextLink } from '@/components/TextLink'
 import { ScanIssueDetails } from '@/components/ScanStatus'
@@ -24,13 +24,16 @@ interface SettingsDialogProps {
   updateState?: UpdateState
 }
 
+const INSTALL_COMMAND =
+  'curl -fsSL https://github.com/Megatron-HQ/Megatron/releases/latest/download/install.sh | bash'
+
 const APPEARANCE_OPTIONS = [
   { value: 'light', label: 'Light', Icon: Sun },
   { value: 'dark', label: 'Dark', Icon: Moon },
   { value: 'system', label: 'System', Icon: Monitor }
 ] as const
 
-function updateStatusText({ status, version }: UpdateState): string {
+function updateStatusText({ status, version, detail }: UpdateState): string {
   switch (status) {
     case 'unsupported':
       return 'Update checks run in installed builds only.'
@@ -40,12 +43,12 @@ function updateStatusText({ status, version }: UpdateState): string {
       return 'Checking for updates…'
     case 'current':
       return 'Megatron is up to date.'
-    case 'available':
-      return `Version ${version} is available.`
     case 'downloading':
       return `Downloading version ${version}…`
     case 'ready':
       return `Version ${version} installs when you quit Megatron.`
+    case 'manual':
+      return `${version ? `Version ${version} is` : 'An update is'} available. Megatron can't update itself here: ${detail}`
     case 'error':
       return "Couldn't check for updates. Try again later."
   }
@@ -204,7 +207,7 @@ export function SettingsDialog({
                     {updateStatusText(updateState)}
                   </p>
                 </div>
-                {window.api.platform === 'win32' && updateState.status === 'ready' ? (
+                {updateState.status === 'ready' ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -214,17 +217,6 @@ export function SettingsDialog({
                   >
                     <RotateCw className="size-4" />
                     Restart to update
-                  </Button>
-                ) : window.api.platform === 'darwin' && updateState.status === 'available' ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => window.api.openUpdateDownload()}
-                    className="flex shrink-0 items-center gap-1.5"
-                  >
-                    <Download className="size-4" />
-                    Download
                   </Button>
                 ) : (
                   <Button
@@ -244,13 +236,13 @@ export function SettingsDialog({
                   </Button>
                 )}
               </div>
-              {window.api.platform === 'darwin' && updateState.status === 'available' && (
+              {updateState.status === 'manual' && (
                 // Selectable text, not a copy button: the session permission handler denies
-                // clipboard access.
+                // clipboard access. install.sh redirects Homebrew installs to brew upgrade.
                 <p className="text-xs text-muted-foreground">
-                  Installed with Homebrew? Run{' '}
-                  <code className="font-mono text-[11px] text-foreground select-all">
-                    brew upgrade --cask megatron
+                  To update, quit Megatron and run this in Terminal:{' '}
+                  <code className="font-mono text-[11px] break-all text-foreground select-all">
+                    {INSTALL_COMMAND}
                   </code>
                 </p>
               )}

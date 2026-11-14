@@ -15,23 +15,50 @@ class FakeUpdater extends EventEmitter {
   quitAndInstall = vi.fn()
 }
 
+class FakeSelfUpdate {
+  blockedBy: string | null = null
+  lastFailure: string | null = null
+  stage = vi.fn<(zipPath: string, version: string) => Promise<string>>(
+    async () => '/cache/staged/Megatron.app'
+  )
+  scheduleSwap = vi.fn<(staged: string, relaunch: boolean) => void>()
+  blocker = (): string | null => this.blockedBy
+  takeFailure = (): string | null => this.lastFailure
+}
+
 let tempDir: string
 let store: ThemeStore
 let updater: FakeUpdater
+let selfUpdate: FakeSelfUpdate
 let broadcast: ReturnType<typeof vi.fn<(state: UpdateState) => void>>
-let openExternal: ReturnType<typeof vi.fn<(url: string) => void>>
+let quit: ReturnType<typeof vi.fn<() => void>>
 let logError: ReturnType<typeof vi.fn<(error: unknown) => void>>
 
 function make(platform: NodeJS.Platform, isPackaged = true): ReturnType<typeof createUpdater> {
-  return createUpdater({ updater, platform, isPackaged, store, broadcast, openExternal, logError })
+  return createUpdater({
+    updater,
+    platform,
+    isPackaged,
+    store,
+    broadcast,
+    selfUpdate,
+    quit,
+    logError
+  })
 }
+
+const downloaded = { version: '0.1.1', downloadedFile: '/cache/pending/megatron-0.1.1-mac.zip' }
+
+// Staging resolves on a later tick; let it settle before asserting.
+const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'megatron-updater-test-'))
   store = new Store({ name: 'preferences', cwd: tempDir })
   updater = new FakeUpdater()
+  selfUpdate = new FakeSelfUpdate()
   broadcast = vi.fn()
-  openExternal = vi.fn()
+  quit = vi.fn()
   logError = vi.fn()
 })
 
@@ -95,51 +122,122 @@ describe('Windows', () => {
     expect(updates.getState().status).toBe('ready')
   })
 
-  it('never opens a download page', () => {
+  it('leaves installing on quit to the NSIS installer', () => {
     const updates = make('win32')
     updater.emit('update-downloaded', { version: '0.1.1' })
-    updates.openDownload()
-    expect(openExternal).not.toHaveBeenCalled()
+    updates.beforeQuit()
+    expect(selfUpdate.scheduleSwap).not.toHaveBeenCalled()
   })
 })
 
 describe('macOS', () => {
-  it('only checks, because an ad-hoc signed app cannot install its own update', () => {
-    make('darwin')
-    expect(updater.autoDownload).toBe(false)
+  it('downloads in the background but installs itself, never through Squirrel', async () => {
+    const updates = make('darwin')
+    await updates.check()
+    expect(updater.autoDownload).toBe(true)
     expect(updater.autoInstallOnAppQuit).toBe(false)
   })
 
-  it('reports an available version without downloading it', () => {
+  it('stages the downloaded zip for the announced version, then reports ready', async () => {
     const updates = make('darwin')
     updater.emit('update-available', { version: '0.1.1' })
-    expect(updates.getState()).toMatchObject({ status: 'available', version: '0.1.1' })
+    expect(updates.getState().status).toBe('downloading')
+    updater.emit('update-downloaded', downloaded)
+    await settle()
+    expect(selfUpdate.stage).toHaveBeenCalledWith(downloaded.downloadedFile, '0.1.1')
+    expect(updates.getState()).toMatchObject({ status: 'ready', version: '0.1.1', detail: null })
   })
 
-  it('opens the release page for the version the updater reported', () => {
-    const updates = make('darwin')
-    updater.emit('update-available', { version: '0.1.1' })
-    updates.openDownload()
-    expect(openExternal).toHaveBeenCalledWith(
-      'https://github.com/Megatron-HQ/Megatron/releases/tag/v0.1.1'
+  it('falls back to the manual command with the reason when the download fails its checks', async () => {
+    selfUpdate.stage.mockRejectedValueOnce(
+      new Error("the downloaded update's signature doesn't verify.")
     )
-  })
-
-  it('refuses to build a release URL from a malformed version', () => {
     const updates = make('darwin')
-    updater.emit('update-available', { version: '../../evil' })
-    updates.openDownload()
-    expect(openExternal).not.toHaveBeenCalled()
+    updater.emit('update-downloaded', downloaded)
+    await settle()
+    expect(updates.getState()).toMatchObject({
+      status: 'manual',
+      version: '0.1.1',
+      detail: "the downloaded update's signature doesn't verify."
+    })
   })
 
-  it('has nothing to open before an update is found', () => {
-    make('darwin').openDownload()
-    expect(openExternal).not.toHaveBeenCalled()
+  it('does not download again after a staging failure in the same session', async () => {
+    selfUpdate.stage.mockRejectedValueOnce(new Error('bad download'))
+    const updates = make('darwin')
+    updater.emit('update-downloaded', downloaded)
+    await settle()
+    await updates.check()
+    expect(updater.autoDownload).toBe(false)
+    updater.emit('update-available', { version: '0.1.1' })
+    expect(updates.getState()).toMatchObject({ status: 'manual', detail: 'bad download' })
   })
 
-  it('never calls the installer', () => {
+  it('checks where it is installed before downloading, and only reports when it cannot update', async () => {
+    selfUpdate.blockedBy = "this account can't write to /Applications."
+    const updates = make('darwin')
+    await updates.check()
+    expect(updater.autoDownload).toBe(false)
+    updater.emit('update-available', { version: '0.1.1' })
+    expect(updates.getState()).toMatchObject({
+      status: 'manual',
+      version: '0.1.1',
+      detail: "this account can't write to /Applications."
+    })
+  })
+
+  it('restarts into the update: schedules the swap with relaunch, then quits', async () => {
+    const updates = make('darwin')
+    updates.install()
+    expect(selfUpdate.scheduleSwap).not.toHaveBeenCalled()
+    expect(quit).not.toHaveBeenCalled()
+    updater.emit('update-downloaded', downloaded)
+    await settle()
+    updates.install()
+    expect(selfUpdate.scheduleSwap).toHaveBeenCalledWith('/cache/staged/Megatron.app', true)
+    expect(quit).toHaveBeenCalledTimes(1)
+  })
+
+  it('installs on a plain quit without relaunching', async () => {
+    const updates = make('darwin')
+    updater.emit('update-downloaded', downloaded)
+    await settle()
+    updates.beforeQuit()
+    expect(selfUpdate.scheduleSwap).toHaveBeenCalledWith('/cache/staged/Megatron.app', false)
+    expect(quit).not.toHaveBeenCalled()
+  })
+
+  it('schedules one swap when a restart triggers the quit hook', async () => {
+    const updates = make('darwin')
+    updater.emit('update-downloaded', downloaded)
+    await settle()
+    updates.install()
+    updates.beforeQuit()
+    expect(selfUpdate.scheduleSwap).toHaveBeenCalledTimes(1)
+  })
+
+  it('installs nothing on quit before an update is staged', () => {
     const updates = make('darwin')
     updater.emit('update-available', { version: '0.1.1' })
+    updates.beforeQuit()
+    expect(selfUpdate.scheduleSwap).not.toHaveBeenCalled()
+  })
+
+  it('shows the last failed swap at launch and does not retry it this session', async () => {
+    selfUpdate.lastFailure = "/Applications/Megatron.app couldn't be replaced."
+    const updates = make('darwin')
+    expect(updates.getState()).toMatchObject({
+      status: 'manual',
+      detail: "/Applications/Megatron.app couldn't be replaced."
+    })
+    await updates.check()
+    expect(updater.autoDownload).toBe(false)
+  })
+
+  it('never calls the Squirrel installer', async () => {
+    const updates = make('darwin')
+    updater.emit('update-downloaded', downloaded)
+    await settle()
     updates.install()
     expect(updater.quitAndInstall).not.toHaveBeenCalled()
   })

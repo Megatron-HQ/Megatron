@@ -19,10 +19,10 @@ through the Claude CLI.
   are outside the product's inventory scope.
 - **Read-only skill inspection and analytics.** Megatron does not edit skills or execute their
   scripts or hooks. Plugin enable, disable, update, and uninstall actions use Claude's own CLI.
-- **macOS (Apple silicon) and Windows (x64).** Releases ship as an ad-hoc signed DMG and Homebrew
-  cask on macOS and a per-user NSIS installer on Windows. Neither is notarized or code-signed yet;
-  see [Install](#install). Both platforms run the development checks in CI. Linux is not a
-  distribution target.
+- **macOS (Apple silicon) and Windows (x64).** Releases ship as an ad-hoc signed app installed by a
+  Homebrew cask or a one-line installer on macOS, and a per-user NSIS installer on Windows. Neither
+  is notarized or code-signed yet; see [Install](#install). Both platforms run the development
+  checks in CI. Linux is not a distribution target.
 
 ## Features
 
@@ -124,16 +124,24 @@ newest interactive session's recorded request (Claude Code 2.1.300+).
 
 ### macOS (Apple silicon)
 
-Install with Homebrew, which is also how you upgrade:
+Install with Homebrew:
 
 ```sh
 brew install --cask megatron-hq/tap/megatron
 ```
 
-Or download `megatron-<version>.dmg` from
-[Releases](https://github.com/Megatron-HQ/Megatron/releases/latest), drag Megatron to Applications,
-and open it. Megatron isn't notarized yet, so macOS blocks the first launch: open **System Settings >
-Privacy & Security**, find the message about Megatron, and click **Open Anyway**.
+Without Homebrew, run the installer in Terminal. It puts Megatron in `/Applications` (or
+`~/Applications` if you can't write there) and running it again updates an existing copy:
+
+```sh
+curl -fsSL https://github.com/Megatron-HQ/Megatron/releases/latest/download/install.sh | bash
+```
+
+Megatron isn't notarized yet. Both routes install it without the "Apple could not verify" warning.
+If you download the zip from [Releases](https://github.com/Megatron-HQ/Megatron/releases/latest) in
+a browser instead, macOS blocks the first launch: open **System Settings > Privacy & Security** and
+click **Open Anyway**. To uninstall, drag Megatron from Applications to the Trash (or
+`brew uninstall --cask megatron`).
 
 ### Windows (x64)
 
@@ -147,10 +155,12 @@ may warn about it: click **More info > Run anyway**.
 Megatron checks GitHub for a newer release 10 seconds after launch and every 6 hours. Turn this off
 in **Settings > Updates**; **Check now** works either way.
 
-- **Windows** downloads the update in the background. A dot on the Settings gear means it's ready:
-  choose **Restart to update**, or quit Megatron and it installs then.
-- **macOS** can't install its own updates without a Developer ID signature, so the dot means a new
-  version is available. Run `brew upgrade --cask megatron`, or choose **Download** for the new DMG.
+Megatron downloads the update in the background on both platforms. A dot on the Settings gear
+means it's ready: choose **Restart to update**, or quit Megatron and it installs then. Homebrew
+leaves Megatron to update itself, so `brew upgrade` skips it unless you name it.
+
+If a Mac copy can't replace itself (for example, it's running from Downloads, or another account
+installed it), Settings says why and shows the install command to run instead.
 
 Each check is one request to github.com, which sees your IP address and which platform's update
 feed is fetched. No skills, usage data, or paths are sent.

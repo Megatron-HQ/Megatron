@@ -164,7 +164,7 @@ function App(): React.JSX.Element {
   const updateNotice =
     updateState?.status === 'ready'
       ? 'Update ready'
-      : updateState?.status === 'available'
+      : updateState?.status === 'manual'
         ? 'Update available'
         : null
 

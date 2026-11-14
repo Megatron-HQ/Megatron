@@ -11,15 +11,16 @@ test('reads the signing switch strictly so a typo cannot ship an unsigned releas
     assert.throws(() => parseSignedSwitch(value), /MEGATRON_SIGNED_RELEASE/)
 })
 
-test('an unsigned Mac build is ad-hoc signed, not notarized, and verified at ad-hoc level', () => {
+test('an unsigned Mac build is an ad-hoc signed zip only, not notarized, verified at ad-hoc level', () => {
   const plan = releaseBuildPlan('mac', false, { CSC_LINK: 'secret', PATH: '/bin' })
   assert.deepEqual(plan.args, [
     '--mac',
+    'zip',
+    '--arm64',
     '--publish',
     'never',
     '-c.mac.identity=-',
     '-c.mac.notarize=false',
-    '-c.dmg.sign=false',
     '-c.mac.entitlements=build/entitlements.mac.adhoc.plist',
     '-c.mac.entitlementsInherit=build/entitlements.mac.adhoc.plist'
   ])
