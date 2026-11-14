@@ -1,9 +1,7 @@
 [
-  "src/renderer/src/components/ManageFoldersDialog.tsx",
   "src/renderer/src/components/PluginActionToasts.tsx",
   "src/renderer/src/components/PluginBadges.tsx",
   "src/renderer/src/components/PluginSidebar.tsx",
-  "src/renderer/src/components/SettingsDialog.tsx",
   "src/renderer/src/components/UsageSidebar.tsx",
   "src/renderer/src/components/onboarding/CountUp.tsx",
   "src/renderer/src/components/onboarding/OnboardingDialog.tsx",
