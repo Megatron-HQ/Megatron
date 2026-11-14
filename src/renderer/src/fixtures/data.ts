@@ -182,7 +182,8 @@ const TRIGGER_CYCLE: TriggerType[] = [
   'subagent',
   'user_invoked'
 ]
-const WORKSPACES = [
+// The folders Claude Code ran in. The invocation log and the usage project catalog share them.
+export const WORKSPACES = [
   'megatron',
   'megatron-site',
   'design-system',
