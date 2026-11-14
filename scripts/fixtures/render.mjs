@@ -226,6 +226,10 @@ function relayout() {
 // would otherwise show up later as a false "changed".
 async function stableShot(page) {
   let previous = null
+  // relayout() on a settled page. Run while the last interact step's animations were still going,
+  // it left anti-aliased edges one level apart depending on frame timing (2026-11-14; see
+  // docs/ui-verification.md).
+  await page.evaluate(settle)
   await page.evaluate(relayout)
   for (let attempt = 0; attempt < SETTLE_ATTEMPTS; attempt += 1) {
     await page.evaluate(settle)
