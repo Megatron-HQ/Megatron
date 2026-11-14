@@ -30,6 +30,5 @@
   "src/renderer/src/components/usage/TokenReadout.tsx",
   "src/renderer/src/components/usage/TokenValue.tsx",
   "src/renderer/src/components/usage/TokensSection.tsx",
-  "src/renderer/src/views/PluginDetail.tsx",
   "src/renderer/src/views/UsageView.tsx"
 ]
