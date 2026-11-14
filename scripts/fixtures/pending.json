@@ -1,6 +1,5 @@
 [
   "src/renderer/src/components/PluginActionToasts.tsx",
-  "src/renderer/src/components/PluginSidebar.tsx",
   "src/renderer/src/components/UsageSidebar.tsx",
   "src/renderer/src/components/usage/ActivityDetailsDialog.tsx",
   "src/renderer/src/components/usage/ChartBlock.tsx",
