@@ -25,7 +25,10 @@ const FIXED_TIME = new Date('2026-06-15T12:00:00Z')
 // (measured 2026-11-12, Chrome 157, Apple GPU: one fixture split 13/27 over 40 renders, even one
 // page at a time). Plain software rendering (--disable-gpu) was worse; SwiftShader gave identical
 // bytes over every repeat, which is what lets the comparison use no tolerance.
-const BROWSER_ARGS = ['--use-angle=swiftshader']
+// Composite in software as well. Under SwiftShader compositing, a dialog that scrolls and sits on
+// an exact half pixel drew its right-hand corners one level apart depending on how often its
+// layer had been rebuilt (2026-11-13; see docs/ui-verification.md).
+const BROWSER_ARGS = ['--use-angle=swiftshader', '--disable-gpu-compositing']
 const STEP_TIMEOUT_MS = 5_000
 const MOUNT_TIMEOUT_MS = 30_000
 const SETTLE_ATTEMPTS = 6
