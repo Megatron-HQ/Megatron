@@ -352,9 +352,10 @@ export function skillHistory(id: number, offset = 0): SkillInvocationEntry[] {
 
 // A granted parent folder holding repositories. Windows paths on purpose: project paths are
 // compared case-insensitively and split on either separator, and these exercise both.
-const PARENT = 'C:\\Projects\\Megatron HQ'
-const FIRST = `${PARENT}\\Megatron`
-const SECOND = `${PARENT}\\Megatron-site`
+// plugin-data.ts installs plugins into the same repositories.
+export const PARENT = 'C:\\Projects\\Megatron HQ'
+export const FIRST = `${PARENT}\\Megatron`
+export const SECOND = `${PARENT}\\Megatron-site`
 const EMPTY = `${PARENT}\\Empty-repo`
 
 export type ProjectTreeMode =

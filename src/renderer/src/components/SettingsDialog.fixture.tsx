@@ -5,6 +5,7 @@ import App from '@/App'
 import { completeScan, skillsResult } from '@/fixtures/data'
 import { fixture, type Fixture, type FixtureUser } from '@/fixtures/define'
 import { emit } from '@/fixtures/fake-api'
+import { pluginReads } from '@/fixtures/plugin-data'
 import type { Api } from '../../../shared/api'
 import type { ScanSourceSummary, ScanSummary, UpdateState } from '../../../shared/ipc'
 import { SettingsDialog } from './SettingsDialog'
@@ -308,5 +309,18 @@ export const MissingProjectAndReadFailure = app(
       { text: 'The source could not be read. Check file access and try rescanning.' },
       'The read failure showed no reason.'
     )
+  }
+)
+
+// Settings opens over whichever section is showing; here the plugin inventory.
+export const OpenOverPlugins = app(
+  { getInitialSection: () => 'plugins', ...pluginReads() },
+  async (user) => {
+    await user.until(
+      { role: 'row', name: /ops-kit/ },
+      'The plugin inventory never listed its plugins.'
+    )
+    await openSettings(user)
+    await user.until({ role: 'radio', name: 'System' }, 'Settings did not open over Plugins.')
   }
 )

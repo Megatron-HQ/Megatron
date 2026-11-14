@@ -1,6 +1,5 @@
 [
   "src/renderer/src/components/PluginActionToasts.tsx",
-  "src/renderer/src/components/PluginBadges.tsx",
   "src/renderer/src/components/PluginSidebar.tsx",
   "src/renderer/src/components/UsageSidebar.tsx",
   "src/renderer/src/components/usage/ActivityDetailsDialog.tsx",
@@ -33,6 +32,5 @@
   "src/renderer/src/components/usage/TokenValue.tsx",
   "src/renderer/src/components/usage/TokensSection.tsx",
   "src/renderer/src/views/PluginDetail.tsx",
-  "src/renderer/src/views/PluginInventory.tsx",
   "src/renderer/src/views/UsageView.tsx"
 ]

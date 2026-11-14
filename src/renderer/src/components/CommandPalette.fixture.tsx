@@ -1,6 +1,7 @@
 import App from '@/App'
 import { baseSkills, skillMeta } from '@/fixtures/data'
 import { fixture, type Fixture, type FixtureUser } from '@/fixtures/define'
+import { basePlugins } from '@/fixtures/plugin-data'
 import { CommandPalette } from './CommandPalette'
 
 const ignore = (): void => {}
@@ -78,4 +79,24 @@ export const SkillFromPluginsSection = app(async (user) => {
     { role: 'button', name: 'Back to skills' },
     'Picking a skill from the Plugins section did not open its detail page.'
   )
+})
+
+// Plugins are their own group above skills, found by name or marketplace.
+export const PluginSearch = fixture({
+  frame: 'window',
+  render: () => (
+    <CommandPalette
+      open
+      onOpenChange={ignore}
+      skills={baseSkills}
+      onSelect={ignore}
+      plugins={basePlugins}
+      onSelectPlugin={ignore}
+    />
+  ),
+  interact: async (user) => {
+    await opened(user, 'Rendering it open')
+    await user.type('review-kit')
+    await user.until({ role: 'option', name: /^review-kit/ }, 'Searching found no plugin.')
+  }
 })
