@@ -7,7 +7,8 @@ import eslintPluginReactRefresh from 'eslint-plugin-react-refresh'
 
 export default defineConfig(
   {
-    // .fixtures/ holds the fixture runner's output, including a checkout of the base commit.
+    // .fixtures/ is left behind by the fixture runner (now on feat/visual-verify-fixtures) and
+    // holds a checkout of a base commit, so it stays ignored on machines that ran it.
     ignores: [
       '**/node_modules',
       '**/dist',
@@ -44,13 +45,6 @@ export default defineConfig(
     files: ['src/renderer/src/components/ui/**/*.tsx'],
     rules: {
       '@typescript-eslint/explicit-function-return-type': 'off',
-      'react-refresh/only-export-components': 'off'
-    }
-  },
-  {
-    // A fixture file exports fixtures, not components, so it is never a Fast Refresh boundary.
-    files: ['**/*.fixture.tsx'],
-    rules: {
       'react-refresh/only-export-components': 'off'
     }
   },

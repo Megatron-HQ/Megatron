@@ -29,8 +29,8 @@ import type {
   UpdateState
 } from './ipc'
 
-// The bridge the preload exposes as `window.api`. Shared so the preload's implementation and the
-// fixture gallery's fake (src/renderer/src/fixtures/fake-api.ts) are both checked against it.
+// The bridge the preload exposes as `window.api`, typed once so the preload's implementation and
+// the renderer's view of it can't drift apart.
 export interface Api {
   platform: NodeJS.Platform
   listSkills: () => Promise<SkillsListResult>
