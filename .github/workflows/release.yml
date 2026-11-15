@@ -1,7 +1,7 @@
 name: Release
 
-# Pushing a v* tag builds both platforms into a DRAFT GitHub Release. Nothing reaches users until
-# someone reviews the draft and clicks Publish, which also triggers homebrew-tap.yml.
+# A v* tag contained in main builds both platforms into a DRAFT GitHub Release. Nothing reaches
+# users until someone reviews the draft and clicks Publish, which also triggers homebrew-tap.yml.
 on:
   push:
     tags: ['v*']
@@ -16,8 +16,14 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
       - name: Require the tag to match package.json
         run: node scripts/release-check.mjs tag "$GITHUB_REF_NAME"
+      - name: Require the release commit to be on main
+        run: |
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          node scripts/release-check.mjs source
       - name: Create the draft release
         env:
           GH_TOKEN: ${{ github.token }}
