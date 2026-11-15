@@ -163,6 +163,14 @@ Claude app chats (folderless Claude desktop chats) fold into one "Claude app cha
 - **Departs from the ledger, user-authorised and scoped to this dialog:** 24px/600 step headlines, and motion-led steps: direction-aware spring slides, the dialog's height animating to each step, staggered entries, counts ticking up as the scan reports, a check popping on granted rows, progress dots stretching into a pill.
 - **Everything else holds:** lime on exactly one CTA at a time (Next, then "Choose folders…" until something is granted, then "Open Megatron"); tones per the Tones-Aren't-The-Stamp Rule; overview card icons stay ink like the header's; no gradients, glows, or animated backgrounds. With reduced motion, steps are opacity-only and counts show their final value.
 
+### What's new (corner card)
+
+- A non-blocking card in the bottom-right corner (`components/whats-new/`), shown on the first launch after an upgrade to a release with a `whats-new.json` entry, once the launch scan has settled. Fresh installs get onboarding instead. It never takes focus on its own (`F6` moves focus into it) and hides while onboarding, Settings, ⌘K, another dialog, or a plugin toast is up. Settings › About › "What's new" replays the latest release.
+- One highlight per step, newest release first, with skipped releases following. Step dots stretch into a pill like onboarding's progress, in ink rather than lime. Lime marks one CTA only: "Next", then "Got it". "Show me" is a ghost button.
+- **Previews are live miniatures, not screenshots.** Each one draws the real feature at card size from the user's own data in the existing Query cache. With no data, it shows labelled sample data. Previews are `inert` and `aria-hidden`; the highlight's text is what assistive technology reads.
+- **Show me** opens the section (and Usage panel) the highlight names and rings its anchor with a `--ring` border overlay that pulses twice and fades. Under reduced motion it holds and fades, opacity only. The ring is drawn over the anchor, never as a class on it, so the anchor's own hover and glide stay untouched. After the card, a 6px `--ring` dot follows the label of each new control until it is first used, for 30 days at most.
+- Holds the ledger: a floating card with shadcn's shadow (Ledger-Lies-Flat), `lg` radius, the dialog's scale-and-fade entrance, no gradients.
+
 ### Sidebar Navigation
 
 - Items are icon + label; the active item is the One Stamp Rule's lime fill, one at a time. Nested sublists indent under a border-left rule-line rather than a background change.

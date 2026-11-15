@@ -220,6 +220,45 @@
   }
 }
 
+/* What's new "Show me" ring (SpotlightRing.tsx owns the 1.6s duration). Reduced motion holds the
+   ring still and fades it; otherwise it pulses twice. Both end invisible before it unmounts. */
+.whats-new-ring {
+  animation: whats-new-ring-hold 1.6s ease-out forwards;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .whats-new-ring {
+    animation-name: whats-new-ring-pulse;
+  }
+}
+
+@keyframes whats-new-ring-hold {
+  0%,
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes whats-new-ring-pulse {
+  0% {
+    opacity: 0;
+    transform: scale(1.03);
+  }
+  15%,
+  55% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  35% {
+    opacity: 0.35;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 @keyframes history-calendar-enter {
   from {
     opacity: 0;

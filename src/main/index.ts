@@ -69,6 +69,15 @@ import {
   setStoredTheme,
   type ThemeStore
 } from './theme'
+import {
+  activeWhatsNewDots,
+  clearWhatsNewDot,
+  markWhatsNewSeen,
+  recordWhatsNewBaseline,
+  resolveWhatsNewInitialState
+} from './whats-new-state'
+import { parseWhatsNewCatalog, type WhatsNewAnchorId } from '../shared/whats-new'
+import whatsNewJson from '../shared/whats-new.json'
 import { suggestGrantStart } from '../shared/grant-suggestions'
 import { WINDOW_SIZE } from '../shared/window-size'
 import {
@@ -124,6 +133,8 @@ const isPrimaryInstance = claimSingleInstance(app, () => BrowserWindow.getAllWin
 if (isPrimaryInstance)
   securePrivateDataDirectory(app.getPath('userData'), join(app.getPath('appData'), app.getName()))
 const themeStore: ThemeStore = new Store({ name: 'preferences' })
+// Bundled and validated by its own test, so a parse failure here means a broken build, not user data.
+const whatsNewCatalog = parseWhatsNewCatalog(whatsNewJson)
 
 function usageProjectLocations(): UsageProjectLocation[] {
   const saved = themeStore.get('usageProjects')
@@ -631,7 +642,32 @@ app.whenReady().then(() => {
     event.returnValue = resolveOnboarding(themeStore)
   })
 
-  secureIpc.handle(IPC_CHANNELS.setOnboardingDone, () => markOnboardingDone(themeStore))
+  secureIpc.handle(IPC_CHANNELS.setOnboardingDone, () => {
+    markOnboardingDone(themeStore)
+    recordWhatsNewBaseline(themeStore, appVersion)
+  })
+
+  secureIpc.on(IPC_CHANNELS.getInitialWhatsNew, (event) => {
+    event.returnValue = resolveWhatsNewInitialState(themeStore, {
+      releases: whatsNewCatalog.releases,
+      currentVersion: appVersion,
+      now: new Date()
+    })
+  })
+
+  secureIpc.handle(IPC_CHANNELS.markWhatsNewSeen, () => {
+    const now = new Date()
+    markWhatsNewSeen(themeStore, {
+      releases: whatsNewCatalog.releases,
+      currentVersion: appVersion,
+      now
+    })
+    return activeWhatsNewDots(themeStore, now)
+  })
+
+  secureIpc.handle(IPC_CHANNELS.clearWhatsNewDot, (_event, anchor: WhatsNewAnchorId) =>
+    clearWhatsNewDot(themeStore, anchor)
+  )
 
   // Await the isolated scan; the completion broadcast invalidates renderer queries.
   secureIpc.handle(IPC_CHANNELS.rescan, () => scanAndNotify('announce', true))
