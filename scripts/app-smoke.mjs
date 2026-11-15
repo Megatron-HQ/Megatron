@@ -52,7 +52,7 @@ try {
       (label) =>
         document
           .querySelector('nav[aria-label="Main navigation"] button[aria-current="page"]')
-          ?.textContent.trim() === label &&
+          ?.getAttribute('aria-label') === label &&
         ![...document.querySelectorAll('main [data-slot="skeleton"]')].some(
           (skeleton) => skeleton.getClientRects().length > 0
         ),

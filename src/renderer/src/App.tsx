@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { AppHeader } from '@/components/AppHeader'
+import { AppRail } from '@/components/AppRail'
 import { CommandPalette } from '@/components/CommandPalette'
 import { ManageFoldersDialog } from '@/components/ManageFoldersDialog'
 import { OnboardingDialog } from '@/components/onboarding/OnboardingDialog'
@@ -673,19 +673,26 @@ function App(): React.JSX.Element {
   const shell = (
     <TooltipProvider>
       <div className="flex h-screen flex-col overflow-hidden">
-        <AppHeader
-          section={section}
-          onSectionChange={handleSectionChange}
-          onOpenSettings={() => setSettingsOpen(true)}
-          updateNotice={updateNotice}
+        {/* hiddenInset needs a drag region below the macOS traffic lights. Windows keeps its
+            native titlebar and only needs a small gutter above the sheet. */}
+        <div
+          className={
+            window.api?.platform === 'darwin' ? 'drag-region h-8 shrink-0' : 'h-1.5 shrink-0'
+          }
         />
         <div className="flex min-h-0 flex-1">
-          <div className="frame-surface flex shrink-0 pt-2">
+          <div className="frame-surface flex shrink-0">
+            <AppRail
+              section={section}
+              onSectionChange={handleSectionChange}
+              onOpenSettings={() => setSettingsOpen(true)}
+              updateNotice={updateNotice}
+            />
             <ScreenTransition screenKey={section} section={section} depth={0} className="flex">
               {sidebar}
             </ScreenTransition>
           </div>
-          {/* The inset is the sheet's own margin so the sidebars still reach the window's
+          {/* The inset is the sheet's own margin so the rail and sidebars reach the window's
               bottom edge; overflow-hidden clips the banner and scrollbars to the radius. */}
           <main className="mr-1.5 mb-1.5 flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-sheet">
             {scanBanner.kind === 'updating' && <ScanUpdatingBanner message={scanBanner.message} />}

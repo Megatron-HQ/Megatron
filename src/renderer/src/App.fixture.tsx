@@ -60,6 +60,90 @@ export const Inventory = app({}, (user) =>
   user.until({ role: 'row', name: /code-review/ }, 'The inventory never listed its skills.')
 )
 
+async function railLayout(user: FixtureUser): Promise<void> {
+  await user.until({ role: 'row', name: /code-review/ }, 'The inventory never listed its skills.')
+  await user.until(() => {
+    const nav = document.querySelector('nav[aria-label="Main navigation"]')
+    const buttons = [...(nav?.querySelectorAll('button') ?? [])]
+    const rail = nav?.parentElement?.getBoundingClientRect()
+    const settings = document
+      .querySelector('button[aria-label="Settings"]')
+      ?.getBoundingClientRect()
+    const expectedTop = window.api.platform === 'darwin' ? 32 : 6
+    return (
+      rail?.width === 48 &&
+      rail.left === 0 &&
+      rail.top === expectedTop &&
+      buttons.length === 3 &&
+      buttons.every((button, index) => {
+        const rect = button.getBoundingClientRect()
+        return (
+          rect.left < rail.right &&
+          (index === 0 || rect.top > buttons[index - 1].getBoundingClientRect().bottom)
+        )
+      }) &&
+      settings !== undefined &&
+      settings.bottom === rail.bottom - 8
+    )
+  }, 'The rail lost its vertical layout, titlebar clearance, or bottom Settings gear.')
+}
+
+export const MacRailLayout = { ...app({}, railLayout), platform: 'darwin' as const }
+export const WindowsRailLayout = { ...app({}, railLayout), platform: 'win32' as const }
+
+export const PluginsRail = app({ getInitialSection: () => 'plugins' }, (user) =>
+  user.until({ text: 'No plugins installed' }, 'The saved Plugins section did not open.')
+)
+
+export const UsageRail = app({ ...historyApi(), getInitialSection: () => 'usage' }, (user) =>
+  user.until({ role: 'navigation', name: 'Usage panels' }, 'The saved Usage section did not open.')
+)
+
+export const RailKeyboardNavigation = app(historyApi(), async (user) => {
+  await user.until({ role: 'row', name: /code-review/ }, 'The inventory never listed its skills.')
+  // The inventory focuses its first row on arrival; start keyboard navigation from the rail.
+  await user.click({ selector: 'nav[aria-label="Main navigation"] button[aria-label="Skills"]' })
+  await user.press('Tab')
+  await user.press('Enter')
+  await user.until({ text: 'No plugins installed' }, 'Keyboard activation did not open Plugins.')
+  await user.press('Tab')
+  await user.press('Space')
+  await user.until(
+    { role: 'navigation', name: 'Usage panels' },
+    'Keyboard activation did not open Usage.'
+  )
+  await user.press('Tab')
+  await user.press('Enter')
+  await user.until({ role: 'dialog', name: 'Settings' }, 'The rail gear did not open Settings.')
+  await user.press('Escape')
+  await user.until(
+    () => document.querySelector('[role="dialog"]') === null,
+    'Escape did not close Settings.'
+  )
+  await user.until(
+    {
+      selector: 'nav[aria-label="Main navigation"] button[aria-label="Usage"][aria-current="page"]'
+    },
+    'Closing Settings changed the active section.'
+  )
+})
+
+function settingsShortcut(platform: 'darwin' | 'win32'): Fixture {
+  return {
+    ...app({}, async (user) => {
+      await user.press(platform === 'darwin' ? 'Meta+,' : 'Control+,')
+      await user.until(
+        { role: 'dialog', name: 'Settings' },
+        'The Settings keyboard shortcut did not open Settings.'
+      )
+    }),
+    platform
+  }
+}
+
+export const MacSettingsShortcut = settingsShortcut('darwin')
+export const WindowsSettingsShortcut = settingsShortcut('win32')
+
 function updateNotice(status: UpdateState['status'], notice: string): Fixture {
   return app({}, async (user) => {
     await user.until({ role: 'row', name: /code-review/ }, 'The inventory never loaded.')
@@ -85,22 +169,35 @@ export const UpdateReady = updateNotice('ready', 'Update ready')
 export const ManualUpdateNotice = updateNotice('manual', 'Update available')
 
 export const MainNavigation = app(historyApi(), async (user) => {
-  await user.click({ selector: 'nav[aria-label="Main navigation"] button:text-is("Plugins")' })
+  await user.click({ selector: 'nav[aria-label="Main navigation"] button[aria-label="Plugins"]' })
   await user.until({ text: 'No plugins installed' }, 'The main navigation did not open Plugins.')
-  await user.click({ selector: 'nav[aria-label="Main navigation"] button:text-is("Usage")' })
+  await user.until(
+    {
+      selector:
+        'nav[aria-label="Main navigation"] button[aria-label="Plugins"][aria-current="page"]'
+    },
+    'The rail did not mark Plugins as the active section.'
+  )
+  await user.click({ selector: 'nav[aria-label="Main navigation"] button[aria-label="Usage"]' })
   await user.until(
     { role: 'navigation', name: 'Usage panels' },
     'The main navigation did not open Usage.'
   )
-  await user.click({ selector: 'nav[aria-label="Main navigation"] button:text-is("Skills")' })
+  await user.click({ selector: 'nav[aria-label="Main navigation"] button[aria-label="Skills"]' })
   await user.until(
     { role: 'row', name: /code-review/ },
     'The main navigation did not return to Skills.'
   )
+  await user.until(
+    {
+      selector: 'nav[aria-label="Main navigation"] button[aria-label="Skills"][aria-current="page"]'
+    },
+    'The rail did not mark Skills as the active section.'
+  )
 })
 
 export const HistoryReturn = app(historyApi(), async (user) => {
-  await user.click({ selector: 'nav[aria-label="Main navigation"] button:text-is("Usage")' })
+  await user.click({ selector: 'nav[aria-label="Main navigation"] button[aria-label="Usage"]' })
   await user.click({ role: 'button', name: 'History', exact: true })
   await user.until(
     { role: 'searchbox', name: 'Search project timeline' },
@@ -370,7 +467,7 @@ export const WhatsNewWaitsForOnboarding = app(
 
 // Behaviour: a dot marks the new control until the user first interacts with it.
 export const WhatsNewDotClears = app(whatsNew({ dots: ['usage-skill-cost'] }), async (user) => {
-  await user.click({ selector: 'nav[aria-label="Main navigation"] button:text-is("Usage")' })
+  await user.click({ selector: 'nav[aria-label="Main navigation"] button[aria-label="Usage"]' })
   await user.until({ role: 'navigation', name: 'Usage panels' }, 'Usage did not open.')
   await user.click({ selector: 'nav[aria-label="Usage panels"] button:has-text("Skills")' })
   const dot = '[data-whats-new-dot="usage-skill-cost"]'

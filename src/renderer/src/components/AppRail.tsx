@@ -3,7 +3,6 @@ import { motion } from 'motion/react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useElementGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
-import appLogo from '../../../../build/icon-source/icon.svg'
 import type { AppSection } from '../../../shared/ipc'
 
 // Keep the section marks consistent with source badges and the Usage panel list.
@@ -13,48 +12,29 @@ const SECTIONS: { section: AppSection; label: string; Icon: typeof Blocks }[] = 
   { section: 'usage', label: 'Usage', Icon: BarChart3 }
 ]
 
-interface AppHeaderProps {
+interface AppRailProps {
   section: AppSection
   onSectionChange: (section: AppSection) => void
   onOpenSettings: () => void
   updateNotice?: string | null
 }
 
-export function AppHeader({
+export function AppRail({
   section,
   onSectionChange,
   onOpenSettings,
   updateNotice = null
-}: AppHeaderProps): React.JSX.Element {
+}: AppRailProps): React.JSX.Element {
   const settingsLabel = updateNotice ? `Settings · ${updateNotice}` : 'Settings'
   const { containerRef, highlightRect, onItemHover, onMouseLeave, transition } =
     useElementGlideHighlight<HTMLElement>()
 
   return (
-    <header className="frame-surface drag-region grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 px-4">
-      {/* Equal outer columns center navigation on the window, independently of the sidebar.
-          hiddenInset's traffic lights occupy the leading edge on macOS. */}
-      <span
-        className={cn(
-          'flex items-center gap-2 text-sm font-semibold',
-          window.api?.platform === 'darwin' && 'pl-20'
-        )}
-      >
-        <img
-          src={appLogo}
-          alt=""
-          width={32}
-          height={32}
-          draggable={false}
-          className="size-8 shrink-0"
-        />
-        Megatron
-      </span>
-
+    <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-border py-2">
       <nav
         ref={containerRef}
         aria-label="Main navigation"
-        className="no-drag-region relative flex items-center gap-1"
+        className="relative flex flex-col items-center gap-1"
         onMouseLeave={onMouseLeave}
       >
         {highlightRect && (
@@ -71,33 +51,37 @@ export function AppHeader({
           />
         )}
         {SECTIONS.map(({ section: itemSection, label, Icon }) => (
-          <button
-            key={itemSection}
-            type="button"
-            aria-current={section === itemSection ? 'page' : undefined}
-            onClick={() => onSectionChange(itemSection)}
-            onMouseEnter={(event) => onItemHover(event.currentTarget)}
-            className={cn(
-              'relative z-10 inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-md px-3 text-sm font-medium whitespace-nowrap transition-colors duration-150 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
-              section === itemSection
-                ? 'bg-muted text-foreground'
-                : 'text-muted-foreground hover:text-accent-foreground'
-            )}
-          >
-            <Icon aria-hidden="true" className="size-4 shrink-0" />
-            {label}
-          </button>
+          <Tooltip key={itemSection}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={label}
+                aria-current={section === itemSection ? 'page' : undefined}
+                onClick={() => onSectionChange(itemSection)}
+                onMouseEnter={(event) => onItemHover(event.currentTarget)}
+                className={cn(
+                  'relative z-10 flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors duration-150 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                  section === itemSection
+                    ? 'bg-muted text-foreground'
+                    : 'text-muted-foreground hover:text-accent-foreground'
+                )}
+              >
+                <Icon aria-hidden="true" className="size-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">{label}</TooltipContent>
+          </Tooltip>
         ))}
       </nav>
 
-      <div className="no-drag-region justify-self-end">
+      <div className="mt-auto">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
               type="button"
               aria-label={settingsLabel}
               onClick={onOpenSettings}
-              className="relative flex size-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              className="relative flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
             >
               <Settings aria-hidden="true" className="size-4" />
               {updateNotice && (
@@ -108,9 +92,9 @@ export function AppHeader({
               )}
             </button>
           </TooltipTrigger>
-          <TooltipContent side="bottom">{settingsLabel}</TooltipContent>
+          <TooltipContent side="right">{settingsLabel}</TooltipContent>
         </Tooltip>
       </div>
-    </header>
+    </div>
   )
 }
