@@ -24,7 +24,7 @@
 
 /* Neutral fills and tones were tuned against the sheet (--background). On the darker light frame
    --muted/--accent fall to 1.05:1 and --warning to 2.85:1, so the frame rescopes them to its own
-   steps here and header/sidebar components keep writing bg-muted, bg-accent and bg-warning. */
+   steps here and rail/sidebar components keep writing bg-muted, bg-accent and bg-warning. */
 @utility frame-surface {
   --muted: var(--frame-muted);
   --accent: var(--frame-muted);
@@ -359,7 +359,7 @@
   }
   body {
     /* Views and dialogs own their scroll containers. A portal or entering sidebar must never
-       add a window scrollbar and shift the centered app navigation. */
+       add a window scrollbar or shift the app shell. */
     @apply overflow-hidden bg-frame text-foreground font-sans;
   }
   ::-webkit-scrollbar {

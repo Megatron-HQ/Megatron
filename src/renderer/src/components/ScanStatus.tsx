@@ -20,7 +20,14 @@ const ISSUE_MESSAGES: Record<ScanIssue['code'], string> = {
   project_missing: MISSING_PROJECT_SCAN_MESSAGE,
   settings_invalid: 'Settings could not be parsed or contain invalid values.',
   source_unavailable: 'The source could not be read. Check file access and try rescanning.',
-  scan_limit: 'The source exceeds the scan limit. Its cached data was preserved.'
+  scan_limit: 'The source exceeds the scan limit. Its cached data was preserved.',
+  link_unapproved:
+    'This skill links to a folder outside your approved folders. Grant that folder to include it.'
+}
+
+// Both codes are resolved by a grant in the folders dialog.
+function needsFolderAccess(issue: ScanIssue): boolean {
+  return issue.code === 'permission_required' || issue.code === 'link_unapproved'
 }
 
 const SCAN_BANNER_CLASS =
@@ -43,16 +50,14 @@ export function ScanStatusBanner({
   onOpenDetails
 }: ScanStatusProps & { onOpenDetails: () => void }): React.JSX.Element | null {
   if (summary.outcome === 'complete' || isMissingProjectOnlyScan(summary)) return null
-  const needsAccess = summary.sources.some((source) =>
-    source.issues?.some((issue) => issue.code === 'permission_required')
-  )
+  const needsAccess = summary.sources.some((source) => source.issues?.some(needsFolderAccess))
   return (
     <div role="status" className={SCAN_BANNER_CLASS}>
       <p>
         {summary.outcome === 'failed'
           ? 'The startup scan could not finish. Open Scan details for more information.'
           : needsAccess
-            ? 'Some project settings need folder access to finish scanning.'
+            ? 'Some folders need access to finish scanning.'
             : 'Some sources could not be refreshed. Open Scan details for more information.'}
       </p>
       <TextLink onClick={onOpenDetails} className="shrink-0 hover:text-foreground">
@@ -68,9 +73,7 @@ export function ScanIssueDetails({
 }: ScanStatusProps & { onManageFolders: () => void }): React.JSX.Element | null {
   if (summary.outcome === 'complete') return null
   const affectedSources = summary.sources.filter((source) => source.status !== 'complete')
-  const needsAccess = affectedSources.some((source) =>
-    source.issues?.some((issue) => issue.code === 'permission_required')
-  )
+  const needsAccess = affectedSources.some((source) => source.issues?.some(needsFolderAccess))
   return (
     <section
       aria-label="Scan details"
@@ -91,6 +94,9 @@ export function ScanIssueDetails({
                   <li key={`${issue.code}:${issue.path}`}>
                     <p>{ISSUE_MESSAGES[issue.code]}</p>
                     <p className="mt-0.5 break-all font-mono text-[11px]">{issue.path}</p>
+                    {issue.target !== undefined && (
+                      <p className="break-all font-mono text-[11px]">→ {issue.target}</p>
+                    )}
                   </li>
                 ))}
               </ul>

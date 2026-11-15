@@ -153,6 +153,85 @@ describe('live project reconciliation', () => {
   })
 })
 
+describe('project skills linked outside their repository', () => {
+  let external: string
+
+  beforeEach(() => {
+    external = realpathSync(mkdtempSync(join(tmpdir(), 'megatron-link-target-')))
+  })
+
+  afterEach(() => {
+    rmSync(external, { recursive: true, force: true })
+  })
+
+  function linkedRepository(): {
+    repository: string
+    skills: string
+    link: string
+    target: string
+  } {
+    const repository = join(tmpDir, 'linked-repo')
+    const skills = join(repository, '.claude', 'skills')
+    writeSkillDir(skills, 'kept', '---\nname: kept\n---\nBody')
+    writeSkillDir(skills, 'deleted', '---\nname: deleted\n---\nBody')
+    const target = writeSkillDir(external, 'shared', '---\nname: shared\n---\nBody')
+    const link = join(skills, 'shared')
+    symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir')
+    return { repository, skills, link, target }
+  }
+
+  function projectSkillNames(): string[] {
+    return allSkills()
+      .filter((row) => row.source_type === 'project')
+      .map((row) => row.name)
+      .sort()
+  }
+
+  it('reports the link and the folder it points to', () => {
+    const { link, target } = linkedRepository()
+
+    const result = scanSkills(db, undefined, userSettingsPath)
+
+    expect(result.status).toBe('partial')
+    expect(result.issues).toContainEqual({ code: 'link_unapproved', path: link, target })
+  })
+
+  it('keeps the repository available and indexes the sibling skills', () => {
+    const { repository } = linkedRepository()
+
+    const result = scanSkills(db, undefined, userSettingsPath)
+
+    expect(result.projects).toContainEqual({
+      path: repository,
+      kind: 'repository',
+      status: 'available'
+    })
+    expect(projectSkillNames()).toEqual(['deleted', 'kept'])
+  })
+
+  it('still sweeps a deleted sibling skill while the link stays blocked', () => {
+    const { skills } = linkedRepository()
+    const before = scanSkills(db, undefined, userSettingsPath)
+    rmSync(join(skills, 'deleted'), { recursive: true })
+
+    scanSkills(db, undefined, userSettingsPath, before.projects)
+
+    expect(projectSkillNames()).toEqual(['kept'])
+  })
+
+  it('drops the cached row once the link target is no longer granted', () => {
+    linkedRepository()
+    grantPath(external)
+    const before = scanSkills(db, undefined, userSettingsPath)
+    expect(projectSkillNames()).toEqual(['deleted', 'kept', 'shared'])
+    revokePath(external)
+
+    scanSkills(db, undefined, userSettingsPath, before.projects)
+
+    expect(projectSkillNames()).toEqual(['deleted', 'kept'])
+  })
+})
+
 afterEach(() => {
   vi.restoreAllMocks()
   resetGrantedPaths()

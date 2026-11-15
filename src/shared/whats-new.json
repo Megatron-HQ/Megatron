@@ -1,1 +1,15 @@
-{}
+{
+  "0.2.3": {
+    "title": "Linked skills",
+    "highlights": [
+      {
+        "title": "Skills installed as links now appear",
+        "body": "Skills that Orca or npx skills link into ~/.claude/skills are now listed, and a linked skill's details show the folder it really lives in.",
+        "action": {
+          "kind": "section",
+          "section": "skills"
+        }
+      }
+    ]
+  }
+}
