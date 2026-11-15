@@ -1,4 +1,5 @@
-import type { UpdateState } from '../../../shared/ipc'
+import type { ScanSummary, UpdateState } from '../../../shared/ipc'
+import { daysAgo } from '@/fixtures/data'
 import { fixture, type Fixture } from '@/fixtures/define'
 import { SettingsDialog } from './SettingsDialog'
 
@@ -64,4 +65,51 @@ export const PreviousUpdateFailed = settings({
   status: 'manual',
   version: null,
   detail: 'The previous update could not replace the app. The original app was restored.'
+})
+
+const LINK_SCAN: ScanSummary = {
+  outcome: 'partial',
+  completedAt: daysAgo(0),
+  sources: [
+    {
+      name: 'scanSkills',
+      status: 'partial',
+      issues: [
+        {
+          code: 'link_unapproved',
+          path: '/Users/fixture/Projects/megatron/.claude/skills/shared-review',
+          target: '/Users/fixture/team-skills/shared-review'
+        }
+      ]
+    }
+  ]
+}
+
+// Behaviour: a project skill linked outside its repo names the target and offers folder access.
+export const ScanLinkNeedsAccess = fixture({
+  frame: 'window',
+  render: () => (
+    <SettingsDialog
+      open
+      onOpenChange={ignore}
+      themePreference={window.api.getInitialTheme()}
+      onThemeChange={ignore}
+      version="1.0.0"
+      scanSummary={LINK_SCAN}
+      scanning={false}
+      onManageFolders={ignore}
+      onShowWelcome={ignore}
+    />
+  ),
+  interact: async (user) => {
+    await user.until({ role: 'dialog', name: 'Settings' }, 'Settings did not open.')
+    await user.until(
+      { text: '→ /Users/fixture/team-skills/shared-review' },
+      'The unapproved link did not name the folder it points to.'
+    )
+    await user.until(
+      { role: 'button', name: 'Manage folder access' },
+      'An unapproved link offered no way to manage folder access.'
+    )
+  }
 })

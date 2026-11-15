@@ -204,7 +204,10 @@ export interface ScanIssue {
     | 'settings_invalid'
     | 'source_unavailable'
     | 'scan_limit'
+    | 'link_unapproved'
   path: string
+  // link_unapproved only: the folder the link at `path` resolves to.
+  target?: string
 }
 
 export interface ScanTaskResult {
@@ -286,6 +289,8 @@ export interface OpenSkillMetaResult {
   usage: SkillUsageDetail
   skillMdContent: string | null
   findings: LintFindingRow[]
+  // Where the skill folder resolves when the folder itself is a link (Orca, `npx skills`).
+  linkTarget: string | null
 }
 
 export type Theme = 'light' | 'dark'

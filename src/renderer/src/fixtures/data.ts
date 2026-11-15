@@ -158,7 +158,8 @@ export function skillMeta(id: number): OpenSkillMetaResult | null {
     skill: found,
     usage: { byTriggerType: [], byProject: [], recentTriggers: [] },
     skillMdContent: `# ${found.name}\n\n${found.description ?? ''}\n`,
-    findings: []
+    findings: [],
+    linkTarget: null
   }
 }
 

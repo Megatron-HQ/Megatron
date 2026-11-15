@@ -44,9 +44,10 @@ a target only becomes a skill row if it already holds a `SKILL.md`, the renderer
 and never by path (the file viewer resolves `source_path` in main), and links nested inside the
 target stay strict.
 
-No grant prompt is ever pre-pointed at a blocked link's target: the target is the repo author's
-choice, and a one-click grant would let a repository ship `.claude/skills/x -> ~/.ssh` as a prompt
-to approve `~/.ssh`.
+A blocked repo link is reported as a `link_unapproved` scan issue that names its target, and the
+user grants through the normal folders dialog. The picker is deliberately not pre-pointed at the
+target: the target is the repo author's choice, and a one-click grant would let a repository ship
+`.claude/skills/x -> ~/.ssh` as a prompt to approve `~/.ssh`.
 
 Repository discovery metadata in the private preferences cache is descriptive, not an access
 capability. Discovery and catalog restoration retain current grants and canonical target checks.

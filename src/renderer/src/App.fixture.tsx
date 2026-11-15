@@ -293,6 +293,40 @@ export const ScanMissingProjectQuiet = app(
   }
 )
 
+// Behaviour: a blocked repo link raises the folder-access banner, not the generic refresh warning.
+export const ScanLinkNeedsAccess = app(
+  {
+    listSkills: async () =>
+      skillsResult(undefined, {
+        scanSummary: {
+          outcome: 'partial',
+          isStartup: true,
+          completedAt: daysAgo(0),
+          sources: [
+            {
+              name: 'scanSkills',
+              status: 'partial',
+              issues: [
+                {
+                  code: 'link_unapproved',
+                  path: 'C:\\Projects\\Megatron\\.claude\\skills\\shared-review',
+                  target: 'D:\\team-skills\\shared-review'
+                }
+              ]
+            }
+          ]
+        }
+      })
+  },
+  async (user) => {
+    await user.until({ role: 'row', name: /code-review/ }, 'The inventory never listed its skills.')
+    await user.until(
+      () => statusShows(/Some folders need access to finish scanning/),
+      'An unapproved link did not show the folder-access banner.'
+    )
+  }
+)
+
 const WHATS_NEW_CARD = { role: 'region', name: "What's new in Megatron" }
 
 function whatsNew(initial: Partial<ReturnType<Api['getInitialWhatsNew']>>): Partial<Api> {

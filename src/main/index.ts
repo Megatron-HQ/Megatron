@@ -52,6 +52,7 @@ import {
   listSkills
 } from './db/queries'
 import {
+  allowedLinkTargetSync,
   canonicalGrantPath,
   getGrantedPaths,
   isPathAllowed,
@@ -434,7 +435,8 @@ app.whenReady().then(() => {
       skill,
       usage: getSkillUsageDetail(getDb(), skill),
       skillMdContent: skillMd?.status === 'ok' ? skillMd.content : null,
-      findings
+      findings,
+      linkTarget: allowedLinkTargetSync(skill.source_path)
     }
   })
 
