@@ -26,6 +26,13 @@ Repo-wide. Subsystem decisions are locked in the owning doc — see the Docs tab
 | Data table        | `@tanstack/react-table` backs the skills table; no virtualization for the table itself (`@tanstack/react-virtual` is only for the file viewer's file tree)                                                                           | Real `~/.claude` data is tens of skills, not thousands — the file tree's per-directory file count is the actual scaling concern                                                                                                                   |
 | Table columns     | Name / Source / Description only — Path was cut                                                                                                                                                                                      | A truncated absolute path needing a tooltip to be legible was spending the table's widest column on data nobody read from the table itself; it lives in the file viewer's header instead                                                          |
 
+## Branches and releases
+
+- **Work on `staging`**, the default branch. Never push to `main`: it is production, and it receives staging only through a "Promote staging" PR once the changes are final. A person merges that PR.
+- **Releases come only from `main`.** `release-check.mjs` refuses a tag whose commit isn't contained in `origin/main`.
+- **A commit that ships a user-facing feature adds a highlight to the `next` entry** in `src/shared/whats-new.json`, creating the entry if it's absent (4 highlights at most). That entry becomes the What's new card users see after updating. Fixes, CI, docs and refactors leave it alone.
+- **The release PR bumps the version with `npm version <x.y.z> --no-git-tag-version`.** Its hook renames `next` to `<x.y.z>`. A release without `next` ships no card. `docs/releases.md` owns the details.
+
 ## Exploration budget
 
 Bound exploration by default: read the requested file plus a small number of directly related files. No blind repo-wide search unless blocked.
