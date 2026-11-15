@@ -55,10 +55,25 @@ export function validateReleaseTag(tag, version) {
     throw new Error(`Release tag ${JSON.stringify(tag)} does not match package.json v${version}`)
 }
 
+// What's new is drafted on staging under "next" and stamped with its version in the release PR.
+// A draft left at tag time would never be shown, because the app ignores the "next" key.
+const WHATS_NEW_DRAFT_KEY = 'next'
+
+export function validateWhatsNewStamped(catalog, version) {
+  if (Object.hasOwn(catalog, WHATS_NEW_DRAFT_KEY))
+    throw new Error(
+      `src/shared/whats-new.json still has a "${WHATS_NEW_DRAFT_KEY}" entry: rename "${WHATS_NEW_DRAFT_KEY}" to "${version}" before tagging`
+    )
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   if (process.argv[2] === 'tag') {
     const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url)))
     validateReleaseTag(process.argv[3], version)
+    validateWhatsNewStamped(
+      JSON.parse(readFileSync(new URL('../src/shared/whats-new.json', import.meta.url))),
+      version
+    )
   } else if (process.argv[2] === 'source') validateReleaseSource()
   else validateReleaseEnvironment(process.argv[2], process.env)
 }

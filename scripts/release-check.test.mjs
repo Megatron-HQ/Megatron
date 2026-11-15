@@ -5,7 +5,11 @@ import { mkdtempSync, realpathSync, renameSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { validateReleaseEnvironment, validateReleaseTag } from './release-check.mjs'
+import {
+  validateReleaseEnvironment,
+  validateReleaseTag,
+  validateWhatsNewStamped
+} from './release-check.mjs'
 
 const RELEASE_CHECK_SCRIPT = fileURLToPath(new URL('./release-check.mjs', import.meta.url))
 
@@ -123,6 +127,16 @@ test('accepts only a tag that names the version being packaged', () => {
   assert.doesNotThrow(() => validateReleaseTag('v0.2.0-beta.1', '0.2.0-beta.1'))
   for (const tag of ['0.1.0', 'v0.1.1', 'v0.1', 'release-0.1.0', '', undefined])
     assert.throws(() => validateReleaseTag(tag, '0.1.0'), /tag/)
+})
+
+test("refuses to tag while the What's new catalog still holds an unstamped next draft", () => {
+  const entry = { title: 'Megatron', highlights: [{ title: 'New', body: 'Something new.' }] }
+  assert.doesNotThrow(() => validateWhatsNewStamped({}, '0.4.0'))
+  assert.doesNotThrow(() => validateWhatsNewStamped({ '0.3.0': entry }, '0.4.0'))
+  assert.throws(
+    () => validateWhatsNewStamped({ next: entry, '0.3.0': entry }, '0.4.0'),
+    /rename "next" to "0\.4\.0"/
+  )
 })
 
 test('fails before packaging when a required signing setting is missing', () => {

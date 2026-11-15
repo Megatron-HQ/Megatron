@@ -49,6 +49,7 @@ window.api = {
   getInitialTheme: () => (query.get('theme') ?? 'system') as ThemePreference,
   getInitialSection: (): AppSection => 'skills',
   getInitialOnboarding: () => false,
+  getInitialWhatsNew: () => ({ unseen: [], latest: null, dots: [] }),
   getVersion: () => '1.0.0',
   getHomePath: () => '/Users/fixture',
 
@@ -66,6 +67,8 @@ window.api = {
   setTheme: done,
   setLastSection: done,
   setOnboardingDone: done,
+  markWhatsNewSeen: async () => [],
+  clearWhatsNewDot: done,
   openExternal: done,
   revealDataFolder: done,
   checkForUpdates: done,

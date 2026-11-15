@@ -94,6 +94,23 @@ describe('renderer trust boundary', () => {
     expect(() => security.validateIpcArguments(channel, args)).not.toThrow()
   })
   it.each([
+    [IPC_CHANNELS.getInitialWhatsNew, []],
+    [IPC_CHANNELS.markWhatsNewSeen, []],
+    [IPC_CHANNELS.clearWhatsNewDot, ['usage-skill-cost']]
+  ])("accepts What's new requests for %s", (channel, args) => {
+    expect(() => security.validateIpcArguments(channel, args)).not.toThrow()
+  })
+  it.each([
+    // Main computes the seen version from its own app version; the renderer never names one.
+    [IPC_CHANNELS.markWhatsNewSeen, ['9.9.9']],
+    [IPC_CHANNELS.clearWhatsNewDot, []],
+    [IPC_CHANNELS.clearWhatsNewDot, ['retired-anchor']],
+    [IPC_CHANNELS.clearWhatsNewDot, ['usage-skill-cost', 'usage-skill-cost']],
+    [IPC_CHANNELS.clearWhatsNewDot, [42]]
+  ])("rejects malformed What's new requests for %s", (channel, args) => {
+    expect(() => security.validateIpcArguments(channel, args)).toThrow()
+  })
+  it.each([
     [IPC_CHANNELS.narrowAllowedPath, ['/Users/me/Desktop']],
     [IPC_CHANNELS.getHomePath, []]
   ])('accepts valid folder requests for %s', (channel, args) => {

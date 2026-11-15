@@ -1,4 +1,5 @@
 import type { UsageProjectCatalog } from './usage-projects'
+import type { WhatsNewAnchorId, WhatsNewInitialState } from './whats-new'
 import type {
   AllowedPathRow,
   AppSection,
@@ -63,6 +64,10 @@ export interface Api {
   setLastSection: (section: AppSection) => Promise<void>
   getInitialOnboarding: () => boolean
   setOnboardingDone: () => Promise<void>
+  getInitialWhatsNew: () => WhatsNewInitialState
+  // Resolves with the dots main now holds: a first showing leaves some, a replay keeps them.
+  markWhatsNewSeen: () => Promise<WhatsNewAnchorId[]>
+  clearWhatsNewDot: (anchor: WhatsNewAnchorId) => Promise<void>
   rescan: () => Promise<ScanSummary>
   revealDataFolder: () => Promise<void>
   getVersion: () => string

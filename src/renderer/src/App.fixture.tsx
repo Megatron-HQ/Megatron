@@ -13,6 +13,7 @@ import {
 import { fixture, type Fixture, type FixtureUser } from './fixtures/define'
 import { emit } from './fixtures/fake-api'
 import { historyApi } from './fixtures/usage-data'
+import { COST_RELEASE, overviewWithSkillCost } from './components/whats-new/whats-new-fixture-data'
 
 function app(api: Partial<Api>, interact?: Fixture['interact']): Fixture {
   return fixture({ frame: 'window', api, render: () => <App />, interact })
@@ -291,6 +292,69 @@ export const ScanMissingProjectQuiet = app(
     )
   }
 )
+
+const WHATS_NEW_CARD = { role: 'region', name: "What's new in Megatron" }
+
+function whatsNew(initial: Partial<ReturnType<Api['getInitialWhatsNew']>>): Partial<Api> {
+  return {
+    ...historyApi(),
+    getUsageOverview: async () => overviewWithSkillCost(),
+    getInitialWhatsNew: () => ({ unseen: [], latest: COST_RELEASE, dots: [], ...initial })
+  }
+}
+
+// Behaviour: Show me leaves the card, opens the anchor's section and panel, and rings the anchor.
+export const WhatsNewShowMe = app(whatsNew({ unseen: [COST_RELEASE] }), async (user) => {
+  await user.until(WHATS_NEW_CARD, 'An upgrade with unseen news showed no card.')
+  await user.click({ role: 'button', name: 'Show me' })
+  await user.until(
+    { selector: '[data-whats-new-ring="usage-skill-cost"]' },
+    'Show me did not ring the new control.'
+  )
+  await user.until(
+    () =>
+      document.querySelector('[aria-label="What\'s new in Megatron"]') === null &&
+      document.querySelector('[data-whats-new="usage-skill-cost"]') !== null,
+    'Show me did not close the card and open Usage › Skills.'
+  )
+})
+
+// Behaviour: onboarding wins; the card never stacks on its modal.
+export const WhatsNewWaitsForOnboarding = app(
+  {
+    ...whatsNew({ unseen: [COST_RELEASE] }),
+    getInitialOnboarding: () => true
+  },
+  async (user) => {
+    await user.until({ role: 'dialog' }, 'Onboarding did not open.')
+    await user.until(
+      () => document.querySelector('[aria-label="What\'s new in Megatron"]') === null,
+      "The What's new card showed on top of onboarding."
+    )
+  }
+)
+
+// Behaviour: a dot marks the new control until the user first interacts with it.
+export const WhatsNewDotClears = app(whatsNew({ dots: ['usage-skill-cost'] }), async (user) => {
+  await user.click({ selector: 'nav[aria-label="Main navigation"] button:text-is("Usage")' })
+  await user.until({ role: 'navigation', name: 'Usage panels' }, 'Usage did not open.')
+  await user.click({ selector: 'nav[aria-label="Usage panels"] button:has-text("Skills")' })
+  const dot = '[data-whats-new-dot="usage-skill-cost"]'
+  await user.until({ selector: dot }, 'The new control showed no dot.')
+  await user.click({ text: 'Estimated cost attribution' })
+  await user.until(
+    () => document.querySelector(dot) === null,
+    'Interacting with the new control left its dot in place.'
+  )
+})
+
+// Behaviour: Settings › What's new replays the latest release after the card was dismissed.
+export const WhatsNewSettingsReplay = app(whatsNew({}), async (user) => {
+  await user.until({ role: 'row', name: /code-review/ }, 'The inventory never loaded.')
+  await user.press('Control+,')
+  await user.click({ role: 'button', name: "What's new", exact: true })
+  await user.until(WHATS_NEW_CARD, "Settings › What's new did not replay the card.")
+})
 
 // Behaviour: a sidebar filter is a way to reach a list, so choosing one leaves an open detail page.
 export const FilterClosesDetail = app(

@@ -4,8 +4,10 @@ import { InvocationTrend } from './InvocationTrend'
 import { RankedList } from './RankedList'
 import { SkillAssociationTable } from './SkillAssociationTable'
 import { formatCount } from './chart-utils'
+import { WhatsNewDot } from '@/components/whats-new/WhatsNewDot'
 import { getSkillDisplayName } from '@/lib/source-name'
 import { cn } from '@/lib/utils'
+import { anchorProps } from '@/lib/whats-new'
 import type { SkillInvocationSelection } from './SkillInvocationDialog'
 import type {
   SkillStats,
@@ -202,9 +204,10 @@ export function SkillsSection({
         />
       </ChartBlock>
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2" {...anchorProps('usage-skill-cost')}>
         <ChartBlock
           label="Estimated cost attribution"
+          labelAdornment={<WhatsNewDot anchor="usage-skill-cost" />}
           empty={window.attribution.rows.length === 0}
           emptyMessage={`No cost attribution data in the last ${windowKey === '24h' ? '24 hours' : windowKey === '7d' ? '7 days' : '30 days'}`}
         >

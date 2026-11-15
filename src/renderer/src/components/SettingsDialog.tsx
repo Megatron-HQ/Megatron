@@ -21,6 +21,8 @@ interface SettingsDialogProps {
   scanning: boolean
   onManageFolders: () => void
   onShowWelcome: () => void
+  // Null when this build has no release to replay; the link is then absent.
+  onShowWhatsNew?: (() => void) | null
   updateState?: UpdateState
 }
 
@@ -64,6 +66,7 @@ export function SettingsDialog({
   scanning,
   onManageFolders,
   onShowWelcome,
+  onShowWhatsNew,
   updateState
 }: SettingsDialogProps): React.JSX.Element {
   const queryClient = useQueryClient()
@@ -262,6 +265,14 @@ export function SettingsDialog({
           <section className="flex items-center justify-between gap-4 border-t border-border pt-3">
             <p className="font-mono text-xs text-muted-foreground">Megatron v{version}</p>
             <div className="flex items-center gap-4">
+              {onShowWhatsNew && (
+                <TextLink
+                  onClick={onShowWhatsNew}
+                  className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  What&apos;s new
+                </TextLink>
+              )}
               <TextLink
                 onClick={onShowWelcome}
                 className="text-xs text-muted-foreground transition-colors hover:text-foreground"
