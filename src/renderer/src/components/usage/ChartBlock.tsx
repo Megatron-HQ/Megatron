@@ -4,11 +4,14 @@ import type { ReactNode } from 'react'
 // with a quiet centered fallback when the window has nothing to show.
 export function ChartBlock({
   label,
+  labelAdornment,
   empty,
   emptyMessage,
   children
 }: {
   label: string
+  // Inline after the label, e.g. a What's new dot; absent, the label renders exactly as before.
+  labelAdornment?: ReactNode
   empty?: boolean
   emptyMessage?: string
   children: ReactNode
@@ -17,6 +20,7 @@ export function ChartBlock({
     <div className="flex flex-col gap-2">
       <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground">
         {label}
+        {labelAdornment}
       </span>
       {empty ? (
         <div className="flex h-[72px] items-center justify-center text-[13px] text-muted-foreground">

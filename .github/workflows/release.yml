@@ -1,7 +1,7 @@
 name: Release
 
-# Pushing a v* tag builds both platforms into a DRAFT GitHub Release. Nothing reaches users until
-# someone reviews the draft and clicks Publish, which also triggers homebrew-tap.yml.
+# A v* tag contained in main builds both platforms into a DRAFT GitHub Release. Nothing reaches
+# users until someone reviews the draft and clicks Publish, which also triggers homebrew-tap.yml.
 on:
   push:
     tags: ['v*']
@@ -15,9 +15,15 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - name: Require the tag to match package.json
         run: node scripts/release-check.mjs tag "$GITHUB_REF_NAME"
+      - name: Require the release commit to be on main
+        run: |
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          node scripts/release-check.mjs source
       - name: Create the draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -55,8 +61,8 @@ jobs:
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       MEGATRON_WINDOWS_PUBLISHER: ${{ vars.MEGATRON_WINDOWS_PUBLISHER }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -85,8 +91,9 @@ jobs:
             & /usr/bin/xcrun stapler validate $image.FullName
             if ($LASTEXITCODE -ne 0) { throw 'DMG staple validation failed' }
           }
-      # After stapling, so a signed DMG is uploaded in its final form. latest*.yml is the update
-      # feed electron-updater reads; the blockmaps enable differential downloads on Windows.
+      # After stapling, so a signed DMG (ad-hoc builds have none) is uploaded in its final form.
+      # latest*.yml is the update feed electron-updater and install.sh read; the blockmaps enable
+      # differential downloads. install.sh ships here, not from main, so it passes draft review.
       - name: Upload to the draft release
         shell: bash
         env:
@@ -94,5 +101,6 @@ jobs:
         run: |
           shopt -s nullglob
           files=(dist/*.dmg dist/*.zip dist/*.exe dist/*.blockmap dist/latest*.yml)
+          if [ "$RUNNER_OS" = macOS ]; then files+=(scripts/install.sh); fi
           if [ ${#files[@]} -eq 0 ]; then echo 'No release artifacts in dist/'; exit 1; fi
           gh release upload "$GITHUB_REF_NAME" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber

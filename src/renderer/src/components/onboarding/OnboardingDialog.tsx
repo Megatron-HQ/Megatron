@@ -24,7 +24,8 @@ import { cn } from '@/lib/utils'
 import { usageOverviewQuery } from '@/lib/usage-overview-query'
 import type { AllowedPathRow, PluginRow, SkillRow, SkippedGrant } from '../../../../shared/ipc'
 import { CountUp } from './CountUp'
-import { LIME_BUTTON, OnboardingFolderStep } from './OnboardingFolderStep'
+import { LIME_BUTTON } from '@/lib/lime-button'
+import { OnboardingFolderStep } from './OnboardingFolderStep'
 import { StepHeading } from './StepHeading'
 
 const STEPS = ['brief', 'overview', 'folders'] as const

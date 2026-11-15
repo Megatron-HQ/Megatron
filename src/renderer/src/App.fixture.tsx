@@ -1,7 +1,7 @@
 // Whole-app fixtures: states that only exist once App wires the sidebar, the scan banner and the
 // inventory together, and behaviours that cross screens.
 import type { Api } from '../../shared/api'
-import type { ScanActivity, ScanSummary } from '../../shared/ipc'
+import type { ScanActivity, ScanSummary, UpdateState } from '../../shared/ipc'
 import App from './App'
 import {
   daysAgo,
@@ -12,6 +12,8 @@ import {
 } from './fixtures/data'
 import { fixture, type Fixture, type FixtureUser } from './fixtures/define'
 import { emit } from './fixtures/fake-api'
+import { historyApi } from './fixtures/usage-data'
+import { COST_RELEASE, overviewWithSkillCost } from './components/whats-new/whats-new-fixture-data'
 
 function app(api: Partial<Api>, interact?: Fixture['interact']): Fixture {
   return fixture({ frame: 'window', api, render: () => <App />, interact })
@@ -60,6 +62,168 @@ export const Inventory = app({}, (user) =>
 
 // Windows keeps its native title bar, so the strip above the sheet is a thin separator.
 export const InventoryWindows: Fixture = { ...Inventory, platform: 'win32' }
+
+async function railLayout(user: FixtureUser): Promise<void> {
+  await user.until({ role: 'row', name: /code-review/ }, 'The inventory never listed its skills.')
+  await user.until(() => {
+    const nav = document.querySelector('nav[aria-label="Main navigation"]')
+    const buttons = [...(nav?.querySelectorAll('button') ?? [])]
+    const rail = nav?.parentElement?.getBoundingClientRect()
+    const settings = document
+      .querySelector('button[aria-label="Settings"]')
+      ?.getBoundingClientRect()
+    const expectedTop = window.api.platform === 'darwin' ? 32 : 6
+    return (
+      rail?.width === 48 &&
+      rail.left === 0 &&
+      rail.top === expectedTop &&
+      buttons.length === 3 &&
+      buttons.every((button, index) => {
+        const rect = button.getBoundingClientRect()
+        return (
+          rect.left < rail.right &&
+          (index === 0 || rect.top > buttons[index - 1].getBoundingClientRect().bottom)
+        )
+      }) &&
+      settings !== undefined &&
+      settings.bottom === rail.bottom - 8
+    )
+  }, 'The rail lost its vertical layout, titlebar clearance, or bottom Settings gear.')
+}
+
+export const MacRailLayout = { ...app({}, railLayout), platform: 'darwin' as const }
+export const WindowsRailLayout = { ...app({}, railLayout), platform: 'win32' as const }
+
+export const PluginsRail = app({ getInitialSection: () => 'plugins' }, (user) =>
+  user.until({ text: 'No plugins installed' }, 'The saved Plugins section did not open.')
+)
+
+export const UsageRail = app({ ...historyApi(), getInitialSection: () => 'usage' }, (user) =>
+  user.until({ role: 'navigation', name: 'Usage panels' }, 'The saved Usage section did not open.')
+)
+
+export const RailKeyboardNavigation = app(historyApi(), async (user) => {
+  await user.until({ role: 'row', name: /code-review/ }, 'The inventory never listed its skills.')
+  // The inventory focuses its first row on arrival; start keyboard navigation from the rail.
+  await user.click({ selector: 'nav[aria-label="Main navigation"] button[aria-label="Skills"]' })
+  await user.press('Tab')
+  await user.press('Enter')
+  await user.until({ text: 'No plugins installed' }, 'Keyboard activation did not open Plugins.')
+  await user.press('Tab')
+  await user.press('Space')
+  await user.until(
+    { role: 'navigation', name: 'Usage panels' },
+    'Keyboard activation did not open Usage.'
+  )
+  await user.press('Tab')
+  await user.press('Enter')
+  await user.until({ role: 'dialog', name: 'Settings' }, 'The rail gear did not open Settings.')
+  await user.press('Escape')
+  await user.until(
+    () => document.querySelector('[role="dialog"]') === null,
+    'Escape did not close Settings.'
+  )
+  await user.until(
+    {
+      selector: 'nav[aria-label="Main navigation"] button[aria-label="Usage"][aria-current="page"]'
+    },
+    'Closing Settings changed the active section.'
+  )
+})
+
+function settingsShortcut(platform: 'darwin' | 'win32'): Fixture {
+  return {
+    ...app({}, async (user) => {
+      await user.press(platform === 'darwin' ? 'Meta+,' : 'Control+,')
+      await user.until(
+        { role: 'dialog', name: 'Settings' },
+        'The Settings keyboard shortcut did not open Settings.'
+      )
+    }),
+    platform
+  }
+}
+
+export const MacSettingsShortcut = settingsShortcut('darwin')
+export const WindowsSettingsShortcut = settingsShortcut('win32')
+
+function updateNotice(status: UpdateState['status'], notice: string): Fixture {
+  return app({}, async (user) => {
+    await user.until({ role: 'row', name: /code-review/ }, 'The inventory never loaded.')
+    emit('onUpdateState', {
+      status,
+      version: '1.1.0',
+      detail: status === 'manual' ? 'The app is on a read-only volume.' : null,
+      autoCheck: true
+    })
+    await user.until(
+      { role: 'button', name: `Settings · ${notice}`, exact: true },
+      'The update event did not reach the Settings notice.'
+    )
+    await user.hover({ role: 'button', name: `Settings · ${notice}`, exact: true })
+    await user.until(
+      { role: 'tooltip', name: `Settings · ${notice}`, exact: true },
+      'The Settings update notice showed no tooltip.'
+    )
+  })
+}
+
+export const UpdateReady = updateNotice('ready', 'Update ready')
+export const ManualUpdateNotice = updateNotice('manual', 'Update available')
+
+export const MainNavigation = app(historyApi(), async (user) => {
+  await user.click({ selector: 'nav[aria-label="Main navigation"] button[aria-label="Plugins"]' })
+  await user.until({ text: 'No plugins installed' }, 'The main navigation did not open Plugins.')
+  await user.until(
+    {
+      selector:
+        'nav[aria-label="Main navigation"] button[aria-label="Plugins"][aria-current="page"]'
+    },
+    'The rail did not mark Plugins as the active section.'
+  )
+  await user.click({ selector: 'nav[aria-label="Main navigation"] button[aria-label="Usage"]' })
+  await user.until(
+    { role: 'navigation', name: 'Usage panels' },
+    'The main navigation did not open Usage.'
+  )
+  await user.click({ selector: 'nav[aria-label="Main navigation"] button[aria-label="Skills"]' })
+  await user.until(
+    { role: 'row', name: /code-review/ },
+    'The main navigation did not return to Skills.'
+  )
+  await user.until(
+    {
+      selector: 'nav[aria-label="Main navigation"] button[aria-label="Skills"][aria-current="page"]'
+    },
+    'The rail did not mark Skills as the active section.'
+  )
+})
+
+export const HistoryReturn = app(historyApi(), async (user) => {
+  await user.click({ selector: 'nav[aria-label="Main navigation"] button[aria-label="Usage"]' })
+  await user.click({ role: 'button', name: 'History', exact: true })
+  await user.until(
+    { role: 'searchbox', name: 'Search project timeline' },
+    'History never loaded its project search.'
+  )
+  const calendar = document.querySelector('[aria-label^="Daily activity calendar"]')
+  await user.click({ role: 'searchbox', name: 'Search project timeline' })
+  await user.type('Internal')
+  await user.until(
+    { text: '1 of 2 projects match' },
+    'History project search did not filter its timeline.'
+  )
+  await user.click({ role: 'button', name: 'Tokens', exact: true })
+  await user.until({ role: 'radiogroup', name: 'Token usage window' }, 'Tokens did not open.')
+  await user.click({ role: 'button', name: 'History', exact: true })
+  await user.until(
+    () =>
+      document.querySelector<HTMLInputElement>('input[aria-label="Search project timeline"]')
+        ?.value === 'Internal' &&
+      document.querySelector('[aria-label^="Daily activity calendar"]') === calendar,
+    'Returning to History rebuilt its calendar or lost the project search.'
+  )
+})
 
 export const LoadError = app(
   {
@@ -228,6 +392,103 @@ export const ScanMissingProjectQuiet = app(
     )
   }
 )
+
+// Behaviour: a blocked repo link raises the folder-access banner, not the generic refresh warning.
+export const ScanLinkNeedsAccess = app(
+  {
+    listSkills: async () =>
+      skillsResult(undefined, {
+        scanSummary: {
+          outcome: 'partial',
+          isStartup: true,
+          completedAt: daysAgo(0),
+          sources: [
+            {
+              name: 'scanSkills',
+              status: 'partial',
+              issues: [
+                {
+                  code: 'link_unapproved',
+                  path: 'C:\\Projects\\Megatron\\.claude\\skills\\shared-review',
+                  target: 'D:\\team-skills\\shared-review'
+                }
+              ]
+            }
+          ]
+        }
+      })
+  },
+  async (user) => {
+    await user.until({ role: 'row', name: /code-review/ }, 'The inventory never listed its skills.')
+    await user.until(
+      () => statusShows(/Some folders need access to finish scanning/),
+      'An unapproved link did not show the folder-access banner.'
+    )
+  }
+)
+
+const WHATS_NEW_CARD = { role: 'region', name: "What's new in Megatron" }
+
+function whatsNew(initial: Partial<ReturnType<Api['getInitialWhatsNew']>>): Partial<Api> {
+  return {
+    ...historyApi(),
+    getUsageOverview: async () => overviewWithSkillCost(),
+    getInitialWhatsNew: () => ({ unseen: [], latest: COST_RELEASE, dots: [], ...initial })
+  }
+}
+
+// Behaviour: Show me leaves the card, opens the anchor's section and panel, and rings the anchor.
+export const WhatsNewShowMe = app(whatsNew({ unseen: [COST_RELEASE] }), async (user) => {
+  await user.until(WHATS_NEW_CARD, 'An upgrade with unseen news showed no card.')
+  await user.click({ role: 'button', name: 'Show me' })
+  await user.until(
+    { selector: '[data-whats-new-ring="usage-skill-cost"]' },
+    'Show me did not ring the new control.'
+  )
+  await user.until(
+    () =>
+      document.querySelector('[aria-label="What\'s new in Megatron"]') === null &&
+      document.querySelector('[data-whats-new="usage-skill-cost"]') !== null,
+    'Show me did not close the card and open Usage › Skills.'
+  )
+})
+
+// Behaviour: onboarding wins; the card never stacks on its modal.
+export const WhatsNewWaitsForOnboarding = app(
+  {
+    ...whatsNew({ unseen: [COST_RELEASE] }),
+    getInitialOnboarding: () => true
+  },
+  async (user) => {
+    await user.until({ role: 'dialog' }, 'Onboarding did not open.')
+    await user.until(
+      () => document.querySelector('[aria-label="What\'s new in Megatron"]') === null,
+      "The What's new card showed on top of onboarding."
+    )
+  }
+)
+
+// Behaviour: a dot marks the new control until the user first interacts with it.
+export const WhatsNewDotClears = app(whatsNew({ dots: ['usage-skill-cost'] }), async (user) => {
+  await user.click({ selector: 'nav[aria-label="Main navigation"] button[aria-label="Usage"]' })
+  await user.until({ role: 'navigation', name: 'Usage panels' }, 'Usage did not open.')
+  await user.click({ selector: 'nav[aria-label="Usage panels"] button:has-text("Skills")' })
+  const dot = '[data-whats-new-dot="usage-skill-cost"]'
+  await user.until({ selector: dot }, 'The new control showed no dot.')
+  await user.click({ text: 'Estimated cost attribution' })
+  await user.until(
+    () => document.querySelector(dot) === null,
+    'Interacting with the new control left its dot in place.'
+  )
+})
+
+// Behaviour: Settings › What's new replays the latest release after the card was dismissed.
+export const WhatsNewSettingsReplay = app(whatsNew({}), async (user) => {
+  await user.until({ role: 'row', name: /code-review/ }, 'The inventory never loaded.')
+  await user.press('Control+,')
+  await user.click({ role: 'button', name: "What's new", exact: true })
+  await user.until(WHATS_NEW_CARD, "Settings › What's new did not replay the card.")
+})
 
 // Behaviour: a sidebar filter is a way to reach a list, so choosing one leaves an open detail page.
 export const FilterClosesDetail = app(

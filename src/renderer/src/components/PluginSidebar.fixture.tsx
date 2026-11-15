@@ -2,7 +2,7 @@
 // inventory do to its selection.
 import { useState } from 'react'
 import App from '@/App'
-import { daysAgo } from '@/fixtures/data'
+import { daysAgo, projectTree } from '@/fixtures/data'
 import { fixture, sidebar, type Fixture, type FixtureUser, type Target } from '@/fixtures/define'
 import { emit } from '@/fixtures/fake-api'
 import { basePlugins, pluginReads, pluginTree, type PluginTreeMode } from '@/fixtures/plugin-data'
@@ -145,4 +145,29 @@ export const NestedRepositories = app('nested', async (user) => {
     { role: 'button', name: /^grandchild\s*1$/ },
     'The nested repository did not list the repository inside it.'
   )
+})
+
+// No plugins and every group collapsed: the rows the sidebar always has.
+function EmptyPluginsSidebar(): React.JSX.Element {
+  const [filter, setFilter] = useState<PluginFilter>({ kind: 'all' })
+  const [expanded, setExpanded] = useState(() => new Set<string>())
+  const [data] = useState(() => projectTree())
+  return (
+    <PluginSidebar
+      plugins={[]}
+      filter={filter}
+      onFilterChange={setFilter}
+      onFilterSnap={setFilter}
+      folders={data.folders}
+      projectCatalog={data.projects}
+      home="/Users/fixture"
+      expandedProjects={expanded}
+      setExpandedProjects={setExpanded}
+    />
+  )
+}
+
+export const Navigation = fixture({
+  frame: sidebar('plugins'),
+  render: () => <EmptyPluginsSidebar />
 })

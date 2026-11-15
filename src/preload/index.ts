@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Api } from '../shared/api'
 import type { UsageProjectCatalog } from '../shared/usage-projects'
+import type { WhatsNewAnchorId, WhatsNewInitialState } from '../shared/whats-new'
 import {
   IPC_CHANNELS,
   type AllowedPathRow,
@@ -88,6 +89,12 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.setLastSection, section),
   getInitialOnboarding: (): boolean => ipcRenderer.sendSync(IPC_CHANNELS.getInitialOnboarding),
   setOnboardingDone: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.setOnboardingDone),
+  getInitialWhatsNew: (): WhatsNewInitialState =>
+    ipcRenderer.sendSync(IPC_CHANNELS.getInitialWhatsNew),
+  markWhatsNewSeen: (): Promise<WhatsNewAnchorId[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.markWhatsNewSeen),
+  clearWhatsNewDot: (anchor: WhatsNewAnchorId): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.clearWhatsNewDot, anchor),
   rescan: (): Promise<ScanSummary> => ipcRenderer.invoke(IPC_CHANNELS.rescan),
   revealDataFolder: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.revealDataFolder),
   getVersion: (): string => ipcRenderer.sendSync(IPC_CHANNELS.getVersion),
@@ -97,7 +104,6 @@ const api = {
   installUpdate: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.installUpdate),
   setAutoUpdateCheck: (enabled: boolean): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.setAutoUpdateCheck, enabled),
-  openUpdateDownload: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.openUpdateDownload),
   onPluginUpdateProgress: (callback: (progress: PluginUpdateProgress) => void): (() => void) => {
     const listener = (_event: unknown, progress: PluginUpdateProgress): void => callback(progress)
     ipcRenderer.on(IPC_CHANNELS.pluginUpdateProgress, listener)

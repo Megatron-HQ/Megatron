@@ -71,9 +71,9 @@ Verified 2026-11-11 with the `dataviz` skill's `validate_palette.js`, against ea
 
 ### Named Rules
 
-**The One Stamp Rule.** Acid lime marks exactly one thing at a time (the active sidebar filter or a single primary CTA) and never appears as body text, a link, or a decorative fill. The rail's active section and the Settings segmented control use ink-fill instead: they switch what's showing, they don't select an item.
+**The One Stamp Rule.** Acid lime marks exactly one thing at a time (the active sidebar filter or a single primary CTA) and never appears as body text, a link, or a decorative fill. The rail's active section and the Settings segmented control use ink-fill instead: they switch what's showing, they don't select an item. The app logo retains its fixed lime caps and sparkle as branding; those never signal selection or status.
 **The Tones-Aren't-The-Stamp Rule.** Tones report state only and never substitute for lime. A status is never color alone: it pairs with an icon, and with a label wherever it renders as a pill. The narrow exceptions are labeled by a tooltip: the icon-only dormant `Power` and `Clock` in the table's icon tray, and two ambient dots with no icon, the context-budget dot in the sidebar footer and the update dot on the rail gear.
-**The Channel Rule.** Each color role keeps its hues in its own channel. Entity hues: entity marks only, never on the frame (rail, sidebars, titlebar strip), where `--frame-warning` is indistinguishable from Agents for deuteranopes. Model hues: Usage chart marks that split by model, direct-labeled, only inside `components/usage/`. Tones: status pills and icons, the two ambient dots, inline alerts and caveats, destructive actions. No hue ever means "active" (that's the stamp), a source tier, or a UI accent.
+**The Channel Rule.** Each color role keeps its hues in its own channel. Entity hues: entity marks only, never on the frame (rail and sidebars), where `--frame-warning` is indistinguishable from Agents for deuteranopes. Model hues: Usage chart marks that split by model, direct-labeled, only inside `components/usage/`. Tones: status pills and icons, the two ambient dots, inline alerts and caveats, destructive actions. No hue ever means "active" (that's the stamp), a source tier, or a UI accent.
 **The Monochrome-Chart-Ink Rule.** Usage charts draw magnitude and emphasis in `--usage-bar` ink alone. Color in a chart only ever means identity (model or entity), never a category. A tinted "data" color was considered and rejected: it would be the second accent the ledger forbids.
 **The Every-Hue-Has-A-Role Rule.** A new hue joins exactly one role. Before it ships, re-run the validator against that role's hues (all pairs, `--pairs all`), check its closest pair in every other role, and record the numbers under Validation.
 
@@ -82,7 +82,7 @@ Verified 2026-11-11 with the `dataviz` skill's `validate_palette.js`, against ea
 **UI:** Geist Sans (`ui-sans-serif, system-ui, sans-serif` fallback). **Mono:** Geist Mono (`ui-monospace, monospace` fallback), for tabular and code-like data: paths, version strings, plugin IDs, token counts. Hierarchy comes from position and ink-vs-muted contrast, never a scale jump.
 
 - **Title** (600, 16px, 1.3 line-height): the file viewer's detail title, the largest text in the product.
-- **Label, App** (600, 14px): the sidebar wordmark.
+- **Label, App** (600, 14px): the header wordmark.
 - **Body** (400, 13px): table cells, descriptions, general UI.
 - **Label, Column** (500, 11px, uppercase, ink-muted, 0.04em tracking): column headers and chart labels.
 - **Mono Data** (400, 12px Geist Mono, tabular-nums).
@@ -97,13 +97,13 @@ Rendered markdown in the file viewer has its own scale: h1 20px, h2 16px, h3 14p
 
 ## Layout
 
-A dense, Linear-style sidebar + list/detail shell, not a spacious admin dashboard. The window is a flat **frame** holding one raised **content sheet**. The frame carries a full-width top strip (the macOS drag region under the `hiddenInset` titlebar; a thin band under Windows' native titlebar), a persistent icon rail for switching sections (Skills, Plugins, Usage), and a secondary sidebar inside each section. The sheet fills the rest with the `xl` radius, a rule-line border, and `--sheet-shadow`; its top edge is the visible content edge, so no separate titlebar bar is drawn. The scan banner, when shown, is the sheet's first row. The file viewer replaces the table when a row opens rather than layering over it. Usage renders one panel at a time in the same shell.
+A dense, Linear-style sidebar + list/detail shell, not a spacious admin dashboard. The window is a flat **frame** holding one raised **content sheet**. A persistent 48px icon rail switches sections (Skills, Plugins, Usage), with Settings at its foot and a project/filter sidebar inside each section. The wordmark sits above the sidebar filters. A full-width top strip provides the macOS `hiddenInset` drag region and space for its traffic lights; Windows keeps its native titlebar above a thin gutter. The sheet fills the rest with the `xl` radius, a rule-line border, and `--sheet-shadow`; its top edge is the visible content edge. The scan banner, when shown, is the sheet's first row. The file viewer replaces the table when a row opens rather than layering over it. Usage renders one panel at a time in the same shell.
 
 Content is fluid width everywhere except rendered markdown prose (`72ch`). The command palette (`⌘K`) is a modal overlay, not primary navigation, and doesn't reopen the decision against a sidebar search box.
 
 ## Elevation & Depth
 
-**The Ledger-Lies-Flat Rule.** The frame is flat, and so is everything on the sheet: every on-page seam (rail/sidebar, scan banner, the file viewer's header and tree) is a 1px rule-line. The content sheet is the one at-rest surface with a shadow, and `--sheet-shadow` is its alone. Anything else casts a shadow only if it floats above the page (dropdowns, popovers, tooltips, dialogs, toasts, ⌘K), using shadcn's default scale unmodified. No gradients anywhere.
+**The Ledger-Lies-Flat Rule.** The frame is flat, and so is everything on the sheet: every on-page seam (scan banner, the file viewer's header and tree) is a 1px rule-line. The content sheet is the one at-rest surface with a shadow, and `--sheet-shadow` is its alone. Anything else casts a shadow only if it floats above the page (dropdowns, popovers, tooltips, dialogs, toasts, ⌘K), using shadcn's default scale unmodified. No gradients anywhere.
 
 ## Shapes
 
@@ -150,18 +150,26 @@ Claude app chats (folderless Claude desktop chats) fold into one "Claude app cha
 
 ### Rail (section switcher)
 
-- Icon-only, tooltip-labeled, behind one rule-line, no shadow. The active section is ink-fill (`--frame-muted` + ledger ink), never lime: the rail switches which section shows, while selecting within a section is the sidebar's lime filter.
-- The footer gear opens Settings (also `Cmd+,`). When an update is ready (Windows) or available (macOS), an info-tone dot sits on the gear and its label reads "Settings · Update ready" / "Settings · Update available".
+- Icon-only, tooltip-labeled buttons sit on the frame behind one rule-line, with no shadow. The active section is ink-fill (`--frame-muted` + ledger ink), never lime: the rail switches which section shows, while selecting within a section is the sidebar's lime filter. Hover uses the shared vertical glide highlight; keyboard focus remains visible and reduced motion removes the glide travel.
+- The Settings gear sits at the bottom of the rail. Settings also opens with `Cmd+,` / `Ctrl+,`. When an update is ready, an info-tone dot sits on the gear and its label reads "Settings · Update ready". A macOS install that requires a manual update uses the same dot with "Settings · Update available".
 
 ### Settings (dialog)
 
-- A modal dialog opened by the rail gear or `Cmd+,`, not a rail section, with sections separated by rule-lines. Its Light/Dark/System segmented control marks the active option with ink-fill, like the rail, never lime.
+- A modal dialog opened by the rail gear or `Cmd+,`, not a navigation section, with sections separated by rule-lines. Its Light/Dark/System segmented control marks the active option with ink-fill, like the rail, never lime.
 
 ### Onboarding (dialog)
 
 - A three-step modal over the live app (`components/onboarding/`): what Megatron does and doesn't do, an overview of Skills / Plugins / Usage with the user's own counts, and folder access. It shows when no folder is granted and the `preferences.json` flag is unset; every exit sets the flag; Settings › About › "Show welcome" replays it.
 - **Departs from the ledger, user-authorised and scoped to this dialog:** 24px/600 step headlines, and motion-led steps: direction-aware spring slides, the dialog's height animating to each step, staggered entries, counts ticking up as the scan reports, a check popping on granted rows, progress dots stretching into a pill.
 - **Everything else holds:** lime on exactly one CTA at a time (Next, then "Choose folders…" until something is granted, then "Open Megatron"); tones per the Tones-Aren't-The-Stamp Rule; overview card icons stay ink like the rail's; no gradients, glows, or animated backgrounds. With reduced motion, steps are opacity-only and counts show their final value.
+
+### What's new (corner card)
+
+- A non-blocking card in the bottom-right corner (`components/whats-new/`), shown on the first launch after an upgrade to a release with a `whats-new.json` entry, once the launch scan has settled. Fresh installs get onboarding instead. It never takes focus on its own (`F6` moves focus into it) and hides while onboarding, Settings, ⌘K, another dialog, or a plugin toast is up. Settings › About › "What's new" replays the latest release.
+- One highlight per step, newest release first, with skipped releases following. Step dots stretch into a pill like onboarding's progress, in ink rather than lime. Lime marks one CTA only: "Next", then "Got it". "Show me" is a ghost button.
+- **Previews are live miniatures, not screenshots.** Each one draws the real feature at card size from the user's own data in the existing Query cache. With no data, it shows labelled sample data. Previews are `inert` and `aria-hidden`; the highlight's text is what assistive technology reads.
+- **Show me** opens the section (and Usage panel) the highlight names and rings its anchor with a `--ring` border overlay that pulses twice and fades. Under reduced motion it holds and fades, opacity only. The ring is drawn over the anchor, never as a class on it, so the anchor's own hover and glide stay untouched. After the card, a 6px `--ring` dot follows the label of each new control until it is first used, for 30 days at most.
+- Holds the ledger: a floating card with shadcn's shadow (Ledger-Lies-Flat), `lg` radius, the dialog's scale-and-fade entrance, no gradients.
 
 ### Sidebar Navigation
 
@@ -196,7 +204,8 @@ The file viewer's tree uses more motion than most surfaces: icon rotation on exp
 ### Charts (Usage)
 
 - Hand-rolled in `components/usage/`, in chart ink per the Monochrome-Chart-Ink Rule. A part-to-whole bar has no track: the whole bar is data.
-- Bars rise from the baseline, staggered, on enter. A window switch is the signature moment: bars interpolate to their new heights and stat numerals roll to the new value, on a switch only, never on mount. Panel switches crossfade. Hover dims siblings and never recolors.
+- Bars rise from the baseline, staggered, on enter. A window switch is the signature moment: bars interpolate to their new heights and stat numerals roll to the new value, on a switch only, never on mount. Panel switches arrive without waiting for an exit. Hover dims siblings and never recolors.
+- History keeps a left-to-right calendar entrance and the timeline's fill sweep, shortened to 140ms with at most 80ms of stagger. Calendar weeks rise together so the dense grid needs about 53 animations instead of 365. These are CSS opacity/transform entrances so returning to the loaded year replays the motion without rebuilding the calendar or reconnecting hundreds of tooltip or animation controllers. Project search and expansion survive panel switches. Hidden History makes no calendar requests; calendar data still refreshes on return. Reduced motion shows the final values immediately.
 
 ### Named Rules
 

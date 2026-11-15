@@ -1,15 +1,17 @@
 name: Homebrew smoke
 
-# Installs the published cask on an Apple Silicon runner the way a user would, then checks what
-# decides whether Gatekeeper blocks an ad-hoc signed app: the com.apple.quarantine flag. Homebrew
-# quarantines the download; the cask's postflight_steps strip it from the installed app. Run it by
-# hand after publishing a release; it also runs on a pull request that changes it or the cask.
+# Installs the published release on an Apple Silicon runner both ways a user would (the cask, and
+# the curl one-liner), then checks what decides whether Gatekeeper blocks an ad-hoc signed app: the
+# com.apple.quarantine flag. Homebrew quarantines the download and the cask's postflight_steps strip
+# it; curl never sets it. Run it by hand after publishing a release; it also runs on a pull request
+# that changes it, the cask, or install.sh (the curl job then runs the branch's script).
 on:
   workflow_dispatch:
   pull_request:
     paths:
       - .github/workflows/homebrew-smoke.yml
       - .github/homebrew/megatron.rb
+      - scripts/install.sh
 
 permissions:
   contents: read
@@ -34,6 +36,45 @@ jobs:
         run: |
           if xattr -r -l /Applications/Megatron.app | grep -q com.apple.quarantine; then
             echo '::error::Megatron.app is still quarantined; Gatekeeper would block it'
+            exit 1
+          fi
+      - name: Verify the ad-hoc signature
+        run: codesign --verify --deep --strict /Applications/Megatron.app
+      - name: Launch the app
+        run: |
+          open -a /Applications/Megatron.app
+          for _ in $(seq 1 30); do
+            if pgrep -x Megatron >/dev/null; then echo 'Megatron is running'; exit 0; fi
+            sleep 1
+          done
+          echo '::error::Megatron did not start within 30 seconds'
+          exit 1
+
+  curl:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
+      - name: Lint the installer
+        if: github.event_name == 'pull_request'
+        run: |
+          command -v shellcheck >/dev/null || brew install shellcheck
+          shellcheck scripts/install.sh
+      # shell: bash adds pipefail, so a failed curl fails the step instead of piping nothing to bash.
+      - name: Install with the published one-liner
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: curl -fsSL https://github.com/Megatron-HQ/Megatron/releases/latest/download/install.sh | bash
+      - name: Install with this branch's install.sh
+        if: github.event_name == 'pull_request'
+        run: bash scripts/install.sh
+      - name: Rerun and expect up to date
+        if: github.event_name == 'pull_request'
+        run: bash scripts/install.sh | grep -q 'up to date'
+      - name: Confirm the installed app carries no quarantine flag
+        run: |
+          if xattr -r -l /Applications/Megatron.app | grep -q com.apple.quarantine; then
+            echo '::error::Megatron.app is quarantined; Gatekeeper would block it'
             exit 1
           fi
       - name: Verify the ad-hoc signature

@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, dialog, ipcMain, net, protocol, session } from 'electron'
-import { basename, join } from 'path'
+import { basename, join, resolve } from 'path'
 import { homedir } from 'os'
 import { pathToFileURL } from 'url'
 import {
@@ -37,6 +37,7 @@ import { createScanSession, type ScanUrgency } from './scan-session'
 import { disableChromiumHttpCache } from './chromium-cache'
 import { changeAllowedPaths, listAllowedPaths, normalizeAllowedPaths } from './folder-grants'
 import { createUpdater, type Updates } from './updater'
+import { readSwapResult, scheduleSwap, selfUpdateBlocker, stageUpdate } from './mac-self-update'
 import { claimSingleInstance } from './single-instance'
 import {
   deleteSkillsForProjectRoot,
@@ -51,6 +52,7 @@ import {
   listSkills
 } from './db/queries'
 import {
+  allowedLinkTargetSync,
   canonicalGrantPath,
   getGrantedPaths,
   isPathAllowed,
@@ -68,6 +70,15 @@ import {
   setStoredTheme,
   type ThemeStore
 } from './theme'
+import {
+  activeWhatsNewDots,
+  clearWhatsNewDot,
+  markWhatsNewSeen,
+  recordWhatsNewBaseline,
+  resolveWhatsNewInitialState
+} from './whats-new-state'
+import { parseWhatsNewCatalog, type WhatsNewAnchorId } from '../shared/whats-new'
+import whatsNewJson from '../shared/whats-new.json'
 import { suggestGrantStart } from '../shared/grant-suggestions'
 import { WINDOW_SIZE } from '../shared/window-size'
 import {
@@ -123,6 +134,8 @@ const isPrimaryInstance = claimSingleInstance(app, () => BrowserWindow.getAllWin
 if (isPrimaryInstance)
   securePrivateDataDirectory(app.getPath('userData'), join(app.getPath('appData'), app.getName()))
 const themeStore: ThemeStore = new Store({ name: 'preferences' })
+// Bundled and validated by its own test, so a parse failure here means a broken build, not user data.
+const whatsNewCatalog = parseWhatsNewCatalog(whatsNewJson)
 
 function usageProjectLocations(): UsageProjectLocation[] {
   const saved = themeStore.get('usageProjects')
@@ -422,7 +435,8 @@ app.whenReady().then(() => {
       skill,
       usage: getSkillUsageDetail(getDb(), skill),
       skillMdContent: skillMd?.status === 'ok' ? skillMd.content : null,
-      findings
+      findings,
+      linkTarget: allowedLinkTargetSync(skill.source_path)
     }
   })
 
@@ -630,7 +644,32 @@ app.whenReady().then(() => {
     event.returnValue = resolveOnboarding(themeStore)
   })
 
-  secureIpc.handle(IPC_CHANNELS.setOnboardingDone, () => markOnboardingDone(themeStore))
+  secureIpc.handle(IPC_CHANNELS.setOnboardingDone, () => {
+    markOnboardingDone(themeStore)
+    recordWhatsNewBaseline(themeStore, appVersion)
+  })
+
+  secureIpc.on(IPC_CHANNELS.getInitialWhatsNew, (event) => {
+    event.returnValue = resolveWhatsNewInitialState(themeStore, {
+      releases: whatsNewCatalog.releases,
+      currentVersion: appVersion,
+      now: new Date()
+    })
+  })
+
+  secureIpc.handle(IPC_CHANNELS.markWhatsNewSeen, () => {
+    const now = new Date()
+    markWhatsNewSeen(themeStore, {
+      releases: whatsNewCatalog.releases,
+      currentVersion: appVersion,
+      now
+    })
+    return activeWhatsNewDots(themeStore, now)
+  })
+
+  secureIpc.handle(IPC_CHANNELS.clearWhatsNewDot, (_event, anchor: WhatsNewAnchorId) =>
+    clearWhatsNewDot(themeStore, anchor)
+  )
 
   // Await the isolated scan; the completion broadcast invalidates renderer queries.
   secureIpc.handle(IPC_CHANNELS.rescan, () => scanAndNotify('announce', true))
@@ -649,6 +688,12 @@ app.whenReady().then(() => {
     event.returnValue = homedir()
   })
 
+  // Contents/MacOS/Megatron -> Megatron.app. Only the macOS self-update reads these paths; it
+  // writes nowhere but this bundle's own location, the staging folder and the result file.
+  const bundlePath = resolve(app.getPath('exe'), '..', '..', '..')
+  const swapResultFile = join(app.getPath('userData'), 'update-failure.txt')
+  // Inside electron-updater's own macOS download cache, which the Homebrew cask's zap removes.
+  const stagingDir = join(homedir(), 'Library', 'Caches', 'megatron-updater', 'staged')
   const updateService = createUpdater({
     updater: electronUpdater.autoUpdater,
     platform: process.platform,
@@ -658,11 +703,20 @@ app.whenReady().then(() => {
       for (const window of BrowserWindow.getAllWindows())
         window.webContents.send(IPC_CHANNELS.updateState, state)
     },
-    openExternal: (url) => {
-      openSafeExternal(url, (safeUrl) => {
-        void shell.openExternal(safeUrl)
-      })
-    }
+    selfUpdate: {
+      blocker: () => selfUpdateBlocker(bundlePath),
+      stage: (zipPath, version) => stageUpdate(zipPath, version, stagingDir),
+      scheduleSwap: (staged, relaunch) =>
+        scheduleSwap({
+          pid: process.pid,
+          staged,
+          target: bundlePath,
+          relaunch,
+          resultFile: swapResultFile
+        }),
+      takeFailure: () => readSwapResult(swapResultFile)
+    },
+    quit: () => app.quit()
   })
   updates = updateService
   secureIpc.handle(IPC_CHANNELS.getUpdateState, () => updateService.getState())
@@ -671,7 +725,6 @@ app.whenReady().then(() => {
   secureIpc.handle(IPC_CHANNELS.setAutoUpdateCheck, (_event, enabled: boolean) =>
     updateService.setAutoCheck(enabled)
   )
-  secureIpc.handle(IPC_CHANNELS.openUpdateDownload, () => updateService.openDownload())
 
   createWindow()
   updateService.start()
@@ -723,6 +776,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  updates?.beforeQuit()
   inventoryWatcher?.close()
   void scans.cancel()
 })

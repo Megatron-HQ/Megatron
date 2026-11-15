@@ -308,6 +308,9 @@ export function SkillDetail({
               </p>
               <dl className="grid gap-x-8 gap-y-2 min-[900px]:grid-cols-2">
                 <DetailRow label="Path" value={skill.source_path} mono breakAll />
+                {data.linkTarget !== null && (
+                  <DetailRow label="Links to" value={data.linkTarget} mono breakAll />
+                )}
                 {skill.hook_events !== null && <DetailRow label="Hooks" value={hookEvents} />}
                 {userInvocableOnly && <DetailRow label="Invocation" value={invocationValue} />}
                 {skill.disabled_reason !== null && (

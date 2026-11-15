@@ -25,6 +25,9 @@ export const IPC_CHANNELS = {
   setLastSection: 'app:setLastSection',
   getInitialOnboarding: 'app:getInitialOnboarding',
   setOnboardingDone: 'app:setOnboardingDone',
+  getInitialWhatsNew: 'whatsNew:getInitial',
+  markWhatsNewSeen: 'whatsNew:markSeen',
+  clearWhatsNewDot: 'whatsNew:clearDot',
   rescan: 'app:rescan',
   revealDataFolder: 'app:revealDataFolder',
   getVersion: 'app:getVersion',
@@ -42,16 +45,17 @@ export const IPC_CHANNELS = {
   checkForUpdates: 'updates:check',
   installUpdate: 'updates:install',
   setAutoUpdateCheck: 'updates:setAutoCheck',
-  openUpdateDownload: 'updates:openDownload',
   updateState: 'updates:state'
 } as const
 
+// 'manual': a newer version exists but this install can't replace itself; detail says why.
 export type UpdateStatus =
-  'unsupported' | 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'ready' | 'error'
+  'unsupported' | 'idle' | 'checking' | 'current' | 'downloading' | 'ready' | 'manual' | 'error'
 
 export interface UpdateState {
   status: UpdateStatus
   version: string | null
+  detail: string | null
   autoCheck: boolean
 }
 
@@ -200,7 +204,10 @@ export interface ScanIssue {
     | 'settings_invalid'
     | 'source_unavailable'
     | 'scan_limit'
+    | 'link_unapproved'
   path: string
+  // link_unapproved only: the folder the link at `path` resolves to.
+  target?: string
 }
 
 export interface ScanTaskResult {
@@ -282,6 +289,8 @@ export interface OpenSkillMetaResult {
   usage: SkillUsageDetail
   skillMdContent: string | null
   findings: LintFindingRow[]
+  // Where the skill folder resolves when the folder itself is a link (Orca, `npx skills`).
+  linkTarget: string | null
 }
 
 export type Theme = 'light' | 'dark'

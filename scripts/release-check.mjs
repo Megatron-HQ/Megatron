@@ -1,6 +1,38 @@
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+const PRODUCTION_RELEASE_REF = 'refs/remotes/origin/main'
+const UNVERIFIABLE_RELEASE_SOURCE =
+  'Could not verify release source against origin/main. Fetch complete Git history before releasing.'
+
+function validateReleaseSource() {
+  const gitOptions = { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+  let shallowHistory
+  try {
+    shallowHistory = execFileSync(
+      'git',
+      ['rev-parse', '--is-shallow-repository'],
+      gitOptions
+    ).trim()
+  } catch (cause) {
+    throw new Error(UNVERIFIABLE_RELEASE_SOURCE, { cause })
+  }
+  if (shallowHistory !== 'false')
+    throw new Error('Release source verification requires full Git history (fetch-depth: 0).')
+
+  try {
+    execFileSync('git', ['merge-base', '--is-ancestor', 'HEAD', PRODUCTION_RELEASE_REF], gitOptions)
+  } catch (cause) {
+    throw new Error(
+      cause.status === 1
+        ? 'Release commit must be contained in origin/main. Promote changes to main before tagging.'
+        : UNVERIFIABLE_RELEASE_SOURCE,
+      { cause }
+    )
+  }
+}
 
 export function validateReleaseEnvironment(platform, environment) {
   if (!['mac', 'win'].includes(platform)) throw new Error('Unsupported release platform')
@@ -23,9 +55,25 @@ export function validateReleaseTag(tag, version) {
     throw new Error(`Release tag ${JSON.stringify(tag)} does not match package.json v${version}`)
 }
 
+// What's new is drafted on staging under "next" and stamped with its version in the release PR.
+// A draft left at tag time would never be shown, because the app ignores the "next" key.
+const WHATS_NEW_DRAFT_KEY = 'next'
+
+export function validateWhatsNewStamped(catalog, version) {
+  if (Object.hasOwn(catalog, WHATS_NEW_DRAFT_KEY))
+    throw new Error(
+      `src/shared/whats-new.json still has a "${WHATS_NEW_DRAFT_KEY}" entry: rename "${WHATS_NEW_DRAFT_KEY}" to "${version}" before tagging`
+    )
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   if (process.argv[2] === 'tag') {
     const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url)))
     validateReleaseTag(process.argv[3], version)
-  } else validateReleaseEnvironment(process.argv[2], process.env)
+    validateWhatsNewStamped(
+      JSON.parse(readFileSync(new URL('../src/shared/whats-new.json', import.meta.url))),
+      version
+    )
+  } else if (process.argv[2] === 'source') validateReleaseSource()
+  else validateReleaseEnvironment(process.argv[2], process.env)
 }

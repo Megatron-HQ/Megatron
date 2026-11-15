@@ -20,15 +20,16 @@ export const SHELL = `${SOURCE}/App.tsx`
 const THEMES = ['light', 'dark']
 // Midday UTC in the middle of a month, so no fixture sits next to a day or month boundary.
 const FIXED_TIME = new Date('2026-06-15T12:00:00Z')
-// Rasterize with SwiftShader, Chrome's software GL, not the machine's GPU. On a real GPU two
-// renders of the same page differed by a level or two at a couple of anti-aliased icon pixels
-// (measured 2026-11-12, Chrome 157, Apple GPU: one fixture split 13/27 over 40 renders, even one
-// page at a time). Plain software rendering (--disable-gpu) was worse; SwiftShader gave identical
-// bytes over every repeat, which is what lets the comparison use no tolerance.
-// Composite in software as well. Under SwiftShader compositing, a dialog that scrolls and sits on
-// an exact half pixel drew its right-hand corners one level apart depending on how often its
-// layer had been rebuilt (2026-11-13; see docs/ui-verification.md).
-const BROWSER_ARGS = ['--use-angle=swiftshader', '--disable-gpu-compositing']
+// The rasterization backend differs by platform: CPU rasterization on Windows, SwiftShader on
+// macOS. SwiftShader varied SVG pixels on Windows even between identical, sequential renders;
+// --disable-gpu did the same on macOS. On macOS, compositing runs in software as well: under
+// SwiftShader compositing, a dialog that scrolls and sits on an exact half pixel drew its
+// right-hand corners one level apart depending on how often its layer had been rebuilt.
+// Measurements live in docs/ui-verification.md.
+const BROWSER_ARGS =
+  process.platform === 'win32'
+    ? ['--disable-gpu']
+    : ['--use-angle=swiftshader', '--disable-gpu-compositing']
 const STEP_TIMEOUT_MS = 5_000
 const MOUNT_TIMEOUT_MS = 30_000
 const SETTLE_ATTEMPTS = 6
@@ -350,14 +351,17 @@ export async function importGraph(server, tree) {
     // A stylesheet's graph entry lists every file Tailwind scanned for class names, not imports.
     if (!/\.tsx?$/.test(file)) return
     await environment.transformRequest(`/@fs/${root}${file}`)
-    const node = [...(environment.moduleGraph.getModulesByFile(`${root}${file}`) ?? [])][0]
-    for (const imported of node?.importedModules ?? []) {
-      const path = imported.file
-      if (!path?.startsWith(root) || path.includes('/node_modules/')) continue
-      const relative = path.slice(root.length)
-      // The gallery reaches every fixture and the whole app; neither is something fixtures share.
-      if (file === GALLERY && (relative === SHELL || relative.endsWith('.fixture.tsx'))) continue
-      imports.push(relative)
+    // Vite can retain an unresolved /@fs/ placeholder beside the loaded module for this file.
+    // Picking one node makes coverage depend on which URL happened to be registered first.
+    for (const node of environment.moduleGraph.getModulesByFile(`${root}${file}`) ?? []) {
+      for (const imported of node.importedModules) {
+        const path = imported.file
+        if (!path?.startsWith(root) || path.includes('/node_modules/')) continue
+        const relative = path.slice(root.length)
+        // The gallery reaches every fixture and the whole app; neither is something fixtures share.
+        if (file === GALLERY && (relative === SHELL || relative.endsWith('.fixture.tsx'))) continue
+        if (!imports.includes(relative)) imports.push(relative)
+      }
     }
     for (const imported of imports) await walk(imported)
   }

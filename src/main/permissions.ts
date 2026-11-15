@@ -47,6 +47,7 @@ exit 0
 const TIER_1_ROOTS = ['skills', 'plugins', 'projects'].map((dir) =>
   resolve(homedir(), '.claude', dir)
 )
+const GLOBAL_SKILLS_ROOT = TIER_1_ROOTS[0]
 
 // User-level Claude Code config — not under ~/.claude/{skills,plugins,projects}, but some
 // scanners need specific fields out of them. File-only, not the rest of $HOME.
@@ -116,6 +117,38 @@ export function isPathAllowed(path: string): boolean {
     isWithinGrant(path, root)
   )
 }
+
+// The deepest point at which a link is part of the user's own Claude Code setup rather than content
+// someone else wrote: ~/.claude itself, a Tier 1 root or file, or one top-level entry of the global
+// skills folder (Orca and `npx skills` link these out to ~/.agents/skills). Links below the anchor,
+// and every link in repos and plugin content, keep the strict rule. See docs/security-hardening.md.
+function setupAnchor(path: string): string | null {
+  const resolved = resolve(path)
+  const file = TIER_1_FILES.find((file) => normalizeFsPath(file) === normalizeFsPath(resolved))
+  if (file !== undefined) return file
+  const root = TIER_1_ROOTS.find((root) => isWithinGrant(resolved, root))
+  if (root !== GLOBAL_SKILLS_ROOT) return root ?? null
+  const [entry, syncedEntry] = resolved.slice(root.length + 1).split(sep)
+  if (!entry) return root
+  // Claude Code scans synced/ (any capitalization) one level deeper, like the skills scanner.
+  if (entry.toLowerCase() === 'synced' && syncedEntry) return join(root, entry, syncedEntry)
+  return join(root, entry)
+}
+
+// `canonical` is realpath(path). Recomputed on every check and never stored, so retargeting a link
+// moves its approval with it; the extra realpath only runs for paths the plain rule denies.
+function isCanonicalAllowed(path: string, canonical: string): boolean {
+  if (isPathAllowed(canonical)) return true
+  const anchor = setupAnchor(path)
+  if (anchor === null) return false
+  try {
+    return isWithinGrant(canonical, realpathSync(anchor))
+  } catch {
+    return false
+  }
+}
+
+const UNAPPROVED_TARGET = 'EUNAPPROVEDTARGET'
 
 // CLI discovery is a separate capability: candidate names come from the fixed resolver, not IPC.
 // Never grant these executable locations to the skill/file-viewing permission set.
@@ -325,7 +358,7 @@ export function readAllowedDirectoryEntries(
   if (!isPathAllowed(dirPath)) return { entries: [], status: 'unavailable' }
   try {
     const canonical = realpathSync(dirPath)
-    if (!isPathAllowed(canonical)) return { entries: [], status: 'unavailable' }
+    if (!isCanonicalAllowed(dirPath, canonical)) return { entries: [], status: 'unavailable' }
     const directory = opendirSync(canonical)
     const entries: AllowedDirectoryEntry[] = []
     const sorted = (): AllowedDirectoryEntry[] =>
@@ -369,18 +402,29 @@ export function allowedStatSync(path: string): Stats | null {
   if (!isPathAllowed(path)) return null
   try {
     const canonical = realpathSync(path)
-    return isPathAllowed(canonical) ? statSync(canonical) : null
+    return isCanonicalAllowed(path, canonical) ? statSync(canonical) : null
   } catch {
     return null
   }
 }
 
-// Linked skills require both their discovered path and their resolved target to be approved.
+// A linked path requires its discovered path and its resolved target to be approved, unless the
+// link is part of the user's own setup (setupAnchor).
 export function allowedRealpathSync(path: string): string | null {
   if (!isPathAllowed(path)) return null
   try {
     const canonical = realpathSync(path)
-    return isPathAllowed(canonical) ? canonical : null
+    return isCanonicalAllowed(path, canonical) ? canonical : null
+  } catch {
+    return null
+  }
+}
+
+// Only the folder's own link counts: a real skill folder under a linked ~/.claude returns null.
+export function allowedLinkTargetSync(path: string): string | null {
+  if (!isPathAllowed(path)) return null
+  try {
+    return lstatSync(path).isSymbolicLink() ? allowedRealpathSync(path) : null
   } catch {
     return null
   }
@@ -405,7 +449,7 @@ export function allowedPathLocationSync(path: string): string | null {
     if (canonical === null) return null
     if (missingSegments.length > 0 && allowedStatSync(ancestor)?.isDirectory() !== true) return null
     const location = join(canonical, ...missingSegments)
-    return isPathAllowed(location) ? location : null
+    return isCanonicalAllowed(ancestor, location) ? location : null
   }
   return null
 }
@@ -418,7 +462,7 @@ export function watchAllowedPath(
   if (!isPathAllowed(path))
     throw Object.assign(new Error('Path is not approved'), { code: 'EACCES' })
   const canonical = realpathSync(path)
-  if (!isPathAllowed(canonical))
+  if (!isCanonicalAllowed(path, canonical))
     throw Object.assign(new Error('Path is not approved'), { code: 'EACCES' })
   const watcher = watch(
     canonical,
@@ -448,8 +492,11 @@ const MAX_TRANSCRIPT_LINE_BYTES = 64 * 1024 * 1024
 
 function openAllowedRegularFile(path: string): number {
   const canonical = realpathSync(path)
-  if (!isPathAllowed(canonical))
-    throw Object.assign(new Error('Unapproved file target'), { code: 'EACCES' })
+  if (!isCanonicalAllowed(path, canonical))
+    throw Object.assign(new Error('Unapproved file target'), {
+      code: UNAPPROVED_TARGET,
+      target: canonical
+    })
   const before = statSync(canonical, { bigint: true })
   if (!before.isFile())
     throw Object.assign(new Error('Only regular files can be read'), { code: 'EACCES' })
@@ -468,7 +515,7 @@ function openAllowedRegularFile(path: string): number {
       opened.dev !== before.dev ||
       opened.ino !== before.ino ||
       normalizeFsPath(after) !== normalizeFsPath(canonical) ||
-      !isPathAllowed(after)
+      !isCanonicalAllowed(path, after)
     )
       throw Object.assign(new Error('File target changed during open'), { code: 'EACCES' })
     return descriptor
@@ -483,6 +530,11 @@ export function readAllowedFile(
   maxBytes = MAX_FILE_READ_BYTES
 ): {
   status: AllowedFileReadStatus | 'too_large'
+  // Set only when the path is approved but resolves through a link to a folder that isn't: a
+  // denial the user can resolve with a grant, unlike a transient I/O failure. `target` is the
+  // resolved file path, so the user can see where the link points; its contents are never read.
+  reason?: 'unapproved'
+  target?: string
   contents: Buffer | null
 } {
   if (!isPathAllowed(path)) return { status: 'unavailable', contents: null }
@@ -491,6 +543,13 @@ export function readAllowedFile(
     descriptor = openAllowedRegularFile(path)
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
+    if (code === UNAPPROVED_TARGET)
+      return {
+        status: 'unavailable',
+        reason: 'unapproved',
+        target: (error as { target: string }).target,
+        contents: null
+      }
     return {
       status: code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : 'unavailable',
       contents: null

@@ -119,6 +119,9 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
     case IPC_CHANNELS.setLastSection:
       valid = args.length === 1 && (APP_SECTIONS as readonly unknown[]).includes(value)
       break
+    case IPC_CHANNELS.clearWhatsNewDot:
+      valid = args.length === 1 && (WHATS_NEW_ANCHOR_IDS as readonly unknown[]).includes(value)
+      break
     case IPC_CHANNELS.setAutoUpdateCheck:
       valid = args.length === 1 && typeof value === 'boolean'
       break
@@ -168,6 +171,7 @@ import {
   type PluginRow
 } from '../shared/ipc'
 import { missingProjectInstallMessage } from '../shared/missing-project'
+import { WHATS_NEW_ANCHOR_IDS } from '../shared/whats-new'
 import { isPluginActionInput } from './plugin-actions'
 
 const PLUGIN_ACTION_UNAVAILABLE =

@@ -17,6 +17,8 @@ export type ThemeStore = Store<{
   grantedFolders?: AllowedPathRow[]
   autoUpdateCheck?: boolean
   onboardingDone?: boolean
+  whatsNewSeenVersion?: string
+  whatsNewDots?: { anchors: string[]; expiresAt: string }
 }>
 
 export function getStoredTheme(store: ThemeStore): ThemePreference | undefined {

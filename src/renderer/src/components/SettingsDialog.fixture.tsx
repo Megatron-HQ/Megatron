@@ -2,7 +2,7 @@
 // section), and through App for what reaches it from the scan banner and the main process.
 import type { ComponentProps } from 'react'
 import App from '@/App'
-import { completeScan, skillsResult } from '@/fixtures/data'
+import { completeScan, daysAgo, skillsResult } from '@/fixtures/data'
 import { fixture, type Fixture, type FixtureUser } from '@/fixtures/define'
 import { emit } from '@/fixtures/fake-api'
 import { pluginReads } from '@/fixtures/plugin-data'
@@ -67,7 +67,7 @@ function dialog(
         scanning={false}
         onManageFolders={ignore}
         onShowWelcome={ignore}
-        updateState={{ status: 'unsupported', version: null, autoCheck: true }}
+        updateState={{ status: 'unsupported', version: null, detail: null, autoCheck: true }}
         {...props}
       />
     ),
@@ -149,27 +149,9 @@ export const MissingProjectRescan = dialog(
   }
 )
 
-const available: UpdateState = { status: 'available', version: '1.1.0', autoCheck: true }
+const manual: UpdateState = { status: 'manual', version: '1.1.0', detail: null, autoCheck: true }
 
-export const UpdateAvailable = dialog({ updateState: available }, undefined, (user) =>
-  user.until({ text: 'brew upgrade --cask megatron' }, 'macOS showed no Homebrew upgrade line.')
-)
-
-// Windows downloads the update itself, so the dialog offers a restart instead of a download.
-export const UpdateReadyWindows: Fixture = {
-  ...dialog(
-    { updateState: { status: 'ready', version: '1.1.0', autoCheck: true } },
-    undefined,
-    (user) =>
-      user.until(
-        { role: 'button', name: 'Restart to update' },
-        'Windows offered no restart for a downloaded update.'
-      )
-  ),
-  platform: 'win32'
-}
-
-export const UpdateDotTooltip = app({ getUpdateState: async () => available }, async (user) => {
+export const UpdateDotTooltip = app({ getUpdateState: async () => manual }, async (user) => {
   const name = 'Settings · Update available'
   await user.hover({ role: 'button', name })
   await user.until({ role: 'tooltip', name }, 'The rail gear did not announce the update.')
@@ -324,3 +306,112 @@ export const OpenOverPlugins = app(
     await user.until({ role: 'radio', name: 'System' }, 'Settings did not open over Plugins.')
   }
 )
+
+function settings(state: Partial<UpdateState>, platform: 'darwin' | 'win32' = 'darwin'): Fixture {
+  const updateState: UpdateState = {
+    status: 'idle',
+    version: '1.1.0',
+    detail: null,
+    autoCheck: true,
+    ...state
+  }
+  let installRequests = 0
+
+  return fixture({
+    frame: 'window',
+    platform,
+    api: {
+      installUpdate: async () => {
+        installRequests += 1
+      }
+    },
+    render: () => (
+      <SettingsDialog
+        open
+        onOpenChange={ignore}
+        themePreference={window.api.getInitialTheme()}
+        onThemeChange={ignore}
+        version="1.0.0"
+        scanning={false}
+        onManageFolders={ignore}
+        onShowWelcome={ignore}
+        updateState={updateState}
+      />
+    ),
+    interact: async (user) => {
+      await user.until({ role: 'dialog', name: 'Settings' }, 'Settings did not open.')
+      if (updateState.status === 'ready') {
+        await user.click({ role: 'button', name: 'Restart to update', exact: true })
+        await user.until(
+          () => installRequests === 1,
+          'Restart to update did not request installation exactly once.'
+        )
+      } else if (updateState.status === 'manual') {
+        await user.until(
+          { text: /To update, quit Megatron and run this in Terminal/ },
+          'The manual update showed no installation instructions.'
+        )
+      }
+    }
+  })
+}
+
+export const MacReady = settings({ status: 'ready' })
+export const WindowsReady = settings({ status: 'ready' }, 'win32')
+export const Downloading = settings({ status: 'downloading' })
+export const ManualUpdate = settings({
+  status: 'manual',
+  detail: 'The app is on a read-only volume.'
+})
+export const PreviousUpdateFailed = settings({
+  status: 'manual',
+  version: null,
+  detail: 'The previous update could not replace the app. The original app was restored.'
+})
+
+const LINK_SCAN: ScanSummary = {
+  outcome: 'partial',
+  completedAt: daysAgo(0),
+  sources: [
+    {
+      name: 'scanSkills',
+      status: 'partial',
+      issues: [
+        {
+          code: 'link_unapproved',
+          path: '/Users/fixture/Projects/megatron/.claude/skills/shared-review',
+          target: '/Users/fixture/team-skills/shared-review'
+        }
+      ]
+    }
+  ]
+}
+
+// Behaviour: a project skill linked outside its repo names the target and offers folder access.
+export const ScanLinkNeedsAccess = fixture({
+  frame: 'window',
+  render: () => (
+    <SettingsDialog
+      open
+      onOpenChange={ignore}
+      themePreference={window.api.getInitialTheme()}
+      onThemeChange={ignore}
+      version="1.0.0"
+      scanSummary={LINK_SCAN}
+      scanning={false}
+      onManageFolders={ignore}
+      onShowWelcome={ignore}
+    />
+  ),
+  interact: async (user) => {
+    await user.until({ role: 'dialog', name: 'Settings' }, 'Settings did not open.')
+    await user.until(
+      { text: '→ /Users/fixture/team-skills/shared-review' },
+      'The unapproved link did not name the folder it points to.'
+    )
+    await user.until(
+      { role: 'button', name: 'Manage folder access' },
+      'An unapproved link offered no way to manage folder access.'
+    )
+  }
+})

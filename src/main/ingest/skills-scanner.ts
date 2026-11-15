@@ -63,12 +63,19 @@ function scanSkillEntry(
   projectRoot: string | undefined,
   isSynced: boolean,
   overrides: Map<string, string>,
-  onUnavailable: () => void
+  onUnavailable: () => void,
+  onUnapprovedLink: (link: string, target: string) => void
 ): SkillScanRow | null {
   const dirPath = join(parentDir, entryName)
   const skillMdPath = join(dirPath, 'SKILL.md')
   const read = readAllowedFile(skillMdPath)
   if (read.status === 'missing') return null
+  // A denial isn't transient like an I/O failure, so it must not freeze the root's stale-row
+  // cleanup: the skill's cached row drops, the same way it does when a grant is revoked.
+  if (read.reason === 'unapproved' && read.target !== undefined) {
+    onUnapprovedLink(dirPath, dirname(read.target))
+    return null
+  }
   if (read.status !== 'ok' || read.contents === null) {
     onUnavailable()
     return null
@@ -164,6 +171,10 @@ export function scanSkills(
   let partial = roots.some((root) => root.discoveryIncomplete === true)
   const unavailableProjects = new Set<string>()
   const issues = new Map<string, ScanIssue>()
+  const reportUnapprovedLink = (path: string, target: string): void => {
+    partial = true
+    issues.set(`link_unapproved\0${path}`, { code: 'link_unapproved', path, target })
+  }
   const rowsBySourceType = new Map<SkillRoot['sourceType'], SkillScanRow[]>()
   const rootDirsBySourceType = new Map<SkillRoot['sourceType'], string[]>()
   const expandedRoots = [...roots]
@@ -275,7 +286,8 @@ export function scanSkills(
             overrides,
             () => {
               syncedUnavailable = true
-            }
+            },
+            reportUnapprovedLink
           )
           if (row) rows.push(row)
         }
@@ -286,9 +298,17 @@ export function scanSkills(
         continue
       }
 
-      const row = scanSkillEntry(root.dir, entryName, root.projectRoot, false, overrides, () => {
-        rootUnavailable = true
-      })
+      const row = scanSkillEntry(
+        root.dir,
+        entryName,
+        root.projectRoot,
+        false,
+        overrides,
+        () => {
+          rootUnavailable = true
+        },
+        reportUnapprovedLink
+      )
       if (row) rows.push(row)
     }
     if (rootUnavailable) {

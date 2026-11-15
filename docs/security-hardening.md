@@ -23,14 +23,31 @@ Release and updates section here covers their security consequences.
 
 ## Cache preservation
 
-Linked skill paths and their canonical targets must both be approved. The folder picker stores
-the canonical grant; restoring grants never resolves a saved root into a new approved target.
-Explicit target-folder grants preserve legitimate linked skill stores. File reads reject special
-files, use no-follow/nonblocking flags where supported, and compare full-width file identity
-before and after opening. Threat: a symlink or junction inside a granted folder pointing outside
-it would read files the user never granted. These checks reduce link-swap races; they are not an
-OS-enforced atomic containment guarantee against an actively mutating process running as the same
-user.
+Links inside content someone else wrote (granted repositories, plugin content, and folders nested
+inside any skill) are followed only when their canonical target is also approved. The folder
+picker stores the canonical grant; restoring grants never resolves a saved root into a new approved
+target. Explicit target-folder grants preserve legitimate linked skill stores in repositories. File
+reads reject special files, use no-follow/nonblocking flags where supported, and compare full-width
+file identity before and after opening. Threat: a symlink or junction inside a granted folder
+pointing outside it would read files the user never granted. These checks reduce link-swap races;
+they are not an OS-enforced atomic containment guarantee against an actively mutating process
+running as the same user.
+
+Links that make up the user's own Claude Code setup are followed to wherever they point:
+`~/.claude` itself, a Tier 1 root or file, and each top-level entry of `~/.claude/skills` (one level
+deeper inside `synced/`). `setupAnchor()` in `permissions.ts` names that point; a path below it is
+approved when it resolves inside the anchor's realpath, recomputed at every read. Anything that can
+create these links already runs as the user and could read the target itself, and Claude Code
+follows the same links into the model's context. Remaining risk, accepted: when `~/.claude/skills`
+is a team's git clone, the repo's author chooses those top-level links. The exposure is bounded:
+a target only becomes a skill row if it already holds a `SKILL.md`, the renderer names skills by id
+and never by path (the file viewer resolves `source_path` in main), and links nested inside the
+target stay strict.
+
+A blocked repo link is reported as a `link_unapproved` scan issue that names its target, and the
+user grants through the normal folders dialog. The picker is deliberately not pre-pointed at the
+target: the target is the repo author's choice, and a one-click grant would let a repository ship
+`.claude/skills/x -> ~/.ssh` as a prompt to approve `~/.ssh`.
 
 Repository discovery metadata in the private preferences cache is descriptive, not an access
 capability. Discovery and catalog restoration retain current grants and canonical target checks.
@@ -56,8 +73,9 @@ there can expose; narrowing covers the need with grants alone. Revisit if users 
 few folders from a parent holding hundreds of projects, where re-picking the rest is impractical.
 
 User-data reads remain centralized in `permissions.ts`. Separate capabilities serve fixed CLI
-discovery, preparation of Electron's private cache, and compiled app assets. None accepts an
-arbitrary renderer filesystem path or broadens the skill permission set. Production assets use
+discovery, preparation of Electron's private cache, compiled app assets, and the macOS self-update
+(see Release and updates). None accepts an arbitrary renderer filesystem path or broadens the skill
+permission set. Production assets use
 `megatron://app`, a flat asset whitelist and a restrictive CSP. Browser permissions are denied.
 Threat: a `file://` origin would let the renderer read arbitrary local files, and an unanswered
 browser permission request could reach the camera, microphone, or other devices.
@@ -189,18 +207,36 @@ integration (for example SignPath Foundation or Azure Trusted Signing) wired int
 `release-build.mjs`, not just new secrets.
 
 **Release flow.** A `v*` tag must equal `v` + `package.json`'s version (`release-check.mjs tag`).
-CI then creates a **draft** GitHub Release and uploads the DMG, `-mac.zip`, NSIS installer,
-blockmaps and `latest*.yml`. Nothing reaches users until a maintainer publishes the draft.
+CI then creates a **draft** GitHub Release and uploads the `-mac.zip` (plus a notarized DMG on a
+signed build; ad-hoc builds ship no DMG), `install.sh`, the NSIS installer, blockmaps and
+`latest*.yml`. Nothing reaches users until a maintainer publishes the draft. `install.sh` is served
+only as a release asset, never from `main`, so it passes the same review as the app.
 
 **Update trust model.** Only the main process talks to the network for updates; the renderer CSP
 (`connect-src 'none'`) is unchanged. electron-updater reads `Megatron-HQ/Megatron`'s releases over
 HTTPS, downloads the artifact named in `latest*.yml`, and checks its sha512. With no code signature,
 nothing beyond that authenticates the publisher: **whoever can publish a release on
-Megatron-HQ/Megatron can ship code to every Windows install**, and to every Mac install through the
-tap. Keep release-capable accounts few and 2FA-protected. The macOS build never installs updates
-itself (Squirrel.Mac requires a Developer ID). Its Download button opens a
-`github.com/Megatron-HQ/Megatron/releases/tag/v<version>` URL that main builds from the updater's
-version, accepting plain semver only; the renderer never supplies the URL.
+Megatron-HQ/Megatron can ship code to every Windows and Mac install**, through the in-app updater,
+`install.sh` and the tap. Keep release-capable accounts few and 2FA-protected. No separate update
+signing key exists by design: losing one would strand every install.
+
+**macOS self-update.** Squirrel.Mac can't install ad-hoc builds, so `mac-self-update.ts` installs
+instead. After electron-updater's sha512 check it extracts the zip into its cache folder and
+requires `codesign --verify --deep --strict`, bundle ID `com.megatron.app`, and the version
+`latest-mac.yml` announced. It writes only to that staging folder, a result file in the data folder,
+and the running bundle's own location (derived from the executable path, never from IPC). The swap
+is a detached `/bin/bash` running a constant script with every path as a positional argument, never
+interpolated into script text. It waits for the app to exit, renames the old bundle aside and the
+new one in on the same volume, restores the old one on any failure, and records the failure for the
+next launch. Before downloading, a copy that is translocated, on a read-only volume, or not writable
+by this account reports the `install.sh` command instead. `install.sh` makes the same checks
+(sha512 against `latest-mac.yml`, signature, bundle ID, version), refuses a Homebrew-managed copy or
+a running app, and uses stock macOS binaries only. Neither path sets or keeps a quarantine flag.
+
+electron-updater's `MacUpdater` still starts its Squirrel proxy after each download: a loopback
+HTTP server guarded by random 64-byte Basic credentials that serves only the downloaded zip. Megatron
+never calls Squirrel, the server can't be closed through a public API, and it ends when the app
+quits.
 
 **What a check discloses.** A check runs 10 s after launch, then every 6 hours, unless turned off
 in Settings; "Check now" always works. Each check is a request to github.com, which sees the IP

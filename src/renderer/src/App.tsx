@@ -18,6 +18,11 @@ import {
   type SkillInvocationSelection
 } from '@/components/usage/SkillInvocationDialog'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { SpotlightRing } from '@/components/whats-new/SpotlightRing'
+import { WhatsNewCard } from '@/components/whats-new/WhatsNewCard'
+import { useWhatsNew } from '@/lib/use-whats-new'
+import { WHATS_NEW_ANCHOR_PANELS, WhatsNewDotsContext } from '@/lib/whats-new'
+import type { WhatsNewAction } from '../../shared/whats-new'
 import { TREE_WIDTH_DEFAULT } from '@/lib/file-tree'
 import {
   createPluginRows,
@@ -110,6 +115,9 @@ function App(): React.JSX.Element {
   const [foldersDialogOpen, setFoldersDialogOpen] = useState(false)
   const [treeWidth, setTreeWidth] = useState(TREE_WIDTH_DEFAULT)
   const [pluginActionToasts, setPluginActionToasts] = useState<PluginActionToast[]>([])
+  const whatsNew = useWhatsNew()
+  const whatsNewCardRef = useRef<HTMLElement>(null)
+  const [firstScanSettled, setFirstScanSettled] = useState(false)
   const nextToastId = useRef(0)
   const [pluginUpdateProgress, setPluginUpdateProgress] = useState<
     Record<string, PluginUpdateProgress>
@@ -164,7 +172,7 @@ function App(): React.JSX.Element {
   const updateNotice =
     updateState?.status === 'ready'
       ? 'Update ready'
-      : updateState?.status === 'available'
+      : updateState?.status === 'manual'
         ? 'Update available'
         : null
 
@@ -241,6 +249,11 @@ function App(): React.JSX.Element {
         event.preventDefault()
         setSettingsOpen((open) => !open)
       }
+      // The What's new card never takes focus on its own; F6 is how a keyboard user reaches it.
+      if (event.key === 'F6' && whatsNewCardRef.current) {
+        event.preventDefault()
+        whatsNewCardRef.current.focus()
+      }
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
@@ -285,6 +298,8 @@ function App(): React.JSX.Element {
     () => createProjectLabelResolver(projectLabels, folders),
     [projectLabels, folders]
   )
+  // Latched: the card waits for the launch scan, but a later rescan must not hide it again.
+  if (scanComplete && !firstScanSettled) setFirstScanSettled(true)
   const contextBudget = data?.contextBudget ?? DEFAULT_CONTEXT_BUDGET
   const {
     banner: scanBanner,
@@ -462,6 +477,31 @@ function App(): React.JSX.Element {
     handleSectionChange('skills')
   }
 
+  function showWhatsNewAction(action: WhatsNewAction): void {
+    const anchor = action.kind === 'palette' ? undefined : action.anchor
+    whatsNew.dismiss(anchor)
+    if (action.kind === 'section') {
+      handleSectionChange(action.section)
+      if (action.section === 'skills') setView({ kind: 'list' })
+      if (action.section === 'plugins') setPluginView({ kind: 'list' })
+      const panel = anchor ? WHATS_NEW_ANCHOR_PANELS[anchor] : null
+      if (panel) setUsagePanel(panel)
+    } else if (action.kind === 'settings') setSettingsOpen(true)
+    else setPaletteOpen(true)
+    if (anchor) whatsNew.startSpotlight(anchor)
+  }
+
+  // Anything modal, or a toast in the same corner, hides the card until it is gone again.
+  const whatsNewVisible =
+    whatsNew.releases.length > 0 &&
+    firstScanSettled &&
+    !onboardingOpen &&
+    !settingsOpen &&
+    !paletteOpen &&
+    !foldersDialogOpen &&
+    !(section === 'usage' && skillInvocationOpen) &&
+    pluginActionToasts.length === 0
+
   function showPluginActionToast(message: string): void {
     const id = nextToastId.current++
     setPluginActionToasts((toasts) => [...toasts, { id, message }].slice(-MAX_SUCCESS_TOASTS))
@@ -632,12 +672,12 @@ function App(): React.JSX.Element {
 
   const shell = (
     <TooltipProvider>
-      <div className="flex h-screen flex-col">
-        {/* hiddenInset leaves macOS without a draggable titlebar, so this strip is it. Windows
-            keeps its native titlebar; the strip there only separates it from the sheet. */}
+      <div className="flex h-screen flex-col overflow-hidden">
+        {/* hiddenInset needs a drag region below the macOS traffic lights. Windows keeps its
+            native titlebar and only needs a small gutter above the sheet. */}
         <div
           className={
-            window.api?.platform === 'darwin' ? 'h-8 shrink-0 drag-region' : 'h-1.5 shrink-0'
+            window.api?.platform === 'darwin' ? 'drag-region h-8 shrink-0' : 'h-1.5 shrink-0'
           }
         />
         <div className="flex min-h-0 flex-1">
@@ -652,7 +692,7 @@ function App(): React.JSX.Element {
               {sidebar}
             </ScreenTransition>
           </div>
-          {/* The inset is the sheet's own margin so the rail and sidebars still reach the window's
+          {/* The inset is the sheet's own margin so the rail and sidebars reach the window's
               bottom edge; overflow-hidden clips the banner and scrollbars to the radius. */}
           <main className="mr-1.5 mb-1.5 flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-sheet">
             {scanBanner.kind === 'updating' && <ScanUpdatingBanner message={scanBanner.message} />}
@@ -708,6 +748,13 @@ function App(): React.JSX.Element {
           setSettingsOpen(false)
           setOnboardingOpen(true)
         }}
+        onShowWhatsNew={
+          whatsNew.replay &&
+          (() => {
+            setSettingsOpen(false)
+            whatsNew.replay?.()
+          })
+        }
         updateState={updateState}
       />
       <OnboardingDialog
@@ -735,10 +782,27 @@ function App(): React.JSX.Element {
           setPluginActionToasts((toasts) => toasts.filter((toast) => toast.id !== id))
         }
       />
+      {whatsNewVisible && (
+        <WhatsNewCard
+          ref={whatsNewCardRef}
+          releases={whatsNew.releases}
+          onShowMe={showWhatsNewAction}
+          onDismiss={() => whatsNew.dismiss()}
+        />
+      )}
+      {whatsNew.spotlight && (
+        <SpotlightRing
+          key={whatsNew.spotlight}
+          anchor={whatsNew.spotlight}
+          onDone={whatsNew.endSpotlight}
+        />
+      )}
     </TooltipProvider>
   )
   return (
-    <ProjectLabelContext.Provider value={resolveProjectLabel}>{shell}</ProjectLabelContext.Provider>
+    <ProjectLabelContext.Provider value={resolveProjectLabel}>
+      <WhatsNewDotsContext.Provider value={whatsNew.dots}>{shell}</WhatsNewDotsContext.Provider>
+    </ProjectLabelContext.Provider>
   )
 }
 

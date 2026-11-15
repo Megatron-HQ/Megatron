@@ -299,7 +299,8 @@ export function skillMeta(id: number): OpenSkillMetaResult | null {
     skill: found,
     usage: usage(invocations(found)),
     skillMdContent: skillMd(found),
-    findings: findings(found)
+    findings: findings(found),
+    linkTarget: null
   }
 }
 

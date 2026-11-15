@@ -6,10 +6,16 @@ import { Sidebar } from './Sidebar'
 
 // Holds the filter and the expanded rows the way App does, so clicks change what they change in
 // the app.
-function SkillsSidebar({ mode }: { mode: ProjectTreeMode }): React.JSX.Element {
+function SkillsSidebar({
+  mode,
+  initiallyExpanded
+}: {
+  mode: ProjectTreeMode
+  initiallyExpanded: string[]
+}): React.JSX.Element {
   const [tree] = useState(() => projectTree(mode))
   const [filter, setFilter] = useState<SourceFilter>({ kind: 'all' })
-  const [expanded, setExpanded] = useState(() => new Set(['$projects']))
+  const [expanded, setExpanded] = useState(() => new Set(initiallyExpanded))
   return (
     <Sidebar
       filter={filter}
@@ -33,7 +39,7 @@ function skillsSidebar(
 ): Fixture {
   return fixture({
     frame: sidebar('skills'),
-    render: () => <SkillsSidebar mode={mode} />,
+    render: () => <SkillsSidebar mode={mode} initiallyExpanded={['$projects']} />,
     interact
   })
 }
@@ -96,4 +102,10 @@ export const FoldedEmptyRepositories = skillsSidebar(async (user) => {
     { role: 'button', name: '1 without skills', exact: true },
     'The repository without skills was not folded.'
   )
+})
+
+// Every group collapsed, the way a first launch opens it.
+export const Navigation = fixture({
+  frame: sidebar('skills'),
+  render: () => <SkillsSidebar mode="available" initiallyExpanded={[]} />
 })

@@ -49,6 +49,7 @@ window.api = {
   getInitialTheme: () => (query.get('theme') ?? 'system') as ThemePreference,
   getInitialSection: (): AppSection => 'skills',
   getInitialOnboarding: () => false,
+  getInitialWhatsNew: () => ({ unseen: [], latest: null, dots: [] }),
   getVersion: () => '1.0.0',
   getHomePath: () => '/Users/fixture',
 
@@ -56,17 +57,23 @@ window.api = {
   listAllowedPaths: async () => [],
   listProjects: async () => [],
   listPlugins: async () => [],
-  getUpdateState: async () => ({ status: 'unsupported', version: null, autoCheck: true }),
+  getUpdateState: async () => ({
+    status: 'unsupported',
+    version: null,
+    detail: null,
+    autoCheck: true
+  }),
 
   setTheme: done,
   setLastSection: done,
   setOnboardingDone: done,
+  markWhatsNewSeen: async () => [],
+  clearWhatsNewDot: done,
   openExternal: done,
   revealDataFolder: done,
   checkForUpdates: done,
   installUpdate: done,
   setAutoUpdateCheck: done,
-  openUpdateDownload: done,
 
   openSkill: needsData('openSkill'),
   openSkillMeta: needsData('openSkillMeta'),

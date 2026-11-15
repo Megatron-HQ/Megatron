@@ -174,3 +174,34 @@ export const UserInvocableOnly = detail(SCRATCHPAD, (user) =>
 )
 
 export const Disabled = detail(LEGACY_LINT, loaded)
+
+const LINK_TARGET = '/Users/fixture/.agents/skills/code-review'
+
+function linkDetail(linkTarget: string | null): Fixture {
+  const sourcePath = baseSkills.find((skill) => skill.id === CODE_REVIEW)?.source_path ?? ''
+  return detail(
+    CODE_REVIEW,
+    async (user) => {
+      await user.until({ text: sourcePath }, 'The detail page never showed its Path row.')
+      if (linkTarget === null) {
+        await user.until(
+          () => !document.body.textContent?.includes('Links to'),
+          'A skill folder that is not a link showed a Links to row.'
+        )
+      } else {
+        await user.until({ text: LINK_TARGET }, 'A linked skill folder showed no Links to row.')
+      }
+    },
+    {
+      openSkillMeta: async (id) => {
+        const meta = skillMeta(id)
+        return meta && { ...meta, linkTarget }
+      }
+    }
+  )
+}
+
+export const Plain = linkDetail(null)
+
+// Orca and `npx skills` install skills as links into ~/.agents/skills.
+export const Linked = linkDetail(LINK_TARGET)
