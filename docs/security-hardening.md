@@ -23,14 +23,30 @@ Release and updates section here covers their security consequences.
 
 ## Cache preservation
 
-Linked skill paths and their canonical targets must both be approved. The folder picker stores
-the canonical grant; restoring grants never resolves a saved root into a new approved target.
-Explicit target-folder grants preserve legitimate linked skill stores. File reads reject special
-files, use no-follow/nonblocking flags where supported, and compare full-width file identity
-before and after opening. Threat: a symlink or junction inside a granted folder pointing outside
-it would read files the user never granted. These checks reduce link-swap races; they are not an
-OS-enforced atomic containment guarantee against an actively mutating process running as the same
-user.
+Links inside content someone else wrote (granted repositories, plugin content, and folders nested
+inside any skill) are followed only when their canonical target is also approved. The folder
+picker stores the canonical grant; restoring grants never resolves a saved root into a new approved
+target. Explicit target-folder grants preserve legitimate linked skill stores in repositories. File
+reads reject special files, use no-follow/nonblocking flags where supported, and compare full-width
+file identity before and after opening. Threat: a symlink or junction inside a granted folder
+pointing outside it would read files the user never granted. These checks reduce link-swap races;
+they are not an OS-enforced atomic containment guarantee against an actively mutating process
+running as the same user.
+
+Links that make up the user's own Claude Code setup are followed to wherever they point:
+`~/.claude` itself, a Tier 1 root or file, and each top-level entry of `~/.claude/skills` (one level
+deeper inside `synced/`). `setupAnchor()` in `permissions.ts` names that point; a path below it is
+approved when it resolves inside the anchor's realpath, recomputed at every read. Anything that can
+create these links already runs as the user and could read the target itself, and Claude Code
+follows the same links into the model's context. Remaining risk, accepted: when `~/.claude/skills`
+is a team's git clone, the repo's author chooses those top-level links. The exposure is bounded:
+a target only becomes a skill row if it already holds a `SKILL.md`, the renderer names skills by id
+and never by path (the file viewer resolves `source_path` in main), and links nested inside the
+target stay strict.
+
+No grant prompt is ever pre-pointed at a blocked link's target: the target is the repo author's
+choice, and a one-click grant would let a repository ship `.claude/skills/x -> ~/.ssh` as a prompt
+to approve `~/.ssh`.
 
 Repository discovery metadata in the private preferences cache is descriptive, not an access
 capability. Discovery and catalog restoration retain current grants and canonical target checks.
