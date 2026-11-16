@@ -166,9 +166,16 @@ describe('git worktree reads', () => {
       })
     })
 
-    it('reports an ungranted repository as incomplete', () => {
+    it('reads nothing from an ungranted repository', () => {
+      mkdirSync(join(root, 'app', '.git'), { recursive: true })
       resetGrantedPaths()
-      expect(readWorktreeIndex(join(root, 'app', '.git')).complete).toBe(false)
+      expect(readWorktreeIndex(join(root, 'app', '.git'))).toBeNull()
+    })
+
+    it('reads nothing from a .git file', () => {
+      mkdirSync(join(root, 'wt'))
+      writeFileSync(join(root, 'wt', '.git'), 'gitdir: /code/app/.git/worktrees/wt\n')
+      expect(readWorktreeIndex(join(root, 'wt', '.git'))).toBeNull()
     })
   })
 

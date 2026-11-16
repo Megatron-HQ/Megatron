@@ -41,10 +41,10 @@ function headBranch(text: string): string | null {
   return /^ref:\s*refs\/heads\/(.+?)\s*$/m.exec(text)?.[1] ?? null
 }
 
-export function readWorktreeIndex(commonDir: string): WorktreeIndex {
-  // A `.git` file (a bare repository's worktree) or an unreadable folder lists nothing.
-  if (readAllowedDirectoryEntries(commonDir).status !== 'ok')
-    return { complete: false, bare: false, head: null, worktrees: [] }
+// Null when the git dir can't be listed (ungranted, gone, or a worktree's `.git` file): nothing
+// is known about it, not even whether it is bare.
+export function readWorktreeIndex(commonDir: string): WorktreeIndex | null {
+  if (readAllowedDirectoryEntries(commonDir).status !== 'ok') return null
   const config = readText(join(commonDir, 'config'))
   const index: WorktreeIndex = {
     complete: config.status !== 'unavailable',
@@ -94,7 +94,7 @@ export function chooseCanonical(
 export function createPrunedWorktreeCheck(
   links: readonly WorktreeLink[]
 ): (path: string) => boolean {
-  const indexes = new Map<string, WorktreeIndex>()
+  const indexes = new Map<string, WorktreeIndex | null>()
   return (path) => {
     const link = worktreeLinkFor(path, links)
     if (!link) return false
@@ -102,9 +102,10 @@ export function createPrunedWorktreeCheck(
     // never reported pruned; follow that file to the shared git dir if phantom installs persist.
     const commonDir = join(link.canonical, '.git')
     const key = normalizeProjectPath(commonDir)
-    const index = indexes.get(key) ?? readWorktreeIndex(commonDir)
-    indexes.set(key, index)
+    const index = indexes.has(key) ? indexes.get(key) : readWorktreeIndex(commonDir)
+    indexes.set(key, index ?? null)
     return (
+      index != null &&
       index.complete &&
       !index.worktrees.some(
         (worktree) => normalizeProjectPath(worktree.path) === normalizeProjectPath(link.path)

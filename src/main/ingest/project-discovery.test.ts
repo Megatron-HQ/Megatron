@@ -482,3 +482,191 @@ describe('project discovery continuity', () => {
     ).toEqual([repo])
   })
 })
+
+describe('git worktrees', () => {
+  // Mirrors what `git worktree add` writes on both sides of the link.
+  function addWorktree(
+    commonDir: string,
+    worktree: string,
+    head = 'ref: refs/heads/feature'
+  ): void {
+    const name = worktree.split(/[\\/]/).pop()!
+    const entry = join(commonDir, 'worktrees', name)
+    mkdirSync(entry, { recursive: true })
+    writeFileSync(join(entry, 'gitdir'), `${join(worktree, '.git')}\n`)
+    writeFileSync(join(entry, 'HEAD'), `${head}\n`)
+    mkdirSync(worktree, { recursive: true })
+    writeFileSync(join(worktree, '.git'), `gitdir: ${entry}\n`)
+  }
+  function addSkills(directory: string): string {
+    const skills = join(directory, '.claude', 'skills')
+    mkdirSync(join(skills, 'review'), { recursive: true })
+    writeFileSync(join(skills, 'review', 'SKILL.md'), '---\nname: review\n---\n')
+    return skills
+  }
+  const repositories = (projects: ProjectFolder[]): string[] =>
+    projects
+      .filter((entry) => entry.kind === 'repository')
+      .map((entry) => entry.path)
+      .sort()
+  const rootDirs = (result: ReturnType<typeof discoverProjects>): string[] =>
+    result.skillRoots.map((entry) => entry.dir)
+
+  let app: string
+  beforeEach(() => {
+    app = join(root, 'code', 'app')
+    mkdirSync(join(app, '.git'), { recursive: true })
+    addSkills(app)
+  })
+
+  it('links every worktree a repository lists, even outside the grant', () => {
+    addWorktree(join(app, '.git'), join(root, 'elsewhere', 'app-feature'))
+    resetGrantedPaths()
+    grantPath(app)
+
+    expect(discoverProjects([app]).worktrees).toEqual([
+      { path: join(root, 'elsewhere', 'app-feature'), canonical: app }
+    ])
+  })
+
+  it('neither lists, scans, nor walks into a worktree found under a grant', () => {
+    const worktree = join(root, 'code', 'app-feature')
+    addWorktree(join(app, '.git'), worktree)
+    const worktreeSkills = addSkills(worktree)
+    const packageSkills = addSkills(join(worktree, 'packages', 'web'))
+
+    const result = discoverProjects([root])
+
+    expect(repositories(result.projects)).toEqual([app])
+    expect(rootDirs(result)).not.toContain(worktreeSkills)
+    expect(rootDirs(result)).not.toContain(packageSkills)
+    expect(result.skippedWorktrees).toEqual([worktree])
+    expect(result.worktrees).toEqual([{ path: worktree, canonical: app }])
+  })
+
+  it('links a worktree to an ungranted repository from its own .git file', () => {
+    const worktree = join(root, 'workspaces', 'app-feature')
+    addWorktree(join(app, '.git'), worktree)
+    addSkills(worktree)
+    resetGrantedPaths()
+    grantPath(join(root, 'workspaces'))
+
+    const result = discoverProjects([join(root, 'workspaces')])
+
+    expect(repositories(result.projects)).toEqual([])
+    expect(result.skippedWorktrees).toEqual([worktree])
+    expect(result.worktrees).toEqual([{ path: worktree, canonical: app }])
+  })
+
+  it('lets a directly granted worktree stand in for an ungranted repository', () => {
+    const worktree = join(root, 'workspaces', 'app-feature')
+    addWorktree(join(app, '.git'), worktree)
+    const skills = addSkills(worktree)
+    resetGrantedPaths()
+    grantPath(worktree)
+
+    const result = discoverProjects([worktree])
+
+    expect(repositories(result.projects)).toEqual([worktree])
+    expect(result.skillRoots).toContainEqual({
+      dir: skills,
+      sourceType: 'project',
+      projectRoot: worktree
+    })
+    expect(result.skippedWorktrees).toEqual([])
+    expect(result.worktrees).toEqual([{ path: worktree, canonical: app }])
+  })
+
+  it('stops a directly granted worktree standing in once its repository is granted', () => {
+    const worktree = join(root, 'workspaces', 'app-feature')
+    addWorktree(join(app, '.git'), worktree)
+    const skills = addSkills(worktree)
+    resetGrantedPaths()
+    grantPath(app)
+    grantPath(worktree)
+
+    const result = discoverProjects([app, worktree])
+
+    expect(repositories(result.projects)).toEqual([app])
+    expect(rootDirs(result)).not.toContain(skills)
+    expect(result.skippedWorktrees).toEqual([worktree])
+  })
+
+  it('lets only the first directly granted worktree by path stand in', () => {
+    const first = join(root, 'workspaces', 'a')
+    const second = join(root, 'workspaces', 'b')
+    addWorktree(join(app, '.git'), second)
+    addWorktree(join(app, '.git'), first)
+    resetGrantedPaths()
+    grantPath(second)
+    grantPath(first)
+
+    const result = discoverProjects([second, first])
+
+    expect(repositories(result.projects)).toEqual([first])
+    expect(result.skippedWorktrees).toEqual([second])
+  })
+
+  describe('bare repositories', () => {
+    let project: string
+    beforeEach(() => {
+      project = join(root, 'project')
+    })
+    function initBare(commonDir: string): void {
+      mkdirSync(join(commonDir, 'objects'), { recursive: true })
+      mkdirSync(join(commonDir, 'refs'))
+      writeFileSync(join(commonDir, 'config'), '[core]\n\tbare = true\n')
+      writeFileSync(join(commonDir, 'HEAD'), 'ref: refs/heads/main\n')
+      // A nested-looking repository inside the git dir must never be discovered.
+      mkdirSync(join(commonDir, 'objects', 'stray', '.git'), { recursive: true })
+    }
+
+    it('scans only the worktree on the default branch of a bare repository', () => {
+      const bare = join(project, '.bare')
+      initBare(bare)
+      addWorktree(bare, join(project, 'feature'), 'ref: refs/heads/feature')
+      addWorktree(bare, join(project, 'main'), 'ref: refs/heads/main')
+      addSkills(join(project, 'feature'))
+      const skills = addSkills(join(project, 'main'))
+
+      const result = discoverProjects([root])
+
+      expect(repositories(result.projects)).toEqual([app, join(project, 'main')].sort())
+      expect(result.skillRoots).toContainEqual({
+        dir: skills,
+        sourceType: 'project',
+        projectRoot: join(project, 'main')
+      })
+      expect(result.skippedWorktrees).toEqual([join(project, 'feature')])
+      expect(result.worktrees).toEqual([
+        { path: join(project, 'feature'), canonical: join(project, 'main') }
+      ])
+    })
+
+    it('does not treat the folder holding a bare .git as a repository', () => {
+      initBare(join(project, '.git'))
+      addWorktree(join(project, '.git'), join(project, 'main'), 'ref: refs/heads/main')
+
+      expect(repositories(discoverProjects([root]).projects)).toEqual(
+        [app, join(project, 'main')].sort()
+      )
+    })
+  })
+
+  it('links worktrees to the checkout of a separate git dir', () => {
+    const store = join(root, 'store', 'app.git')
+    const separate = join(root, 'code', 'separate')
+    mkdirSync(store, { recursive: true })
+    mkdirSync(separate)
+    writeFileSync(join(separate, '.git'), `gitdir: ${store}\n`)
+    const worktree = join(root, 'code', 'separate-feature')
+    addWorktree(store, worktree)
+    resetGrantedPaths()
+    grantPath(join(root, 'code'))
+
+    const result = discoverProjects([join(root, 'code')])
+
+    expect(repositories(result.projects)).toEqual([app, separate].sort())
+    expect(result.worktrees).toEqual([{ path: worktree, canonical: separate }])
+  })
+})
