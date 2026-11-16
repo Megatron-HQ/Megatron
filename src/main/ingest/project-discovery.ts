@@ -213,7 +213,8 @@ export function discoverProjects(
     const gitFile = gitEntry?.type === 'file' && !force ? readGitFile(canonical) : null
     const commonDir = gitFile === null ? null : worktreeCommonDir(gitFile)
     if (commonDir !== null) {
-      if (!candidates.has(key))
+      // Parent grants walk first; the worktree's own grant, met later, is what lets it stand in.
+      if (!candidates.has(key) || isGrant)
         candidates.set(key, {
           path: canonical,
           directoryPath,

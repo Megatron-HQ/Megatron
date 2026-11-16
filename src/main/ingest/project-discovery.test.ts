@@ -577,6 +577,33 @@ describe('git worktrees', () => {
     expect(result.worktrees).toEqual([{ path: worktree, canonical: app }])
   })
 
+  it('lets a directly granted worktree stand in when a parent grant also covers it', () => {
+    const workspaces = join(root, 'workspaces')
+    const worktree = join(workspaces, 'app-feature')
+    addWorktree(join(app, '.git'), worktree)
+    addSkills(worktree)
+    resetGrantedPaths()
+    grantPath(workspaces)
+    grantPath(worktree)
+
+    const result = discoverProjects([workspaces, worktree])
+
+    expect(repositories(result.projects)).toEqual([worktree])
+    expect(result.skippedWorktrees).toEqual([])
+  })
+
+  it("drops a directly granted worktree's skills when a parent grant covers its repository", () => {
+    const worktree = join(root, 'workspaces', 'app-feature')
+    addWorktree(join(app, '.git'), worktree)
+    const skills = addSkills(worktree)
+    grantPath(worktree)
+
+    const result = discoverProjects([root, worktree])
+
+    expect(rootDirs(result)).not.toContain(skills)
+    expect(result.skippedWorktrees).toEqual([worktree])
+  })
+
   it('stops a directly granted worktree standing in once its repository is granted', () => {
     const worktree = join(root, 'workspaces', 'app-feature')
     addWorktree(join(app, '.git'), worktree)
