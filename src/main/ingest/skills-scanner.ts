@@ -191,10 +191,12 @@ export function scanSkills(
     const isMissingProject = createMissingProjectCheck()
     const missingProjects = new Map<string, boolean>()
     const readableProjects = new Map<string, boolean>()
+    const skippedWorktrees = new Set(discovery.skippedWorktrees)
     const shouldDiscardProject = (path: string): boolean => {
       let missing = missingProjects.get(path)
       if (missing === undefined) {
-        missing = isProjectDiscoveryExcluded(path) || isMissingProject(path)
+        missing =
+          skippedWorktrees.has(path) || isProjectDiscoveryExcluded(path) || isMissingProject(path)
         missingProjects.set(path, missing)
       }
       return missing
@@ -347,7 +349,8 @@ export function scanSkills(
             project.status === 'available' && unavailableProjects.has(project.path)
               ? { ...project, status: 'unavailable' as const }
               : project
-          )
+          ),
+          worktrees: discovery.worktrees
         }
       : {})
   }

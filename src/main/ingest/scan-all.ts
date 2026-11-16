@@ -36,6 +36,7 @@ export function startScanWorker(
   let activeSource: string | null = null
   const sources: ScanSourceSummary[] = []
   let projects: ScanSummary['projects']
+  let worktrees: ScanSummary['worktrees']
   function failure(message: string, reason: ScanSourceSummary['failureReason']): ScanWorkerError {
     return new ScanWorkerError(message, {
       outcome: sources.some((source) => source.status !== 'failed') ? 'partial' : 'failed',
@@ -44,7 +45,8 @@ export function startScanWorker(
         ...sources,
         { name: activeSource ?? 'scanWorker', status: 'failed', failureReason: reason }
       ],
-      ...(projects === undefined ? {} : { projects })
+      ...(projects === undefined ? {} : { projects }),
+      ...(worktrees === undefined ? {} : { worktrees })
     })
   }
   const result = new Promise<ScanSummary>((resolve, reject) => {
@@ -57,6 +59,7 @@ export function startScanWorker(
           sources.push(message.source)
           activeSource = null
           if (message.projects !== undefined) projects = message.projects
+          if (message.worktrees !== undefined) worktrees = message.worktrees
         }
         onProgress(message)
         return
@@ -252,16 +255,22 @@ export function runAllScans(
 ): ScanSummary {
   const sources: ScanSummary['sources'] = []
   let projects: ScanSummary['projects']
+  let worktrees: ScanSummary['worktrees']
   for (const task of scans) {
     const name = task.name || 'scan'
     const scan = typeof task === 'function' ? task : task.run
     reportProgress({ type: 'source-started', name })
     let discoveredProjects: ScanSummary['projects']
+    let discoveredWorktrees: ScanSummary['worktrees']
     try {
       const result = scan(db) as ScanTaskResult | undefined
       if (result?.projects !== undefined) {
         projects = result.projects
         discoveredProjects = result.projects
+      }
+      if (result?.worktrees !== undefined) {
+        worktrees = result.worktrees
+        discoveredWorktrees = result.worktrees
       }
       sources.push({
         name,
@@ -275,7 +284,8 @@ export function runAllScans(
     reportProgress({
       type: 'source-complete',
       source: sources[sources.length - 1],
-      ...(discoveredProjects === undefined ? {} : { projects: discoveredProjects })
+      ...(discoveredProjects === undefined ? {} : { projects: discoveredProjects }),
+      ...(discoveredWorktrees === undefined ? {} : { worktrees: discoveredWorktrees })
     })
   }
   return {
@@ -286,6 +296,7 @@ export function runAllScans(
         : 'partial',
     completedAt: new Date().toISOString(),
     sources,
-    ...(projects !== undefined ? { projects } : {})
+    ...(projects !== undefined ? { projects } : {}),
+    ...(worktrees !== undefined ? { worktrees } : {})
   }
 }

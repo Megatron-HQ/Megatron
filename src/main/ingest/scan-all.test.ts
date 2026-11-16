@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3'
 import { describe, expect, it, vi } from 'vitest'
 import { runAllScans, selectScanTasks, type ScanTask } from './scan-all'
+import type { ScanWorkerProgress } from '../../shared/ipc'
 
 const database = {} as Database.Database
 
@@ -66,6 +67,17 @@ describe('runAllScans', () => {
     expect(runAllScans(database, [() => ({ status: 'complete', projects })])).toMatchObject({
       projects
     })
+  })
+
+  it('carries worktree links through progress and the worker summary', () => {
+    const worktrees = [{ path: '/HQ/app-feature', canonical: '/HQ/app' }]
+    const progress: ScanWorkerProgress[] = []
+    expect(
+      runAllScans(database, [() => ({ status: 'complete', worktrees })], undefined, (entry) =>
+        progress.push(entry)
+      )
+    ).toMatchObject({ worktrees })
+    expect(progress.at(-1)).toMatchObject({ worktrees })
   })
 
   it('passes source diagnostics through to the renderer summary', () => {

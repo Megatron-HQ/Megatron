@@ -188,7 +188,12 @@ export interface ScanSourceSummary {
 
 export type ScanWorkerProgress =
   | { type: 'source-started'; name: string }
-  | { type: 'source-complete'; source: ScanSourceSummary; projects?: ProjectFolder[] }
+  | {
+      type: 'source-complete'
+      source: ScanSourceSummary
+      projects?: ProjectFolder[]
+      worktrees?: WorktreeLink[]
+    }
 
 export interface ScanProgress {
   id: number
@@ -221,6 +226,7 @@ export interface ScanTaskResult {
   status: 'complete' | 'partial'
   issues?: ScanIssue[]
   projects?: ProjectFolder[]
+  worktrees?: WorktreeLink[]
 }
 
 export interface ScanSummary {
@@ -230,6 +236,7 @@ export interface ScanSummary {
   isStartup?: boolean
   lastSuccessfulAt?: string | null
   projects?: ProjectFolder[]
+  worktrees?: WorktreeLink[]
 }
 
 export type FileStatus = 'ok' | 'too_large' | 'unreadable' | 'preview_limit'

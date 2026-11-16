@@ -136,6 +136,30 @@ describe('live project reconciliation', () => {
     expect(after.projects?.some((project) => project.path === oldRoot)).toBe(false)
   })
 
+  it('drops the skills of a repository that turns out to be a worktree', () => {
+    const app = join(tmpDir, 'app')
+    const worktree = join(tmpDir, 'app-feature')
+    mkdirSync(join(app, '.git'), { recursive: true })
+    mkdirSync(join(worktree, '.git'), { recursive: true })
+    writeSkillDir(join(worktree, '.claude', 'skills'), 'branchy', '---\nname: branchy\n---\nBody')
+    const before = scanSkills(db, undefined, userSettingsPath)
+    const projectRoots = (): (string | null)[] =>
+      allSkills()
+        .filter((row) => row.source_type === 'project')
+        .map((row) => row.project_root)
+    expect(projectRoots()).toEqual([worktree])
+    const entry = join(app, '.git', 'worktrees', 'app-feature')
+    mkdirSync(entry, { recursive: true })
+    writeFileSync(join(entry, 'gitdir'), `${join(worktree, '.git')}\n`)
+    rmSync(join(worktree, '.git'), { recursive: true })
+    writeFileSync(join(worktree, '.git'), `gitdir: ${entry}\n`)
+
+    const after = scanSkills(db, undefined, userSettingsPath, before.projects)
+
+    expect(projectRoots()).toEqual([])
+    expect(after.worktrees).toEqual([{ path: worktree, canonical: app }])
+  })
+
   it('retains cached skills for a missing individually granted project', () => {
     const repository = join(tmpDir, 'direct')
     writeSkillDir(join(repository, '.claude', 'skills'), 'saved', '---\nname: saved\n---\nBody')

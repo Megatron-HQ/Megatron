@@ -236,6 +236,22 @@ describe('isolated scans', () => {
     expect(await replacement).toEqual(summary)
   })
 
+  it('keeps worktree links from a finished source when a later source times out', async () => {
+    const task = api.startScanWorker(
+      workerUrl(`
+      import { parentPort } from 'node:worker_threads';
+      parentPort.postMessage({ type: 'source-complete', source: { name: 'scanSkills', status: 'complete' }, worktrees: [{ path: '/wt', canonical: '/app' }] });
+      parentPort.postMessage({ type: 'source-started', name: 'runLinter' });
+      while (true) {}
+    `),
+      {},
+      500
+    )
+    await expect(task.result).rejects.toMatchObject({
+      summary: { worktrees: [{ path: '/wt', canonical: '/app' }] }
+    })
+  })
+
   it('terminates a worker that exceeds its time budget', async () => {
     const task = api.startScanWorker(workerUrl('while(true) {}'), {}, 100)
     await expect(task.result).rejects.toThrow(/time limit/)
