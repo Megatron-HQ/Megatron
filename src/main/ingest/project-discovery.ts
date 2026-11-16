@@ -308,15 +308,15 @@ export function discoverProjects(
 
   // Exactly one checkout per repository contributes skills. A worktree walked into from a grant
   // never does; a directly granted one stands in while its Canonical Checkout isn't inventoried.
-  const canonicals = new Map<string, string>()
-  const canonicalOf = (commonDir: string, paths: string[] = []): string => {
+  const canonicals = new Map<string, string | null>()
+  const canonicalOf = (commonDir: string, paths: string[] = []): string | null => {
     const key = pathKey(commonDir)
     if (!canonicals.has(key))
       canonicals.set(
         key,
         chooseCanonical(commonDir, readGitDir(commonDir), paths, mainCheckouts.get(key))
       )
-    return canonicals.get(key)!
+    return canonicals.get(key) ?? null
   }
   const groups = new Map<string, WorktreeCandidate[]>()
   for (const candidate of candidates.values())
@@ -327,10 +327,11 @@ export function discoverProjects(
   const skippedWorktrees: string[] = []
   const links = new Map<string, WorktreeLink>()
   for (const group of groups.values()) {
+    // Never null: a group has at least one candidate to fall back to.
     const canonical = canonicalOf(
       group[0].commonDir,
       group.map((candidate) => candidate.path)
-    )
+    )!
     const kept = group.find((candidate) => pathKey(candidate.path) === pathKey(canonical))
     if (kept) walk(kept.directoryPath, kept.depth, kept.owner, kept.scope, true)
     const standIn =
@@ -358,6 +359,7 @@ export function discoverProjects(
   for (const { commonDir, index } of gitDirs.values()) {
     if (index === null) continue
     const canonical = canonicalOf(commonDir)
+    if (canonical === null) continue
     for (const worktree of index.worktrees)
       if (pathKey(worktree.path) !== pathKey(canonical))
         links.set(pathKey(worktree.path), { path: worktree.path, canonical })

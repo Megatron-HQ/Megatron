@@ -73,19 +73,24 @@ export function readWorktreeIndex(commonDir: string): WorktreeIndex | null {
 }
 
 // `main` is a checkout whose own `.git` file points at this git dir (`--separate-git-dir`).
+// Null only for a bare repository with no worktree anywhere: nothing is checked out.
 export function chooseCanonical(
   commonDir: string,
   index: WorktreeIndex | null,
   candidates: string[] = [],
   main?: string
-): string {
+): string | null {
   if (main !== undefined) return main
   if (index ? !index.bare : basename(commonDir) === '.git') return dirname(commonDir)
+  const listed = index?.worktrees ?? []
   // ponytail: first by path shifts when worktrees come and go; persist the choice if that churns.
-  const pool = [...(index?.worktrees ?? candidates.map((path) => ({ path, branch: null })))].sort(
-    (a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
+  const pool = [
+    ...(listed.length > 0 ? listed : candidates.map((path) => ({ path, branch: null })))
+  ].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+  return (
+    (pool.find((worktree) => index?.head && worktree.branch === index.head) ?? pool[0])?.path ??
+    null
   )
-  return (pool.find((worktree) => index?.head && worktree.branch === index.head) ?? pool[0]).path
 }
 
 // `git worktree remove` and `prune` only drop an entry once its folder is gone, and `move`

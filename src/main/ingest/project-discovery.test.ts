@@ -643,6 +643,15 @@ describe('git worktrees', () => {
       ])
     })
 
+    it('discovers around a bare repository that has no worktrees', () => {
+      initBare(join(root, 'remote.git'))
+
+      const result = discoverProjects([root])
+
+      expect(repositories(result.projects)).toEqual([app])
+      expect(result.worktrees).toEqual([])
+    })
+
     it('does not treat the folder holding a bare .git as a repository', () => {
       initBare(join(project, '.git'))
       addWorktree(join(project, '.git'), join(project, 'main'), 'ref: refs/heads/main')

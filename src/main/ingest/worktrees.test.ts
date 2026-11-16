@@ -93,6 +93,16 @@ describe('chooseCanonical', () => {
     expect(chooseCanonical('/code/app/.bare', { ...bare, head: 'trunk' })).toBe('/code/app/feature')
   })
 
+  it('has no Canonical Checkout for a bare repository without worktrees', () => {
+    expect(chooseCanonical('/code/app.git', { ...bare, worktrees: [] })).toBeNull()
+  })
+
+  it('falls back to the worktrees found when the bare repository lists none', () => {
+    expect(chooseCanonical('/code/app.git', { ...bare, worktrees: [] }, ['/code/wt'])).toBe(
+      '/code/wt'
+    )
+  })
+
   it('picks the first known worktree when the bare repository is unreadable', () => {
     expect(chooseCanonical('/code/app.git', null, ['/code/wt-b', '/code/wt-a'])).toBe('/code/wt-a')
   })
