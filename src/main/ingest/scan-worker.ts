@@ -48,7 +48,10 @@ try {
     selectScanTasks(scope, [
       ...usageScans,
       { name: 'scanSkills', run: scanSkills },
-      { name: 'scanPluginRegistry', run: scanPluginRegistry },
+      {
+        name: 'scanPluginRegistry',
+        run: (db: Database.Database) => scanPluginRegistry(db, undefined, undefined, worktreeLinks)
+      },
       // Not gated on the registry scan's status: leftover index rows are still real sightings,
       // and recording one late only delays a 30-day signal. Full scans only (selectScanTasks).
       {

@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import type { ScanIssue, ScanTaskResult } from '../../shared/ipc'
+import type { ScanIssue, ScanTaskResult, WorktreeLink } from '../../shared/ipc'
 import { homedir } from 'os'
 import { dirname, join, resolve } from 'path'
 import { writeSkillScan, writeSkillScanAuthoritative, type SkillScanRow } from '../db/queries'
@@ -18,6 +18,7 @@ import {
 import { parseSkillDirectory } from './skill-parser'
 import { isSemanticVersion } from '../../shared/version'
 import { createMissingProjectCheck } from './project-discovery'
+import { createPrunedWorktreeCheck } from './worktrees'
 
 interface PluginInstallEntry {
   scope?: unknown
@@ -219,7 +220,8 @@ function buildPluginSkillRow(
 export function scanPluginRegistry(
   db: Database.Database,
   pluginsDir: string = resolve(homedir(), '.claude', 'plugins'),
-  userSettingsPath?: string
+  userSettingsPath?: string,
+  worktreeLinks: readonly WorktreeLink[] = []
 ): ScanTaskResult {
   const pluginsDirectory = readAllowedDirectory(pluginsDir)
   if (pluginsDirectory.status === 'unavailable') return { status: 'partial' }
@@ -229,6 +231,8 @@ export function scanPluginRegistry(
   const enablementCache = new Map<string, Set<string>>()
   const unknownProjects = new Set<string>()
   const isMissingProject = createMissingProjectCheck()
+  // Claude Code never removes a pruned worktree's installs from installed_plugins.json.
+  const isPrunedWorktree = createPrunedWorktreeCheck(worktreeLinks)
   const missingProjects = new Map<string, boolean>()
   const issues = new Map<string, ScanIssue>()
   function disabledPluginsFor(projectPath: string): Set<string> {
@@ -412,7 +416,7 @@ export function scanPluginRegistry(
         if (projectPath !== '') {
           let missing = missingProjects.get(projectPath)
           if (missing === undefined) {
-            missing = isMissingProject(projectPath)
+            missing = isMissingProject(projectPath) || isPrunedWorktree(projectPath)
             missingProjects.set(projectPath, missing)
           }
           if (missing) continue
