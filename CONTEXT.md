@@ -32,6 +32,14 @@ _Avoid_: Permission (too generic — Grant is the specific consent action that p
 The read-only pass that walks every trusted or granted path across the three Skill Sources and reconciles the Index to match what's currently on disk — adding Skills that appeared, removing ones that vanished. Discovers what exists; does not judge it.
 _Avoid_: Sync (implies bidirectional — Megatron never writes back), Index (that's the destination of a Scan, not the act)
 
+**Canonical Checkout**:
+The one checkout of a repo that Megatron treats as that repo: the source of its Project Skills and the owner of its Usage. A normal repo's own folder; for a bare repo, the Worktree on the default branch, else the first by path order. Exactly one per repo.
+_Avoid_: Main checkout, main worktree (git's "main worktree" doesn't exist for a bare repo; ours always does), primary
+
+**Worktree**:
+Any other checkout of the same repo, proven by git's own `.git/worktrees` link or by Claude Code's `<repo>/.claude/worktrees/<name>` layout. Contributes Sessions and Skill Invocations to its Canonical Checkout, never Skills. A separate clone is not a Worktree: nothing on disk proves the link.
+_Avoid_: Clone, copy, workspace (Orca's and Conductor's word for the folder, not the relationship)
+
 **Index**:
 The local database a Scan writes into — Megatron's own regenerable record of what Skills, Sessions, and Skill Invocations exist. Never a source of truth in its own right; deleting it and rescanning is always safe and lossless for anything still on disk.
 _Avoid_: Database, cache

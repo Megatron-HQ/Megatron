@@ -99,7 +99,19 @@ independent of the index and the live folder catalog. Each location has a stable
 rediscovery at the same path.
 
 - A working directory belongs to the deepest retained repository root. Parent-folder activity with
-  no owning repository is its own workspace. Separate clones and worktrees stay independent.
+  no owning repository is its own workspace. Separate clones stay independent: a matching name
+  never proves identity.
+- **Worktrees belong to their repository's Canonical Checkout** (terms in `CONTEXT.md`). Evidence
+  is git's own link, read from either side: a repository's `.git/worktrees/*/gitdir` (inside its
+  grant), or a granted worktree's `.git` file naming an ungranted repository. Claude Code's
+  `<repo>/.claude/worktrees/<name>` layout is evidence on its own, with no read (verified against
+  real `~/.claude` 2026-11-15). The link is stored as `linkedTo` + `worktree: true`, pointing
+  straight at the Canonical Checkout rather than the project's primary, because project-skill
+  scoping canonicalizes paths through it (`canonical_project_path` in `queries.ts`; raw
+  `sessions_meta.cwd` is never rewritten). It is sticky after the worktree is pruned, moves when
+  newer evidence names another repository, and cannot be unlinked. Submodules and their worktrees
+  stay independent. Accepted gap: a worktree created and pruned while Megatron was closed leaves
+  no evidence, and one pruned before this rule shipped stays a separate location.
 - A confirmed link merges Usage identity only, applied at query time. It never rewrites source
   records, changes skill or plugin ownership, or grants filesystem access, and unlinking restores
   separate totals without deleting anything. Linking has no UI yet; existing links stay intact.
