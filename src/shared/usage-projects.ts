@@ -11,6 +11,9 @@ export interface UsageProjectLocation extends ProjectFolder {
   id: string
   linkedTo?: string
   inferredOwner?: boolean
+  // A git worktree, linked straight to its Canonical Checkout (never flattened to the project's
+  // primary): project-skill scoping reads that checkout's path. See CONTEXT.md.
+  worktree?: true
 }
 
 export interface UsageProject {

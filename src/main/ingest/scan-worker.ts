@@ -1,8 +1,9 @@
 import { parentPort, workerData } from 'worker_threads'
 import Database from 'better-sqlite3'
 import { restoreGrantedPath } from '../permissions'
+import { setWorktreeLinkSource } from '../db/queries'
 import { scanSkills as runSkillScan } from './skills-scanner'
-import type { ProjectFolder, ScanTaskResult } from '../../shared/ipc'
+import type { ProjectFolder, ScanTaskResult, WorktreeLink } from '../../shared/ipc'
 import { scanPluginRegistry } from './plugin-registry'
 import { scanTranscripts as runTranscriptScan } from './transcript-scanner'
 import { scanPromptHistory as runPromptScan } from './prompt-history-scanner'
@@ -17,18 +18,21 @@ const {
   archivePath,
   grantedPaths,
   previousProjects = [],
+  worktreeLinks = [],
   scope = 'all'
 } = workerData as {
   databasePath: string
   archivePath: string
   grantedPaths: string[]
   previousProjects?: ProjectFolder[]
+  worktreeLinks?: WorktreeLink[]
   scope?: ScanScope
 }
 function scanSkills(db: Database.Database): ScanTaskResult {
   return runSkillScan(db, undefined, undefined, previousProjects)
 }
 for (const path of grantedPaths) restoreGrantedPath(path)
+setWorktreeLinkSource(() => worktreeLinks)
 const database = new Database(databasePath)
 let archive: Database.Database | undefined
 const getArchive = (): Database.Database => (archive ??= openUsageArchive(archivePath))

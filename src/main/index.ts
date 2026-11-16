@@ -30,7 +30,9 @@ import {
   usageProjectCatalog,
   readClaudeAppChats,
   linkUsageProjects,
-  unlinkUsageProject
+  unlinkUsageProject,
+  applyWorktreeEvidence,
+  worktreeLinks
 } from './usage-projects'
 import type { UsageProjectCatalog, UsageProjectLocation } from '../shared/usage-projects'
 import { createScanSession, type ScanUrgency } from './scan-session'
@@ -49,7 +51,8 @@ import {
   getSkillInvocationSlice,
   getSkillUsageDetail,
   listPlugins,
-  listSkills
+  listSkills,
+  setWorktreeLinkSource
 } from './db/queries'
 import {
   allowedLinkTargetSync,
@@ -134,6 +137,7 @@ const isPrimaryInstance = claimSingleInstance(app, () => BrowserWindow.getAllWin
 if (isPrimaryInstance)
   securePrivateDataDirectory(app.getPath('userData'), join(app.getPath('appData'), app.getName()))
 const themeStore: ThemeStore = new Store({ name: 'preferences' })
+setWorktreeLinkSource(() => worktreeLinks(themeStore.get('usageProjects')))
 // Bundled and validated by its own test, so a parse failure here means a broken build, not user data.
 const whatsNewCatalog = parseWhatsNewCatalog(whatsNewJson)
 
@@ -232,7 +236,8 @@ const scans = createScanController((scope) =>
       databasePath: getDb().name,
       archivePath: join(app.getPath('userData'), USAGE_ARCHIVE_FILENAME),
       grantedPaths: getGrantedPaths(),
-      previousProjects: sanitizeProjectFolders(themeStore.get('projectFolders'))
+      previousProjects: sanitizeProjectFolders(themeStore.get('projectFolders')),
+      worktreeLinks: worktreeLinks(themeStore.get('usageProjects'))
     },
     undefined,
     (progress) => {
@@ -285,6 +290,16 @@ async function scanAndNotify(
         themeStore.set('projectFolders', scanSummary.projects)
       } catch (error) {
         console.error('[ingest] could not save project catalog', error)
+      }
+    }
+    if (scanSummary.worktrees) {
+      try {
+        themeStore.set(
+          'usageProjects',
+          applyWorktreeEvidence(usageProjectLocations(), scanSummary.worktrees)
+        )
+      } catch (error) {
+        console.error('[ingest] could not save worktree links', error)
       }
     }
     scanComplete = true
@@ -504,7 +519,7 @@ app.whenReady().then(() => {
     // still never names a path; it only saves the user navigating there.
     const defaultPath = suggestGrantStart(
       usageProjectLocations()
-        .filter((location) => location.status === 'needs_access')
+        .filter((location) => location.status === 'needs_access' && !location.worktree)
         .map((location) => location.path),
       listAllowedPaths(themeStore).map((row) => row.path),
       homedir()
