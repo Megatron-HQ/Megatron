@@ -46,7 +46,14 @@ function isRelevantChange(
   const directories = claudeIndex < 0 ? parts : parts.slice(0, claudeIndex)
   if (directories.some((part) => IGNORED_PROJECT_DIRECTORIES.has(part))) return false
   const gitIndex = directories.indexOf('.git')
-  if (gitIndex >= 0) return gitIndex === parts.length - 1 && event === 'rename'
+  // Inside .git only a repository appearing or a worktree being added or pruned matters.
+  if (gitIndex >= 0) {
+    const inside = parts.slice(gitIndex + 1)
+    return (
+      event === 'rename' &&
+      (inside.length === 0 || (inside[0] === 'worktrees' && inside.length <= 2))
+    )
+  }
   return event === 'rename' || claudeIndex >= 0
 }
 
