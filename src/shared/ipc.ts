@@ -84,6 +84,13 @@ export interface ProjectFolder {
   status: 'available' | 'unavailable' | 'missing' | 'needs_access'
 }
 
+// A git worktree (or Claude Code's .claude/worktrees layout) and the Canonical Checkout it
+// belongs to; see CONTEXT.md.
+export interface WorktreeLink {
+  path: string
+  canonical: string
+}
+
 export type SourceType = 'global' | 'project' | 'plugin'
 export type LintSeverity = 'error' | 'warning'
 export type LintStatus = 'error' | 'warning' | 'clean'
