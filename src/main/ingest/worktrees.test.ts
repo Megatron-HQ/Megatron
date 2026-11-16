@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { grantPath, resetGrantedPaths } from '../permissions'
 import {
@@ -16,8 +16,9 @@ describe('parseGitdir', () => {
     ['gitdir: /code/app/.git/worktrees/x\n', '/code/wt', '/code/app/.git/worktrees/x'],
     ['gitdir: /code/app/.git/worktrees/x\r\n', '/code/wt', '/code/app/.git/worktrees/x'],
     ['/code/wt/.git\n', '/code/app/.git/worktrees/wt', '/code/wt/.git'],
-    ['gitdir: ../app/.git/worktrees/x\n', '/code/wt', '/code/app/.git/worktrees/x'],
-    ['../../../../wt/.git\n', '/code/app/.git/worktrees/wt', '/code/wt/.git'],
+    // Relative pointers resolve with the host's own path rules (a drive letter on Windows).
+    ['gitdir: ../app/.git/worktrees/x\n', '/code/wt', resolve('/code/app/.git/worktrees/x')],
+    ['../../../../wt/.git\n', '/code/app/.git/worktrees/wt', resolve('/code/wt/.git')],
     [
       'gitdir: C:/Users/sai/app/.git/worktrees/x\n',
       '/code/wt',
