@@ -45,12 +45,12 @@ foreach ($file in $env:MEGATRON_PRIVATE_DATA_FILES.Split([char[]]@('|'), [System
 exit 0
 `
 
-// The one Claude Code config folder this process reads (config-root.ts resolves it at startup).
+// The one Claude Code config folder this process reads (claude-folder.ts picks it at startup).
 // Claude Code keeps .claude.json in $HOME by default but inside CLAUDE_CONFIG_DIR when that's set.
 export interface ConfigRoot {
   directory: string
   claudeJson: string
-  source: 'default' | 'environment'
+  source: 'default' | 'environment' | 'settings'
 }
 
 export function defaultConfigRoot(home: string): ConfigRoot {
@@ -59,6 +59,12 @@ export function defaultConfigRoot(home: string): ConfigRoot {
     claudeJson: resolve(home, '.claude.json'),
     source: 'default'
   }
+}
+
+// Claude Code moves .claude.json into the folder exactly when CLAUDE_CONFIG_DIR names it, so this
+// one check says whether the CLI must be given the variable to read what Megatron reads.
+export function namesConfigFolder(root: ConfigRoot): boolean {
+  return root.claudeJson === join(root.directory, '.claude.json')
 }
 
 export interface ClaudeConfig extends ConfigRoot {

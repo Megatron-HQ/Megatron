@@ -1,4 +1,5 @@
 import { app, shell, BrowserWindow, dialog, ipcMain, net, protocol, session } from 'electron'
+import { watchFile } from 'fs'
 import { basename, join, resolve } from 'path'
 import { homedir } from 'os'
 import { pathToFileURL } from 'url'
@@ -66,7 +67,8 @@ import {
   securePrivateDataDirectory,
   setClaudeConfig
 } from './permissions'
-import { resolveConfigRoot } from './config-root'
+import { createClaudeFolder } from './claude-folder'
+import { holdClaude } from './claude-process'
 import {
   markOnboardingDone,
   resolveInitialSection,
@@ -100,7 +102,13 @@ import { findStaleSkillIds, usageDataTrusted } from './db/stale-skills'
 import { sanitizeProjectFolders } from './ingest/project-discovery'
 import { readSkillFiles, readSkillMd } from './skill-files'
 import { openSafeExternal } from './shell'
-import { disablePlugin, enablePlugin, uninstallPlugin, updatePlugin } from './plugin-actions'
+import {
+  disablePlugin,
+  enablePlugin,
+  pluginActionsIdle,
+  uninstallPlugin,
+  updatePlugin
+} from './plugin-actions'
 import { createPluginActionService } from './plugin-action-service'
 import {
   GRANT_GUIDANCE,
@@ -141,15 +149,34 @@ if (isPrimaryInstance)
 const themeStore: ThemeStore = new Store({ name: 'preferences' })
 
 // Before anything reads Claude Code's data: every reader, Tier 1, the scan worker and the CLI follow
-// this one folder for the life of the process.
-const configResolution = resolveConfigRoot(process.env.CLAUDE_CONFIG_DIR, homedir())
-setClaudeConfig(configResolution.root)
-if (configResolution.issue)
-  console.warn(
-    '[config-root] CLAUDE_CONFIG_DIR issue; reading',
-    configResolution.root.directory,
-    configResolution.issue
-  )
+// this one folder for the life of the process; choosing another relaunches.
+const claudeFolder = createClaudeFolder({
+  home: homedir(),
+  environment: process.env.CLAUDE_CONFIG_DIR,
+  store: themeStore,
+  // A stat poll, unlike fs.watch, notices a folder that doesn't exist yet appearing (a drive
+  // reconnecting), and it costs one stat every 2 seconds.
+  watch: (path, onChange) => watchFile(path, { interval: 2000, persistent: false }, onChange),
+  hold: holdClaude,
+  pluginActionsIdle,
+  stopScans: () => scans.cancel(),
+  // exit, not quit: quitting runs before-quit, which would swap in a staged macOS update mid-switch.
+  relaunch: () => {
+    app.relaunch()
+    app.exit(0)
+  },
+  broadcast: (status) => {
+    for (const window of BrowserWindow.getAllWindows())
+      window.webContents.send(IPC_CHANNELS.claudeFolderState, status)
+  },
+  // Deferred: a resume found inside scanAndNotify's own pause check must not start a nested scan.
+  onResume: () =>
+    setImmediate(() => {
+      inventoryWatcher?.update()
+      void scanAndNotify('announce', true)
+    })
+})
+setClaudeConfig(claudeFolder.root)
 setWorktreeLinkSource(() => worktreeLinks(themeStore.get('usageProjects')))
 // Bundled and validated by its own test, so a parse failure here means a broken build, not user data.
 const whatsNewCatalog = parseWhatsNewCatalog(whatsNewJson)
@@ -276,6 +303,12 @@ async function scanAndNotify(
   fresh = false,
   scope: ScanScope = 'all'
 ): Promise<ScanSummary> {
+  // A scan of a missing folder would delete every cached row. Cached rows stay on screen, and this
+  // summary is never stored, so the folder banner explains the pause instead of a scan warning.
+  if (claudeFolder.paused()) {
+    scanComplete = true
+    return { outcome: 'failed', completedAt: new Date().toISOString(), sources: [] }
+  }
   const previousSuccess = scanSummary?.lastSuccessfulAt ?? null
   const { run, started, promoted } = scanSession.begin(Date.now(), urgency)
   if (started || promoted) notifyScanStarted(run)
@@ -501,13 +534,11 @@ app.whenReady().then(() => {
 
   async function pickFolders(
     sender: Electron.WebContents,
-    options: Electron.OpenDialogOptions
+    options: Electron.OpenDialogOptions,
+    properties: Electron.OpenDialogOptions['properties'] = ['openDirectory', 'multiSelections']
   ): Promise<string[]> {
     const window = BrowserWindow.fromWebContents(sender)
-    const dialogOptions: Electron.OpenDialogOptions = {
-      ...options,
-      properties: ['openDirectory', 'multiSelections']
-    }
+    const dialogOptions: Electron.OpenDialogOptions = { ...options, properties }
     const result = window
       ? await dialog.showOpenDialog(window, dialogOptions)
       : await dialog.showOpenDialog(dialogOptions)
@@ -573,6 +604,25 @@ app.whenReady().then(() => {
     async (_event, path: string) => (await changeGrants([], [path])).folders
   )
 
+  secureIpc.handle(IPC_CHANNELS.getClaudeFolder, () => claudeFolder.status())
+  // By id only: the renderer picks from the folders main listed, never names a path.
+  secureIpc.handle(IPC_CHANNELS.chooseClaudeFolder, (_event, id: string) => claudeFolder.choose(id))
+  secureIpc.handle(IPC_CHANNELS.pickClaudeFolder, (event) =>
+    claudeFolder.pickFolder(async () => {
+      const [path] = await pickFolders(
+        event.sender,
+        {
+          title: 'Choose Claude Code Folder',
+          message: 'Choose the folder Claude Code keeps its settings and history in.',
+          defaultPath: homedir()
+        },
+        // macOS hides dot-folders, and every Claude Code profile folder is one.
+        ['openDirectory', 'showHiddenFiles']
+      )
+      return path ?? null
+    })
+  )
+
   secureIpc.handle(IPC_CHANNELS.openExternal, (_event, url: string) => {
     openSafeExternal(url, (safeUrl) => {
       void shell.openExternal(safeUrl)
@@ -593,7 +643,7 @@ app.whenReady().then(() => {
       uninstall: uninstallPlugin
     },
     refresh: (scope) =>
-      scope === 'plugins'
+      scope === 'plugins' && !claudeFolder.paused()
         ? scans.request({ scope: 'plugins', fresh: true })
         : scanAndNotify('quiet', true),
     readDetail: (input) => getPluginDetail(getDb(), input.name, input.marketplace),

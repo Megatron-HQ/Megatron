@@ -23,36 +23,51 @@ Release and updates section here covers their security consequences.
 
 ### Config root
 
-Tier 1 is one Claude Code config folder. `config-root.ts` resolves it once at startup and it stays
+Tier 1 is one Claude Code config folder. `claude-folder.ts` picks it once at startup and it stays
 fixed for the process; the scan worker receives it in `workerData`. Elsewhere in these docs,
 `~/.claude` means this folder.
 
+- Order: the folder chosen in Settings, else `CLAUDE_CONFIG_DIR`, else `~/.claude`. Settings exists
+  because a Finder- or Dock-launched macOS app never sees shell variables, and shell aliases switch
+  profiles per terminal.
 - `CLAUDE_CONFIG_DIR` unset or blank: `~/.claude`, with `.claude.json` in `$HOME`. Set: that folder
   replaces `~/.claude` in Tier 1 and `.claude.json` moves inside it. Verified against Claude Code
   2.1.326, 2026-11-17: the folder is `(CLAUDE_CONFIG_DIR ?? ~/.claude).normalize('NFC')` and
   `.claude.json` is `join(CLAUDE_CONFIG_DIR || homedir(), '.claude.json')`, so "unset" and
-  "explicitly `~/.claude`" read different `.claude.json` files.
-- A value is used only when both its given form and its realpath are absolute, not UNC, not a
-  filesystem or drive root, and not `$HOME` or an ancestor of it (also by file identity, so another
-  casing or an 8.3 name can't slip past), and the folder holds a Claude Code marker
-  (`settings.json`, `.claude.json`, `projects/`, `plugins/`, `skills/`, `history.jsonl`). Anything
-  else falls back to `~/.claude`. Threat: a variable naming `$HOME`, `/` or `~/Documents` would
-  make that tree Tier 1. Consequence: a brand-new profile is refused until Claude Code has run in
-  it once.
-- A missing folder is kept, not replaced: reads come back missing instead of showing another
-  profile's data as this one's. Remaining risk, accepted: only its given form was shape-checked, so
-  if it later appears as a link to a broad folder, Tier 1 reads that folder's `skills/`, `plugins/`,
-  `projects/` and three named files until relaunch. Creating that link already requires running as
-  the user.
-- Tier 1 keeps the given form, not the realpath, because Claude Code records paths in that form. A
-  linked folder is followed by the setup-link rule under Cache preservation, like a linked
-  `~/.claude`.
+  "explicitly `~/.claude`" read different `.claude.json` files. Choosing `~/.claude` in Settings,
+  by any spelling or link, saves `null`, which means the unset form even when the variable is set.
+- A folder, from either source, is used only when both its given form and its realpath are
+  absolute, not UNC, not a filesystem or drive root, and not `$HOME` or an ancestor of it (also by
+  file identity, so another casing or an 8.3 name can't slip past), and the folder holds a Claude
+  Code marker (`settings.json`, `.claude.json`, `projects/`, `plugins/`, `skills/`,
+  `history.jsonl`). Threat: a value naming `$HOME`, `/` or `~/Documents` would put that whole tree
+  in Tier 1. Consequence: a brand-new profile is refused until Claude Code has run in it once. A
+  Settings choice is checked when chosen (a refused one is never saved) and again on every launch;
+  one that fails later falls through to the variable or the default, with a notice.
+- Both sources keep the given form, not the realpath, because Claude Code records paths in that
+  form; the Settings choice is saved as chosen and never re-resolved. A linked folder is followed
+  by the setup-link rule under Cache preservation, like a linked `~/.claude`.
+- A missing folder is held, never replaced: reading another profile in its place would be silently
+  wrong. While it is missing, new scans and every CLI run are refused (`holdClaude`, in
+  `runClaude`, the one path every spawned `claude` takes), so a missing drive can't empty the
+  index. A 2-second `fs.watchFile` poll, plus a check on every scan request, notices it leave and
+  return; a returning folder must pass the checks above again before anything resumes. This
+  narrows the old accepted risk of a folder reappearing as a link to a broad tree to a scan already
+  running at that instant. `~/.claude` read as the default never pauses, since a fresh install has
+  none until Claude Code first runs.
 - The marker probe lists names in the one named folder with plain `fs` before it becomes Tier 1.
-  Like CLI discovery, it is a separate capability from `isPathAllowed()`.
-- CLI runs (`/context`, plugin actions) get `CLAUDE_CONFIG_DIR` set to the active folder when it
-  came from the environment, and stripped in every casing otherwise, so a refused value leaves both
-  Megatron and the CLI on `~/.claude`. Threat: the CLI changing one profile while Megatron shows
-  another.
+  Settings' suggestions list `$HOME`'s entry names and, for `.claude-*`/`.claude_*` folders only,
+  their entry names (`settings.json`, `.claude.json`, `projects/`); no file contents are read. Like
+  CLI discovery, both are a separate capability from `isPathAllowed()`.
+- The renderer never names a folder: it chooses by an id from main's own list, or main opens the
+  native picker. IPC carries one id of at most 300 characters.
+- Switching relaunches: wait for running plugin actions, hold the CLI, stop scans, then
+  `app.relaunch()` and `app.exit(0)`. `exit` skips `before-quit`, so a staged macOS update is not
+  swapped in mid-switch.
+- CLI runs (`/context`, plugin actions) get `CLAUDE_CONFIG_DIR` set exactly when the active folder
+  is a named one (`.claude.json` inside it), and stripped in every casing otherwise, so a refused
+  value or "Use default" leaves both Megatron and the CLI on `~/.claude`. Threat: the CLI changing
+  one profile while Megatron shows another.
 
 ## Cache preservation
 

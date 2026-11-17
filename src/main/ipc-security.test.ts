@@ -131,6 +131,28 @@ describe('renderer trust boundary', () => {
     expect(() => security.validateIpcArguments(channel, args)).toThrow()
   })
   it.each([
+    [IPC_CHANNELS.getClaudeFolder, []],
+    [IPC_CHANNELS.pickClaudeFolder, []],
+    [IPC_CHANNELS.chooseClaudeFolder, ['default']],
+    [IPC_CHANNELS.chooseClaudeFolder, ['home:.claude-work']],
+    [IPC_CHANNELS.chooseClaudeFolder, ['home:' + 'a'.repeat(295)]]
+  ])('accepts Claude Code folder requests for %s', (channel, args) => {
+    expect(() => security.validateIpcArguments(channel, args)).not.toThrow()
+  })
+  it.each([
+    // The renderer chooses by the id main listed; the picker's folder comes from the native dialog.
+    [IPC_CHANNELS.pickClaudeFolder, ['/Users/me/.claude-work']],
+    [IPC_CHANNELS.getClaudeFolder, ['saved']],
+    [IPC_CHANNELS.chooseClaudeFolder, []],
+    [IPC_CHANNELS.chooseClaudeFolder, ['']],
+    [IPC_CHANNELS.chooseClaudeFolder, [42]],
+    [IPC_CHANNELS.chooseClaudeFolder, ['home:.claude\0']],
+    [IPC_CHANNELS.chooseClaudeFolder, ['home:' + 'a'.repeat(296)]],
+    [IPC_CHANNELS.chooseClaudeFolder, ['default', 'saved']]
+  ])('rejects malformed Claude Code folder requests for %s', (channel, args) => {
+    expect(() => security.validateIpcArguments(channel, args)).toThrow()
+  })
+  it.each([
     [IPC_CHANNELS.usageCalendar, ['2026']],
     [IPC_CHANNELS.usageCalendar, [10000]],
     [IPC_CHANNELS.usageCalendar, [2026, 'extra']],

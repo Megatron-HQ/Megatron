@@ -1,6 +1,11 @@
 import { homedir } from 'os'
 import { basename, delimiter, dirname, isAbsolute, join, resolve, sep } from 'path'
-import { claudeConfig, inspectCliCandidate, inspectCliDirectory } from './permissions'
+import {
+  claudeConfig,
+  inspectCliCandidate,
+  inspectCliDirectory,
+  namesConfigFolder
+} from './permissions'
 
 export interface ClaudeCommand {
   executable: string
@@ -51,9 +56,10 @@ export function resolveClaudeCommand(projectDirectory?: string): ClaudeCommand |
   }
   environment.PATH = directories.join(delimiter)
   // /context and plugin actions must act on the folder Megatron reads. An inherited value Megatron
-  // rejected is dropped too, so the CLI falls back to ~/.claude together with Megatron.
+  // rejected, or one overridden by "Use default" in Settings, is dropped too, so the CLI reads
+  // ~/.claude together with Megatron.
   const config = claudeConfig()
-  if (config.source !== 'default') environment.CLAUDE_CONFIG_DIR = config.directory
+  if (namesConfigFolder(config)) environment.CLAUDE_CONFIG_DIR = config.directory
   const candidates = [...new Set([...directories, join(homedir(), '.local', 'bin')])]
   const inspect = (candidate: string): string | null => inspectCliCandidate(candidate, excluded)
   const node = directories

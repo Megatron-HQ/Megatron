@@ -10,7 +10,12 @@ import {
 import { tmpdir } from 'os'
 import { dirname, join, parse } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { resolveConfigRoot } from './config-root'
+import {
+  activeConfigRoot,
+  listConfigFolders,
+  resolveConfigRoot,
+  settingsChoice
+} from './config-root'
 
 let home: string
 
@@ -27,6 +32,12 @@ function profile(name: string, marker = 'settings.json'): string {
   mkdirSync(directory, { recursive: true })
   writeFileSync(join(directory, marker), '{}')
   return directory
+}
+
+function link(target: string, name: string): string {
+  const path = join(home, name)
+  symlinkSync(target, path, process.platform === 'win32' ? 'junction' : 'dir')
+  return path
 }
 
 function swapCase(path: string): string {
@@ -78,7 +89,7 @@ describe('resolveConfigRoot', () => {
   it('falls back to ~/.claude for a relative value, even before checking it exists', () => {
     expect(resolveConfigRoot('.claude-work', home)).toEqual({
       root: defaultRoot(),
-      issue: { value: '.claude-work', reason: 'invalid' }
+      issue: { value: '.claude-work', reason: 'invalid', source: 'environment' }
     })
   })
 
@@ -89,7 +100,7 @@ describe('resolveConfigRoot', () => {
   ])('falls back to ~/.claude for %s', (_label, value) => {
     expect(resolveConfigRoot(value(), home)).toEqual({
       root: defaultRoot(),
-      issue: { value: value(), reason: 'invalid' }
+      issue: { value: value(), reason: 'invalid', source: 'environment' }
     })
   })
 
@@ -112,7 +123,7 @@ describe('resolveConfigRoot', () => {
     symlinkSync(home, link, process.platform === 'win32' ? 'junction' : 'dir')
     expect(resolveConfigRoot(link, home)).toEqual({
       root: defaultRoot(),
-      issue: { value: link, reason: 'invalid' }
+      issue: { value: link, reason: 'invalid', source: 'environment' }
     })
   })
 
@@ -130,7 +141,7 @@ describe('resolveConfigRoot', () => {
         claudeJson: join(missing, '.claude.json'),
         source: 'environment'
       },
-      issue: { value: missing, reason: 'missing' }
+      issue: { value: missing, reason: 'missing', source: 'environment' }
     })
   })
 
@@ -140,7 +151,7 @@ describe('resolveConfigRoot', () => {
     writeFileSync(join(documents, 'notes.txt'), '')
     expect(resolveConfigRoot(documents, home)).toEqual({
       root: defaultRoot(),
-      issue: { value: documents, reason: 'no-marker' }
+      issue: { value: documents, reason: 'no-marker', source: 'environment' }
     })
   })
 
@@ -151,4 +162,190 @@ describe('resolveConfigRoot', () => {
   it.runIf(process.platform === 'win32')('matches the home folder regardless of case', () => {
     expect(resolveConfigRoot(home.toUpperCase(), home).issue?.reason).toBe('invalid')
   })
+})
+
+describe('activeConfigRoot', () => {
+  it('reads the folder chosen in Settings over CLAUDE_CONFIG_DIR', () => {
+    const chosen = profile('.claude-chosen')
+    const work = profile('.claude-work')
+    expect(activeConfigRoot({ saved: chosen, environment: work }, home)).toEqual({
+      root: { directory: chosen, claudeJson: join(chosen, '.claude.json'), source: 'settings' }
+    })
+  })
+
+  it('reads ~/.claude as Claude Code does with no variable when Settings chose the default', () => {
+    const work = profile('.claude-work')
+    expect(activeConfigRoot({ saved: null, environment: work }, home)).toEqual({
+      root: { ...defaultRoot(), source: 'settings' }
+    })
+  })
+
+  it('follows CLAUDE_CONFIG_DIR when nothing was chosen in Settings', () => {
+    const work = profile('.claude-work')
+    expect(activeConfigRoot({ saved: undefined, environment: work }, home)).toEqual({
+      root: { directory: work, claudeJson: join(work, '.claude.json'), source: 'environment' }
+    })
+  })
+
+  it('holds a chosen folder that is missing instead of reading another profile', () => {
+    const missing = join(home, '.claude-usb')
+    const work = profile('.claude-work')
+    expect(activeConfigRoot({ saved: missing, environment: work }, home)).toEqual({
+      root: { directory: missing, claudeJson: join(missing, '.claude.json'), source: 'settings' },
+      issue: { value: missing, reason: 'missing', source: 'settings' }
+    })
+  })
+
+  it.each([
+    [
+      'is now a file',
+      'invalid',
+      (): string => (writeFileSync(join(home, 'gone'), ''), join(home, 'gone'))
+    ],
+    ['Claude Code never used', 'no-marker', (): string => profile('Documents', 'notes.txt')]
+  ])(
+    'falls through to CLAUDE_CONFIG_DIR and reports a chosen folder that %s',
+    (_label, reason, saved) => {
+      const chosen = saved()
+      const work = profile('.claude-work')
+      expect(activeConfigRoot({ saved: chosen, environment: work }, home)).toEqual({
+        root: { directory: work, claudeJson: join(work, '.claude.json'), source: 'environment' },
+        issue: { value: chosen, reason, source: 'settings' }
+      })
+    }
+  )
+
+  it('falls through to ~/.claude when the variable is unset too', () => {
+    const documents = profile('Documents', 'notes.txt')
+    expect(activeConfigRoot({ saved: documents, environment: undefined }, home)).toEqual({
+      root: defaultRoot(),
+      issue: { value: documents, reason: 'no-marker', source: 'settings' }
+    })
+  })
+
+  it('restores a chosen link exactly as saved, not as the folder it points to', () => {
+    const saved = link(profile('profiles/work'), '.claude-work')
+    expect(activeConfigRoot({ saved, environment: undefined }, home).root.directory).toBe(saved)
+  })
+})
+
+describe('settingsChoice', () => {
+  it('saves a Claude Code profile folder', () => {
+    const work = profile('.claude-work')
+    expect(settingsChoice(work, home)).toBe(work)
+  })
+
+  it('saves a link as chosen, not the folder it points to', () => {
+    const chosen = link(profile('profiles/work'), '.claude-work')
+    expect(settingsChoice(chosen, home)).toBe(chosen)
+  })
+
+  it('saves the default for ~/.claude, so Settings reads it as Claude Code does with no variable', () => {
+    expect(settingsChoice(profile('.claude'), home)).toBeNull()
+  })
+
+  it('saves the default for a link to ~/.claude', () => {
+    expect(settingsChoice(link(profile('.claude'), '.claude-main'), home)).toBeNull()
+  })
+
+  it('saves the default for ~/.claude spelled in another case', ({ skip }) => {
+    profile('.claude')
+    const value = join(home, '.CLAUDE')
+    if (!existsSync(value)) skip('case-sensitive filesystem')
+    expect(settingsChoice(value, home)).toBeNull()
+  })
+
+  it.each([
+    [
+      'the home folder',
+      'invalid',
+      (): string => (writeFileSync(join(home, 'settings.json'), '{}'), home)
+    ],
+    [
+      'a folder Claude Code never used',
+      'no-marker',
+      (): string => profile('Documents', 'notes.txt')
+    ],
+    ['a folder that does not exist', 'missing', (): string => join(home, '.claude-new')]
+  ])('refuses %s with the reason', (_label, reason, value) => {
+    expect(settingsChoice(value(), home)).toEqual({ reason })
+  })
+})
+
+describe('listConfigFolders', () => {
+  function option(id: string, path: string, tags: string[] = [], active = false): object {
+    return { id, path, tags, active }
+  }
+
+  it('lists the saved folder, ~/.claude, the overridden variable, then home profiles', () => {
+    profile('.claude')
+    const saved = profile('profiles/chosen')
+    const environment = profile('profiles/env')
+    const work = profile('.claude-work')
+    const personal = profile('.Claude_Personal', 'projects')
+    expect(listConfigFolders({ saved, environment, active: saved }, home)).toEqual([
+      option('saved', saved, [], true),
+      option('default', join(home, '.claude'), ['default']),
+      option('environment', environment, ['environment']),
+      option('home:.Claude_Personal', personal),
+      option('home:.claude-work', work)
+    ])
+  })
+
+  it('always lists ~/.claude, even before Claude Code creates it', () => {
+    const claude = join(home, '.claude')
+    expect(
+      listConfigFolders({ saved: null, environment: undefined, active: claude }, home)
+    ).toEqual([option('default', claude, ['default'], true)])
+  })
+
+  it('leaves out home folders that are not Claude Code profiles, and a relative variable', () => {
+    profile('.claude-notes', 'notes.txt')
+    profile('.claude-cache', 'plugins')
+    profile('claude-work')
+    profile('.clauderc')
+    writeFileSync(join(home, '.claude-file'), '')
+    const claude = join(home, '.claude')
+    expect(
+      listConfigFolders({ saved: undefined, environment: '.claude-work', active: claude }, home)
+    ).toEqual([option('default', claude, ['default'], true)])
+  })
+
+  it('merges a variable naming a home profile into one entry', () => {
+    const work = profile('.claude-work')
+    expect(listConfigFolders({ saved: undefined, environment: work, active: work }, home)).toEqual([
+      option('default', join(home, '.claude'), ['default']),
+      option('environment', work, ['environment'], true)
+    ])
+  })
+
+  it('merges a home profile linked to ~/.claude into the default entry', () => {
+    const claude = profile('.claude')
+    link(claude, '.claude-main')
+    expect(
+      listConfigFolders({ saved: undefined, environment: undefined, active: claude }, home)
+    ).toEqual([option('default', claude, ['default'], true)])
+  })
+
+  it('combines tags when the saved folder is also the variable', () => {
+    const work = profile('.claude-work')
+    expect(listConfigFolders({ saved: work, environment: work, active: work }, home)).toEqual([
+      option('saved', work, ['environment'], true),
+      option('default', join(home, '.claude'), ['default'])
+    ])
+  })
+
+  it.runIf(process.platform === 'win32')(
+    'merges missing folders whose paths differ only in letter case on Windows',
+    () => {
+      const saved = join(home, '.claude-usb')
+      const claude = join(home, '.claude')
+      expect(
+        listConfigFolders({ saved, environment: saved.toUpperCase(), active: saved }, home)
+      ).toEqual([
+        option('saved', saved, ['environment'], true),
+        option('default', claude, ['default'])
+      ])
+    }
+  )
 })

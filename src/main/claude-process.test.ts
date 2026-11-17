@@ -1,7 +1,7 @@
 import { execFile } from 'child_process'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveClaudeCommand } from './claude-cli'
-import { runClaude } from './claude-process'
+import { holdClaude, runClaude } from './claude-process'
 
 vi.mock('child_process', () => ({ execFile: vi.fn() }))
 vi.mock('./claude-cli', () => ({ resolveClaudeCommand: vi.fn() }))
@@ -21,6 +21,7 @@ function respond(error: (Error & { code?: string; killed?: boolean }) | null, st
 const options = { timeoutMs: 60_000, timeoutMessage: 'Took too long.' }
 
 beforeEach(() => {
+  holdClaude(null)
   mockedExecFile.mockReset()
   mockedResolve.mockReturnValue({
     executable: '/trusted/claude',
@@ -65,5 +66,20 @@ describe('runClaude', () => {
     expect(result.ok).toBe(false)
     expect(!result.ok && result.error).toMatch(/Claude Code CLI was not found/)
     expect(mockedExecFile).not.toHaveBeenCalled()
+  })
+
+  it('refuses every run while held, and runs again once released', async () => {
+    respond(null, 'ok')
+    holdClaude('The Claude Code folder is missing.')
+    await expect(runClaude(['plugin', 'enable', 'demo'], options)).resolves.toEqual({
+      ok: false,
+      error: 'The Claude Code folder is missing.'
+    })
+    expect(mockedExecFile).not.toHaveBeenCalled()
+    holdClaude(null)
+    await expect(runClaude(['-p', '/context'], options)).resolves.toEqual({
+      ok: true,
+      stdout: 'ok'
+    })
   })
 })

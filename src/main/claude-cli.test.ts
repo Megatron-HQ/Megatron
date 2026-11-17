@@ -108,4 +108,15 @@ describe('the Claude Code config folder the CLI runs against', () => {
     })
     expect(configEntries()).toEqual([['CLAUDE_CONFIG_DIR', work]])
   })
+
+  it('points the CLI at a folder chosen in Settings', () => {
+    const work = join(root, '.claude-work')
+    setClaudeConfig({ directory: work, claudeJson: join(work, '.claude.json'), source: 'settings' })
+    expect(configEntries()).toEqual([['CLAUDE_CONFIG_DIR', work]])
+  })
+
+  it('strips the variable when Settings chose ~/.claude, so the CLI reads .claude.json from home', () => {
+    setClaudeConfig({ ...defaultConfigRoot(root), source: 'settings' })
+    expect(configEntries()).toEqual([])
+  })
 })

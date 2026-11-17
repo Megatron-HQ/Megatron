@@ -6,6 +6,8 @@ import {
   IPC_CHANNELS,
   type AllowedPathRow,
   type AppSection,
+  type ClaudeFolderChoice,
+  type ClaudeFolderStatus,
   type GrantChangeResult,
   type OpenSkillMetaResult,
   type OpenSkillResult,
@@ -104,6 +106,17 @@ const api = {
   installUpdate: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.installUpdate),
   setAutoUpdateCheck: (enabled: boolean): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.setAutoUpdateCheck, enabled),
+  getClaudeFolder: (): Promise<ClaudeFolderStatus> =>
+    ipcRenderer.invoke(IPC_CHANNELS.getClaudeFolder),
+  chooseClaudeFolder: (id: string): Promise<ClaudeFolderChoice> =>
+    ipcRenderer.invoke(IPC_CHANNELS.chooseClaudeFolder, id),
+  pickClaudeFolder: (): Promise<ClaudeFolderChoice> =>
+    ipcRenderer.invoke(IPC_CHANNELS.pickClaudeFolder),
+  onClaudeFolderState: (callback: (status: ClaudeFolderStatus) => void): (() => void) => {
+    const listener = (_event: unknown, status: ClaudeFolderStatus): void => callback(status)
+    ipcRenderer.on(IPC_CHANNELS.claudeFolderState, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.claudeFolderState, listener)
+  },
   onPluginUpdateProgress: (callback: (progress: PluginUpdateProgress) => void): (() => void) => {
     const listener = (_event: unknown, progress: PluginUpdateProgress): void => callback(progress)
     ipcRenderer.on(IPC_CHANNELS.pluginUpdateProgress, listener)

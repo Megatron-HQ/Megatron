@@ -22,6 +22,13 @@ const ACTION_IN_PROGRESS_MESSAGE =
 
 const runningPluginActions = new Set<string>()
 const marketplaceRefreshes = new Map<string, Promise<PluginActionResult>>()
+const idleWaiters: (() => void)[] = []
+
+// A relaunch onto another Claude Code folder waits here, so it never kills a CLI mid-write.
+export function pluginActionsIdle(): Promise<void> {
+  if (runningPluginActions.size === 0) return Promise.resolve()
+  return new Promise((resolve) => idleWaiters.push(resolve))
+}
 
 async function refreshMarketplace(marketplace: string, cwd?: string): Promise<PluginActionResult> {
   const key = JSON.stringify([marketplace, cwd ?? null])
@@ -123,6 +130,7 @@ async function runPluginAction(
     }
   } finally {
     runningPluginActions.delete(actionKey)
+    if (runningPluginActions.size === 0) for (const resolve of idleWaiters.splice(0)) resolve()
   }
 }
 

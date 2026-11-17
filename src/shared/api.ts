@@ -3,6 +3,8 @@ import type { WhatsNewAnchorId, WhatsNewInitialState } from './whats-new'
 import type {
   AllowedPathRow,
   AppSection,
+  ClaudeFolderChoice,
+  ClaudeFolderStatus,
   GrantChangeResult,
   OpenSkillMetaResult,
   OpenSkillResult,
@@ -76,6 +78,11 @@ export interface Api {
   checkForUpdates: () => Promise<void>
   installUpdate: () => Promise<void>
   setAutoUpdateCheck: (enabled: boolean) => Promise<void>
+  getClaudeFolder: () => Promise<ClaudeFolderStatus>
+  // "Use default" is choose('default'); ids come from the options main listed.
+  chooseClaudeFolder: (id: string) => Promise<ClaudeFolderChoice>
+  pickClaudeFolder: () => Promise<ClaudeFolderChoice>
+  onClaudeFolderState: (callback: (status: ClaudeFolderStatus) => void) => () => void
   onPluginUpdateProgress: (callback: (progress: PluginUpdateProgress) => void) => () => void
   onScanStarted: (callback: (activity: ScanActivity) => void) => () => void
   onScanComplete: (callback: (finished: ScanFinished) => void) => () => void
