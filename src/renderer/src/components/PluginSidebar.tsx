@@ -1,6 +1,7 @@
 import { motion } from 'motion/react'
 import { List, User } from 'lucide-react'
 import { useEffect, useMemo, type Dispatch, type SetStateAction } from 'react'
+import { AppBrand } from '@/components/AppBrand'
 import { createPluginRows, type PluginFilter } from '@/lib/plugin-filter'
 import { buildProjectTree, snapProjectSelection } from '@/lib/project-tree'
 import { ProjectNavigation } from '@/components/ProjectNavigation'
@@ -60,9 +61,7 @@ export function PluginSidebar({
     useElementGlideHighlight<HTMLElement>()
   return (
     <div className="flex w-[220px] shrink-0 flex-col">
-      <div className="flex h-10 shrink-0 items-center px-4">
-        <span className="text-sm font-semibold">Megatron</span>
-      </div>
+      <AppBrand />
       <div className="flex-1 overflow-y-auto px-2">
         <nav
           ref={containerRef}
