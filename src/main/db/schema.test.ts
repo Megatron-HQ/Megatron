@@ -373,6 +373,7 @@ describe('applySchema', () => {
 describe('openIndex', () => {
   let root: string
   let path: string
+  const configDirectory = join(tmpdir(), 'megatron-index-claude')
   const skillCount = (index: Database.Database): number =>
     (index.prepare('SELECT COUNT(*) AS count FROM skills').get() as { count: number }).count
   const insertSkill = (index: Database.Database): void => {
@@ -391,30 +392,40 @@ describe('openIndex', () => {
   afterEach(() => rmSync(root, { recursive: true, force: true }))
 
   it('stamps a fresh index with a non-zero schema version', () => {
-    const index = openIndex(path)
+    const index = openIndex(path, configDirectory)
     expect(index.pragma('user_version', { simple: true })).not.toBe(0)
     index.close()
   })
 
   it('keeps rows when the stored version matches the current schema', () => {
-    const first = openIndex(path)
+    const first = openIndex(path, configDirectory)
     insertSkill(first)
     first.close()
 
-    const second = openIndex(path)
+    const second = openIndex(path, configDirectory)
     expect(skillCount(second)).toBe(1)
     second.close()
   })
 
   it('rebuilds an index written by a different schema', () => {
-    const first = openIndex(path)
+    const first = openIndex(path, configDirectory)
     insertSkill(first)
     first.pragma('user_version = 1')
     first.close()
 
-    const rebuilt = openIndex(path)
+    const rebuilt = openIndex(path, configDirectory)
     expect(skillCount(rebuilt)).toBe(0)
     expect(rebuilt.pragma('user_version', { simple: true })).not.toBe(1)
+    rebuilt.close()
+  })
+
+  it('rebuilds the index when the app reads another Claude Code config folder', () => {
+    const first = openIndex(path, configDirectory)
+    insertSkill(first)
+    first.close()
+
+    const rebuilt = openIndex(path, join(tmpdir(), 'megatron-index-claude-work'))
+    expect(skillCount(rebuilt)).toBe(0)
     rebuilt.close()
   })
 
@@ -423,7 +434,7 @@ describe('openIndex', () => {
     old.exec('CREATE TABLE allowed_paths (path TEXT PRIMARY KEY, granted_at TEXT NOT NULL)')
     old.close()
 
-    const rebuilt = openIndex(path)
+    const rebuilt = openIndex(path, configDirectory)
     const legacy = rebuilt
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'allowed_paths'")
       .all()
@@ -432,7 +443,7 @@ describe('openIndex', () => {
   })
 
   it('opens the rebuilt index in WAL mode', () => {
-    const index = openIndex(path)
+    const index = openIndex(path, configDirectory)
     expect(index.pragma('journal_mode', { simple: true })).toBe('wal')
     index.close()
     expect(existsSync(path)).toBe(true)

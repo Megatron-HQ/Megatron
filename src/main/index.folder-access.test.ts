@@ -104,7 +104,11 @@ vi.mock('@electron-toolkit/utils', () => ({
 }))
 vi.mock('../../resources/icon.png?asset', () => ({ default: 'icon.png' }))
 vi.mock('../../resources/icon.ico?asset', () => ({ default: 'icon.ico' }))
-vi.mock('./db', () => ({ getDb: () => runtime.database, getUsageArchive: () => runtime.archive }))
+vi.mock('./db', () => ({
+  getDb: () => runtime.database,
+  getUsageArchive: () => runtime.archive,
+  usageArchivePath: () => ':memory:'
+}))
 vi.mock('./plugin-actions', async (original) => ({
   ...(await original<typeof import('./plugin-actions')>()),
   updatePlugin: runtime.updatePlugin,

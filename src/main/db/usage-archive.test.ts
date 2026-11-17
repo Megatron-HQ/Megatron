@@ -1,9 +1,9 @@
 import Database from 'better-sqlite3'
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { openUsageArchive } from './usage-archive'
+import { openUsageArchive, usageArchiveFilename } from './usage-archive'
 
 // The archive outlives Claude Code's ~30-day history.jsonl retention, so it can never be rebuilt.
 // This is the shape every archive written so far has. Changes must be additive (new tables, or a
@@ -107,5 +107,49 @@ describe('usage archive compatibility', () => {
     ])
     upgraded.close()
     fresh.close()
+  })
+})
+
+describe('usageArchiveFilename', () => {
+  // Deliberately not realpath'd: macOS's tmpdir sits behind /var -> /private/var, and Windows's can
+  // hold 8.3 short names, so a name that leans on the lexical path would change under these tests.
+  let home: string
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'megatron-archive-home-'))
+  })
+  afterEach(() => rmSync(home, { recursive: true, force: true }))
+
+  it('keeps usage-history.db for ~/.claude, so existing archives need no migration', () => {
+    expect(usageArchiveFilename(join(home, '.claude'), home)).toBe('usage-history.db')
+  })
+
+  it('shares usage-history.db with a folder that links to ~/.claude', () => {
+    mkdirSync(join(home, '.claude'))
+    symlinkSync(
+      join(home, '.claude'),
+      join(home, 'claude-link'),
+      process.platform === 'win32' ? 'junction' : 'dir'
+    )
+    expect(usageArchiveFilename(join(home, 'claude-link'), home)).toBe('usage-history.db')
+  })
+
+  it('gives each other folder its own archive', () => {
+    const work = usageArchiveFilename(join(home, '.claude-work'), home)
+    const personal = usageArchiveFilename(join(home, '.claude-personal'), home)
+    expect(work).toMatch(/^usage-history-[0-9a-f]{16}\.db$/)
+    expect(personal).toMatch(/^usage-history-[0-9a-f]{16}\.db$/)
+    expect(work).not.toBe(personal)
+  })
+
+  it('keeps a folder’s archive once the missing folder is created', () => {
+    const work = join(home, '.claude-work')
+    const before = usageArchiveFilename(work, home)
+    mkdirSync(work)
+    expect(usageArchiveFilename(work, home)).toBe(before)
+  })
+
+  it.runIf(process.platform === 'win32')('names a folder the same regardless of case', () => {
+    const work = join(home, '.claude-work')
+    expect(usageArchiveFilename(work.toUpperCase(), home)).toBe(usageArchiveFilename(work, home))
   })
 })

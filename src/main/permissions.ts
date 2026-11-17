@@ -8,6 +8,7 @@ import {
   openSync,
   readSync,
   opendirSync,
+  readdirSync,
   realpathSync,
   statSync,
   watch,
@@ -273,7 +274,12 @@ export function securePrivateDataDirectory(directory: string, ownedRoot?: string
     'preferences.json',
     'usage-history.db',
     'usage-history.db-wal',
-    'usage-history.db-shm'
+    'usage-history.db-shm',
+    // One usage archive per Claude Code config folder (usage-archive.ts). Names only: the checks
+    // below still refuse a linked or special file.
+    ...readdirSync(directory).filter((name) =>
+      /^usage-history-[0-9a-f]{16}\.db(-wal|-shm)?$/.test(name)
+    )
   ]) {
     const file = join(directory, name)
     try {

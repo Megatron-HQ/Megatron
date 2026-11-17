@@ -21,7 +21,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 // The .ico, not the PNG, so Windows can pick the hand-tuned no-sparkle art at 16/24 px.
 import windowsIcon from '../../resources/icon.ico?asset'
-import { getDb, getUsageArchive } from './db'
+import { getDb, getUsageArchive, usageArchivePath } from './db'
 import {
   getUsageOverviewData,
   getProjectUsageCalendar,
@@ -96,7 +96,6 @@ import {
 import { createInventoryWatcher } from './inventory-watcher'
 import { findNewestRecordedRequest } from './ingest/recorded-request'
 import { measureContextBaseline } from './context-usage'
-import { USAGE_ARCHIVE_FILENAME } from './db/usage-archive'
 import { findStaleSkillIds, usageDataTrusted } from './db/stale-skills'
 import { sanitizeProjectFolders } from './ingest/project-discovery'
 import { readSkillFiles, readSkillMd } from './skill-files'
@@ -248,7 +247,7 @@ const scans = createScanController((scope) =>
     {
       scope,
       databasePath: getDb().name,
-      archivePath: join(app.getPath('userData'), USAGE_ARCHIVE_FILENAME),
+      archivePath: usageArchivePath(),
       configRoot: claudeConfig(),
       grantedPaths: getGrantedPaths(),
       previousProjects: sanitizeProjectFolders(themeStore.get('projectFolders')),
