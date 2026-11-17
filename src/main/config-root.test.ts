@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join, parse } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -19,6 +27,10 @@ function profile(name: string, marker = 'settings.json'): string {
   mkdirSync(directory, { recursive: true })
   writeFileSync(join(directory, marker), '{}')
   return directory
+}
+
+function swapCase(path: string): string {
+  return [...path].map((c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase())).join('')
 }
 
 function defaultRoot(): object {
@@ -79,6 +91,19 @@ describe('resolveConfigRoot', () => {
       root: defaultRoot(),
       issue: { value: value(), reason: 'invalid' }
     })
+  })
+
+  // The default macOS and Windows disks open any casing, and neither lexical nor JS realpath
+  // comparison sees through it.
+  it.for([
+    ['the home folder', 'user'],
+    ['an ancestor of home', '']
+  ])('falls back to ~/.claude for %s spelled in another case', ([, folder], { skip }) => {
+    const user = profile('user')
+    writeFileSync(join(home, 'settings.json'), '{}')
+    const value = swapCase(join(home, folder))
+    if (!existsSync(value)) skip('case-sensitive filesystem')
+    expect(resolveConfigRoot(value, user).issue?.reason).toBe('invalid')
   })
 
   it('falls back to ~/.claude for a link that resolves to the home folder', () => {

@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -69,6 +69,10 @@ function shapeOf(db: Database.Database): Shape {
   )
 }
 
+function swapCase(path: string): string {
+  return [...path].map((c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase())).join('')
+}
+
 let root: string
 
 beforeEach(() => {
@@ -131,6 +135,13 @@ describe('usageArchiveFilename', () => {
       process.platform === 'win32' ? 'junction' : 'dir'
     )
     expect(usageArchiveFilename(join(home, 'claude-link'), home)).toBe('usage-history.db')
+  })
+
+  it('keeps usage-history.db for ~/.claude spelled in another case', ({ skip }) => {
+    mkdirSync(join(home, '.claude'))
+    const value = swapCase(join(home, '.claude'))
+    if (!existsSync(value)) skip('case-sensitive filesystem')
+    expect(usageArchiveFilename(value, home)).toBe('usage-history.db')
   })
 
   it('gives each other folder its own archive', () => {

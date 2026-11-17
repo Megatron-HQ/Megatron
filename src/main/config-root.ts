@@ -1,4 +1,4 @@
-import { readdirSync, realpathSync } from 'fs'
+import { readdirSync, realpathSync, statSync } from 'fs'
 import { dirname, isAbsolute, join, resolve } from 'path'
 import { defaultConfigRoot, isWithinGrant, type ConfigRoot } from './permissions'
 
@@ -25,6 +25,27 @@ function isTooBroad(path: string, homes: string[]): boolean {
     dirname(path) === path ||
     homes.some((home) => isWithinGrant(home, path))
   )
+}
+
+// Spelling can't prove a folder isn't home: the default macOS and Windows disks ignore case, Windows
+// has 8.3 short names, and fs.realpathSync fixes neither. File identity can, so it backs up
+// isTooBroad and only ever adds a rejection. realpathSync.native would fix the spelling, but on
+// Windows it turns a mapped drive into a UNC path, which isTooBroad then refuses.
+function isHomeOrAncestor(path: string, homes: string[]): boolean {
+  const { dev, ino } = statSync(path, { bigint: true })
+  // A filesystem without file IDs reports 0; the string checks still stand.
+  if (ino === 0n) return false
+  return homes.some((home) => {
+    for (let current = home; ; current = dirname(current)) {
+      try {
+        const ancestor = statSync(current, { bigint: true })
+        if (ancestor.dev === dev && ancestor.ino === ino) return true
+      } catch {
+        /* An unreadable ancestor can't match. */
+      }
+      if (dirname(current) === current) return false
+    }
+  })
 }
 
 // The marker probe is its own capability, like CLI discovery: it lists names in the one folder the
@@ -59,7 +80,7 @@ export function resolveConfigRoot(
   let names: string[]
   try {
     const canonical = realpathSync(directory)
-    if (isTooBroad(canonical, homes)) return reject('invalid')
+    if (isTooBroad(canonical, homes) || isHomeOrAncestor(canonical, homes)) return reject('invalid')
     names = readdirSync(canonical)
   } catch (error) {
     // Held rather than swapped for ~/.claude: the user named this folder, and reading another

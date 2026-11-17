@@ -33,11 +33,12 @@ fixed for the process; the scan worker receives it in `workerData`. Elsewhere in
   `.claude.json` is `join(CLAUDE_CONFIG_DIR || homedir(), '.claude.json')`, so "unset" and
   "explicitly `~/.claude`" read different `.claude.json` files.
 - A value is used only when both its given form and its realpath are absolute, not UNC, not a
-  filesystem or drive root, and not `$HOME` or an ancestor of it, and the folder holds a Claude Code
-  marker (`settings.json`, `.claude.json`, `projects/`, `plugins/`, `skills/`, `history.jsonl`).
-  Anything else falls back to `~/.claude`. Threat: a variable naming `$HOME`, `/` or `~/Documents`
-  would make that tree Tier 1. Consequence: a brand-new profile is refused until Claude Code has
-  run in it once.
+  filesystem or drive root, and not `$HOME` or an ancestor of it (also by file identity, so another
+  casing or an 8.3 name can't slip past), and the folder holds a Claude Code marker
+  (`settings.json`, `.claude.json`, `projects/`, `plugins/`, `skills/`, `history.jsonl`). Anything
+  else falls back to `~/.claude`. Threat: a variable naming `$HOME`, `/` or `~/Documents` would
+  make that tree Tier 1. Consequence: a brand-new profile is refused until Claude Code has run in
+  it once.
 - A missing folder is kept, not replaced: reads come back missing instead of showing another
   profile's data as this one's. Remaining risk, accepted: only its given form was shape-checked, so
   if it later appears as a link to a broad folder, Tier 1 reads that folder's `skills/`, `plugins/`,

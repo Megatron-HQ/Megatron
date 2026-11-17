@@ -5,12 +5,13 @@ import { basename, dirname, join, resolve } from 'path'
 
 // The nearest existing ancestor's realpath plus the missing tail, so a folder keeps its archive name
 // when it's created later under a linked parent (macOS /var -> /private/var, Windows 8.3 names).
+// Native, because fs.realpathSync keeps the given letter case on macOS and 8.3 names on Windows.
 function canonicalLocation(path: string): string {
   const missing: string[] = []
   let location = resolve(path)
   for (let current = location; ; current = dirname(current)) {
     try {
-      location = join(realpathSync(current), ...missing)
+      location = join(realpathSync.native(current), ...missing)
       break
     } catch {
       if (dirname(current) === current) break

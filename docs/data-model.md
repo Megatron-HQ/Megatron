@@ -153,9 +153,9 @@ delete it, and nothing syncs off device.
 - **One archive per Claude Code config folder.** `~/.claude` keeps `usage-history.db`; any other
   `CLAUDE_CONFIG_DIR` folder gets `usage-history-<first 16 hex of sha256(canonical path)>.db`
   (`usageArchiveFilename()`). Coverage ranges describe one `history.jsonl`, so profiles never share
-  a file, and the original name needs no migration. A folder linked to `~/.claude` shares its
-  archive; a moved or renamed folder starts a fresh one. No archive is ever deleted, so switching
-  back finds the old one intact.
+  a file, and the original name needs no migration. A folder linked to `~/.claude`, or spelled in
+  another case, shares its archive; a moved or renamed folder starts a fresh one. No archive is
+  ever deleted, so switching back finds the old one intact.
 
 ### Additive-only shape
 
