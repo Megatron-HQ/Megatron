@@ -41,16 +41,26 @@ function counts(multiplier = 1) {
 function tokenWindow(days, empty) {
   const now = new Date()
   const start = new Date(now.getTime() - days * DAY_MS)
-  const trend = Array.from({ length: days === 1 ? 24 : days }, (_, index) => {
-    const startAt = new Date(start.getTime() + index * (days === 1 ? 3600000 : DAY_MS))
-    const endAt = new Date(startAt.getTime() + (days === 1 ? 3600000 : DAY_MS))
-    return {
-      key: days === 1 ? startAt.toISOString() : localDate(startAt),
-      startAt: startAt.toISOString(),
-      endAt: endAt.toISOString(),
-      tokens: empty ? null : counts((index % 5) + 1)
-    }
-  })
+  const cursor = new Date(start)
+  if (days !== 1) cursor.setHours(0, 0, 0, 0)
+  const trend = []
+  while (cursor < now) {
+    const next =
+      days === 1
+        ? new Date(cursor.getTime() + 3600000)
+        : new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1)
+    const tokens = empty ? null : counts((trend.length % 5) + 1)
+    trend.push({
+      key: days === 1 ? cursor.toISOString() : localDate(cursor),
+      startAt: new Date(Math.max(cursor.getTime(), start.getTime())).toISOString(),
+      endAt: new Date(Math.min(next.getTime(), now.getTime())).toISOString(),
+      partial: days !== 1 && (cursor < start || next > now),
+      tokens,
+      byModel: tokens ? [{ key: 'claude-sonnet-5', tokens }] : [],
+      byProject: tokens ? [{ key: 'C:\\Projects\\Megatron', tokens }] : []
+    })
+    cursor.setTime(next.getTime())
+  }
   const tokens = empty
     ? null
     : trend.reduce(
@@ -88,17 +98,62 @@ function formatWindow(days) {
     cacheWrite: 0,
     total: 250125125
   }
+  const byModel = [{ key: 'claude-sonnet-5', tokens }]
+  const byProject = Array.from({ length: 10 }, (_, index) => ({
+    key: `C:\\Projects\\repo-${index + 1}`,
+    tokens: projectTokens
+  }))
   return {
     ...window,
     tokens,
     trend: window.trend.map((bucket, index) => ({
       ...bucket,
-      tokens: index === window.trend.length - 1 ? tokens : null
+      tokens: index === window.trend.length - 1 ? tokens : null,
+      byModel: index === window.trend.length - 1 ? byModel : [],
+      byProject: index === window.trend.length - 1 ? byProject : []
     })),
-    byModel: [{ key: 'claude-sonnet-5', tokens }],
+    byModel,
+    byProject
+  }
+}
+
+function tokenDetailsWindow(days, multiplier) {
+  const window = tokenWindow(days, true)
+  const trend = window.trend.map((bucket, index) => {
+    const scale = index < 2 ? 0 : multiplier * ((index % 5) + 1)
+    return {
+      ...bucket,
+      tokens: index === 0 ? null : counts(55 * scale),
+      byModel:
+        index === 0
+          ? []
+          : [
+              { key: 'claude-sonnet-5', tokens: counts(35 * scale) },
+              { key: 'claude-opus-5', tokens: counts(20 * scale) }
+            ],
+      byProject:
+        index === 0
+          ? []
+          : Array.from({ length: 10 }, (_, project) => ({
+              key: `C:\\Projects\\repo-${project + 1}`,
+              tokens: counts((10 - project) * scale)
+            }))
+    }
+  })
+  const scale = trend
+    .slice(2)
+    .reduce((sum, _bucket, index) => sum + multiplier * (((index + 2) % 5) + 1), 0)
+  return {
+    ...window,
+    trend,
+    tokens: counts(55 * scale),
+    byModel: [
+      { key: 'claude-sonnet-5', tokens: counts(35 * scale) },
+      { key: 'claude-opus-5', tokens: counts(20 * scale) }
+    ],
     byProject: Array.from({ length: 10 }, (_, index) => ({
       key: `C:\\Projects\\repo-${index + 1}`,
-      tokens: projectTokens
+      tokens: counts((10 - index) * scale)
     }))
   }
 }
@@ -142,6 +197,19 @@ export function usageHistoryFixture(channel, args, original, mode) {
           chat: chats[index].chat
         }))
       ]
+    }
+  }
+  if (channel === 'usage:overview' && mode.startsWith('usage-history-token-details')) {
+    const multiplier = mode.endsWith('-refreshed') ? 2 : 1
+    return {
+      ...original,
+      tokens: {
+        last24h: tokenDetailsWindow(1, multiplier),
+        last7d: tokenDetailsWindow(7, multiplier),
+        last30d: tokenDetailsWindow(30, multiplier),
+        missingSessionCount: 2,
+        undatedTokens: counts(1)
+      }
     }
   }
   if (channel === 'usage:overview' && mode === 'usage-history-format') {

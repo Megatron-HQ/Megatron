@@ -1,13 +1,19 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import type { ProjectLabelResolver } from '@/lib/project-tree'
 import { seriesColor, type ModelIdentity } from '@/lib/model-identity'
-import type { SkillStatsWindowKey, TokenStats, TokenWindow } from '../../../../shared/ipc'
+import type {
+  SkillStatsWindowKey,
+  TokenBucket,
+  TokenStats,
+  TokenWindow
+} from '../../../../shared/ipc'
 import { ChartBlock } from './ChartBlock'
 import { RankedList } from './RankedList'
 import { ProjectRankedList } from './ProjectRankedList'
 import { TokenReadout } from './TokenReadout'
 import { TokenValue } from './TokenValue'
+import { TokenDetailsDialog } from './TokenDetailsDialog'
 import { formatExactTokenCount, formatTokenCount } from '../../../../shared/token-format'
 import { formatCount, formatModelName } from './chart-utils'
 
@@ -22,6 +28,10 @@ export function TokensSection({
   identifyModel: (key: string) => ModelIdentity
   resolveProjectLabel: ProjectLabelResolver
 }): React.JSX.Element {
+  const [selectedBucket, setSelectedBucket] = useState<TokenBucket | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const chartRef = useRef<HTMLDivElement | null>(null)
   const selected =
     windowKey === '24h' ? stats.last24h : windowKey === '7d' ? stats.last7d : stats.last30d
   return (
@@ -67,13 +77,31 @@ export function TokensSection({
           </p>
         )}
       </div>
-      <ChartBlock
-        label={windowKey === '24h' ? 'By hour' : 'By day'}
-        empty={!selected.tokens}
-        emptyMessage="No tracked token data in this period"
+      <div
+        ref={chartRef}
+        tabIndex={-1}
+        role="group"
+        aria-label={windowKey === '24h' ? 'Token usage by hour' : 'Token usage by day'}
+        className="outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
-        <TokenTrend key={windowKey} window={selected} hourly={windowKey === '24h'} />
-      </ChartBlock>
+        <ChartBlock
+          label={windowKey === '24h' ? 'By hour' : 'By day'}
+          empty={!selected.tokens}
+          emptyMessage="No tracked token data in this period"
+        >
+          <TokenTrend
+            key={windowKey}
+            window={selected}
+            hourly={windowKey === '24h'}
+            onSelectBucket={(bucket, trigger) => {
+              triggerRef.current = trigger
+              // Query refreshes replace their data; retain this bucket and its breakdowns together.
+              setSelectedBucket(bucket)
+              setDialogOpen(true)
+            }}
+          />
+        </ChartBlock>
+      </div>
       <ChartBlock
         label="By model"
         empty={selected.byModel.length === 0}
@@ -91,6 +119,20 @@ export function TokensSection({
           noun="models"
         />
       </ChartBlock>
+      <TokenDetailsDialog
+        key={selectedBucket?.startAt}
+        bucket={selectedBucket}
+        hourly={windowKey === '24h'}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        onRestoreFocus={() => {
+          const trigger = triggerRef.current
+          if (trigger?.isConnected) trigger.focus()
+          else chartRef.current?.focus()
+        }}
+        identifyModel={identifyModel}
+        resolveProjectLabel={resolveProjectLabel}
+      />
       <ChartBlock
         label="By project"
         empty={selected.byProject.length === 0}
@@ -113,10 +155,12 @@ export function TokensSection({
 
 function TokenTrend({
   window,
-  hourly
+  hourly,
+  onSelectBucket
 }: {
   window: TokenWindow
   hourly: boolean
+  onSelectBucket: (bucket: TokenBucket, trigger: HTMLButtonElement) => void
 }): React.JSX.Element {
   const reduceMotion = useReducedMotion() === true
   const [focused, setFocused] = useState<number | null>(null)
@@ -129,8 +173,7 @@ function TokenTrend({
       day: 'numeric',
       ...(hourly ? { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' } : {})
     })
-    const partial = !hourly && (start.getHours() !== 0 || new Date(bucket.endAt).getHours() !== 0)
-    return `${date} · ${bucket.tokens ? `${formatTokenCount(bucket.tokens.total)} estimated tokens` : 'No recorded token data'}${partial ? ' · partial day' : ''}`
+    return `${date} · ${bucket.tokens ? `${formatTokenCount(bucket.tokens.total)} estimated tokens` : 'No recorded token data'}${bucket.partial ? ' · partial day' : ''}`
   }
   return (
     <div>
@@ -143,10 +186,15 @@ function TokenTrend({
             key={bucket.key}
             type="button"
             aria-label={`${label(index)}${bucket.tokens ? ` · ${formatExactTokenCount(bucket.tokens.total)} exact tokens` : ''}`}
+            aria-disabled={bucket.tokens === null}
+            aria-haspopup={bucket.tokens !== null ? 'dialog' : undefined}
             onMouseEnter={() => setFocused(index)}
             onFocus={() => setFocused(index)}
             onBlur={() => setFocused(null)}
-            className="relative flex h-full min-w-0 flex-1 items-end outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            onClick={(event) => {
+              if (bucket.tokens !== null) onSelectBucket(bucket, event.currentTarget)
+            }}
+            className={`relative flex h-full min-w-0 flex-1 items-end outline-none focus-visible:ring-1 focus-visible:ring-ring ${bucket.tokens !== null ? 'cursor-pointer' : 'cursor-default'}`}
           >
             {/* Rises from the baseline, staggered, like Activity and Cost's DayStrip. */}
             <motion.span

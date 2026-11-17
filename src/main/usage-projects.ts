@@ -25,7 +25,8 @@ import type {
   UsageCalendar,
   UsageDayDetails,
   ActivityWindow,
-  CostWindow
+  CostWindow,
+  TokenWindow
 } from '../shared/ipc'
 import {
   getArchivedActivityStats,
@@ -65,6 +66,17 @@ function groupCostWindow(window: CostWindow, locations: UsageProjectLocation[]):
   }
 }
 
+function groupTokenWindow(window: TokenWindow, locations: UsageProjectLocation[]): TokenWindow {
+  return {
+    ...window,
+    byProject: groupProjectTokens(window.byProject, locations),
+    trend: window.trend.map((bucket) => ({
+      ...bucket,
+      byProject: groupProjectTokens(bucket.byProject, locations)
+    }))
+  }
+}
+
 export function getUsageOverviewData(
   index: Database.Database,
   archive: Database.Database,
@@ -89,18 +101,9 @@ export function getUsageOverviewData(
     },
     tokens: {
       ...tokens,
-      last24h: {
-        ...tokens.last24h,
-        byProject: groupProjectTokens(tokens.last24h.byProject, locations)
-      },
-      last7d: {
-        ...tokens.last7d,
-        byProject: groupProjectTokens(tokens.last7d.byProject, locations)
-      },
-      last30d: {
-        ...tokens.last30d,
-        byProject: groupProjectTokens(tokens.last30d.byProject, locations)
-      }
+      last24h: groupTokenWindow(tokens.last24h, locations),
+      last7d: groupTokenWindow(tokens.last7d, locations),
+      last30d: groupTokenWindow(tokens.last30d, locations)
     },
     cost: cost
       ? {

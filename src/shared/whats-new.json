@@ -1,4 +1,17 @@
 {
+  "next": {
+    "title": "Token details",
+    "highlights": [
+      {
+        "title": "Explore token usage by hour or day",
+        "body": "Click a token chart bar to see its input, output, cache reads and writes, plus model and project breakdowns.",
+        "action": {
+          "kind": "section",
+          "section": "usage"
+        }
+      }
+    ]
+  },
   "0.2.3": {
     "title": "Linked skills",
     "highlights": [

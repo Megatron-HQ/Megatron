@@ -216,6 +216,29 @@ async function openUsagePanel(window, panelName) {
   await window.locator('header').getByText(panelName, { exact: true }).waitFor()
 }
 
+async function openTokenDetails(window, app, { hourly = false, theme = 'light' } = {}) {
+  await app.evaluate(() =>
+    globalThis.megatronVisualFixtures.set('usage:overview', 'usage-history-token-details')
+  )
+  await window.getByRole('button', { name: 'Settings', exact: true }).click()
+  await window
+    .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
+    .click()
+  await window.keyboard.press('Escape')
+  await openUsagePanel(window, 'Tokens')
+  await window
+    .getByRole('radiogroup', { name: 'Token usage window' })
+    .getByRole('radio', { name: hourly ? '24 hours' : '30 days', exact: true })
+    .click()
+  const chart = window.getByRole('group', {
+    name: hourly ? 'Token usage by hour' : 'Token usage by day'
+  })
+  await chart.locator('button[aria-haspopup="dialog"]').last().click()
+  const dialog = window.getByRole('dialog', { name: /Token details/ })
+  await dialog.waitFor()
+  return { chart, dialog }
+}
+
 // Radix restores focus to the opener in a deferred setTimeout after the dialog unmounts
 // (react-focus-scope), so a key pressed as soon as the dialog hides can land on <body> and never
 // reopen it. Waiting for the opener itself, not a fixed delay, closes that race under any load.
@@ -2091,6 +2114,143 @@ export const scenarios = [
         .getByRole('radio', { name: '24 hours' })
         .click()
       await window.getByText('By hour', { exact: true }).waitFor()
+    }
+  },
+  ...['light', 'dark'].flatMap((theme) =>
+    [false, true].map((hourly) => ({
+      name: `usage-token-details-${hourly ? 'hour' : 'day'}-${theme}`,
+      screen: 'usage',
+      async run(window, app) {
+        await openTokenDetails(window, app, { hourly, theme })
+      }
+    }))
+  ),
+  {
+    name: 'usage-token-details-exact-count',
+    screen: 'usage',
+    async run(window, app) {
+      const { dialog } = await openTokenDetails(window, app)
+      await dialog.locator('p.text-usage-stat span[tabindex="0"]').focus()
+      await window.getByRole('tooltip').waitFor()
+    }
+  },
+  {
+    name: 'usage-token-details-project-search',
+    screen: 'usage',
+    async run(window, app) {
+      const { dialog } = await openTokenDetails(window, app)
+      await dialog.getByRole('searchbox', { name: 'Search projects' }).fill('repo-10')
+      await dialog.getByText('1 of 10 projects match', { exact: true }).waitFor()
+      await dialog.getByRole('searchbox', { name: 'Search projects' }).press('Tab')
+    }
+  },
+  {
+    name: 'usage-token-details-projects-expanded',
+    screen: 'usage',
+    async run(window, app) {
+      const { dialog } = await openTokenDetails(window, app)
+      await dialog.getByRole('button', { name: /^Show 2 more projects/ }).click()
+      await dialog.getByText('repo-10', { exact: true }).waitFor()
+    }
+  },
+  ...[false, true].map((hourly) => ({
+    name: `usage-token-details-${hourly ? 'hour' : 'day'}-keyboard-return`,
+    screen: 'usage',
+    async run(window, app) {
+      const { chart } = await openTokenDetails(window, app, { hourly })
+      await window.keyboard.press('Escape')
+      await window.getByRole('dialog').waitFor({ state: 'hidden' })
+      await chart.locator('button[aria-haspopup="dialog"]').last().focus()
+      const opener = await window.evaluateHandle(() => document.activeElement)
+      for (const key of ['Enter', 'Space']) {
+        await window.keyboard.press(key)
+        await window.getByRole('dialog', { name: /Token details/ }).waitFor()
+        await closeDialogAndRefocus(window, opener)
+      }
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  })),
+  {
+    name: 'usage-token-details-unavailable-and-zero',
+    screen: 'usage',
+    async run(window, app) {
+      const { chart } = await openTokenDetails(window, app, { hourly: true })
+      await window.keyboard.press('Escape')
+      await window.getByRole('dialog').waitFor({ state: 'hidden' })
+      const unavailable = chart.locator('button[aria-disabled="true"]').first()
+      await unavailable.click({ force: true })
+      await unavailable.focus()
+      await window.keyboard.press('Enter')
+      if (await window.getByRole('dialog').count())
+        throw new Error('Unavailable token bucket opened details')
+      await chart.locator('button[aria-haspopup="dialog"]').first().click()
+      await window
+        .getByRole('dialog', { name: /Token details/ })
+        .locator('p.text-usage-stat span[aria-label="0 tokens"]')
+        .waitFor()
+    }
+  },
+  {
+    name: 'usage-token-details-refresh-snapshot',
+    screen: 'usage',
+    async run(window, app) {
+      const { chart, dialog } = await openTokenDetails(window, app, { hourly: true })
+      const snapshot = await dialog.innerText()
+      const oldTotal = await dialog.locator('p.text-usage-stat span').getAttribute('aria-label')
+      await app.evaluate(({ BrowserWindow }) => {
+        globalThis.megatronVisualFixtures.set(
+          'usage:overview',
+          'usage-history-token-details-refreshed'
+        )
+        BrowserWindow.getAllWindows()[0].webContents.send('scan:complete', {
+          id: 900002,
+          summary: { outcome: 'complete', completedAt: new Date().toISOString(), sources: [] }
+        })
+      })
+      const refreshedTotal = await window.evaluate(async () => {
+        const { tokens } = await window.api.getUsageOverview()
+        return `${tokens.last24h.tokens.total.toLocaleString()} tokens`
+      })
+      await window.waitForFunction(
+        (label) =>
+          document.querySelector('section p.text-usage-stat span')?.getAttribute('aria-label') ===
+          label,
+        refreshedTotal
+      )
+      if ((await dialog.innerText()) !== snapshot)
+        throw new Error('Open token details changed during refresh')
+      await window.keyboard.press('Escape')
+      await dialog.waitFor({ state: 'hidden' })
+      await window.waitForFunction(
+        () => document.activeElement?.getAttribute('aria-label') === 'Token usage by hour'
+      )
+      await chart.locator('button[aria-haspopup="dialog"]').last().click()
+      await dialog.waitFor()
+      if ((await dialog.locator('p.text-usage-stat span').getAttribute('aria-label')) === oldTotal)
+        throw new Error('Reopened token details did not use refreshed data')
+    }
+  },
+  {
+    name: 'usage-token-details-window-reset',
+    screen: 'usage',
+    async run(window, app) {
+      await openTokenDetails(window, app)
+      await window.keyboard.press('Escape')
+      await window.getByRole('dialog').waitFor({ state: 'hidden' })
+      const toggle = window.getByRole('radiogroup', { name: 'Token usage window' })
+      await toggle.getByRole('radio', { name: '7 days', exact: true }).click()
+      await toggle.getByRole('radio', { name: '30 days', exact: true }).click()
+      await window.getByRole('group', { name: 'Token usage by day' }).waitFor()
+      await window
+        .getByRole('navigation', { name: 'Usage panels' })
+        .getByRole('button', { name: 'Cost', exact: true })
+        .click()
+      await window
+        .getByRole('navigation', { name: 'Usage panels' })
+        .getByRole('button', { name: 'Tokens', exact: true })
+        .click()
+      if (await window.getByRole('dialog').count())
+        throw new Error('Token details reopened after changing window or panel')
     }
   },
   ...['light', 'dark'].map((theme) => ({

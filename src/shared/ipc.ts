@@ -756,7 +756,11 @@ export interface TokenBucket {
   key: string
   startAt: string
   endAt: string
+  // Daily bucket clipped by the rolling window; always false for hourly buckets.
+  partial: boolean
   tokens: TokenCounts | null
+  byModel: TokenBreakdown[]
+  byProject: TokenBreakdown[]
 }
 
 export interface TokenWindow {
