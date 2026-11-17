@@ -1273,6 +1273,38 @@ export const scenarios = [
       await window.getByRole('button', { name: 'Restart to update' }).waitFor()
     }
   },
+  // The Claude Code folder section: the saved profile active, ~/.claude and a home profile
+  // suggested, tags beside each path.
+  ...['options', 'missing'].map((state) => ({
+    name: `settings-claude-folder-${state}`,
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(
+        (_, mode) => globalThis.megatronVisualFixtures.set('claudeFolder:get', mode),
+        `claude-folder-${state}`
+      )
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window.getByRole('list', { name: 'Claude Code folders' }).waitFor()
+      await window.getByText('Switching restarts Megatron.', { exact: true }).waitFor()
+    }
+  })),
+  // Each banner the Claude Code folder can raise: gone, back but unusable, a refused choice
+  // falling back, and the wait before a switch relaunches.
+  ...['missing', 'failing', 'fallback', 'switching'].map((state) => ({
+    name: `claude-folder-banner-${state}`,
+    screen: 'skill-inventory',
+    async run(window, app) {
+      await app.evaluate(
+        (_, mode) => globalThis.megatronVisualFixtures.set('claudeFolder:get', mode),
+        `claude-folder-${state}`
+      )
+      await window.reload()
+      await window
+        .getByText(/is missing\.|is back, but|Couldn’t use|Switching Claude Code folders/)
+        .waitFor()
+    }
+  })),
   {
     name: 'plugins-settings-dialog-open',
     screen: 'settings-dialog',
@@ -3112,6 +3144,24 @@ export const scenarios = [
       await window
         .getByText('Estimated API-equivalent cost is attributed', { exact: false })
         .scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // The overview step on a machine with no Claude Code data: the active folder, the other
+    // folders to choose from, and Rescan, all inside the 860×500 minimum window.
+    name: 'onboarding-no-data',
+    screen: 'onboarding',
+    async run(window, app) {
+      await app.evaluate(() => {
+        for (const channel of ['skills:list', 'plugins:list', 'usage:projects', 'usage:overview'])
+          globalThis.megatronVisualFixtures.set(channel, 'no-data')
+        globalThis.megatronVisualFixtures.set('claudeFolder:get', 'claude-folder-options')
+      })
+      await window.reload()
+      await openOnboarding(window)
+      await window.getByRole('button', { name: 'Next', exact: true }).click()
+      await window.getByText('No Claude Code data found', { exact: true }).waitFor()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },

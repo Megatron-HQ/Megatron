@@ -18,11 +18,19 @@ import {
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { ClaudeFolderChoices, ClaudeFolderNotice } from '@/components/ClaudeFolder'
+import { folderLabel } from '@/lib/folder-label'
 import { pluginUpdateDetails } from '@/lib/plugin-update'
 import { useUsageProjects } from '@/lib/use-usage-projects'
 import { cn } from '@/lib/utils'
 import { usageOverviewQuery } from '@/lib/usage-overview-query'
-import type { AllowedPathRow, PluginRow, SkillRow, SkippedGrant } from '../../../../shared/ipc'
+import type {
+  AllowedPathRow,
+  ClaudeFolderStatus,
+  PluginRow,
+  SkillRow,
+  SkippedGrant
+} from '../../../../shared/ipc'
 import { CountUp } from './CountUp'
 import { LIME_BUTTON } from '@/lib/lime-button'
 import { OnboardingFolderStep } from './OnboardingFolderStep'
@@ -30,7 +38,6 @@ import { StepHeading } from './StepHeading'
 
 const STEPS = ['brief', 'overview', 'folders'] as const
 const SPRING = { type: 'spring', stiffness: 380, damping: 34 } as const
-const CLAUDE_DIR = window.api.platform === 'win32' ? '%USERPROFILE%\\.claude' : '~/.claude'
 
 interface OnboardingDialogProps {
   open: boolean
@@ -41,6 +48,7 @@ interface OnboardingDialogProps {
   scanComplete: boolean
   home: string
   onAddFolders: () => Promise<SkippedGrant[]>
+  claudeFolder?: ClaudeFolderStatus
 }
 
 export function OnboardingDialog({
@@ -51,7 +59,8 @@ export function OnboardingDialog({
   folders,
   scanComplete,
   home,
-  onAddFolders
+  onAddFolders,
+  claudeFolder
 }: OnboardingDialogProps): React.JSX.Element {
   const reduceMotion = useReducedMotion() === true
   const [step, setStep] = useState(0)
@@ -94,6 +103,12 @@ export function OnboardingDialog({
     exit: (towards: number) => (reduceMotion ? { opacity: 0 } : { opacity: 0, x: towards * -48 })
   }
   const granted = folders.length > 0
+  // Until main answers, the folder Claude Code uses with no variable set.
+  const folder = folderLabel(
+    claudeFolder?.path ?? `${home}${window.api.platform === 'win32' ? '\\' : '/'}.claude`,
+    home,
+    window.api.platform
+  )
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onFinish()}>
@@ -139,9 +154,16 @@ export function OnboardingDialog({
                 exit="exit"
                 transition={reduceMotion ? { duration: 0.12 } : SPRING}
               >
-                {step === 0 && <BriefStep />}
+                {step === 0 && <BriefStep folder={folder} />}
                 {step === 1 && (
-                  <OverviewStep skills={skills} plugins={plugins} scanComplete={scanComplete} />
+                  <OverviewStep
+                    skills={skills}
+                    plugins={plugins}
+                    scanComplete={scanComplete}
+                    folder={folder}
+                    claudeFolder={claudeFolder}
+                    home={home}
+                  />
                 )}
                 {step === 2 && (
                   <OnboardingFolderStep
@@ -221,11 +243,11 @@ function useStagger(index: number): {
   }
 }
 
-const FACTS: { icon: LucideIcon; title: string; body: string }[] = [
+const FACTS = (folder: string): { icon: LucideIcon; title: string; body: string }[] => [
   {
     icon: HardDrive,
     title: 'Reads locally, uploads nothing',
-    body: `Megatron reads ${CLAUDE_DIR} on this machine. No telemetry, no AI calls.`
+    body: `Megatron reads ${folder} on this machine. No telemetry, no AI calls.`
   },
   {
     icon: Lock,
@@ -239,14 +261,14 @@ const FACTS: { icon: LucideIcon; title: string; body: string }[] = [
   }
 ]
 
-function BriefStep(): React.JSX.Element {
+function BriefStep({ folder }: { folder: string }): React.JSX.Element {
   return (
     <div className="flex flex-col gap-6">
       <StepHeading title="Everything Claude Code knows, in one place.">
         A local map of your skills, plugins and usage. Here&apos;s what you&apos;re signing up for.
       </StepHeading>
       <ul className="flex flex-col gap-4">
-        {FACTS.map((fact, index) => (
+        {FACTS(folder).map((fact, index) => (
           <Fact key={fact.title} index={index} {...fact} />
         ))}
       </ul>
@@ -282,11 +304,17 @@ function Fact({
 function OverviewStep({
   skills,
   plugins,
-  scanComplete
+  scanComplete,
+  folder,
+  claudeFolder,
+  home
 }: {
   skills: SkillRow[]
   plugins: PluginRow[]
   scanComplete: boolean
+  folder: string
+  claudeFolder?: ClaudeFolderStatus
+  home: string
 }): React.JSX.Element {
   const { data: usage } = useQuery(usageOverviewQuery)
   const { data: usageProjects } = useUsageProjects()
@@ -302,7 +330,7 @@ function OverviewStep({
     plugins.length === 0 &&
     usageProjects.locations.length === 0
   )
-    return <NoDataStep />
+    return <NoDataStep folder={folder} claudeFolder={claudeFolder} home={home} />
 
   const attention = skills.filter((skill) => skill.lint_status !== 'clean').length
   // Same icon and tone LintStatusBadge gives the worst status, so the count reads as the signal
@@ -421,11 +449,21 @@ function OverviewCard({
   )
 }
 
-function NoDataStep(): React.JSX.Element {
+function NoDataStep({
+  folder,
+  claudeFolder,
+  home
+}: {
+  folder: string
+  claudeFolder?: ClaudeFolderStatus
+  home: string
+}): React.JSX.Element {
   const [rescanning, setRescanning] = useState(false)
+  // A paused folder refuses scans in main; the notice above the choices says why.
+  const folderPaused = claudeFolder !== undefined && claudeFolder.state !== 'ok'
   const causes = [
     'Haven’t used Claude Code on this computer yet? Run it once, then rescan.',
-    'Moved its data with CLAUDE_CONFIG_DIR? Megatron can’t read custom locations yet.',
+    'Keep Claude Code’s data in another folder? Choose it below.',
     ...(window.api.platform === 'win32'
       ? ['Running Claude Code inside WSL? Megatron can’t see WSL yet.']
       : [])
@@ -443,19 +481,25 @@ function NoDataStep(): React.JSX.Element {
   return (
     <div className="flex flex-col gap-5">
       <StepHeading title="No Claude Code data found">
-        Megatron looked in {CLAUDE_DIR} and found no skills, plugins or sessions.
+        Megatron looked in {folder} and found no skills, plugins or sessions.
       </StepHeading>
       <ul className="flex list-disc flex-col gap-2 pl-5 text-[13px] text-muted-foreground">
         {causes.map((cause) => (
           <li key={cause}>{cause}</li>
         ))}
       </ul>
+      {claudeFolder && (
+        <div className="flex flex-col gap-2">
+          <ClaudeFolderNotice status={claudeFolder} home={home} />
+          <ClaudeFolderChoices status={claudeFolder} home={home} />
+        </div>
+      )}
       <Button
         type="button"
         variant="outline"
         size="sm"
         className="self-start"
-        disabled={rescanning}
+        disabled={rescanning || folderPaused}
         aria-busy={rescanning}
         onClick={() => void rescan()}
       >

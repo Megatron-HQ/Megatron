@@ -1,5 +1,6 @@
 // Test-only entry point. Production continues to launch out/main/index.js directly.
 import { app, ipcMain } from 'electron'
+import { dirname, join } from 'path'
 import { projectTreeFixture } from './project-tree-fixture.mjs'
 import { usageHistoryFixture } from './usage-history-fixture.mjs'
 import { contextBaselineFixture } from './context-baseline-fixture.mjs'
@@ -9,6 +10,52 @@ const overriddenChannels = new Set()
 const SCAN_NOTIFICATION_CHANNELS = new Set(['scan:started', 'scan:progress', 'scan:complete'])
 const MIN_FIXTURE_SCAN_ID = 9000
 const PROJECT_SCAN_MODES = ['scan-permission', 'scan-missing', 'scan-mixed', 'scan-manual-partial']
+
+// Every Claude Code folder state is driven from the real status, so paths read as this machine's
+// home. `.claude-work` stands in for a named profile that may not exist here.
+function claudeFolderFixture(result, mode) {
+  const home = dirname(result.options.find((option) => option.id === 'default').path)
+  const work = join(home, '.claude-work')
+  const defaultPath = join(home, '.claude')
+  const options = (active) => [
+    { id: 'saved', path: work, tags: ['environment'], active: active === 'work' },
+    { id: 'default', path: defaultPath, tags: ['default'], active: active === 'default' },
+    { id: 'home:.claude-personal', path: join(home, '.claude-personal'), tags: [], active: false }
+  ]
+  const named = { path: work, source: 'settings', options: options('work') }
+  switch (mode) {
+    case 'claude-folder-options':
+      return { ...named, state: 'ok', issue: null }
+    case 'claude-folder-missing':
+      return {
+        ...named,
+        state: 'paused',
+        issue: { value: work, reason: 'missing', source: 'settings' }
+      }
+    case 'claude-folder-failing':
+      return {
+        ...named,
+        state: 'paused',
+        issue: { value: work, reason: 'no-marker', source: 'settings' }
+      }
+    case 'claude-folder-switching':
+      return { ...named, state: 'switching', issue: null }
+    case 'claude-folder-fallback':
+      return {
+        path: defaultPath,
+        source: 'default',
+        state: 'ok',
+        issue: {
+          value: join(home, 'Documents', 'claude'),
+          reason: 'no-marker',
+          source: 'environment'
+        },
+        options: options('default')
+      }
+    default:
+      throw new Error(`Unknown Claude Code folder fixture: ${mode}`)
+  }
+}
 let projectScanCompletedAt
 const registerHandler = ipcMain.handle.bind(ipcMain)
 ipcMain.handle = (channel, handler) => {
@@ -70,6 +117,15 @@ globalThis.megatronVisualFixtures = {
       const fixtureProjectRescan = channel === 'app:rescan' && PROJECT_SCAN_MODES.includes(mode)
       const result = fixtureProjectRescan ? undefined : await original(event, ...args)
       if (mode.startsWith('usage-history')) return usageHistoryFixture(channel, args, result, mode)
+      if (channel === 'claudeFolder:get' && mode.startsWith('claude-folder-'))
+        return claudeFolderFixture(result, mode)
+      // Onboarding's no-data step: a machine where Claude Code never ran, after both scans settle.
+      if (mode === 'no-data') {
+        if (channel === 'skills:list') return { ...result, skills: [], scanComplete: true }
+        if (channel === 'plugins:list') return []
+        if (channel === 'usage:projects') return { locations: [], projects: [] }
+        if (channel === 'usage:overview') return { ...result, scanComplete: true }
+      }
       if (mode === 'plugin-disabled' || mode === 'plugin-enabled') {
         const disabled = mode === 'plugin-disabled' ? 'plugin' : null
         const transform = (plugin) => ({
