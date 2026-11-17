@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3'
-import type { ScanSourceSummary, SkillRow } from '../../shared/ipc'
-import { isWithinProjectPath } from '../../shared/project-path'
+import type { ScanSourceSummary, SkillRow, WorktreeLink } from '../../shared/ipc'
+import { canonicalProjectPath, isWithinProjectPath } from '../../shared/project-path'
 import { historyCoverage } from './usage-history-queries'
 
 export const STALE_WINDOW_DAYS = 30
@@ -34,7 +34,8 @@ const DAY_MS = 24 * 60 * 60 * 1000
 export function findStaleSkillIds(
   index: Database.Database,
   archive: Database.Database,
-  skills: SkillRow[]
+  skills: SkillRow[],
+  links: readonly WorktreeLink[] = []
 ): Set<number> {
   const stale = new Set<number>()
   const ranges = archive
@@ -69,14 +70,18 @@ export function findStaleSkillIds(
       FROM history_prompts WHERE is_slash_command = 0 GROUP BY project`
     )
     .all() as ProjectActivity[]
+  const repoProjects = projects.map((row) => ({
+    ...row,
+    project: canonicalProjectPath(row.project, links)
+  }))
   const windowStartAt = windowStart.toISOString()
   // A scope only gives a signal when it was in use on both sides of the window start: an idle
   // repo or an idle month had no chance to run the skill, and a brand-new repo has no history.
-  const hadOpportunity = (roots: string[] | 'everywhere'): boolean => {
+  const hadOpportunity = (roots: string[] | 'everywhere', activity: ProjectActivity[]): boolean => {
     const active =
       roots === 'everywhere'
-        ? projects
-        : projects.filter((row) => roots.some((root) => isWithinProjectPath(row.project, root)))
+        ? activity
+        : activity.filter((row) => roots.some((root) => isWithinProjectPath(row.project, root)))
     return (
       active.some((row) => row.first < windowStartAt) &&
       active.some((row) => row.last >= windowStartAt)
@@ -101,6 +106,7 @@ export function findStaleSkillIds(
     if (skill.disabled_reason !== null || skill.shadowed_by_skill_id !== null) continue
     let existedSince: number | null
     let roots: string[] | 'everywhere'
+    let activity: ProjectActivity[]
     if (skill.source_type === 'plugin') {
       const own = installs.filter((install) => install.plugin === skill.plugin_name)
       const seenAt = timeOf(firstSeen.get(`${skill.plugin_name}\0${skill.name}`))
@@ -116,17 +122,22 @@ export function findStaleSkillIds(
       roots = own.some((install) => install.scope === 'user')
         ? 'everywhere'
         : own.map((install) => install.project_path).filter((path) => path !== '')
+      // Claude Code records a repo-scoped install against one checkout, and a local-scope install
+      // lives in its gitignored settings, so the repo's other worktrees may never load it.
+      activity = projects
     } else {
       existedSince = timeOf(createdAt.get(skill.id))
+      // Matches listSkills, which credits a run in any of the repo's worktrees to its skill.
       roots =
         skill.source_type === 'global'
           ? 'everywhere'
           : skill.project_root === null
             ? []
-            : [skill.project_root]
+            : [canonicalProjectPath(skill.project_root, links)]
+      activity = repoProjects
     }
     if (existedSince === null || existedSince >= start) continue
-    if (!hadOpportunity(roots)) continue
+    if (!hadOpportunity(roots, activity)) continue
     if (skill.last_invoked_at === null || Date.parse(skill.last_invoked_at) < start)
       stale.add(skill.id)
   }

@@ -418,7 +418,12 @@ app.whenReady().then(() => {
   secureIpc.handle(IPC_CHANNELS.listSkills, (): SkillsListResult => {
     const skills = listSkills(getDb())
     const staleIds = usageDataTrusted(usageSourceStatus)
-      ? findStaleSkillIds(getDb(), getUsageArchive(), skills)
+      ? findStaleSkillIds(
+          getDb(),
+          getUsageArchive(),
+          skills,
+          worktreeLinks(themeStore.get('usageProjects'))
+        )
       : new Set<number>()
     return {
       skills: skills.map((skill) => ({ ...skill, stale: staleIds.has(skill.id) })),

@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { ScanSourceSummary } from '../../shared/ipc'
-import { listSkills } from './queries'
+import type { ScanSourceSummary, WorktreeLink } from '../../shared/ipc'
+import { listSkills, setWorktreeLinkSource } from './queries'
 import { applySchema } from './schema'
 import { findStaleSkillIds, recordPluginSkillSightings, usageDataTrusted } from './stale-skills'
 import { openUsageArchive } from './usage-archive'
@@ -130,9 +130,12 @@ function seen(plugin: string, skill: string, at: string): void {
     .run(plugin, `${plugin.split('@')[0]}:${skill}`, at)
 }
 
-function staleSkills(): string[] {
+// Both sides read the same links, as in the app: listSkills for invocations, findStaleSkillIds for
+// opportunity.
+function staleSkills(links: WorktreeLink[] = []): string[] {
+  setWorktreeLinkSource(() => links)
   const skills = listSkills(index)
-  const ids = findStaleSkillIds(index, archive, skills)
+  const ids = findStaleSkillIds(index, archive, skills, links)
   return skills
     .filter((skill) => ids.has(skill.id))
     .map((skill) => `${skill.source_type}/${skill.name}`)
@@ -358,5 +361,40 @@ describe('findStaleSkillIds', () => {
       seen(plugin, 'run', OLD)
     }
     expect(staleSkills()).toEqual(['plugin/here:run'])
+  })
+
+  describe('worktrees', () => {
+    const links = [{ path: '/wt', canonical: '/repo' }]
+
+    it("counts prompts in the repo's worktrees as chances to run its project skill", () => {
+      cover('2026-07-01T00:00:00.000Z', AS_OF)
+      prompt('/repo', BEFORE)
+      prompt('/wt/web', DURING)
+      addSkill({ name: 'build', source_type: 'project', project_root: '/repo' })
+      expect(staleSkills(links)).toEqual(['project/build'])
+    })
+
+    it('keeps a project skill fresh when it ran in a worktree', () => {
+      activeHistory('/wt')
+      addSkill({ name: 'build', source_type: 'project', project_root: '/repo' })
+      invoke('build', DURING, '/wt')
+      expect(staleSkills(links)).toEqual([])
+    })
+
+    it('judges a worktree standing in for its repo against the whole repo', () => {
+      cover('2026-07-01T00:00:00.000Z', AS_OF)
+      prompt('/repo', BEFORE)
+      prompt('/wt', DURING)
+      addSkill({ name: 'build', source_type: 'project', project_root: '/wt' })
+      expect(staleSkills(links)).toEqual(['project/build'])
+    })
+
+    it('judges a repo-scoped plugin only against the checkout it was installed in', () => {
+      activeHistory('/wt')
+      addPluginSkill('here@m', 'run')
+      install('here@m', { scope: 'local', project_path: '/repo' })
+      seen('here@m', 'run', OLD)
+      expect(staleSkills(links)).toEqual([])
+    })
   })
 })
