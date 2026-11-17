@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3'
-import { homedir } from 'os'
-import { basename, dirname, join, resolve } from 'path'
+import { basename, dirname, join } from 'path'
 import {
+  claudeConfig,
   allowedStatSync,
   isPathAllowed,
   readAllowedDirectory,
@@ -574,7 +574,7 @@ function reconcileReplayedTurns(
 
 export function scanTranscripts(
   db: Database.Database,
-  projectsDir: string = resolve(homedir(), '.claude', 'projects')
+  projectsDir: string = claudeConfig().projects
 ): ScanTaskResult {
   const upsertSession = db.prepare(`
     INSERT INTO sessions_meta

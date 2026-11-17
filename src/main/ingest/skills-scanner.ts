@@ -1,9 +1,9 @@
 import type Database from 'better-sqlite3'
 import type { ProjectFolder, ScanIssue, ScanTaskResult } from '../../shared/ipc'
-import { homedir } from 'os'
-import { dirname, join, relative, resolve, sep } from 'path'
+import { dirname, join, relative, sep } from 'path'
 import { writeSkillScan, type SkillScanRow } from '../db/queries'
 import {
+  claudeConfig,
   allowedStatSync,
   getGrantedPaths,
   readAllowedFile,
@@ -41,10 +41,7 @@ export interface SkillRoot {
 }
 
 export function defaultSkillRoots(discovery = discoverProjects()): SkillRoot[] {
-  return [
-    { dir: resolve(homedir(), '.claude', 'skills'), sourceType: 'global' },
-    ...discovery.skillRoots
-  ]
+  return [{ dir: claudeConfig().skills, sourceType: 'global' }, ...discovery.skillRoots]
 }
 
 const SYNCED_DIR_NAME = 'synced'

@@ -21,6 +21,38 @@ Release and updates section here covers their security consequences.
   ship its own `claude` executable or poison `PATH` to be run in its place.
 - Cost aggregation uses objects without prototypes, including inner model buckets.
 
+### Config root
+
+Tier 1 is one Claude Code config folder. `config-root.ts` resolves it once at startup and it stays
+fixed for the process; the scan worker receives it in `workerData`. Elsewhere in these docs,
+`~/.claude` means this folder.
+
+- `CLAUDE_CONFIG_DIR` unset or blank: `~/.claude`, with `.claude.json` in `$HOME`. Set: that folder
+  replaces `~/.claude` in Tier 1 and `.claude.json` moves inside it. Verified against Claude Code
+  2.1.326, 2026-11-17: the folder is `(CLAUDE_CONFIG_DIR ?? ~/.claude).normalize('NFC')` and
+  `.claude.json` is `join(CLAUDE_CONFIG_DIR || homedir(), '.claude.json')`, so "unset" and
+  "explicitly `~/.claude`" read different `.claude.json` files.
+- A value is used only when both its given form and its realpath are absolute, not UNC, not a
+  filesystem or drive root, and not `$HOME` or an ancestor of it, and the folder holds a Claude Code
+  marker (`settings.json`, `.claude.json`, `projects/`, `plugins/`, `skills/`, `history.jsonl`).
+  Anything else falls back to `~/.claude`. Threat: a variable naming `$HOME`, `/` or `~/Documents`
+  would make that tree Tier 1. Consequence: a brand-new profile is refused until Claude Code has
+  run in it once.
+- A missing folder is kept, not replaced: reads come back missing instead of showing another
+  profile's data as this one's. Remaining risk, accepted: only its given form was shape-checked, so
+  if it later appears as a link to a broad folder, Tier 1 reads that folder's `skills/`, `plugins/`,
+  `projects/` and three named files until relaunch. Creating that link already requires running as
+  the user.
+- Tier 1 keeps the given form, not the realpath, because Claude Code records paths in that form. A
+  linked folder is followed by the setup-link rule under Cache preservation, like a linked
+  `~/.claude`.
+- The marker probe lists names in the one named folder with plain `fs` before it becomes Tier 1.
+  Like CLI discovery, it is a separate capability from `isPathAllowed()`.
+- CLI runs (`/context`, plugin actions) get `CLAUDE_CONFIG_DIR` set to the active folder when it
+  came from the environment, and stripped in every casing otherwise, so a refused value leaves both
+  Megatron and the CLI on `~/.claude`. Threat: the CLI changing one profile while Megatron shows
+  another.
+
 ## Cache preservation
 
 Links inside content someone else wrote (granted repositories, plugin content, and folders nested

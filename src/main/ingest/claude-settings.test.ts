@@ -1,8 +1,14 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { homedir, tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { grantPath, resetGrantedPaths, revokePath } from '../permissions'
+import {
+  defaultConfigRoot,
+  grantPath,
+  resetGrantedPaths,
+  revokePath,
+  setClaudeConfig
+} from '../permissions'
 import { readPluginEnablement, readSkillOverrides } from './claude-settings'
 
 let tmpDir: string
@@ -268,5 +274,27 @@ describe('readSkillOverrides', () => {
     expect(readSkillOverrides(projectRoot, userSettingsPath)).toEqual(
       new Map([['my-skill', 'off']])
     )
+  })
+})
+
+describe('user settings under a CLAUDE_CONFIG_DIR folder', () => {
+  afterEach(() => {
+    setClaudeConfig(defaultConfigRoot(homedir()))
+  })
+
+  it('reads plugin enablement from the folder’s settings.json', () => {
+    const work = join(tmpDir, 'claude-work')
+    mkdirSync(work)
+    writeFileSync(
+      join(work, 'settings.json'),
+      JSON.stringify({ enabledPlugins: { 'demo@market': false } })
+    )
+    setClaudeConfig({
+      directory: work,
+      claudeJson: join(work, '.claude.json'),
+      source: 'environment'
+    })
+
+    expect(readPluginEnablement().disabled).toEqual(new Set(['demo@market']))
   })
 })

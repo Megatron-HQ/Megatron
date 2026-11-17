@@ -10,12 +10,14 @@ import {
   allowedRealpathSync,
   allowedStatSync,
   canonicalGrantPath,
+  defaultConfigRoot,
   getGrantedPaths,
   grantPath,
   isPathAllowed,
   isWithinGrant,
   readAllowedDirectory,
   resetGrantedPaths,
+  setClaudeConfig,
   visitAllowedUtf8LinesSync,
   revokePath,
   watchAllowedPath
@@ -194,6 +196,42 @@ describe('isPathAllowed', () => {
         )
       )
     ).toBe(true)
+  })
+})
+
+describe('isPathAllowed under a CLAUDE_CONFIG_DIR folder', () => {
+  const work = resolve(homedir(), '.claude-work')
+
+  beforeEach(() => {
+    setClaudeConfig({
+      directory: work,
+      claudeJson: join(work, '.claude.json'),
+      source: 'environment'
+    })
+  })
+
+  afterEach(() => {
+    setClaudeConfig(defaultConfigRoot(homedir()))
+  })
+
+  it('allows the folder’s skills, plugins, transcripts, and config files', () => {
+    expect(isPathAllowed(join(work, 'skills', 'demo', 'SKILL.md'))).toBe(true)
+    expect(isPathAllowed(join(work, 'plugins', 'installed_plugins.json'))).toBe(true)
+    expect(isPathAllowed(join(work, 'projects', 'p', 'session.jsonl'))).toBe(true)
+    expect(isPathAllowed(join(work, 'settings.json'))).toBe(true)
+    expect(isPathAllowed(join(work, 'history.jsonl'))).toBe(true)
+    expect(isPathAllowed(join(work, '.claude.json'))).toBe(true)
+  })
+
+  it('denies the rest of the folder', () => {
+    expect(isPathAllowed(work)).toBe(false)
+    expect(isPathAllowed(join(work, 'CLAUDE.md'))).toBe(false)
+  })
+
+  it('denies ~/.claude and ~/.claude.json, which belong to another profile', () => {
+    expect(isPathAllowed(resolve(homedir(), '.claude/skills/demo/SKILL.md'))).toBe(false)
+    expect(isPathAllowed(resolve(homedir(), '.claude/settings.json'))).toBe(false)
+    expect(isPathAllowed(resolve(homedir(), '.claude.json'))).toBe(false)
   })
 })
 

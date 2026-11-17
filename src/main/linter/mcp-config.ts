@@ -1,10 +1,5 @@
-import { allowedReadFileSync } from '../permissions'
+import { allowedReadFileSync, claudeConfig } from '../permissions'
 import path from 'path'
-import os from 'os'
-
-export function getDefaultClaudeJsonPath(): string {
-  return path.join(os.homedir(), '.claude.json')
-}
 
 function readJsonObject(filePath: string): Record<string, unknown> | null {
   const buf = allowedReadFileSync(filePath)
@@ -36,7 +31,7 @@ function mcpProjectKeysMatch(configKey: string, projectRoot: string): boolean {
 }
 
 export function getGlobalMcpServers(
-  claudeJsonPath: string = getDefaultClaudeJsonPath()
+  claudeJsonPath: string = claudeConfig().claudeJson
 ): Set<string> {
   const servers = new Set<string>()
   addMcpServerNames(readJsonObject(claudeJsonPath), servers)
@@ -44,7 +39,7 @@ export function getGlobalMcpServers(
 }
 
 export function getProjectMcpServers(
-  claudeJsonPath: string | undefined = getDefaultClaudeJsonPath(),
+  claudeJsonPath: string | undefined = claudeConfig().claudeJson,
   projectRoot?: string
 ): Set<string> {
   const servers = new Set<string>()
@@ -53,7 +48,7 @@ export function getProjectMcpServers(
     return servers
   }
 
-  const configPath = claudeJsonPath ?? getDefaultClaudeJsonPath()
+  const configPath = claudeJsonPath ?? claudeConfig().claudeJson
 
   addMcpServerNames(readJsonObject(path.join(projectRoot, '.mcp.json')), servers)
   addMcpServerNames(readJsonObject(path.join(projectRoot, '.claude', 'mcp.json')), servers)

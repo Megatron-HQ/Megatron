@@ -44,18 +44,56 @@ foreach ($file in $env:MEGATRON_PRIVATE_DATA_FILES.Split([char[]]@('|'), [System
 exit 0
 `
 
-const TIER_1_ROOTS = ['skills', 'plugins', 'projects'].map((dir) =>
-  resolve(homedir(), '.claude', dir)
-)
-const GLOBAL_SKILLS_ROOT = TIER_1_ROOTS[0]
+// The one Claude Code config folder this process reads (config-root.ts resolves it at startup).
+// Claude Code keeps .claude.json in $HOME by default but inside CLAUDE_CONFIG_DIR when that's set.
+export interface ConfigRoot {
+  directory: string
+  claudeJson: string
+  source: 'default' | 'environment'
+}
 
-// User-level Claude Code config — not under ~/.claude/{skills,plugins,projects}, but some
-// scanners need specific fields out of them. File-only, not the rest of $HOME.
-const TIER_1_FILES = [
-  resolve(homedir(), '.claude.json'), // mcpServers, for the MCP linter
-  resolve(homedir(), '.claude/settings.json'), // enabledPlugins/skillOverrides, for disabled-skill detection
-  resolve(homedir(), '.claude/history.jsonl') // Prompt History, for the Usage view
-]
+export function defaultConfigRoot(home: string): ConfigRoot {
+  return {
+    directory: resolve(home, '.claude'),
+    claudeJson: resolve(home, '.claude.json'),
+    source: 'default'
+  }
+}
+
+export interface ClaudeConfig extends ConfigRoot {
+  skills: string
+  plugins: string
+  projects: string
+  settings: string
+  history: string
+}
+
+let activeConfig: ClaudeConfig
+// Tier 1: the config folder's skills/plugins/projects, plus the few files scanners need fields from
+// (mcpServers, enabledPlugins/skillOverrides, Prompt History). Never the rest of the folder or $HOME.
+let tier1Roots: string[]
+let tier1Files: string[]
+setClaudeConfig(defaultConfigRoot(homedir()))
+
+// Set once per process before any read: main at startup, the scan worker from its workerData.
+export function setClaudeConfig({ directory, claudeJson, source }: ConfigRoot): void {
+  activeConfig = {
+    directory,
+    claudeJson,
+    source,
+    skills: join(directory, 'skills'),
+    plugins: join(directory, 'plugins'),
+    projects: join(directory, 'projects'),
+    settings: join(directory, 'settings.json'),
+    history: join(directory, 'history.jsonl')
+  }
+  tier1Roots = [activeConfig.skills, activeConfig.plugins, activeConfig.projects]
+  tier1Files = [activeConfig.claudeJson, activeConfig.settings, activeConfig.history]
+}
+
+export function claudeConfig(): ClaudeConfig {
+  return activeConfig
+}
 
 const grantedPaths = new Map<string, string>()
 const MAX_DIRECTORY_ENTRIES = 20_000
@@ -112,22 +150,23 @@ export function isWithinGrant(path: string, root: string): boolean {
 
 export function isPathAllowed(path: string): boolean {
   const resolved = normalizeFsPath(resolve(path))
-  if (TIER_1_FILES.some((file) => normalizeFsPath(file) === resolved)) return true
-  return [...TIER_1_ROOTS, ...grantedPaths.keys(), ...grantedPaths.values()].some((root) =>
+  if (tier1Files.some((file) => normalizeFsPath(file) === resolved)) return true
+  return [...tier1Roots, ...grantedPaths.keys(), ...grantedPaths.values()].some((root) =>
     isWithinGrant(path, root)
   )
 }
 
 // The deepest point at which a link is part of the user's own Claude Code setup rather than content
-// someone else wrote: ~/.claude itself, a Tier 1 root or file, or one top-level entry of the global
-// skills folder (Orca and `npx skills` link these out to ~/.agents/skills). Links below the anchor,
-// and every link in repos and plugin content, keep the strict rule. See docs/security-hardening.md.
+// someone else wrote: the config folder itself, a Tier 1 root or file, or one top-level entry of the
+// global skills folder (Orca and `npx skills` link these out to ~/.agents/skills). Links below the
+// anchor, and every link in repos and plugin content, keep the strict rule.
+// See docs/security-hardening.md.
 function setupAnchor(path: string): string | null {
   const resolved = resolve(path)
-  const file = TIER_1_FILES.find((file) => normalizeFsPath(file) === normalizeFsPath(resolved))
+  const file = tier1Files.find((file) => normalizeFsPath(file) === normalizeFsPath(resolved))
   if (file !== undefined) return file
-  const root = TIER_1_ROOTS.find((root) => isWithinGrant(resolved, root))
-  if (root !== GLOBAL_SKILLS_ROOT) return root ?? null
+  const root = tier1Roots.find((root) => isWithinGrant(resolved, root))
+  if (root !== activeConfig.skills) return root ?? null
   const [entry, syncedEntry] = resolved.slice(root.length + 1).split(sep)
   if (!entry) return root
   // Claude Code scans synced/ (any capitalization) one level deeper, like the skills scanner.

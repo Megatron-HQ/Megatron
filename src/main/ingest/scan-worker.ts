@@ -1,6 +1,6 @@
 import { parentPort, workerData } from 'worker_threads'
 import Database from 'better-sqlite3'
-import { restoreGrantedPath } from '../permissions'
+import { restoreGrantedPath, setClaudeConfig, type ConfigRoot } from '../permissions'
 import { setWorktreeLinkSource } from '../db/queries'
 import { scanSkills as runSkillScan } from './skills-scanner'
 import type { ProjectFolder, ScanTaskResult, WorktreeLink } from '../../shared/ipc'
@@ -16,6 +16,7 @@ import { runAllScans, selectScanTasks, type ScanScope } from './scan-all'
 const {
   databasePath,
   archivePath,
+  configRoot,
   grantedPaths,
   previousProjects = [],
   worktreeLinks = [],
@@ -23,6 +24,7 @@ const {
 } = workerData as {
   databasePath: string
   archivePath: string
+  configRoot: ConfigRoot
   grantedPaths: string[]
   previousProjects?: ProjectFolder[]
   worktreeLinks?: WorktreeLink[]
@@ -31,6 +33,8 @@ const {
 function scanSkills(db: Database.Database): ScanTaskResult {
   return runSkillScan(db, undefined, undefined, previousProjects)
 }
+// The worker has its own module state: Tier 1 must name the same folder main resolved at startup.
+setClaudeConfig(configRoot)
 for (const path of grantedPaths) restoreGrantedPath(path)
 setWorktreeLinkSource(() => worktreeLinks)
 const database = new Database(databasePath)

@@ -57,13 +57,16 @@ import {
 import {
   allowedLinkTargetSync,
   canonicalGrantPath,
+  claudeConfig,
   getGrantedPaths,
   isPathAllowed,
   grantPath,
   restoreGrantedPath,
   revokePath,
-  securePrivateDataDirectory
+  securePrivateDataDirectory,
+  setClaudeConfig
 } from './permissions'
+import { resolveConfigRoot } from './config-root'
 import {
   markOnboardingDone,
   resolveInitialSection,
@@ -137,6 +140,17 @@ const isPrimaryInstance = claimSingleInstance(app, () => BrowserWindow.getAllWin
 if (isPrimaryInstance)
   securePrivateDataDirectory(app.getPath('userData'), join(app.getPath('appData'), app.getName()))
 const themeStore: ThemeStore = new Store({ name: 'preferences' })
+
+// Before anything reads Claude Code's data: every reader, Tier 1, the scan worker and the CLI follow
+// this one folder for the life of the process.
+const configResolution = resolveConfigRoot(process.env.CLAUDE_CONFIG_DIR, homedir())
+setClaudeConfig(configResolution.root)
+if (configResolution.issue)
+  console.warn(
+    '[config-root] CLAUDE_CONFIG_DIR issue; reading',
+    configResolution.root.directory,
+    configResolution.issue
+  )
 setWorktreeLinkSource(() => worktreeLinks(themeStore.get('usageProjects')))
 // Bundled and validated by its own test, so a parse failure here means a broken build, not user data.
 const whatsNewCatalog = parseWhatsNewCatalog(whatsNewJson)
@@ -235,6 +249,7 @@ const scans = createScanController((scope) =>
       scope,
       databasePath: getDb().name,
       archivePath: join(app.getPath('userData'), USAGE_ARCHIVE_FILENAME),
+      configRoot: claudeConfig(),
       grantedPaths: getGrantedPaths(),
       previousProjects: sanitizeProjectFolders(themeStore.get('projectFolders')),
       worktreeLinks: worktreeLinks(themeStore.get('usageProjects'))
@@ -759,10 +774,10 @@ app.whenReady().then(() => {
       getRoots: () => [
         ...getGrantedPaths().map((path) => ({ path, kind: 'project' as const })),
         ...[
-          join(homedir(), '.claude', 'skills'),
-          join(homedir(), '.claude', 'plugins'),
-          join(homedir(), '.claude', 'settings.json'),
-          join(homedir(), '.claude.json')
+          claudeConfig().skills,
+          claudeConfig().plugins,
+          claudeConfig().settings,
+          claudeConfig().claudeJson
         ].map((path) => ({ path, kind: 'inventory' as const }))
       ],
       refresh: () => scanAndNotify('quiet', true, 'inventory'),

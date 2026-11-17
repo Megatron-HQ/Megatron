@@ -14,7 +14,13 @@ import { join, resolve } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as permissions from '../permissions'
 import { applySchema } from '../db/schema'
-import { grantPath, resetGrantedPaths, revokePath } from '../permissions'
+import {
+  defaultConfigRoot,
+  grantPath,
+  resetGrantedPaths,
+  revokePath,
+  setClaudeConfig
+} from '../permissions'
 import {
   defaultSkillRoots,
   findNestedSkillsDirs,
@@ -939,6 +945,31 @@ describe('findNestedSkillsDirs', () => {
       expect(() => findNestedSkillsDirs(repoRoot)).not.toThrow()
     }
   )
+})
+
+describe('scanSkills under a CLAUDE_CONFIG_DIR folder', () => {
+  afterEach(() => {
+    setClaudeConfig(defaultConfigRoot(homedir()))
+  })
+
+  it('scans the folder’s skills as global and applies its settings.json overrides', () => {
+    const work = join(tmpDir, 'claude-work')
+    writeSkillDir(join(work, 'skills'), 'demo', '---\nname: demo\n---\nBody')
+    writeSkillDir(join(work, 'skills'), 'muted', '---\nname: muted\n---\nBody')
+    writeFileSync(join(work, 'settings.json'), '{"skillOverrides":{"muted":"off"}}')
+    setClaudeConfig({
+      directory: work,
+      claudeJson: join(work, '.claude.json'),
+      source: 'environment'
+    })
+
+    scanSkills(db)
+
+    expect(allSkills().map((row) => [row.source_type, row.name, row.disabled_reason])).toEqual([
+      ['global', 'demo', null],
+      ['global', 'muted', 'override']
+    ])
+  })
 })
 
 describe('defaultSkillRoots', () => {

@@ -1,9 +1,9 @@
 import type Database from 'better-sqlite3'
 import type { ScanIssue, ScanTaskResult, WorktreeLink } from '../../shared/ipc'
-import { homedir } from 'os'
-import { dirname, join, resolve } from 'path'
+import { dirname, join } from 'path'
 import { writeSkillScan, writeSkillScanAuthoritative, type SkillScanRow } from '../db/queries'
 import {
+  claudeConfig,
   allowedReadFileSync,
   readAllowedFile,
   isPathAllowed,
@@ -219,7 +219,7 @@ function buildPluginSkillRow(
 
 export function scanPluginRegistry(
   db: Database.Database,
-  pluginsDir: string = resolve(homedir(), '.claude', 'plugins'),
+  pluginsDir: string = claudeConfig().plugins,
   userSettingsPath?: string,
   worktreeLinks: readonly WorktreeLink[] = []
 ): ScanTaskResult {

@@ -1,6 +1,6 @@
 import { homedir } from 'os'
 import { basename, delimiter, dirname, isAbsolute, join, resolve, sep } from 'path'
-import { inspectCliCandidate, inspectCliDirectory } from './permissions'
+import { claudeConfig, inspectCliCandidate, inspectCliDirectory } from './permissions'
 
 export interface ClaudeCommand {
   executable: string
@@ -38,13 +38,22 @@ export function resolveClaudeCommand(projectDirectory?: string): ClaudeCommand |
     .filter((entry): entry is string => entry !== null)
   for (const name of Object.keys(environment)) {
     if (
-      ['PATH', 'NODE_OPTIONS', 'NODE_PATH', 'NODE_EXTRA_CA_CERTS', 'ELECTRON_RUN_AS_NODE'].includes(
-        name.toUpperCase()
-      )
+      [
+        'PATH',
+        'NODE_OPTIONS',
+        'NODE_PATH',
+        'NODE_EXTRA_CA_CERTS',
+        'ELECTRON_RUN_AS_NODE',
+        'CLAUDE_CONFIG_DIR'
+      ].includes(name.toUpperCase())
     )
       delete environment[name]
   }
   environment.PATH = directories.join(delimiter)
+  // /context and plugin actions must act on the folder Megatron reads. An inherited value Megatron
+  // rejected is dropped too, so the CLI falls back to ~/.claude together with Megatron.
+  const config = claudeConfig()
+  if (config.source !== 'default') environment.CLAUDE_CONFIG_DIR = config.directory
   const candidates = [...new Set([...directories, join(homedir(), '.local', 'bin')])]
   const inspect = (candidate: string): string | null => inspectCliCandidate(candidate, excluded)
   const node = directories

@@ -37,7 +37,7 @@ Repo-wide. Subsystem decisions are locked in the owning doc — see the Docs tab
 
 Bound exploration by default: read the requested file plus a small number of directly related files. No blind repo-wide search unless blocked.
 
-Carve-out: any change touching `src/main/`, `src/preload/`, or `src/shared/` must first read the relevant IPC channel definitions and `isPathAllowed()` (`src/main/permissions.ts`) — **user-data reads route through it**; fixed CLI discovery, private app-cache preparation, packaged-asset serving, and the macOS self-update use separate capabilities described in `docs/security-hardening.md`; Tier 1 (`~/.claude/{skills,plugins,projects}`) is hardcoded-allowed, Tier 2 repo folders come from `grantPath()`. These are the cross-process contract seams where a locally-correct change can silently break another process.
+Carve-out: any change touching `src/main/`, `src/preload/`, or `src/shared/` must first read the relevant IPC channel definitions and `isPathAllowed()` (`src/main/permissions.ts`) — **user-data reads route through it**; fixed CLI discovery, private app-cache preparation, packaged-asset serving, and the macOS self-update use separate capabilities described in `docs/security-hardening.md`; Tier 1 (`{skills,plugins,projects}` of the one Claude Code config folder, `~/.claude` unless `CLAUDE_CONFIG_DIR` names another, resolved once at startup) is always allowed, Tier 2 repo folders come from `grantPath()`. These are the cross-process contract seams where a locally-correct change can silently break another process.
 
 ## Testing
 
