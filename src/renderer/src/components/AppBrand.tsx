@@ -1,4 +1,4 @@
-import appIcon from '../../../../build/icon-source/icon-small.svg'
+import appIcon from '../../../../build/icon-source/icon.svg'
 
 export function AppBrand(): React.JSX.Element {
   return (

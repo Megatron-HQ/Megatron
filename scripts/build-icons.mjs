@@ -1,4 +1,4 @@
-// Regenerates every committed app-icon output from the SVG masters in build/icon-source/.
+// Regenerates every committed app-icon output from the SVG master in build/icon-source/.
 // Runs under `electron`, not `node`: Chromium rasterizes the SVGs, so the repo needs no image
 // dependency. The macOS .icon isn't generated here: it's assembled by hand in Icon Composer from
 // the layers/ this script writes, because Apple hasn't published the .icon format.
@@ -9,13 +9,9 @@ import { join } from 'node:path'
 const ROOT = join(import.meta.dirname, '..')
 const SOURCE = join(ROOT, 'build/icon-source')
 const ICO_SIZES = [16, 20, 24, 30, 32, 36, 40, 48, 60, 64, 72, 80, 96, 256]
-// Below this the sparkle and the cap gap blur into noise, so the .ico switches to the simplified
-// master. Windows only picks these hand-tuned sizes at 100% scaling.
-const SMALL_ART_BELOW = 30
 const LAYERS = ['magnet', 'caps', 'sparkle']
 
 const full = readFileSync(join(SOURCE, 'icon.svg'), 'utf8')
-const small = readFileSync(join(SOURCE, 'icon-small.svg'), 'utf8')
 
 // Software rendering keeps the output identical across machines, whatever their GPU.
 app.disableHardwareAcceleration()
@@ -108,7 +104,7 @@ async function main() {
     if (px >= 256) {
       entries.push({ px, data: await rasterize(win, full, px, 'png') })
     } else {
-      const rgba = await rasterize(win, px < SMALL_ART_BELOW ? small : full, px, 'rgba')
+      const rgba = await rasterize(win, full, px, 'rgba')
       entries.push({ px, data: bmpEntry(rgba, px) })
     }
   }
@@ -122,7 +118,7 @@ async function main() {
   if (written.join() !== ICO_SIZES.join()) {
     throw new Error(`icon.ico has sizes ${written.join(', ')}, expected ${ICO_SIZES.join(', ')}`)
   }
-  console.log(`icon.ico: ${written.join(', ')} px (sparkle from ${SMALL_ART_BELOW} px up)`)
+  console.log(`icon.ico: ${written.join(', ')} px (sparkle at every size)`)
   console.log('resources/icon.png: 512 px')
   console.log(`layers: ${LAYERS.map((id, i) => `${i + 1}-${id}.svg`).join(', ')}`)
 }

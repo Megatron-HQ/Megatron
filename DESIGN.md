@@ -216,11 +216,11 @@ The file viewer's tree uses more motion than most surfaces: icon rotation on exp
 
 A white (`#f5f5f5`) magnet with acid-lime pole caps pulling in a lime 12-ray sparkle, on a `#111111` tile. The magnet is Megatron, the collector; the sparkle is the skill being pulled in.
 
-- **Masters:** `build/icon-source/icon.svg` (full art) and `icon-small.svg` (simplified). `npm run build:icons` generates `build/icon.ico`, `resources/icon.ico`, `resources/icon.png`, and the Icon Composer layers in `build/icon-source/layers/`. Then rebuild `build/icon.icon` from the new layers (below).
-- **Hand nudges:** the committed `.icon` carries per-layer nudges made in Icon Composer (`translation-in-points` in its `icon.json`) that set the macOS magnet about 2.5% left and lower than the masters and the `.ico`. That shipped version is the approved one; a rebuild from fresh layers drops the nudges unless they're reapplied.
+- **Master:** `build/icon-source/icon.svg` supplies the full magnet-and-sparkle art for the sidebar brand and every Windows icon size. `npm run build:icons` generates `build/icon.ico`, `resources/icon.ico`, `resources/icon.png`, and the Icon Composer layers in `build/icon-source/layers/`. Rebuild `build/icon.icon` from the new layers (below) only when the master artwork changes.
+- **Hand nudges:** the committed `.icon` carries per-layer nudges made in Icon Composer (`translation-in-points` in its `icon.json`) that set the macOS magnet about 2.5% left and lower than the master and the `.ico`. That shipped version is the approved one; a rebuild from fresh layers drops the nudges unless they're reapplied.
 - **Color:** the caps and sparkle use `--accent-lime` (`#e4f222`) itself. A brighter icon-only lime would hurt the app's light mode.
 - **macOS:** Liquid Glass off or at minimum on every layer; the Ledger-Lies-Flat Rule applies to the icon too. electron-builder generates the `.icns` fallback for macOS before 26 from the `.icon`.
-- **Windows:** the dark tile is nearly full-bleed, because Windows adds no mask or padding. Windows uses the hand-tuned small sizes only at 100% scaling; from 125% up the taskbar shows the full art, scaled down.
+- **Windows:** the dark tile is nearly full-bleed, because Windows adds no mask or padding. Every ICO frame retains the full artwork, including the small sizes used by the native titlebar and taskbar.
 
 ### Building the `.icon` (Xcode 26+)
 
@@ -234,4 +234,4 @@ A white (`#f5f5f5`) magnet with acid-lime pole caps pulling in a lime 12-ray spa
 
 **The Equal-Gap Rule.** The sparkle sits exactly as far from one pole cap as from the other: 60 units each. If it moves or grows, both gaps move together. Rays keep their 13.3 stroke, because thicker rays fuse into a gear or a splat.
 
-**The 30-Pixel Rule.** The sparkle appears from 30 px up. Below that, the `.ico` uses the small master: no sparkle, and caps joined to the magnet, because at taskbar size the cap gap and the sparkle blur into noise. In Clear and Tinted modes on macOS, the white and the lime collapse toward one color, so the cap gap is what keeps the poles readable. Keep it visible at every size that has one.
+**The Complete-Mark Rule.** The magnet and sparkle stay together at every size, including the sidebar brand and the smallest Windows ICO frames. Preserve the cap gap in the master: in Clear and Tinted modes on macOS, the white and the lime collapse toward one color, so that gap keeps the poles readable.
