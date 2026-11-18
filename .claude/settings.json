@@ -1,9 +1,5 @@
 {
   "enabledPlugins": {
     "playwright@claude-plugins-official": true
-  },
-  "attribution": {
-    "commit": "",
-    "pr": ""
   }
 }
