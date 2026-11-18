@@ -24,11 +24,16 @@ import {
   insertLintFindings,
   listPlugins,
   listSkills,
-  setWorktreeLinkSource,
   writeSkillScan,
   writeSkillScanAuthoritative
 } from './queries'
 import { rebuildCostLineages } from '../ingest/cost-lineage'
+import { readProjectIdentity, type ProjectIdentity } from '../../shared/project-identity'
+import type { WorktreeLink } from '../../shared/ipc'
+
+const linkedBy = (links: WorktreeLink[] = []): ProjectIdentity =>
+  readProjectIdentity({ locations: [], claudeCodeFolders: [] }, links)
+let identity = linkedBy()
 
 let db: Database.Database
 
@@ -173,7 +178,7 @@ beforeEach(() => {
 
 describe('listSkills', () => {
   it('returns an empty array when no skills are indexed', () => {
-    expect(listSkills(db)).toEqual([])
+    expect(listSkills(db, identity)).toEqual([])
   })
 
   it('returns every skill row with all columns and lint summary intact', () => {
@@ -200,7 +205,7 @@ describe('listSkills', () => {
        VALUES (?, 'name-collision', 'warning', 'Collision found', NULL, NULL, NULL, ?)`
     ).run(grillSkill.id, '2026-08-14T00:00:00.000Z')
 
-    const rows = listSkills(db)
+    const rows = listSkills(db, identity)
 
     expect(rows).toHaveLength(2)
     expect(rows).toEqual(
@@ -237,7 +242,7 @@ describe('listSkills', () => {
 
 describe('getSkillById', () => {
   it('returns null when no skill has that id', () => {
-    expect(getSkillById(db, 1)).toBeNull()
+    expect(getSkillById(db, identity, 1)).toBeNull()
   })
 
   it('returns the matching skill row with lint status', () => {
@@ -256,7 +261,7 @@ describe('getSkillById', () => {
        VALUES (?, 'missing-mcp-server', 'warning', 'Server missing', NULL, NULL, NULL, ?)`
     ).run(id, '2026-08-14T00:00:00.000Z')
 
-    expect(getSkillById(db, id)).toEqual(
+    expect(getSkillById(db, identity, id)).toEqual(
       expect.objectContaining({
         id,
         name: 'grill-me',
@@ -279,7 +284,7 @@ describe('getSkillById', () => {
       id: number
     }
 
-    expect(getSkillById(db, id)).toEqual(
+    expect(getSkillById(db, identity, id)).toEqual(
       expect.objectContaining({ metadata_json: null, modified_at: null })
     )
   })
@@ -796,7 +801,7 @@ describe('listSkills usage aggregation', () => {
       session_id: 'unknown-root',
       skill_name: 'deploy'
     })
-    expect(listSkills(db)[0].total_invocations).toBe(0)
+    expect(listSkills(db, identity)[0].total_invocations).toBe(0)
   })
   it.each([
     ['/repo', '/repo/child', '/repo/child/grandchild'],
@@ -819,17 +824,17 @@ describe('listSkills usage aggregation', () => {
       })
     }
     for (const [index, id] of ids.entries()) {
-      const skill = getSkillById(db, id)!
+      const skill = getSkillById(db, identity, id)!
       expect(skill.total_invocations).toBe(1)
-      expect(getSkillUsageDetail(db, skill).byProject).toEqual([
+      expect(getSkillUsageDetail(db, identity, skill).byProject).toEqual([
         { cwd: `${roots[index]}/packages/web`, count: 1 }
       ])
-      expect(getSkillInvocationLog(db, skill).map((entry) => entry.cwd)).toEqual([
+      expect(getSkillInvocationLog(db, identity, skill).map((entry) => entry.cwd)).toEqual([
         `${roots[index]}/packages/web`
       ])
     }
     expect(
-      getSkillInvocationSlice(db, {
+      getSkillInvocationSlice(db, identity, {
         startAt: '2026-08-14T00:00:00.000Z',
         endAt: '2026-08-15T00:00:00.000Z'
       })
@@ -855,15 +860,15 @@ describe('listSkills usage aggregation', () => {
       session_id: 'windows-child',
       skill_name: 'deploy'
     })
-    expect(listSkills(db).map((skill) => skill.total_invocations)).toEqual([0, 1])
+    expect(listSkills(db, identity).map((skill) => skill.total_invocations)).toEqual([0, 1])
     expect(
-      getSkillInvocationSlice(db, {
+      getSkillInvocationSlice(db, identity, {
         startAt: '2026-08-14T00:00:00.000Z',
         endAt: '2026-08-15T00:00:00.000Z'
       })[0].skillId
     ).toBe(childId)
     expect(
-      getSkillStats(db, new Date('2026-08-14T12:00:00.000Z')).last24h.bySkill[0]
+      getSkillStats(db, identity, new Date('2026-08-14T12:00:00.000Z')).last24h.bySkill[0]
     ).toMatchObject({
       skillId: childId,
       resolution: 'installed'
@@ -873,7 +878,7 @@ describe('listSkills usage aggregation', () => {
   it('returns 0 invocations and a null last_invoked_at for a skill never invoked', () => {
     insertSkill('never-used')
 
-    const rows = listSkills(db)
+    const rows = listSkills(db, identity)
 
     expect(rows[0]).toMatchObject({ total_invocations: 0, last_invoked_at: null })
   })
@@ -894,7 +899,7 @@ describe('listSkills usage aggregation', () => {
       invoked_at: '2026-08-10T00:00:00.000Z'
     })
 
-    const rows = listSkills(db)
+    const rows = listSkills(db, identity)
 
     expect(rows[0]).toMatchObject({
       total_invocations: 2,
@@ -908,7 +913,7 @@ describe('listSkills usage aggregation', () => {
     insertSession('sess-1')
     insertInvocation({ source_uuid: 'uuid-1', session_id: 'sess-1', skill_name: 'skill-a' })
 
-    const rows = listSkills(db)
+    const rows = listSkills(db, identity)
 
     const a = rows.find((r) => r.name === 'skill-a')
     const b = rows.find((r) => r.name === 'skill-b')
@@ -933,7 +938,7 @@ describe('listSkills usage aggregation', () => {
     insertInvocation({ source_uuid: 'u2', session_id: 'sess-b', skill_name: 'visual-verify' })
     insertInvocation({ source_uuid: 'u3', session_id: 'sess-b', skill_name: 'visual-verify' })
 
-    const rows = listSkills(db)
+    const rows = listSkills(db, identity)
     const a = rows.find((r) => r.source_path === '/repo-a/.claude/skills/visual-verify')
     const b = rows.find((r) => r.source_path === '/repo-b/.claude/skills/visual-verify')
     expect(a).toMatchObject({ total_invocations: 1 })
@@ -945,7 +950,7 @@ describe('listSkills usage aggregation', () => {
     insertSession('sess-1', '/repo/packages/web')
     insertInvocation({ source_uuid: 'u1', session_id: 'sess-1', skill_name: 'deploy' })
 
-    expect(listSkills(db)[0]).toMatchObject({ total_invocations: 1 })
+    expect(listSkills(db, identity)[0]).toMatchObject({ total_invocations: 1 })
   })
 
   it('counts a Windows session whose cwd is nested below the project root', () => {
@@ -957,7 +962,7 @@ describe('listSkills usage aggregation', () => {
     insertSession('sess-1', 'C:\\repo\\packages\\web')
     insertInvocation({ source_uuid: 'u1', session_id: 'sess-1', skill_name: 'deploy' })
 
-    expect(listSkills(db)[0]).toMatchObject({ total_invocations: 1 })
+    expect(listSkills(db, identity)[0]).toMatchObject({ total_invocations: 1 })
   })
 
   it('counts a session whose cwd exactly equals the project root', () => {
@@ -965,7 +970,7 @@ describe('listSkills usage aggregation', () => {
     insertSession('sess-1', '/repo')
     insertInvocation({ source_uuid: 'u1', session_id: 'sess-1', skill_name: 'deploy' })
 
-    expect(listSkills(db)[0]).toMatchObject({ total_invocations: 1 })
+    expect(listSkills(db, identity)[0]).toMatchObject({ total_invocations: 1 })
   })
 
   it('does not count a session from a sibling repo sharing a path prefix', () => {
@@ -973,7 +978,7 @@ describe('listSkills usage aggregation', () => {
     insertSession('sess-1', '/repo-other')
     insertInvocation({ source_uuid: 'u1', session_id: 'sess-1', skill_name: 'deploy' })
 
-    expect(listSkills(db)[0]).toMatchObject({ total_invocations: 0 })
+    expect(listSkills(db, identity)[0]).toMatchObject({ total_invocations: 0 })
   })
 
   it('does not treat an underscore in project_root as a LIKE wildcard', () => {
@@ -983,7 +988,7 @@ describe('listSkills usage aggregation', () => {
     insertSession('sess-1', '/repoXa/subdir')
     insertInvocation({ source_uuid: 'u1', session_id: 'sess-1', skill_name: 'deploy' })
 
-    expect(listSkills(db)[0]).toMatchObject({ total_invocations: 0 })
+    expect(listSkills(db, identity)[0]).toMatchObject({ total_invocations: 0 })
   })
 })
 
@@ -998,7 +1003,7 @@ describe('global-shadows-project detection', () => {
     insertSession('sess-1', '/repo')
     insertInvocation({ source_uuid: 'u1', session_id: 'sess-1', skill_name: 'deploy' })
 
-    const projectRow = listSkills(db).find((r) => r.source_type === 'project')
+    const projectRow = listSkills(db, identity).find((r) => r.source_type === 'project')
     expect(projectRow).toMatchObject({
       total_invocations: 0,
       last_invoked_at: null,
@@ -1016,7 +1021,7 @@ describe('global-shadows-project detection', () => {
     insertSession('sess-1', '/repo')
     insertInvocation({ source_uuid: 'u1', session_id: 'sess-1', skill_name: 'deploy' })
 
-    const globalRow = listSkills(db).find((r) => r.source_type === 'global')
+    const globalRow = listSkills(db, identity).find((r) => r.source_type === 'global')
     expect(globalRow).toMatchObject({ total_invocations: 1, shadowed_by_skill_id: null })
   })
 
@@ -1028,13 +1033,13 @@ describe('global-shadows-project detection', () => {
       source_path: '/skills-b/visual-verify'
     })
 
-    expect(listSkills(db).every((r) => r.shadowed_by_skill_id === null)).toBe(true)
+    expect(listSkills(db, identity).every((r) => r.shadowed_by_skill_id === null)).toBe(true)
   })
 
   it('leaves an unrelated global skill unaffected', () => {
     insertSkill('grill-me', { source_type: 'global' })
 
-    expect(listSkills(db)[0]).toMatchObject({ shadowed_by_skill_id: null })
+    expect(listSkills(db, identity)[0]).toMatchObject({ shadowed_by_skill_id: null })
   })
 })
 
@@ -1067,25 +1072,25 @@ describe('synced-shadowed-by-non-synced detection', () => {
        VALUES ('project-session', 'deploy', '2026-09-09T16:00:00.000Z', 1)`
     ).run()
 
-    expect(getSkillById(db, syncedId)).toMatchObject({
+    expect(getSkillById(db, identity, syncedId)).toMatchObject({
       total_invocations: 0,
       shadowed_by_skill_id: projectId
     })
-    expect(getSkillById(db, projectId)).toMatchObject({
+    expect(getSkillById(db, identity, projectId)).toMatchObject({
       total_invocations: 1,
       shadowed_by_skill_id: null
     })
     expect(
-      getSkillStats(db, new Date('2026-09-09T17:00:00.000Z')).last24h.bySkill[0]
+      getSkillStats(db, identity, new Date('2026-09-09T17:00:00.000Z')).last24h.bySkill[0]
     ).toMatchObject({
       skillId: projectId,
       resolution: 'installed'
     })
     expect(
-      getSkillStats(db, new Date('2026-09-09T17:00:00.000Z')).last24h.attribution.rows[0]
+      getSkillStats(db, identity, new Date('2026-09-09T17:00:00.000Z')).last24h.attribution.rows[0]
     ).toMatchObject({ skillId: projectId, resolution: 'installed' })
     expect(
-      getSkillInvocationSlice(db, {
+      getSkillInvocationSlice(db, identity, {
         startAt: '2026-09-09T15:00:00.000Z',
         endAt: '2026-09-09T17:00:00.000Z'
       })[0].skillId
@@ -1098,7 +1103,7 @@ describe('synced-shadowed-by-non-synced detection', () => {
     insertSession('sess-1')
     insertInvocation({ source_uuid: 'u1', session_id: 'sess-1', skill_name: 'deploy' })
 
-    const syncedRow = listSkills(db).find((r) => r.source_path === '/synced/deploy')
+    const syncedRow = listSkills(db, identity).find((r) => r.source_path === '/synced/deploy')
     expect(syncedRow).toMatchObject({
       total_invocations: 0,
       last_invoked_at: null,
@@ -1112,14 +1117,14 @@ describe('synced-shadowed-by-non-synced detection', () => {
     insertSession('sess-1')
     insertInvocation({ source_uuid: 'u1', session_id: 'sess-1', skill_name: 'deploy' })
 
-    const nonSyncedRow = listSkills(db).find((r) => r.source_path === '/skills/deploy')
+    const nonSyncedRow = listSkills(db, identity).find((r) => r.source_path === '/skills/deploy')
     expect(nonSyncedRow).toMatchObject({ total_invocations: 1, shadowed_by_skill_id: null })
   })
 
   it('leaves shadowed_by_skill_id null for a synced skill with no same-named collision', () => {
     insertSkill('visual-verify', { is_synced: 1, source_path: '/synced/visual-verify' })
 
-    expect(listSkills(db)[0]).toMatchObject({ shadowed_by_skill_id: null })
+    expect(listSkills(db, identity)[0]).toMatchObject({ shadowed_by_skill_id: null })
   })
 })
 
@@ -1137,7 +1142,7 @@ describe('getSkillById usage aggregation', () => {
       id: number
     }
 
-    expect(getSkillById(db, id)).toMatchObject({
+    expect(getSkillById(db, identity, id)).toMatchObject({
       total_invocations: 1,
       last_invoked_at: '2026-08-05T00:00:00.000Z'
     })
@@ -1167,7 +1172,7 @@ describe('getSkillUsageDetail', () => {
       trigger_type: 'autonomous'
     })
 
-    const detail = getSkillUsageDetail(db, getSkillById(db, id)!)
+    const detail = getSkillUsageDetail(db, identity, getSkillById(db, identity, id)!)
 
     expect(detail.byTriggerType).toEqual(
       expect.arrayContaining([
@@ -1185,7 +1190,7 @@ describe('getSkillUsageDetail', () => {
     insertInvocation({ source_uuid: 'uuid-2', session_id: 'sess-2', skill_name: 'grill-me' })
     insertInvocation({ source_uuid: 'uuid-3', session_id: 'sess-2', skill_name: 'grill-me' })
 
-    const detail = getSkillUsageDetail(db, getSkillById(db, id)!)
+    const detail = getSkillUsageDetail(db, identity, getSkillById(db, identity, id)!)
 
     expect(detail.byProject).toEqual(
       expect.arrayContaining([
@@ -1220,7 +1225,7 @@ describe('getSkillUsageDetail', () => {
       preceding_user_text: null
     })
 
-    const detail = getSkillUsageDetail(db, getSkillById(db, id)!)
+    const detail = getSkillUsageDetail(db, identity, getSkillById(db, identity, id)!)
 
     expect(detail.recentTriggers.map((t) => t.preceding_user_text)).toEqual([
       'newer message',
@@ -1243,7 +1248,7 @@ describe('getSkillUsageDetail', () => {
       preceding_user_text: null
     })
 
-    const detail = getSkillUsageDetail(db, getSkillById(db, id)!)
+    const detail = getSkillUsageDetail(db, identity, getSkillById(db, identity, id)!)
     expect(detail.recentTriggers).toEqual([
       {
         preceding_user_text: '/deploy production --force',
@@ -1277,7 +1282,7 @@ describe('getSkillUsageDetail', () => {
       preceding_user_text: 'from a non-repo cwd, main session'
     })
 
-    const detail = getSkillUsageDetail(db, getSkillById(db, id)!)
+    const detail = getSkillUsageDetail(db, identity, getSkillById(db, identity, id)!)
 
     expect(detail.recentTriggers).toEqual([
       expect.objectContaining({
@@ -1313,7 +1318,7 @@ describe('getSkillUsageDetail', () => {
       preceding_user_text: 'a real message'
     })
 
-    const detail = getSkillUsageDetail(db, getSkillById(db, id)!)
+    const detail = getSkillUsageDetail(db, identity, getSkillById(db, identity, id)!)
 
     expect(detail.recentTriggers.map((t) => t.preceding_user_text)).toEqual([
       'a real message',
@@ -1331,7 +1336,7 @@ describe('getSkillUsageDetail', () => {
     insertSession('sess-1', '/repo')
     insertInvocation({ source_uuid: 'u1', session_id: 'sess-1', skill_name: 'deploy' })
 
-    const detail = getSkillUsageDetail(db, getSkillById(db, projectId)!)
+    const detail = getSkillUsageDetail(db, identity, getSkillById(db, identity, projectId)!)
 
     expect(detail).toEqual({ byTriggerType: [], byProject: [], recentTriggers: [] })
   })
@@ -1362,7 +1367,7 @@ describe('getSkillUsageDetail', () => {
       preceding_user_text: 'from repo b'
     })
 
-    const detail = getSkillUsageDetail(db, getSkillById(db, idA)!)
+    const detail = getSkillUsageDetail(db, identity, getSkillById(db, identity, idA)!)
 
     expect(detail.byProject).toEqual([{ cwd: '/repo-a', count: 1 }])
     expect(detail.recentTriggers.map((t) => t.preceding_user_text)).toEqual(['from repo a'])
@@ -1383,7 +1388,7 @@ describe('getSkillInvocationLog', () => {
       })
     }
 
-    const log = getSkillInvocationLog(db, getSkillById(db, id)!)
+    const log = getSkillInvocationLog(db, identity, getSkillById(db, identity, id)!)
 
     expect(log.map((e) => e.preceding_user_text)).toEqual(['msg 10', 'msg 05', 'msg 01'])
   })
@@ -1401,7 +1406,7 @@ describe('getSkillInvocationLog', () => {
       })
     }
 
-    expect(getSkillInvocationLog(db, getSkillById(db, id)!, 2)).toHaveLength(2)
+    expect(getSkillInvocationLog(db, identity, getSkillById(db, identity, id)!, 2)).toHaveLength(2)
   })
 
   it('includes image-caption placeholder rows — no [Image:% filter', () => {
@@ -1424,7 +1429,7 @@ describe('getSkillInvocationLog', () => {
       preceding_user_text: 'a real message'
     })
 
-    const log = getSkillInvocationLog(db, getSkillById(db, id)!)
+    const log = getSkillInvocationLog(db, identity, getSkillById(db, identity, id)!)
 
     expect(log.map((e) => e.preceding_user_text)).toEqual(['a real message', caption])
   })
@@ -1440,9 +1445,9 @@ describe('getSkillInvocationLog', () => {
       preceding_user_text: null
     })
 
-    expect(getSkillInvocationLog(db, getSkillById(db, id)!)[0].preceding_user_text).toBe(
-      '/deploy production --force'
-    )
+    expect(
+      getSkillInvocationLog(db, identity, getSkillById(db, identity, id)!)[0].preceding_user_text
+    ).toBe('/deploy production --force')
   })
 
   it('scopes a project skill to sessions under its own project_root', () => {
@@ -1471,7 +1476,7 @@ describe('getSkillInvocationLog', () => {
       preceding_user_text: 'from b'
     })
 
-    const log = getSkillInvocationLog(db, getSkillById(db, idA)!)
+    const log = getSkillInvocationLog(db, identity, getSkillById(db, identity, idA)!)
 
     expect(log.map((e) => e.preceding_user_text)).toEqual(['from a'])
   })
@@ -1486,7 +1491,7 @@ describe('getSkillInvocationLog', () => {
     insertSession('sess-1', '/repo')
     insertInvocation({ source_uuid: 'u-1', session_id: 'sess-1', skill_name: 'deploy' })
 
-    expect(getSkillInvocationLog(db, getSkillById(db, projectId)!)).toEqual([])
+    expect(getSkillInvocationLog(db, identity, getSkillById(db, identity, projectId)!)).toEqual([])
   })
 })
 
@@ -1686,7 +1691,7 @@ describe('listPlugins', () => {
     const rows = listPlugins(db)
     expect(rows[0].available_version).toBe('1.2.0')
     expect(rows[0].installs[0].available_version).toBe('1.2.0')
-    const detail = getPluginDetail(db, 'plugin-a', 'market-1')
+    const detail = getPluginDetail(db, identity, 'plugin-a', 'market-1')
     expect(detail?.plugin.available_version).toBe('1.2.0')
     expect(detail?.plugin.installs[0].available_version).toBe('1.2.0')
   })
@@ -1871,7 +1876,7 @@ describe('listPlugins', () => {
 
 describe('getPluginDetail', () => {
   it('returns null when the plugin identity is not registered', () => {
-    expect(getPluginDetail(db, 'nope', 'nowhere')).toBeNull()
+    expect(getPluginDetail(db, identity, 'nope', 'nowhere')).toBeNull()
   })
 
   it('returns the plugin row with its installs', () => {
@@ -1882,7 +1887,7 @@ describe('getPluginDetail', () => {
       install_path: '/user/plugin-a'
     })
 
-    const detail = getPluginDetail(db, 'plugin-a', 'market-1')
+    const detail = getPluginDetail(db, identity, 'plugin-a', 'market-1')
     expect(detail?.plugin.name).toBe('plugin-a')
     expect(detail?.plugin.installs).toHaveLength(1)
   })
@@ -1895,7 +1900,7 @@ describe('getPluginDetail', () => {
     insertSkill('sub-2', { source_type: 'plugin', source_path: '/p/sub-2' })
     db.prepare('UPDATE skills SET plugin_name = ? WHERE name = ?').run('plugin-b@market-1', 'sub-2')
 
-    const detail = getPluginDetail(db, 'plugin-a', 'market-1')
+    const detail = getPluginDetail(db, identity, 'plugin-a', 'market-1')
     expect(detail?.skills.map((s) => s.name)).toEqual(['sub-1'])
   })
 
@@ -1910,7 +1915,7 @@ describe('getPluginDetail', () => {
     insertInvocation({ source_uuid: 'inv-1', session_id: 'sess-1', skill_name: 'plugin-a:sub-1' })
     insertInvocation({ source_uuid: 'inv-2', session_id: 'sess-1', skill_name: 'plugin-a:sub-1' })
 
-    expect(getPluginDetail(db, 'plugin-a', 'market-1')?.totalInvocations).toBe(2)
+    expect(getPluginDetail(db, identity, 'plugin-a', 'market-1')?.totalInvocations).toBe(2)
   })
 
   it('sums lint finding counts across all of this plugin identity skills', () => {
@@ -1925,7 +1930,7 @@ describe('getPluginDetail', () => {
       { rule_id: 'r2', severity: 'warning', message: 'meh' }
     ])
 
-    const detail = getPluginDetail(db, 'plugin-a', 'market-1')
+    const detail = getPluginDetail(db, identity, 'plugin-a', 'market-1')
     expect(detail?.errorCount).toBe(1)
     expect(detail?.warningCount).toBe(1)
   })
@@ -1940,7 +1945,7 @@ describe('getPluginDetail', () => {
     insert.run('/a/1', 'agent', 'helper', null, '/a/1/agents/helper.md')
     insert.run('/b/1', 'agent', 'other', null, '/b/1/agents/other.md')
 
-    expect(getPluginDetail(db, 'plugin-a', 'market-1')?.components).toEqual([
+    expect(getPluginDetail(db, identity, 'plugin-a', 'market-1')?.components).toEqual([
       {
         install_path: '/a/1',
         kind: 'agent',
@@ -2494,7 +2499,7 @@ describe('getSkillStats', () => {
     db.prepare(
       "INSERT INTO timed_skill_cost (session_id, skill_name, allocated_at, est_cost_usd) VALUES ('nested-cost', 'alpha', '2026-09-09T16:00:00.000Z', 1)"
     ).run()
-    const stats = getSkillStats(db, NOW).last24h
+    const stats = getSkillStats(db, identity, NOW).last24h
     expect(stats.bySkill[0]).toMatchObject({ skillId: childId, resolution: 'installed' })
     expect(stats.associations[0]).toMatchObject({ skillId: childId })
     expect(stats.attribution.rows[0]).toMatchObject({
@@ -2592,7 +2597,7 @@ describe('getSkillStats', () => {
       invokedAt: '2026-09-09T14:00:00.000Z'
     })
 
-    const stats = getSkillStats(db, NOW)
+    const stats = getSkillStats(db, identity, NOW)
 
     expect(stats.last24h.unpricedInvocationCount).toBe(2)
     expect(stats.last7d.unpricedInvocationCount).toBe(3)
@@ -2611,7 +2616,7 @@ describe('getSkillStats', () => {
       invokedAt: '2026-09-09T14:00:00.000Z'
     })
 
-    expect(getSkillStats(db, NOW).last24h.unpricedInvocationCount).toBe(0)
+    expect(getSkillStats(db, identity, NOW).last24h.unpricedInvocationCount).toBe(0)
   })
 
   it('limits attributed dollars to turn times inside each rolling window', () => {
@@ -2629,7 +2634,7 @@ describe('getSkillStats', () => {
     insertTimed.run('2026-09-07T16:00:00.000Z', 0.4)
     insertTimed.run('2026-09-09T16:00:00.000Z', 0.6)
 
-    const stats = getSkillStats(db, NOW)
+    const stats = getSkillStats(db, identity, NOW)
 
     expect(stats.last24h.attribution.totalEstimatedCostCents).toBe(60)
     expect(stats.last7d.attribution.totalEstimatedCostCents).toBe(100)
@@ -2644,7 +2649,7 @@ describe('getSkillStats', () => {
        VALUES ('undated', NULL, 3)`
     ).run()
 
-    const attribution = getSkillStats(db, NOW).last24h.attribution
+    const attribution = getSkillStats(db, identity, NOW).last24h.attribution
 
     expect(attribution.totalEstimatedCostCents).toBe(0)
     expect(attribution.hasUndatedCost).toBe(true)
@@ -2665,7 +2670,7 @@ describe('getSkillStats', () => {
       invokedAt: '2026-09-02T17:30:00.000Z'
     })
 
-    const stats = getSkillStats(db, NOW)
+    const stats = getSkillStats(db, identity, NOW)
 
     expect(stats.last24h.trend.reduce((sum, bucket) => sum + bucket.count, 0)).toBe(1)
     expect(stats.last24h.trend[0]).toMatchObject({
@@ -2710,7 +2715,7 @@ describe('getSkillStats', () => {
       invokedAt: '2026-09-09T16:00:00.000Z'
     })
 
-    expect(getSkillStats(db, NOW).last24h.bySkill[0]).toMatchObject({
+    expect(getSkillStats(db, identity, NOW).last24h.bySkill[0]).toMatchObject({
       skillName: 'alpha',
       count: 2,
       skillId: null,
@@ -2740,7 +2745,7 @@ describe('getSkillStats', () => {
     insertTimed.run('a')
     insertTimed.run('b')
 
-    expect(getSkillStats(db, NOW).last24h.attribution.rows[0]).toMatchObject({
+    expect(getSkillStats(db, identity, NOW).last24h.attribution.rows[0]).toMatchObject({
       skillName: 'alpha',
       skillId: null,
       resolution: 'ambiguous',
@@ -2762,7 +2767,7 @@ describe('getSkillStats', () => {
        VALUES ('old-repo', 'alpha', '2026-09-09T16:00:00.000Z', 1)`
     ).run()
 
-    expect(getSkillStats(db, NOW).last24h.attribution.rows[0]).toMatchObject({
+    expect(getSkillStats(db, identity, NOW).last24h.attribution.rows[0]).toMatchObject({
       skillName: 'alpha',
       skillId: null,
       resolution: 'ambiguous'
@@ -2783,7 +2788,7 @@ describe('getSkillStats', () => {
        VALUES ('project-cost', 'alpha', '2026-09-09T16:00:00.000Z', 1)`
     ).run()
 
-    expect(getSkillStats(db, NOW).last24h.attribution.rows[0]).toMatchObject({
+    expect(getSkillStats(db, identity, NOW).last24h.attribution.rows[0]).toMatchObject({
       skillName: 'alpha',
       skillId: projectId,
       resolution: 'installed'
@@ -2815,7 +2820,7 @@ describe('getSkillStats', () => {
        VALUES ('terminal-project', 'alpha', '2026-09-09T16:00:00.000Z', 1)`
     ).run()
 
-    expect(getSkillStats(db, NOW).last24h.attribution.rows[0]).toMatchObject({
+    expect(getSkillStats(db, identity, NOW).last24h.attribution.rows[0]).toMatchObject({
       skillName: 'alpha',
       skillId: null,
       resolution: 'ambiguous'
@@ -2823,7 +2828,7 @@ describe('getSkillStats', () => {
   })
 
   it('returns a zero-valued 24-hour window when no skill invocations are indexed', () => {
-    expect(getSkillStats(db, NOW).last24h.invocationCount).toBe(0)
+    expect(getSkillStats(db, identity, NOW).last24h.invocationCount).toBe(0)
   })
 
   it('applies rolling window cutoffs and counts distinct skills and sessions', () => {
@@ -2863,7 +2868,7 @@ describe('getSkillStats', () => {
       invokedAt: '2026-08-01T17:00:00.000Z'
     })
 
-    const stats = getSkillStats(db, NOW)
+    const stats = getSkillStats(db, identity, NOW)
     expect(stats.last24h).toMatchObject({ invocationCount: 2, skillCount: 1, sessionCount: 1 })
     expect(stats.last7d).toMatchObject({ invocationCount: 3, skillCount: 2, sessionCount: 2 })
     expect(stats.last30d).toMatchObject({ invocationCount: 4, skillCount: 2, sessionCount: 3 })
@@ -2899,7 +2904,7 @@ describe('getSkillStats', () => {
       invokedAt: '2026-09-09T15:30:00.000Z'
     })
 
-    const window = getSkillStats(db, NOW).last24h
+    const window = getSkillStats(db, identity, NOW).last24h
     expect(window.bySkill).toMatchObject([
       { skillName: 'alpha', count: 2, sourceType: null },
       { skillName: 'beta', count: 1, sourceType: null },
@@ -2933,7 +2938,7 @@ describe('getSkillStats', () => {
       invokedAt: '2026-09-09T17:30:00.000Z'
     })
 
-    const stats = getSkillStats(db, new Date('2026-09-09T17:45:00.000Z'))
+    const stats = getSkillStats(db, identity, new Date('2026-09-09T17:45:00.000Z'))
     expect(stats.last24h.trend).toHaveLength(25)
     expect(stats.last24h.trend[0]).toMatchObject({ key: '2026-09-08T17:00:00.000Z', count: 0 })
     expect(stats.last24h.trend[1]).toMatchObject({ key: '2026-09-08T18:00:00.000Z', count: 1 })
@@ -2995,7 +3000,7 @@ describe('getSkillStats', () => {
       invokedAt: '2026-09-09T16:10:00.000Z'
     })
 
-    expect(getSkillStats(db, NOW).last24h.associations).toEqual([
+    expect(getSkillStats(db, identity, NOW).last24h.associations).toEqual([
       {
         skillName: 'alpha',
         skillId: null,
@@ -3063,7 +3068,7 @@ describe('getSkillStats', () => {
       invokedAt: '2026-09-09T14:25:00.000Z'
     })
 
-    const associations = getSkillStats(db, NOW).last24h.associations
+    const associations = getSkillStats(db, identity, NOW).last24h.associations
     expect(associations.find((row) => row.skillName === 'alpha')).toEqual({
       skillName: 'alpha',
       skillId: null,
@@ -3098,7 +3103,7 @@ describe('getSkillStats', () => {
       invokedAt: '2026-09-09T16:05:00.000Z'
     })
 
-    expect(getSkillStats(db, NOW).last24h.bySkill).toEqual(
+    expect(getSkillStats(db, identity, NOW).last24h.bySkill).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           skillName: 'ponytail:ponytail-audit',
@@ -3131,7 +3136,7 @@ describe('getSkillStats', () => {
       invokedAt: '2026-09-09T16:00:00.000Z'
     })
 
-    expect(getSkillStats(db, NOW).last24h.associations[0]).toMatchObject({
+    expect(getSkillStats(db, identity, NOW).last24h.associations[0]).toMatchObject({
       skillName: 'alpha',
       skillId: globalId,
       sourceType: 'global'
@@ -3153,7 +3158,7 @@ describe('getSkillStats', () => {
       invokedAt: '2026-09-09T16:00:00.000Z'
     })
 
-    expect(getSkillStats(db, NOW).last24h.associations[0]).toMatchObject({
+    expect(getSkillStats(db, identity, NOW).last24h.associations[0]).toMatchObject({
       skillId: globalId,
       sourceType: 'global'
     })
@@ -3168,7 +3173,7 @@ describe('getSkillStats', () => {
       invokedAt: '2026-09-09T16:00:00.000Z'
     })
 
-    expect(getSkillStats(db, NOW).last24h.associations[0]).toMatchObject({
+    expect(getSkillStats(db, identity, NOW).last24h.associations[0]).toMatchObject({
       skillName: 'ghost',
       skillId: null,
       sourceType: null
@@ -3187,7 +3192,7 @@ describe('getSkillStats', () => {
       invokedAt: '2026-09-09T14:05:00.000Z'
     })
 
-    expect(getSkillStats(db, NOW).pricedSessionsWithoutSkill).toBe(1)
+    expect(getSkillStats(db, identity, NOW).pricedSessionsWithoutSkill).toBe(1)
   })
 
   it('excludes a priced terminal from the skill-less count when its only invocation predates the 30-day window', () => {
@@ -3200,7 +3205,7 @@ describe('getSkillStats', () => {
       invokedAt: '2026-07-26T17:00:00.000Z'
     })
 
-    expect(getSkillStats(db, NOW).pricedSessionsWithoutSkill).toBe(0)
+    expect(getSkillStats(db, identity, NOW).pricedSessionsWithoutSkill).toBe(0)
   })
 
   it('does not count non-terminal or zeroed sessions toward the skill-less count', () => {
@@ -3209,7 +3214,7 @@ describe('getSkillStats', () => {
     insertCost({ sessionId: 'non-terminal', totalCostUsd: 3, continuedInSessionId: 'gone' })
     insertCost({ sessionId: 'zeroed', totalCostUsd: 0, isZeroed: 1 })
 
-    expect(getSkillStats(db, NOW).pricedSessionsWithoutSkill).toBe(0)
+    expect(getSkillStats(db, identity, NOW).pricedSessionsWithoutSkill).toBe(0)
   })
 
   it('does not count a terminal reached only through an ancestor invocation as skill-less', () => {
@@ -3224,7 +3229,7 @@ describe('getSkillStats', () => {
       invokedAt: '2026-09-09T14:05:00.000Z'
     })
 
-    expect(getSkillStats(db, NOW).pricedSessionsWithoutSkill).toBe(0)
+    expect(getSkillStats(db, identity, NOW).pricedSessionsWithoutSkill).toBe(0)
   })
 
   // p → a and p → b are CLI forks: shared startTime and first record, b under a on every field.
@@ -3267,7 +3272,7 @@ describe('getSkillStats', () => {
       invokedAt: '2026-09-09T14:05:00.000Z'
     })
 
-    const stats = getSkillStats(db, NOW)
+    const stats = getSkillStats(db, identity, NOW)
     expect(stats.last24h.unpricedInvocationCount).toBe(0)
     expect(stats.last24h.associations[0]).toMatchObject({
       skillName: 'alpha',
@@ -3281,7 +3286,7 @@ describe('getSkillStats', () => {
   it('counts a skill-less fork lineage once toward pricedSessionsWithoutSkill', () => {
     insertForkLineage()
 
-    expect(getSkillStats(db, NOW).pricedSessionsWithoutSkill).toBe(1)
+    expect(getSkillStats(db, identity, NOW).pricedSessionsWithoutSkill).toBe(1)
   })
 
   it('reconciles displayed cents within the selected window', () => {
@@ -3302,7 +3307,7 @@ describe('getSkillStats', () => {
     insertTimed.run('missing-skill', 0.333)
     insertTimed.run(null, 0.333)
 
-    const attribution = getSkillStats(db, NOW).last24h.attribution
+    const attribution = getSkillStats(db, identity, NOW).last24h.attribution
 
     expect(attribution.totalEstimatedCostCents).toBe(100)
     expect(attribution.rows).toEqual([
@@ -3340,8 +3345,8 @@ describe('getSkillInvocationSlice', () => {
       startAt: '2026-09-09T14:00:00.000Z',
       endAt: '2026-09-09T15:00:00.000Z'
     }
-    const all = getSkillInvocationSlice(db, range)
-    const alpha = getSkillInvocationSlice(db, { ...range, skillName: 'alpha' })
+    const all = getSkillInvocationSlice(db, identity, range)
+    const alpha = getSkillInvocationSlice(db, identity, { ...range, skillName: 'alpha' })
 
     expect(all.map((entry) => entry.skillName)).toEqual(['beta', 'alpha', 'alpha'])
     expect(alpha.map((entry) => entry.invoked_at)).toEqual([
@@ -3443,7 +3448,9 @@ describe('getModelStats', () => {
 
 describe('worktree sessions', () => {
   const window = { startAt: '2026-08-14T00:00:00.000Z', endAt: '2026-08-15T00:00:00.000Z' }
-  afterEach(() => setWorktreeLinkSource(() => []))
+  afterEach(() => {
+    identity = linkedBy()
+  })
   function invokeIn(sessionId: string, cwd: string, skill = 'deploy'): void {
     insertSession(sessionId, cwd)
     insertInvocation({
@@ -3461,38 +3468,40 @@ describe('worktree sessions', () => {
     })
 
   it("credits a worktree session to its Canonical Checkout's project skill", () => {
-    setWorktreeLinkSource(() => [{ path: '/wt/app-x', canonical: '/code/app' }])
+    identity = linkedBy([{ path: '/wt/app-x', canonical: '/code/app' }])
     const id = projectSkill('/code/app')
     invokeIn('worktree', '/wt/app-x/packages/web')
 
-    const skill = getSkillById(db, id)!
+    const skill = getSkillById(db, identity, id)!
     expect(skill.total_invocations).toBe(1)
-    expect(listSkills(db)[0].total_invocations).toBe(1)
-    expect(getSkillUsageDetail(db, skill).byProject).toEqual([
+    expect(listSkills(db, identity)[0].total_invocations).toBe(1)
+    expect(getSkillUsageDetail(db, identity, skill).byProject).toEqual([
       { cwd: '/wt/app-x/packages/web', count: 1 }
     ])
-    expect(getSkillInvocationLog(db, skill)).toHaveLength(1)
-    expect(getSkillInvocationSlice(db, window)[0].skillId).toBe(id)
+    expect(getSkillInvocationLog(db, identity, skill)).toHaveLength(1)
+    expect(getSkillInvocationSlice(db, identity, window)[0].skillId).toBe(id)
     expect(
-      getSkillStats(db, new Date('2026-08-14T12:00:00.000Z')).last24h.bySkill[0]
+      getSkillStats(db, identity, new Date('2026-08-14T12:00:00.000Z')).last24h.bySkill[0]
     ).toMatchObject({ skillId: id })
   })
 
   it('credits the nearest package root inside a worktree', () => {
-    setWorktreeLinkSource(() => [{ path: '/wt/app-x', canonical: '/code/app' }])
+    identity = linkedBy([{ path: '/wt/app-x', canonical: '/code/app' }])
     projectSkill('/code/app')
     const packageId = projectSkill('/code/app/packages/web')
     invokeIn('worktree', '/wt/app-x/packages/web/src')
 
-    expect(listSkills(db).map((skill) => [skill.id, skill.total_invocations])).toEqual(
+    expect(listSkills(db, identity).map((skill) => [skill.id, skill.total_invocations])).toEqual(
       expect.arrayContaining([[packageId, 1]])
     )
-    expect(listSkills(db).reduce((sum, skill) => sum + skill.total_invocations, 0)).toBe(1)
-    expect(getSkillInvocationSlice(db, window)[0].skillId).toBe(packageId)
+    expect(listSkills(db, identity).reduce((sum, skill) => sum + skill.total_invocations, 0)).toBe(
+      1
+    )
+    expect(getSkillInvocationSlice(db, identity, window)[0].skillId).toBe(packageId)
   })
 
   it("credits a stand-in worktree's skill with sessions anywhere in its repository", () => {
-    setWorktreeLinkSource(() => [
+    identity = linkedBy([
       { path: '/wt/app-x', canonical: '/code/app' },
       { path: '/wt/app-y', canonical: '/code/app' }
     ])
@@ -3500,8 +3509,11 @@ describe('worktree sessions', () => {
     invokeIn('canonical', '/code/app/src')
     invokeIn('sibling', '/wt/app-y')
 
-    expect(getSkillById(db, id)!.total_invocations).toBe(2)
-    expect(getSkillInvocationSlice(db, window).map((entry) => entry.skillId)).toEqual([id, id])
+    expect(getSkillById(db, identity, id)!.total_invocations).toBe(2)
+    expect(getSkillInvocationSlice(db, identity, window).map((entry) => entry.skillId)).toEqual([
+      id,
+      id
+    ])
   })
 
   it("follows Claude Code's worktree layout without a stored link", () => {
@@ -3509,7 +3521,7 @@ describe('worktree sessions', () => {
     const packageId = projectSkill('/code/app/packages/web')
     invokeIn('native', '/code/app/.claude/worktrees/fix/packages/web')
 
-    expect(getSkillById(db, packageId)!.total_invocations).toBe(1)
-    expect(getSkillInvocationSlice(db, window)[0].skillId).toBe(packageId)
+    expect(getSkillById(db, identity, packageId)!.total_invocations).toBe(1)
+    expect(getSkillInvocationSlice(db, identity, window)[0].skillId).toBe(packageId)
   })
 })

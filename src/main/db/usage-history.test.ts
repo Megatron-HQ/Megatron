@@ -17,8 +17,10 @@ import {
   getUsageOverviewData,
   getProjectUsageCalendar,
   getProjectUsageDay,
-  readUsageProjectLocations
+  usageSessionPaths
 } from '../usage-projects'
+import { createProjectIdentity } from '../project-identity'
+import { readProjectIdentity } from '../../shared/project-identity'
 import { scanTranscripts } from '../ingest/transcript-scanner'
 import { scanPromptHistory } from '../ingest/prompt-history-scanner'
 import { grantPath, resetGrantedPaths } from '../permissions'
@@ -152,14 +154,16 @@ describe('persistent usage history', () => {
     prompt()
     index.prepare("UPDATE prompt_history SET project='/repo/prompts'").run()
     sync()
-    const locations = readUsageProjectLocations(
-      index,
-      archive,
-      [],
-      [{ path: '/repo', kind: 'repository', status: 'available' }]
-    )
-    expect(locations).toHaveLength(1)
-    const overview = getUsageOverviewData(index, archive, locations, now)
+    const owner = createProjectIdentity({
+      store: { read: () => [], write: () => undefined },
+      claudeCodeFolders: [],
+      sessionPaths: () => usageSessionPaths(index, archive),
+      catalog: () => [{ path: '/repo', kind: 'repository', status: 'available' }]
+    })
+    owner.reconcile()
+    expect(owner.snapshot().locations).toHaveLength(1)
+    const identity = owner.identity()
+    const overview = getUsageOverviewData(index, archive, identity, now)
     expect(overview.activity.last30d.byProject).toEqual([{ project: '/repo', count: 1 }])
     expect(overview.tokens.last30d.byProject).toEqual([
       {
@@ -168,11 +172,11 @@ describe('persistent usage history', () => {
       }
     ])
     expect(overview.cost?.last30d.byProject).toEqual([{ project: '/repo', costUsd: 1 }])
-    expect(getProjectUsageCalendar(archive, 2026, locations, now).byProject[0]).toMatchObject({
+    expect(getProjectUsageCalendar(archive, 2026, identity, now).byProject[0]).toMatchObject({
       project: '/repo',
       total: 1
     })
-    expect(getProjectUsageDay(archive, '2026-11-03', locations, now).byProject).toEqual([
+    expect(getProjectUsageDay(archive, '2026-11-03', identity, now).byProject).toEqual([
       { project: '/repo', count: 1 }
     ])
   })
@@ -617,7 +621,12 @@ describe('token bucket details', () => {
       },
       { id: 'child', path: 'C:\\HQ\\Repo\\Child', kind: 'repository', status: 'needs_access' }
     ] as const
-    const overview = getUsageOverviewData(index, archive, [...locations], now)
+    const overview = getUsageOverviewData(
+      index,
+      archive,
+      readProjectIdentity({ locations: [...locations], claudeCodeFolders: [] }),
+      now
+    )
     for (const window of [
       overview.tokens.last24h,
       overview.tokens.last7d,

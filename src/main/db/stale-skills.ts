@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3'
-import type { ScanSourceSummary, SkillRow, WorktreeLink } from '../../shared/ipc'
-import { canonicalProjectPath, isWithinProjectPath } from '../../shared/project-path'
+import type { ScanSourceSummary, SkillRow } from '../../shared/ipc'
+import type { ProjectIdentity } from '../../shared/project-identity'
+import { isWithinProjectPath } from '../../shared/project-path'
 import { historyCoverage } from './usage-history-queries'
 
 export const STALE_WINDOW_DAYS = 30
@@ -35,7 +36,7 @@ export function findStaleSkillIds(
   index: Database.Database,
   archive: Database.Database,
   skills: SkillRow[],
-  links: readonly WorktreeLink[] = []
+  identity: ProjectIdentity
 ): Set<number> {
   const stale = new Set<number>()
   const ranges = archive
@@ -72,7 +73,7 @@ export function findStaleSkillIds(
     .all() as ProjectActivity[]
   const repoProjects = projects.map((row) => ({
     ...row,
-    project: canonicalProjectPath(row.project, links)
+    project: identity.checkoutOf(row.project)?.path ?? row.project
   }))
   const windowStartAt = windowStart.toISOString()
   // A scope only gives a signal when it was in use on both sides of the window start: an idle
@@ -133,7 +134,7 @@ export function findStaleSkillIds(
           ? 'everywhere'
           : skill.project_root === null
             ? []
-            : [canonicalProjectPath(skill.project_root, links)]
+            : [identity.checkoutOf(skill.project_root)?.path ?? skill.project_root]
       activity = repoProjects
     }
     if (existedSince === null || existedSince >= start) continue

@@ -3,11 +3,8 @@ import { INVOCATION_PAGE_SIZE, MAX_INVOCATION_OFFSET } from '../../shared/ipc'
 import { dirname, join, resolve, sep } from 'path'
 import { CHARS_PER_TOKEN } from '../ingest/skill-parser'
 import { readPluginEnablement } from '../ingest/claude-settings'
-import {
-  canonicalProjectPath,
-  isWithinProjectPath,
-  normalizeProjectPath
-} from '../../shared/project-path'
+import { isWithinProjectPath, normalizeProjectPath } from '../../shared/project-path'
+import type { ProjectIdentity } from '../../shared/project-identity'
 import type {
   ActivityBucketDetails,
   ActivityStats,
@@ -31,33 +28,27 @@ import type {
   SkillStatsWindow,
   SkillUsageDetail,
   SourceType,
-  TriggerTypeCount,
-  WorktreeLink
+  TriggerTypeCount
 } from '../../shared/ipc'
 
-// Worktree links live in preferences.json, outside the index, and electron-store reads that file
-// on every get. So every query that scopes by project path takes one snapshot up front, and the
-// SQL function and resolveSkillTarget both read that snapshot instead of settings per row.
-let worktreeLinkSource: () => readonly WorktreeLink[] = () => []
-let activeLinks: readonly WorktreeLink[] = []
+// Every query that scopes by project path names the identity it reads. SQLite calls
+// canonical_project_path once per row during the synchronous query, so the function reads the
+// identity set here for that call, with a per-call memo.
+let activeIdentity: ProjectIdentity | null = null
 let canonicalPaths = new Map<string, string>()
 const projectPathFunctions = new WeakSet<Database.Database>()
-
-export function setWorktreeLinkSource(source: () => readonly WorktreeLink[]): void {
-  worktreeLinkSource = source
-}
 
 function canonicalPath(path: string): string {
   let canonical = canonicalPaths.get(path)
   if (canonical === undefined) {
-    canonical = canonicalProjectPath(path, activeLinks)
+    canonical = activeIdentity?.checkoutOf(path)?.path ?? path
     canonicalPaths.set(path, canonical)
   }
   return canonical
 }
 
-function snapshotWorktreeLinks(db: Database.Database): void {
-  activeLinks = worktreeLinkSource()
+function withProjectIdentity(db: Database.Database, identity: ProjectIdentity): void {
+  activeIdentity = identity
   canonicalPaths = new Map()
   if (projectPathFunctions.has(db)) return
   db.function('canonical_project_path', (path: unknown) =>
@@ -170,13 +161,17 @@ const SKILLS_WITH_USAGE_SELECT = `
   GROUP BY s.id
 `
 
-export function listSkills(db: Database.Database): SkillRow[] {
-  snapshotWorktreeLinks(db)
+export function listSkills(db: Database.Database, identity: ProjectIdentity): SkillRow[] {
+  withProjectIdentity(db, identity)
   return db.prepare(SKILLS_WITH_USAGE_SELECT).all() as SkillRow[]
 }
 
-export function getSkillById(db: Database.Database, id: number): SkillRow | null {
-  snapshotWorktreeLinks(db)
+export function getSkillById(
+  db: Database.Database,
+  identity: ProjectIdentity,
+  id: number
+): SkillRow | null {
+  withProjectIdentity(db, identity)
   const row = db.prepare(`SELECT * FROM (${SKILLS_WITH_USAGE_SELECT}) WHERE id = ?`).get(id) as
     SkillRow | undefined
   return row ?? null
@@ -417,7 +412,11 @@ export function deleteSkillsForProjectRoot(
 // match, so a small LIMIT is more useful here than a GROUP BY that mostly surfaces count-of-1 rows.
 const RECENT_TRIGGERS_LIMIT = 5
 
-export function getSkillUsageDetail(db: Database.Database, skill: SkillRow): SkillUsageDetail {
+export function getSkillUsageDetail(
+  db: Database.Database,
+  identity: ProjectIdentity,
+  skill: SkillRow
+): SkillUsageDetail {
   // A shadowed project skill can never actually have fired (see the precedence note on
   // SKILLS_WITH_USAGE_SELECT above) — its detail view should agree with its forced-0 count
   // rather than show whatever a bare name join happens to find.
@@ -425,7 +424,7 @@ export function getSkillUsageDetail(db: Database.Database, skill: SkillRow): Ski
     return { byTriggerType: [], byProject: [], recentTriggers: [] }
   }
 
-  snapshotWorktreeLinks(db)
+  withProjectIdentity(db, identity)
   const scoped = skill.source_type === 'project' && skill.project_root !== null
   const scopeClause = scoped ? `AND ${PARAMETERIZED_PROJECT_PATH_SCOPE}` : ''
   const params = scoped
@@ -455,7 +454,7 @@ export function getSkillUsageDetail(db: Database.Database, skill: SkillRow): Ski
   return {
     byTriggerType,
     byProject,
-    recentTriggers: getSkillInvocationLog(db, skill, RECENT_TRIGGERS_LIMIT)
+    recentTriggers: getSkillInvocationLog(db, identity, skill, RECENT_TRIGGERS_LIMIT)
   }
 }
 
@@ -475,13 +474,14 @@ export function getSkillUsageDetail(db: Database.Database, skill: SkillRow): Ski
 // and 83% of visual-verify's — storage and this payload both stay raw.
 export function getSkillInvocationLog(
   db: Database.Database,
+  identity: ProjectIdentity,
   skill: SkillRow,
   limit = INVOCATION_PAGE_SIZE,
   offset = 0
 ): SkillInvocationEntry[] {
   if (skill.shadowed_by_skill_id !== null) return []
 
-  snapshotWorktreeLinks(db)
+  withProjectIdentity(db, identity)
   const scoped = skill.source_type === 'project' && skill.project_root !== null
   const scopeClause = scoped ? `AND ${PARAMETERIZED_PROJECT_PATH_SCOPE}` : ''
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > MAX_INVOCATION_OFFSET)
@@ -593,6 +593,7 @@ function resolveSkillTarget(
 
 export function getSkillInvocationSlice(
   db: Database.Database,
+  identity: ProjectIdentity,
   input: SkillInvocationSliceInput
 ): SkillInvocationRecord[] {
   const start = new Date(input.startAt)
@@ -611,7 +612,7 @@ export function getSkillInvocationSlice(
   ) {
     throw new RangeError('Invalid skill invocation time range')
   }
-  snapshotWorktreeLinks(db)
+  withProjectIdentity(db, identity)
 
   const skillClause = input.skillName === undefined ? '' : 'AND si.skill_name = @skillName'
   const rows = db
@@ -1328,8 +1329,12 @@ function getSkillCostAttribution(
   }
 }
 
-export function getSkillStats(db: Database.Database, now: Date = new Date()): SkillStats {
-  snapshotWorktreeLinks(db)
+export function getSkillStats(
+  db: Database.Database,
+  identity: ProjectIdentity,
+  now: Date = new Date()
+): SkillStats {
+  withProjectIdentity(db, identity)
   const rows = db
     .prepare(
       `SELECT si.session_id, si.skill_name, si.invoked_at, si.trigger_type, sm.cwd
@@ -1449,12 +1454,13 @@ function countPricedSessionsWithoutSkill(
 
 export function getPluginDetail(
   db: Database.Database,
+  identity: ProjectIdentity,
   name: string,
   marketplace: string
 ): PluginDetailResult | null {
   const plugin = listPlugins(db).find((p) => p.name === name && p.marketplace === marketplace)
   if (!plugin) return null
-  snapshotWorktreeLinks(db)
+  withProjectIdentity(db, identity)
 
   const skills = db
     .prepare(`SELECT * FROM (${SKILLS_WITH_USAGE_SELECT}) WHERE plugin_name = ?`)

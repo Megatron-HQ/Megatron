@@ -4,6 +4,9 @@ import { applySchema } from './schema'
 import { getSkillById, getSkillInvocationLog, getSkillInvocationSlice } from './queries'
 import { IPC_CHANNELS, type SkillInvocationSliceInput } from '../../shared/ipc'
 import { validateIpcArguments } from '../ipc-security'
+import { readProjectIdentity } from '../../shared/project-identity'
+
+const identity = readProjectIdentity({ locations: [], claudeCodeFolders: [] })
 
 let database: Database.Database
 beforeEach(() => {
@@ -30,9 +33,9 @@ afterEach(() => database.close())
 
 describe('history paging', () => {
   it('bounds the lifetime log and exposes subsequent rows in stable order', () => {
-    const skill = getSkillById(database, 1)!
-    const page = getSkillInvocationLog(database, skill)
-    const next = getSkillInvocationLog(database, skill, 200, 200)
+    const skill = getSkillById(database, identity, 1)!
+    const page = getSkillInvocationLog(database, identity, skill)
+    const next = getSkillInvocationLog(database, identity, skill, 200, 200)
     expect(page).toHaveLength(200)
     expect(next.map((row) => row.preceding_user_text)).toEqual([
       'prompt-4',
@@ -49,9 +52,9 @@ describe('history paging', () => {
       startAt: '2026-10-10T00:00:00.000Z',
       endAt: '2026-10-11T00:00:00.000Z'
     }
-    expect(getSkillInvocationSlice(database, input)).toHaveLength(200)
+    expect(getSkillInvocationSlice(database, identity, input)).toHaveLength(200)
     expect(
-      getSkillInvocationSlice(database, { ...input, offset: 200 } as typeof input)
+      getSkillInvocationSlice(database, identity, { ...input, offset: 200 } as typeof input)
     ).toHaveLength(5)
   })
 

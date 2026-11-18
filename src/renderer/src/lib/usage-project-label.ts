@@ -2,7 +2,7 @@ import { normalizeProjectPath } from '../../../shared/project-path'
 import type { ProjectLabelResolver } from './project-tree'
 import { getFolderBasename } from './source-name'
 import type { UsageProject, UsageProjectCatalog } from '../../../shared/usage-projects'
-import { resolveUsageProjectPath } from '../../../shared/usage-projects'
+import { readProjectIdentity } from '../../../shared/project-identity'
 
 // A chat's folder name is a UTC date plus a random suffix, so the fallback names it by the local
 // date it started instead.
@@ -46,6 +46,7 @@ export function createUsageProjectLabelResolver(
   catalog?: UsageProjectCatalog
 ): ProjectLabelResolver {
   if (catalog) {
+    const identity = readProjectIdentity(catalog)
     const labels = new Map(
       catalog.projects.map((project) => [
         normalizeProjectPath(project.path),
@@ -55,7 +56,7 @@ export function createUsageProjectLabelResolver(
     return (path) =>
       !path
         ? 'Unknown project'
-        : (labels.get(normalizeProjectPath(resolveUsageProjectPath(path, catalog.locations))) ??
+        : (labels.get(normalizeProjectPath(identity.usageProjectOf(path)?.path ?? path)) ??
           (getFolderBasename(resolveHierarchyLabel(path)) || getFolderBasename(path)))
   }
   const projects = new Map<string, UsageProjectLabel>()

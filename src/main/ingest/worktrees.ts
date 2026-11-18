@@ -1,10 +1,6 @@
 import { basename, dirname, isAbsolute, join, resolve, win32 } from 'path'
-import type { WorktreeLink } from '../../shared/ipc'
-import {
-  isGitDirectoryPath,
-  normalizeProjectPath,
-  worktreeLinkFor
-} from '../../shared/project-path'
+import { isGitDirectoryPath, normalizeProjectPath } from '../../shared/project-path'
+import type { ProjectIdentity } from '../../shared/project-identity'
 import {
   allowedPathLocationSync,
   allowedRealpathSync,
@@ -258,16 +254,16 @@ export function chooseCanonical(
 }
 
 export function createPrunedWorktreeCheck(
-  links: readonly WorktreeLink[],
+  identity: ProjectIdentity,
   isMissingProject: (path: string) => boolean = () => false
 ): (path: string) => boolean {
   const indexes = new Map<string, WorktreeIndex | null>()
   const commonDirs = new Map<string, string>()
   return (path) => {
-    const link = worktreeLinkFor(path, links)
+    const link = identity.checkoutOf(path)
     if (!link) return isMissingProject(path)
-    const granted = isPathAllowed(link.path)
-    if (granted && presenceOf(link.path) !== 'missing') return isMissingProject(path)
+    const granted = isPathAllowed(link.worktree)
+    if (granted && presenceOf(link.worktree) !== 'missing') return isMissingProject(path)
     const checkout = normalizeProjectPath(link.canonical)
     let commonDir = commonDirs.get(checkout)
     if (commonDir === undefined) {
@@ -278,7 +274,7 @@ export function createPrunedWorktreeCheck(
     const key = normalizeProjectPath(commonDir)
     if (!indexes.has(key)) indexes.set(key, readWorktreeIndex(commonDir))
     const index = indexes.get(key)
-    const listed = index?.worktrees.find((worktree) => sameGitPath(worktree.path, link.path))
+    const listed = index?.worktrees.find((worktree) => sameGitPath(worktree.path, link.worktree))
     // Only the repository's own entry can say the folder was `locked` away rather than removed.
     if (granted) return listed ? listed.missing : index?.complete === true
     return (index?.complete === true && listed === undefined) || isMissingProject(path)

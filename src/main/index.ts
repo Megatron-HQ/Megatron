@@ -27,16 +27,12 @@ import {
   getUsageOverviewData,
   getProjectUsageCalendar,
   getProjectUsageDay,
-  readUsageProjectLocations,
   usageProjectCatalog,
-  readClaudeAppChats,
-  linkUsageProjects,
-  unlinkUsageProject,
-  applyWorktreeEvidence,
-  worktreeLinks
+  usageSessionPaths,
+  readClaudeAppChats
 } from './usage-projects'
-import type { UsageProjectCatalog, UsageProjectLocation } from '../shared/usage-projects'
-import { setClaudeCodeFolders } from '../shared/project-path'
+import type { UsageProjectCatalog } from '../shared/usage-projects'
+import { createProjectIdentity } from './project-identity'
 import { createScanSession, type ScanUrgency } from './scan-session'
 import { disableChromiumHttpCache } from './chromium-cache'
 import { changeAllowedPaths, listAllowedPaths, normalizeAllowedPaths } from './folder-grants'
@@ -54,8 +50,7 @@ import {
   getSkillInvocationSlice,
   getSkillUsageDetail,
   listPlugins,
-  listSkills,
-  setWorktreeLinkSource
+  listSkills
 } from './db/queries'
 import {
   allowedLinkTargetSync,
@@ -126,6 +121,7 @@ import {
   type SkillInvocationSliceInput,
   type ScanActivity,
   type ScanFinished,
+  type ScanResult,
   type ScanSourceSummary,
   type ScanSummary,
   type SkillsListResult,
@@ -186,29 +182,39 @@ const claudeFolder = createClaudeFolder({
     })
 })
 setClaudeConfig(claudeFolder.root)
-setClaudeCodeFolders([claudeFolder.root.directory, join(homedir(), '.claude')])
 gateClaude(claudeFolder.cliRefusal)
-setWorktreeLinkSource(() => worktreeLinks(themeStore.get('usageProjects')))
 // Bundled and validated by its own test, so a parse failure here means a broken build, not user data.
 const whatsNewCatalog = parseWhatsNewCatalog(whatsNewJson)
 
-function usageProjectLocations(): UsageProjectLocation[] {
-  const saved = themeStore.get('usageProjects')
-  const locations = readUsageProjectLocations(
-    getDb(),
-    getUsageArchive(),
-    saved,
-    sanitizeProjectFolders(themeStore.get('projectFolders')).filter((project) =>
-      isPathAllowed(project.path)
-    )
+function grantedProjectFolders(): ReturnType<typeof sanitizeProjectFolders> {
+  return sanitizeProjectFolders(themeStore.get('projectFolders')).filter((project) =>
+    isPathAllowed(project.path)
   )
-  if (JSON.stringify(locations) !== JSON.stringify(saved))
-    themeStore.set('usageProjects', locations)
-  return locations
 }
-// Chat titles decorate this IPC result only; usageProjectLocations() persists locations alone.
-function usageProjectCatalogWithChats(locations: UsageProjectLocation[]): UsageProjectCatalog {
-  return usageProjectCatalog(locations, readClaudeAppChats(getDb(), getUsageArchive()))
+const projectIdentity = createProjectIdentity({
+  store: {
+    read: () => themeStore.get('usageProjects'),
+    write: (locations) => themeStore.set('usageProjects', locations)
+  },
+  claudeCodeFolders: [claudeFolder.root.directory, join(homedir(), '.claude')],
+  sessionPaths: () => usageSessionPaths(getDb(), getUsageArchive()),
+  catalog: grantedProjectFolders
+})
+// Scan-driven writes only log: the Scan's own result stands even when preferences.json can't be
+// written, and the next reconcile moment tries again.
+function reconcileProjectIdentity(): void {
+  try {
+    projectIdentity.reconcile()
+  } catch (error) {
+    console.error('[usage] could not reconcile Usage projects', error)
+  }
+}
+// Chat titles decorate this IPC result only; the owner persists locations alone.
+function usageProjectCatalogWithChats(): UsageProjectCatalog {
+  return usageProjectCatalog(
+    { ...projectIdentity.snapshot(), locations: projectIdentity.locations() },
+    readClaudeAppChats(getDb(), getUsageArchive())
+  )
 }
 let scanComplete = false
 let usageComplete = false
@@ -241,7 +247,9 @@ function assertRequest(
     ].includes(channel as never)
   ) {
     const input = args[0] as PluginActionInput
-    const plugin = getPluginDetail(getDb(), input.name, input.marketplace)?.plugin ?? null
+    const plugin =
+      getPluginDetail(getDb(), projectIdentity.identity(), input.name, input.marketplace)?.plugin ??
+      null
     if (!canManagePluginInstall(input, plugin)) {
       throw new Error(deniedPluginActionMessage(input, plugin))
     }
@@ -289,15 +297,18 @@ const scans = createScanController((scope) =>
       configRoot: claudeConfig(),
       grantedPaths: getGrantedPaths(),
       previousProjects: sanitizeProjectFolders(themeStore.get('projectFolders')),
-      worktreeLinks: worktreeLinks(themeStore.get('usageProjects'))
+      projectIdentity: projectIdentity.snapshot()
     },
     undefined,
     (progress) => {
       if (claudeFolder.paused() || claudeFolder.status().state === 'switching') return
       if (progress.type !== 'source-complete') return
       if (progress.source.name === 'archivePrompts') usageComplete = true
-      if (progress.source.name === 'scanTranscripts' || progress.source.name === 'archivePrompts')
+      if (progress.source.name === 'scanTranscripts' || progress.source.name === 'archivePrompts') {
         usageSourceStatus.set(progress.source.name, progress.source.status)
+        // New working directories become Project Locations before the Usage view reads them.
+        reconcileProjectIdentity()
+      }
       const activity = scanSession.current()
       if (!activity) return
       for (const window of BrowserWindow.getAllWindows()) {
@@ -325,11 +336,12 @@ async function scanAndNotify(
   const { run, started, promoted } = scanSession.begin(Date.now(), urgency)
   if (started || promoted) notifyScanStarted(run)
   try {
+    let result: ScanResult
     try {
-      scanSummary = await scans.request({ fresh, scope })
+      result = await scans.request({ fresh, scope })
     } catch (error) {
       console.error('[ingest] scan failed', error)
-      scanSummary =
+      result =
         error instanceof ScanWorkerError
           ? error.summary
           : {
@@ -338,9 +350,12 @@ async function scanAndNotify(
               sources: [{ name: 'scanWorker', status: 'failed', failureReason: 'worker_crash' }]
             }
     }
+    const paused = claudeFolder.paused()
+    // The renderer gets the summary only; the catalog and findings stay in main.
+    const { projects, findings, ...summary } = result
     scanSummary = {
-      ...scanSummary,
-      ...(claudeFolder.paused()
+      ...summary,
+      ...(paused
         ? {
             outcome: 'failed' as const,
             sources: [
@@ -350,37 +365,26 @@ async function scanAndNotify(
                 failureReason: 'scan_error' as const,
                 issues: [{ code: 'source_unavailable' as const, path: claudeFolder.root.directory }]
               }
-            ],
-            projects: undefined,
-            worktrees: undefined,
-            canonicalCheckouts: undefined
+            ]
           }
         : {}),
       isStartup: run.isStartup,
       lastSuccessfulAt:
-        !claudeFolder.paused() && scanSummary.outcome === 'complete'
-          ? scanSummary.completedAt
-          : previousSuccess
+        !paused && summary.outcome === 'complete' ? summary.completedAt : previousSuccess
     }
-    if (scanSummary.projects) {
-      try {
-        themeStore.set('projectFolders', scanSummary.projects)
-      } catch (error) {
-        console.error('[ingest] could not save project catalog', error)
+    if (!paused) {
+      if (projects) {
+        try {
+          themeStore.set('projectFolders', projects)
+        } catch (error) {
+          console.error('[ingest] could not save project catalog', error)
+        }
       }
-    }
-    if (scanSummary.worktrees || scanSummary.canonicalCheckouts) {
+      // After the catalog, which the owner reads while it reconciles.
       try {
-        themeStore.set(
-          'usageProjects',
-          applyWorktreeEvidence(
-            usageProjectLocations(),
-            scanSummary.worktrees ?? [],
-            scanSummary.canonicalCheckouts
-          )
-        )
+        projectIdentity.recordScan(findings)
       } catch (error) {
-        console.error('[ingest] could not save worktree links', error)
+        console.error('[ingest] could not save Usage project identity', error)
       }
     }
     scanComplete = true
@@ -497,14 +501,11 @@ app.whenReady().then(() => {
   })
 
   secureIpc.handle(IPC_CHANNELS.listSkills, (): SkillsListResult => {
-    const skills = listSkills(getDb())
+    // One identity for both sides, so invocations and opportunity agree on every Worktree.
+    const identity = projectIdentity.identity()
+    const skills = listSkills(getDb(), identity)
     const staleIds = usageDataTrusted(usageSourceStatus)
-      ? findStaleSkillIds(
-          getDb(),
-          getUsageArchive(),
-          skills,
-          worktreeLinks(themeStore.get('usageProjects'))
-        )
+      ? findStaleSkillIds(getDb(), getUsageArchive(), skills, identity)
       : new Set<number>()
     return {
       skills: skills.map((skill) => ({ ...skill, stale: staleIds.has(skill.id) })),
@@ -516,25 +517,27 @@ app.whenReady().then(() => {
   })
 
   secureIpc.handle(IPC_CHANNELS.openSkill, (_event, id: number): OpenSkillResult | null => {
-    const skill = getSkillById(getDb(), id)
+    const identity = projectIdentity.identity()
+    const skill = getSkillById(getDb(), identity, id)
     if (!skill) return null
     const findings = getLintFindingsForSkill(getDb(), id)
     return {
       skill,
       files: readSkillFiles(skill.source_path),
-      usage: getSkillUsageDetail(getDb(), skill),
+      usage: getSkillUsageDetail(getDb(), identity, skill),
       findings
     }
   })
 
   secureIpc.handle(IPC_CHANNELS.openSkillMeta, (_event, id: number): OpenSkillMetaResult | null => {
-    const skill = getSkillById(getDb(), id)
+    const identity = projectIdentity.identity()
+    const skill = getSkillById(getDb(), identity, id)
     if (!skill) return null
     const skillMd = readSkillMd(skill.source_path)
     const findings = getLintFindingsForSkill(getDb(), id)
     return {
       skill,
-      usage: getSkillUsageDetail(getDb(), skill),
+      usage: getSkillUsageDetail(getDb(), identity, skill),
       skillMdContent: skillMd?.status === 'ok' ? skillMd.content : null,
       findings,
       linkTarget: allowedLinkTargetSync(skill.source_path)
@@ -544,8 +547,11 @@ app.whenReady().then(() => {
   secureIpc.handle(
     IPC_CHANNELS.openSkillHistory,
     (_event, id: number, offset = 0): SkillInvocationEntry[] => {
-      const skill = getSkillById(getDb(), id)
-      return skill ? getSkillInvocationLog(getDb(), skill, INVOCATION_PAGE_SIZE, offset) : []
+      const identity = projectIdentity.identity()
+      const skill = getSkillById(getDb(), identity, id)
+      return skill
+        ? getSkillInvocationLog(getDb(), identity, skill, INVOCATION_PAGE_SIZE, offset)
+        : []
     }
   )
 
@@ -560,11 +566,7 @@ app.whenReady().then(() => {
   secureIpc.handle(IPC_CHANNELS.listAllowedPaths, () => {
     return listAllowedPaths(themeStore)
   })
-  secureIpc.handle(IPC_CHANNELS.listProjects, () =>
-    sanitizeProjectFolders(themeStore.get('projectFolders')).filter((project) =>
-      isPathAllowed(project.path)
-    )
-  )
+  secureIpc.handle(IPC_CHANNELS.listProjects, () => grantedProjectFolders())
 
   async function pickFolders(
     sender: Electron.WebContents,
@@ -602,7 +604,8 @@ app.whenReady().then(() => {
     // The starting folder comes from main's own record of where Claude Code ran, so the renderer
     // still never names a path; it only saves the user navigating there.
     const defaultPath = suggestGrantStart(
-      usageProjectLocations()
+      projectIdentity
+        .locations()
         .filter((location) => location.status === 'needs_access' && !location.worktree)
         .map((location) => location.path),
       listAllowedPaths(themeStore).map((row) => row.path),
@@ -666,7 +669,7 @@ app.whenReady().then(() => {
   secureIpc.handle(IPC_CHANNELS.listPlugins, () => listPlugins(getDb()))
 
   secureIpc.handle(IPC_CHANNELS.getPluginDetail, (_event, name: string, marketplace: string) =>
-    getPluginDetail(getDb(), name, marketplace)
+    getPluginDetail(getDb(), projectIdentity.identity(), name, marketplace)
   )
 
   const pluginActions = createPluginActionService({
@@ -680,7 +683,8 @@ app.whenReady().then(() => {
       scope === 'plugins' && !claudeFolder.paused()
         ? scans.request({ scope: 'plugins', fresh: true })
         : scanAndNotify('quiet', true),
-    readDetail: (input) => getPluginDetail(getDb(), input.name, input.marketplace),
+    readDetail: (input) =>
+      getPluginDetail(getDb(), projectIdentity.identity(), input.name, input.marketplace),
     scheduleBackground: () => {
       setImmediate(() => void scanAndNotify('quiet'))
     },
@@ -708,7 +712,7 @@ app.whenReady().then(() => {
     const now = new Date()
     const db = getDb()
     return {
-      ...getUsageOverviewData(db, getUsageArchive(), usageProjectLocations(), now),
+      ...getUsageOverviewData(db, getUsageArchive(), projectIdentity.identity(), now),
       scanComplete: usageComplete || scanComplete,
       scanSummary
     }
@@ -722,32 +726,29 @@ app.whenReady().then(() => {
   secureIpc.handle(IPC_CHANNELS.usageRecordedRequest, () => findNewestRecordedRequest())
 
   secureIpc.handle(IPC_CHANNELS.usageCalendar, (_event, year: number) =>
-    getProjectUsageCalendar(getUsageArchive(), year, usageProjectLocations())
+    getProjectUsageCalendar(getUsageArchive(), year, projectIdentity.identity())
   )
   secureIpc.handle(IPC_CHANNELS.usageDay, (_event, date: string) =>
-    getProjectUsageDay(getUsageArchive(), date, usageProjectLocations())
+    getProjectUsageDay(getUsageArchive(), date, projectIdentity.identity())
   )
-  secureIpc.handle(IPC_CHANNELS.usageProjects, () =>
-    usageProjectCatalogWithChats(usageProjectLocations())
-  )
+  secureIpc.handle(IPC_CHANNELS.usageProjects, () => usageProjectCatalogWithChats())
+  // Errors, including a failed write, go back to the renderer: nothing changed.
   secureIpc.handle(
     IPC_CHANNELS.usageLinkProjects,
     (_event, input: { sourceId: string; targetId: string }) => {
-      const locations = linkUsageProjects(usageProjectLocations(), input.sourceId, input.targetId)
-      themeStore.set('usageProjects', locations)
-      return usageProjectCatalogWithChats(locations)
+      projectIdentity.link(input.sourceId, input.targetId)
+      return usageProjectCatalogWithChats()
     }
   )
   secureIpc.handle(IPC_CHANNELS.usageUnlinkProject, (_event, locationId: string) => {
-    const locations = unlinkUsageProject(usageProjectLocations(), locationId)
-    themeStore.set('usageProjects', locations)
-    return usageProjectCatalogWithChats(locations)
+    projectIdentity.unlink(locationId)
+    return usageProjectCatalogWithChats()
   })
 
   secureIpc.handle(
     IPC_CHANNELS.usageSkillInvocations,
     (_event, input: SkillInvocationSliceInput): SkillInvocationRecord[] =>
-      getSkillInvocationSlice(getDb(), input)
+      getSkillInvocationSlice(getDb(), projectIdentity.identity(), input)
   )
 
   secureIpc.on(IPC_CHANNELS.getInitialSection, (event) => {
@@ -853,6 +854,8 @@ app.whenReady().then(() => {
     for (const row of allowed) {
       restoreGrantedPath(row.path)
     }
+    // After the grants: the catalog the owner reconciles against is limited to readable folders.
+    reconcileProjectIdentity()
     inventoryWatcher = createInventoryWatcher({
       getRoots: () => [
         ...getGrantedPaths().map((path) => ({ path, kind: 'project' as const })),

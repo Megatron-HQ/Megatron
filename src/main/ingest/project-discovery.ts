@@ -1,6 +1,7 @@
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type { CanonicalCheckout, ProjectFolder, WorktreeLink } from '../../shared/ipc'
 import { isGitDirectoryPath, isWithinProjectPath } from '../../shared/project-path'
+import { readProjectIdentity, type ProjectIdentity } from '../../shared/project-identity'
 import {
   allowedDirectoryIdentitySync,
   allowedPathLocationSync,
@@ -136,7 +137,7 @@ export function discoverProjects(
   grants: string[] = getGrantedPaths(),
   previous: ProjectFolder[] = [],
   limits = PROJECT_DISCOVERY_LIMITS,
-  savedLinks: readonly WorktreeLink[] = []
+  identity: ProjectIdentity = readProjectIdentity({ locations: [], claudeCodeFolders: [] })
 ): ProjectDiscovery {
   const projects = new Map<string, ProjectFolder>()
   const roots = new Map<string, SkillRoot>()
@@ -398,7 +399,11 @@ export function discoverProjects(
   // Exactly one checkout per repository contributes skills. A worktree walked into from a grant
   // never does; a directly granted one stands in while its Canonical Checkout isn't inventoried.
   const canonicals = new Map<string, string | null>()
-  const saved = new Map(savedLinks.map((link) => [pathKey(link.path), link.canonical]))
+  // Only a link saved for exactly this checkout; a link for a folder above it says nothing here.
+  const saved = (path: string): string | undefined => {
+    const match = identity.checkoutOf(path)
+    return match && pathKey(match.worktree) === pathKey(path) ? match.canonical : undefined
+  }
   const containerPaths = new Map<string, string[]>()
   for (const { path, commonDir } of containers.values()) {
     const key = pathKey(commonDir)
@@ -416,7 +421,7 @@ export function discoverProjects(
           paths.map(pathKey)
       )
       const previous = [...listed, ...paths, ...(containerPaths.get(key) ?? [])]
-        .map((path) => saved.get(pathKey(path)))
+        .map(saved)
         .find((path) => path !== undefined && live.has(pathKey(path)))
       const choice = chooseCanonical(commonDir, index, paths, mainCheckouts.get(key), previous)
       const checkout = choice === null ? null : (allowedRealpathSync(choice) ?? choice)

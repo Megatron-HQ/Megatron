@@ -36,6 +36,10 @@ _Avoid_: Config root, config folder, profile (a profile sounds like it survives 
 The read-only pass that walks every trusted or granted path across the three Skill Sources and reconciles the Index to match what's currently on disk — adding Skills that appeared, removing ones that vanished. Discovers what exists; does not judge it.
 _Avoid_: Sync (implies bidirectional — Megatron never writes back), Index (that's the destination of a Scan, not the act)
 
+**Repo**:
+One git repository, identified by the git dir its checkouts share. Has exactly one Canonical Checkout and any number of Worktrees; a separate clone is a separate Repo.
+_Avoid_: Project (a project folder need not hold git), clone
+
 **Canonical Checkout**:
 The one checkout of a repo that Megatron treats as that repo: the source of its Project Skills and the owner of its Usage. A normal repo's own folder; for a bare repo, the Worktree on the default branch (the branch the bare repo's `HEAD` names), else the one already chosen while it is still live, else the first live Worktree by path. Exactly one per repo.
 _Avoid_: Main checkout, main worktree (git's "main worktree" doesn't exist for a bare repo; ours always does), primary
@@ -57,6 +61,18 @@ _Avoid_: Conversation, chat
 **Transcript**:
 The on-disk record of a Session's turns, owned and formatted by Claude Code itself. Megatron reads it to derive Sessions and Skill Invocations; never edits it.
 _Avoid_: Log, history
+
+**Project Location**:
+One folder that Sessions ran in or that a Scan found, remembered under an identity that survives rediscovery at the same path.
+_Avoid_: Workspace, cwd, working directory (a Session's field, not the remembered folder)
+
+**Project Link**:
+One Project Location pointing at another: _proven_ when it joins a Worktree to its Canonical Checkout, _manual_ when the user made it. Project Skills follow only proven links; Usage follows both.
+_Avoid_: Link alone (also means a symlink, as under Claude Code Folder), alias
+
+**Usage Project**:
+A primary Project Location plus every Project Location linked to it, counted as one project in Usage and named after the primary.
+_Avoid_: Project alone (collides with the Project Skill Source), group
 
 **Prompt History**:
 Claude Code's `history.jsonl` in the Claude Code Folder — one line per prompt the user submitted, carrying the time, project, and Session id but **no Session turns and no Skill Invocations**. A separate data source from the Transcript. Claude Code prunes it to `cleanupPeriodDays` (~30 days by default), so Megatron's `prompt_history` mirror is capped by design — it is wiped and reloaded whole on every Scan, and stores no prompt text.

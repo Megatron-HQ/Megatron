@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3'
 import { assertConfigRootAvailable } from '../config-root'
-import type { ProjectFolder, ScanIssue, ScanTaskResult, WorktreeLink } from '../../shared/ipc'
+import type { ProjectFolder, ScanIssue, ScanTaskResult } from '../../shared/ipc'
+import { readProjectIdentity, type ProjectIdentity } from '../../shared/project-identity'
 import { dirname, join, relative, sep } from 'path'
 import { writeSkillScan, type SkillScanRow } from '../db/queries'
 import {
@@ -162,12 +163,12 @@ export function scanSkills(
   roots: SkillRoot[] | undefined = undefined,
   userSettingsPath?: string,
   previousProjects: ProjectFolder[] = [],
-  worktreeLinks: readonly WorktreeLink[] = []
+  identity: ProjectIdentity = readProjectIdentity({ locations: [], claudeCodeFolders: [] })
 ): ScanTaskResult {
   assertConfigRootAvailable()
   const discovery =
     roots === undefined
-      ? discoverProjects(getGrantedPaths(), previousProjects, undefined, worktreeLinks)
+      ? discoverProjects(getGrantedPaths(), previousProjects, undefined, identity)
       : undefined
   roots ??= defaultSkillRoots(discovery)
   let partial = roots.some((root) => root.discoveryIncomplete === true)
@@ -355,8 +356,10 @@ export function scanSkills(
               ? { ...project, status: 'unavailable' as const }
               : project
           ),
-          worktrees: discovery.worktrees,
-          canonicalCheckouts: discovery.canonicalCheckouts
+          findings: {
+            worktrees: discovery.worktrees,
+            canonicalCheckouts: discovery.canonicalCheckouts
+          }
         }
       : {})
   }

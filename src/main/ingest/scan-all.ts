@@ -1,21 +1,21 @@
 import type Database from 'better-sqlite3'
 import type {
+  ScanResult,
   ScanSourceSummary,
-  ScanSummary,
   ScanTaskResult,
   ScanWorkerProgress
 } from '../../shared/ipc'
 import { Worker } from 'worker_threads'
 
 export interface ScanWorkerTask {
-  result: Promise<ScanSummary>
+  result: Promise<ScanResult>
   cancel: () => Promise<void>
 }
 
 export class ScanWorkerError extends Error {
   constructor(
     message: string,
-    readonly summary: ScanSummary
+    readonly summary: ScanResult
   ) {
     super(message)
   }
@@ -35,9 +35,9 @@ export function startScanWorker(
   let finished = false
   let activeSource: string | null = null
   const sources: ScanSourceSummary[] = []
-  let projects: ScanSummary['projects']
-  let worktrees: ScanSummary['worktrees']
-  let canonicalCheckouts: ScanSummary['canonicalCheckouts']
+  // Kept from a finished source, so a crash after scanSkills still records what it found.
+  let projects: ScanResult['projects']
+  let findings: ScanResult['findings']
   function failure(message: string, reason: ScanSourceSummary['failureReason']): ScanWorkerError {
     return new ScanWorkerError(message, {
       outcome: sources.some((source) => source.status !== 'failed') ? 'partial' : 'failed',
@@ -47,13 +47,12 @@ export function startScanWorker(
         { name: activeSource ?? 'scanWorker', status: 'failed', failureReason: reason }
       ],
       ...(projects === undefined ? {} : { projects }),
-      ...(worktrees === undefined ? {} : { worktrees }),
-      ...(canonicalCheckouts === undefined ? {} : { canonicalCheckouts })
+      ...(findings === undefined ? {} : { findings })
     })
   }
-  const result = new Promise<ScanSummary>((resolve, reject) => {
+  const result = new Promise<ScanResult>((resolve, reject) => {
     rejectTask = reject
-    worker.on('message', (message: ScanSummary | ScanWorkerProgress) => {
+    worker.on('message', (message: ScanResult | ScanWorkerProgress) => {
       if (finished) return
       if ('type' in message) {
         if (message.type === 'source-started') activeSource = message.name
@@ -61,9 +60,7 @@ export function startScanWorker(
           sources.push(message.source)
           activeSource = null
           if (message.projects !== undefined) projects = message.projects
-          if (message.worktrees !== undefined) worktrees = message.worktrees
-          if (message.canonicalCheckouts !== undefined)
-            canonicalCheckouts = message.canonicalCheckouts
+          if (message.findings !== undefined) findings = message.findings
         }
         onProgress(message)
         return
@@ -105,17 +102,17 @@ export function startScanWorker(
 export type ScanScope = 'all' | 'inventory' | 'plugins'
 
 export function createScanController(start: (scope: ScanScope) => ScanWorkerTask): {
-  request: (options?: { fresh?: boolean; scope?: ScanScope }) => Promise<ScanSummary>
+  request: (options?: { fresh?: boolean; scope?: ScanScope }) => Promise<ScanResult>
   cancel: () => Promise<void>
   suspend: () => Promise<void>
   resume: () => void
 } {
   type Completion = {
-    result: Promise<ScanSummary>
-    resolve: (summary: ScanSummary) => void
+    result: Promise<ScanResult>
+    resolve: (summary: ScanResult) => void
     reject: (error: unknown) => void
   }
-  type Outcome = { ok: true; summary: ScanSummary } | { ok: false; error: unknown }
+  type Outcome = { ok: true; summary: ScanResult } | { ok: false; error: unknown }
   type ActiveScan = {
     task: ScanWorkerTask
     scope: ScanScope
@@ -217,7 +214,7 @@ export function createScanController(start: (scope: ScanScope) => ScanWorkerTask
       if (!pending) {
         let resolve!: Completion['resolve']
         let reject!: Completion['reject']
-        const result = new Promise<ScanSummary>((accept, fail) => {
+        const result = new Promise<ScanResult>((accept, fail) => {
           resolve = accept
           reject = fail
         })
@@ -273,31 +270,25 @@ export function runAllScans(
   scans: ScanTask[],
   reportError: ScanErrorReporter = () => undefined,
   reportProgress: (progress: ScanWorkerProgress) => void = () => undefined
-): ScanSummary {
-  const sources: ScanSummary['sources'] = []
-  let projects: ScanSummary['projects']
-  let worktrees: ScanSummary['worktrees']
-  let canonicalCheckouts: ScanSummary['canonicalCheckouts']
+): ScanResult {
+  const sources: ScanResult['sources'] = []
+  let projects: ScanResult['projects']
+  let findings: ScanResult['findings']
   for (const task of scans) {
     const name = task.name || 'scan'
     const scan = typeof task === 'function' ? task : task.run
     reportProgress({ type: 'source-started', name })
-    let discoveredProjects: ScanSummary['projects']
-    let discoveredWorktrees: ScanSummary['worktrees']
-    let discoveredCanonicals: ScanSummary['canonicalCheckouts']
+    let discoveredProjects: ScanResult['projects']
+    let discoveredFindings: ScanResult['findings']
     try {
       const result = scan(db) as ScanTaskResult | undefined
       if (result?.projects !== undefined) {
         projects = result.projects
         discoveredProjects = result.projects
       }
-      if (result?.worktrees !== undefined) {
-        worktrees = result.worktrees
-        discoveredWorktrees = result.worktrees
-      }
-      if (result?.canonicalCheckouts !== undefined) {
-        canonicalCheckouts = result.canonicalCheckouts
-        discoveredCanonicals = result.canonicalCheckouts
+      if (result?.findings !== undefined) {
+        findings = result.findings
+        discoveredFindings = result.findings
       }
       sources.push({
         name,
@@ -312,8 +303,7 @@ export function runAllScans(
       type: 'source-complete',
       source: sources[sources.length - 1],
       ...(discoveredProjects === undefined ? {} : { projects: discoveredProjects }),
-      ...(discoveredWorktrees === undefined ? {} : { worktrees: discoveredWorktrees }),
-      ...(discoveredCanonicals === undefined ? {} : { canonicalCheckouts: discoveredCanonicals })
+      ...(discoveredFindings === undefined ? {} : { findings: discoveredFindings })
     })
   }
   return {
@@ -325,7 +315,6 @@ export function runAllScans(
     completedAt: new Date().toISOString(),
     sources,
     ...(projects !== undefined ? { projects } : {}),
-    ...(worktrees !== undefined ? { worktrees } : {}),
-    ...(canonicalCheckouts !== undefined ? { canonicalCheckouts } : {})
+    ...(findings !== undefined ? { findings } : {})
   }
 }

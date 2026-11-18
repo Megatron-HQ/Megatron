@@ -3,6 +3,8 @@ import { tmpdir } from 'os'
 import { join, resolve } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { grantPath, resetGrantedPaths } from '../permissions'
+import { readProjectIdentity, type ProjectIdentity } from '../../shared/project-identity'
+import type { WorktreeLink } from '../../shared/ipc'
 import {
   chooseCanonical,
   coreBare,
@@ -11,6 +13,9 @@ import {
   readWorktreeIndex,
   commonDirOf
 } from './worktrees'
+
+const linkedBy = (links: WorktreeLink[]): ProjectIdentity =>
+  readProjectIdentity({ locations: [], claudeCodeFolders: [] }, links)
 
 describe('coreBare', () => {
   it.each([
@@ -449,12 +454,16 @@ describe('git worktree reads', () => {
     })
 
     it('reports a linked worktree its repository no longer lists', () => {
-      const isPruned = createPrunedWorktreeCheck([{ path: join(root, 'gone'), canonical: app }])
+      const isPruned = createPrunedWorktreeCheck(
+        linkedBy([{ path: join(root, 'gone'), canonical: app }])
+      )
       expect(isPruned(join(root, 'gone'))).toBe(true)
     })
 
     it('keeps a worktree its repository still lists', () => {
-      const isPruned = createPrunedWorktreeCheck([{ path: join(root, 'live'), canonical: app }])
+      const isPruned = createPrunedWorktreeCheck(
+        linkedBy([{ path: join(root, 'live'), canonical: app }])
+      )
       expect(isPruned(join(root, 'live'))).toBe(false)
     })
 
@@ -462,10 +471,12 @@ describe('git worktree reads', () => {
       const moved = join(root, 'moved')
       rmSync(join(root, 'live'), { recursive: true })
       mkdirSync(moved)
-      const isPruned = createPrunedWorktreeCheck([
-        { path: moved, canonical: app },
-        { path: join(root, 'live'), canonical: app }
-      ])
+      const isPruned = createPrunedWorktreeCheck(
+        linkedBy([
+          { path: moved, canonical: app },
+          { path: join(root, 'live'), canonical: app }
+        ])
+      )
       expect(isPruned(moved)).toBe(false)
       expect(isPruned(join(root, 'live'))).toBe(true)
     })
@@ -482,20 +493,24 @@ describe('git worktree reads', () => {
       resetGrantedPaths()
       grantPath(common)
       grantPath(canonical)
-      expect(createPrunedWorktreeCheck([{ path: gone, canonical }])(gone)).toBe(true)
+      expect(createPrunedWorktreeCheck(linkedBy([{ path: gone, canonical }]))(gone)).toBe(true)
     })
 
     it('reports a pruned worktree in the Claude Code layout without a stored link', () => {
-      expect(createPrunedWorktreeCheck([])(join(app, '.claude', 'worktrees', 'old'))).toBe(true)
+      expect(
+        createPrunedWorktreeCheck(linkedBy([]))(join(app, '.claude', 'worktrees', 'old'))
+      ).toBe(true)
     })
 
     it('never reports a path with no worktree link', () => {
-      expect(createPrunedWorktreeCheck([])(join(root, 'gone'))).toBe(false)
+      expect(createPrunedWorktreeCheck(linkedBy([]))(join(root, 'gone'))).toBe(false)
     })
 
     it('does not guess when the repository cannot be read', () => {
       resetGrantedPaths()
-      const isPruned = createPrunedWorktreeCheck([{ path: join(root, 'gone'), canonical: app }])
+      const isPruned = createPrunedWorktreeCheck(
+        linkedBy([{ path: join(root, 'gone'), canonical: app }])
+      )
       expect(isPruned(join(root, 'gone'))).toBe(false)
     })
 
@@ -505,7 +520,9 @@ describe('git worktree reads', () => {
       resetGrantedPaths()
       grantPath(worktrees)
       const gone = join(worktrees, 'gone')
-      expect(createPrunedWorktreeCheck([{ path: gone, canonical: app }])(gone)).toBe(false)
+      expect(createPrunedWorktreeCheck(linkedBy([{ path: gone, canonical: app }]))(gone)).toBe(
+        false
+      )
     })
 
     it('does not prune a worktree while the grant holding it is offline', () => {
@@ -515,14 +532,16 @@ describe('git worktree reads', () => {
       resetGrantedPaths()
       grantPath(app)
       grantPath(volume)
-      expect(createPrunedWorktreeCheck([{ path: wt, canonical: app }])(wt)).toBe(false)
+      expect(createPrunedWorktreeCheck(linkedBy([{ path: wt, canonical: app }]))(wt)).toBe(false)
     })
 
     it('does not guess when one of the repository worktree entries is unreadable', () => {
       mkdirSync(join(app, '.git', 'worktrees', 'odd', 'gitdir'), { recursive: true })
       resetGrantedPaths()
       grantPath(app)
-      const isPruned = createPrunedWorktreeCheck([{ path: join(root, 'gone'), canonical: app }])
+      const isPruned = createPrunedWorktreeCheck(
+        linkedBy([{ path: join(root, 'gone'), canonical: app }])
+      )
       expect(isPruned(join(root, 'gone'))).toBe(false)
     })
   })

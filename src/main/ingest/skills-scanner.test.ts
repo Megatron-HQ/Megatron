@@ -301,7 +301,7 @@ describe('live project reconciliation', () => {
     const after = scanSkills(db, undefined, userSettingsPath, before.projects)
 
     expect(projectRoots()).toEqual([])
-    expect(after.worktrees).toEqual([{ path: worktree, canonical: app }])
+    expect(after.findings?.worktrees).toEqual([{ path: worktree, canonical: app }])
   })
 
   it('retains cached skills for a missing individually granted project', () => {

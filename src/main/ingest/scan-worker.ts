@@ -1,13 +1,10 @@
 import { parentPort, workerData } from 'worker_threads'
 import { assertConfigRootAvailable } from '../config-root'
-import { homedir } from 'os'
-import { join } from 'path'
 import Database from 'better-sqlite3'
 import { restoreGrantedPath, setClaudeConfig, type ConfigRoot } from '../permissions'
-import { setWorktreeLinkSource } from '../db/queries'
 import { scanSkills as runSkillScan } from './skills-scanner'
-import type { ProjectFolder, ScanTaskResult, WorktreeLink } from '../../shared/ipc'
-import { setClaudeCodeFolders } from '../../shared/project-path'
+import type { ProjectFolder, ScanTaskResult } from '../../shared/ipc'
+import { readProjectIdentity, type ProjectIdentitySnapshot } from '../../shared/project-identity'
 import { scanPluginRegistry } from './plugin-registry'
 import { scanTranscripts as runTranscriptScan } from './transcript-scanner'
 import { scanPromptHistory as runPromptScan } from './prompt-history-scanner'
@@ -23,7 +20,7 @@ const {
   configRoot,
   grantedPaths,
   previousProjects = [],
-  worktreeLinks = [],
+  projectIdentity,
   scope = 'all'
 } = workerData as {
   databasePath: string
@@ -31,14 +28,13 @@ const {
   configRoot: ConfigRoot
   grantedPaths: string[]
   previousProjects?: ProjectFolder[]
-  worktreeLinks?: WorktreeLink[]
+  projectIdentity: ProjectIdentitySnapshot
   scope?: ScanScope
 }
 // The worker has its own module state: Tier 1 must name the same folder main resolved at startup.
 setClaudeConfig(configRoot)
-setClaudeCodeFolders([configRoot.directory, join(homedir(), '.claude')])
 for (const path of grantedPaths) restoreGrantedPath(path)
-setWorktreeLinkSource(() => worktreeLinks)
+const identity = readProjectIdentity(projectIdentity)
 const database = new Database(databasePath)
 let archive: Database.Database | undefined
 const getArchive = (): Database.Database => (archive ??= openUsageArchive(archivePath))
@@ -48,10 +44,12 @@ const usageScans = createUsageScanTasks({
   getArchive
 })
 let sourceStartedAt = 0
-let pruningLinks = worktreeLinks
+// Plugin pruning also needs the Worktrees this Scan just found, before main records them.
+let pruningIdentity = identity
 function scanSkills(db: Database.Database): ScanTaskResult {
-  const result = runSkillScan(db, undefined, undefined, previousProjects, worktreeLinks)
-  if (result.worktrees) pruningLinks = [...result.worktrees, ...worktreeLinks]
+  const result = runSkillScan(db, undefined, undefined, previousProjects, identity)
+  if (result.findings)
+    pruningIdentity = readProjectIdentity(projectIdentity, result.findings.worktrees)
   return result
 }
 try {
@@ -62,7 +60,8 @@ try {
       { name: 'scanSkills', run: scanSkills },
       {
         name: 'scanPluginRegistry',
-        run: (db: Database.Database) => scanPluginRegistry(db, undefined, undefined, pruningLinks)
+        run: (db: Database.Database) =>
+          scanPluginRegistry(db, undefined, undefined, pruningIdentity)
       },
       // Not gated on the registry scan's status: leftover index rows are still real sightings,
       // and recording one late only delays a 30-day signal. Full scans only (selectScanTasks).
@@ -70,7 +69,7 @@ try {
         name: 'archivePluginSkills',
         run: (db: Database.Database) => recordPluginSkillSightings(db, getArchive())
       },
-      { name: 'runLinter', run: runLinter }
+      { name: 'runLinter', run: (db: Database.Database) => runLinter(db, identity) }
     ]).map((task) => ({
       name: task.name,
       run: (db: Database.Database) => {
