@@ -13,7 +13,7 @@ describe('runAllScans', () => {
       const result = runAllScans(
         database,
         [
-          () => ({ status, canonicalCheckouts: ['/a'] }),
+          () => ({ status, canonicalCheckouts: [{ path: '/a', repository: '1:2:3' }] }),
           () => {
             throw new Error('later')
           }
@@ -21,8 +21,10 @@ describe('runAllScans', () => {
         undefined,
         (entry) => progress.push(entry)
       )
-      expect(result.canonicalCheckouts).toEqual(['/a'])
-      expect(progress[1]).toMatchObject({ canonicalCheckouts: ['/a'] })
+      expect(result.canonicalCheckouts).toEqual([{ path: '/a', repository: '1:2:3' }])
+      expect(progress[1]).toMatchObject({
+        canonicalCheckouts: [{ path: '/a', repository: '1:2:3' }]
+      })
       expect(runAllScans(database, [() => undefined]).canonicalCheckouts).toBeUndefined()
     }
   )

@@ -50,7 +50,11 @@ fixed for the process; the scan worker receives it in `workerData`. Elsewhere in
   one that fails later falls through to the variable or the default, with a notice.
 - Both sources keep the given form, not the realpath, because Claude Code records paths in that
   form; the Settings choice is saved as chosen and never re-resolved. A linked folder is followed
-  by the setup-link rule under Cache preservation, like a linked `~/.claude`.
+  by the setup-link rule under Cache preservation, like a linked `~/.claude`. A named folder also
+  pins its resolved directory for the process lifetime. A change to a different valid target
+  suspends scans and uses the existing profile relaunch flow. An invalid target stays paused.
+  The worker checks the pinned target at its scan and write boundaries, and the CLI gate refuses
+  the changed target while existing plugin actions settle.
 - A missing folder is held, never replaced: reading another profile in its place would be silently
   wrong. While it is missing, new scans and every CLI run are refused, so a missing drive can't
   empty the index and the CLI can't create folders at its path. Each scan request, and each spawn

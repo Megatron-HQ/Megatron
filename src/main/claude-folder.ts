@@ -1,7 +1,9 @@
-import { statSync } from 'fs'
+import { isAbsolute } from 'path'
 import type { ClaudeFolderChoice, ClaudeFolderIssue, ClaudeFolderStatus } from '../shared/ipc'
 import {
   activeConfigRoot,
+  configDirectoryKey,
+  currentConfigDirectory,
   listConfigFolders,
   resolveConfigRoot,
   sameFolder,
@@ -20,6 +22,7 @@ function unavailableMessage(directory: string): string {
 export interface ClaudeFolderDependencies {
   home: string
   environment: string | undefined
+  isPrimaryInstance: boolean
   store: ThemeStore
   watch: (path: string, onChange: () => void) => void
   pluginActionsIdle: () => Promise<void>
@@ -29,14 +32,6 @@ export interface ClaudeFolderDependencies {
   relaunch: () => void
   broadcast: (status: ClaudeFolderStatus) => void
   onResume: () => void
-}
-
-function isDirectory(path: string): boolean {
-  try {
-    return statSync(path).isDirectory()
-  } catch {
-    return false
-  }
 }
 
 // One active folder per process: every reader, the scan worker and the per-folder index follow the
@@ -64,8 +59,41 @@ export function createClaudeFolder(deps: ClaudeFolderDependencies): {
   let relaunching = false
   // ~/.claude read as the default never pauses: a fresh install has none until Claude Code runs.
   const canPause = namesConfigFolder(root)
+  if (canPause) {
+    const directory = configDirectoryKey(root.directory)
+    const current = currentConfigDirectory(root.directory)
+    const savedBinding = store.get('claudeConfigBinding')
+    const lastKnown =
+      savedBinding?.directory === directory &&
+      typeof savedBinding.canonicalDirectory === 'string' &&
+      isAbsolute(savedBinding.canonicalDirectory) &&
+      !savedBinding.canonicalDirectory.includes('\0')
+        ? savedBinding.canonicalDirectory
+        : null
+    root = {
+      ...root,
+      canonicalDirectory: current ?? lastKnown ?? directory
+    }
+    if (current !== null && startup.issue?.reason !== 'missing') rememberBinding(current)
+  }
   let suspension: Promise<void> | null = null
   let scansSuspended = false
+
+  function rememberBinding(canonicalDirectory: string): void {
+    if (!deps.isPrimaryInstance) return
+    const directory = configDirectoryKey(root.directory)
+    const savedBinding = store.get('claudeConfigBinding')
+    if (
+      savedBinding?.directory === directory &&
+      savedBinding.canonicalDirectory === canonicalDirectory
+    )
+      return
+    try {
+      store.set('claudeConfigBinding', { directory, canonicalDirectory })
+    } catch (error) {
+      console.error('[config] could not remember the active Claude Code folder', error)
+    }
+  }
 
   function suspendScans(): void {
     if (suspension || scansSuspended) return
@@ -107,19 +135,28 @@ export function createClaudeFolder(deps: ClaudeFolderDependencies): {
   // Checked on disk at call time, so a scan or CLI run can't start in the gap between two polls.
   function paused(): boolean {
     if (!canPause) return false
+    const current = currentConfigDirectory(root.directory)
+    const sameTarget = current !== null && current === root.canonicalDirectory
     // Switching keeps its state for the banner and the pending relaunch, but a folder that was
     // paused, or vanished since, still must not be scanned or handed to the CLI.
-    if (state === 'switching') return pauseIssue !== null || !isDirectory(root.directory)
+    if (state === 'switching') return pauseIssue !== null || !sameTarget
     const source = root.source === 'environment' ? 'environment' : 'settings'
-    if (state === 'ok') {
-      if (isDirectory(root.directory)) return false
-      pause({ value: root.directory, reason: 'missing', source })
-      return true
-    }
-    const value = source === 'environment' ? environment : (saved ?? undefined)
-    const { issue } = resolveConfigRoot(value, home, source)
+    if (state === 'ok' && sameTarget) return false
+    const { issue } = resolveConfigRoot(root.directory, home, source)
     if (issue) {
       if (issue.reason !== pauseIssue?.reason) pause(issue)
+      return true
+    }
+    if (current === null) {
+      if (pauseIssue?.reason !== 'invalid')
+        pause({ value: root.directory, reason: 'invalid', source })
+      return true
+    }
+    if (!sameTarget) {
+      state = 'switching'
+      suspendScans()
+      deps.broadcast(status())
+      void relaunch()
       return true
     }
     if (!scansSuspended) {
@@ -128,6 +165,7 @@ export function createClaudeFolder(deps: ClaudeFolderDependencies): {
     }
     state = 'ok'
     pauseIssue = null
+    rememberBinding(current)
     scansSuspended = false
     deps.resumeScans()
     deps.onResume()
@@ -169,7 +207,7 @@ export function createClaudeFolder(deps: ClaudeFolderDependencies): {
     return { outcome: 'chosen', status: status() }
   }
 
-  if (canPause) {
+  if (canPause && deps.isPrimaryInstance) {
     deps.watch(root.directory, () => void paused())
     paused()
   }

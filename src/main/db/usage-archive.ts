@@ -24,8 +24,12 @@ function canonicalLocation(path: string): string {
 // One archive per Claude Code config folder: history_coverage records time ranges of one
 // history.jsonl, so two profiles can't share a file. ~/.claude keeps the original name, so archives
 // written before CLAUDE_CONFIG_DIR support need no migration. A moved folder starts a fresh one.
-export function usageArchiveFilename(configDirectory: string, home: string): string {
-  const location = canonicalLocation(configDirectory)
+export function usageArchiveFilename(
+  configDirectory: string,
+  home: string,
+  canonicalDirectory?: string
+): string {
+  const location = canonicalDirectory ?? canonicalLocation(configDirectory)
   if (location === canonicalLocation(join(home, '.claude'))) return 'usage-history.db'
   return `usage-history-${createHash('sha256').update(location).digest('hex').slice(0, 16)}.db`
 }

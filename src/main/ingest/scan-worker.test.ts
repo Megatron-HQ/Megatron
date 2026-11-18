@@ -269,7 +269,7 @@ describe('isolated scans', () => {
     const task = api.startScanWorker(
       workerUrl(`
       import { parentPort } from 'node:worker_threads';
-      parentPort.postMessage({ type: 'source-complete', source: { name: 'scanSkills', status: 'complete' }, worktrees: [{ path: '/wt', canonical: '/app' }], canonicalCheckouts: ['/app'] });
+      parentPort.postMessage({ type: 'source-complete', source: { name: 'scanSkills', status: 'complete' }, worktrees: [{ path: '/wt', canonical: '/app' }], canonicalCheckouts: [{ path: '/app', repository: '1:2:3' }] });
       parentPort.postMessage({ type: 'source-started', name: 'runLinter' });
       while (true) {}
     `),
@@ -277,7 +277,10 @@ describe('isolated scans', () => {
       500
     )
     await expect(task.result).rejects.toMatchObject({
-      summary: { worktrees: [{ path: '/wt', canonical: '/app' }], canonicalCheckouts: ['/app'] }
+      summary: {
+        worktrees: [{ path: '/wt', canonical: '/app' }],
+        canonicalCheckouts: [{ path: '/app', repository: '1:2:3' }]
+      }
     })
   })
 

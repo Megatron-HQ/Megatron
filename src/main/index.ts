@@ -154,6 +154,7 @@ const themeStore: ThemeStore = new Store({ name: 'preferences' })
 const claudeFolder = createClaudeFolder({
   home: homedir(),
   environment: process.env.CLAUDE_CONFIG_DIR,
+  isPrimaryInstance,
   store: themeStore,
   // A stat poll, unlike fs.watch, notices a folder that doesn't exist yet appearing (a drive
   // reconnecting), and it costs one stat every 2 seconds.

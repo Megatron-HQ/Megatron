@@ -1,7 +1,8 @@
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
-import type { ProjectFolder, WorktreeLink } from '../../shared/ipc'
+import type { CanonicalCheckout, ProjectFolder, WorktreeLink } from '../../shared/ipc'
 import { isGitDirectoryPath, isWithinProjectPath } from '../../shared/project-path'
 import {
+  allowedDirectoryIdentitySync,
   allowedPathLocationSync,
   allowedRealpathSync,
   allowedStatSync,
@@ -110,7 +111,7 @@ export interface ProjectDiscovery {
   incomplete: boolean
   // Every worktree link seen this pass, from either side; see CONTEXT.md "Worktree".
   worktrees: WorktreeLink[]
-  canonicalCheckouts: string[]
+  canonicalCheckouts: CanonicalCheckout[]
   // Worktrees found under a grant that contribute no skills of their own.
   skippedWorktrees: string[]
   gitDirHolders: string[]
@@ -543,9 +544,10 @@ export function discoverProjects(
     worktrees: [...links.values()],
     canonicalCheckouts: [...gitDirs.values()].flatMap(({ commonDir, index }) => {
       const canonical = canonicals.get(pathKey(commonDir))
-      return index?.complete && canonical && projects.get(pathKey(canonical))?.kind === 'repository'
-        ? [canonical]
-        : []
+      if (!index?.complete || !canonical || projects.get(pathKey(canonical))?.kind !== 'repository')
+        return []
+      const repository = allowedDirectoryIdentitySync(commonDir)
+      return [{ path: canonical, ...(repository === undefined ? {} : { repository }) }]
     }),
     skippedWorktrees,
     gitDirHolders: [...gitDirHolders]

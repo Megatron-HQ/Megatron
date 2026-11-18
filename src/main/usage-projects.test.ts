@@ -332,6 +332,8 @@ describe('Claude app chats', () => {
 })
 
 describe('worktrees', () => {
+  const repositoryIdentity = '1:2:3'
+
   it.each([false, true])(
     'promotes a former worktree and preserves history and manual groups (manual=%s)',
     (manual) => {
@@ -340,7 +342,8 @@ describe('worktrees', () => {
         [
           { path: '/a', canonical: '/main' },
           { path: '/z', canonical: '/main' }
-        ]
+        ],
+        [{ path: '/main', repository: repositoryIdentity }]
       )
       const main = before.find((entry) => entry.path === '/main')!
       const external = before.find((entry) => entry.path === '/external')!
@@ -348,7 +351,7 @@ describe('worktrees', () => {
       const after = applyWorktreeEvidence(
         JSON.parse(JSON.stringify(saved)),
         [{ path: '/z', canonical: '/a' }],
-        ['/a']
+        [{ path: '/a', repository: repositoryIdentity }]
       )
       const restored = reconcileUsageProjects(
         JSON.parse(JSON.stringify(after)),
@@ -408,12 +411,20 @@ describe('worktrees', () => {
   )
 
   it('promotes a single survivor only with positive canonical evidence', () => {
-    const before = applyWorktreeEvidence([], [{ path: '/a', canonical: '/main' }])
+    const before = applyWorktreeEvidence(
+      [],
+      [{ path: '/a', canonical: '/main' }],
+      [{ path: '/main', repository: repositoryIdentity }]
+    )
     const standIn = reconcileUsageProjects(before, [repository('/a')], [])
     expect(worktreeLinks(applyWorktreeEvidence(standIn, []))).toEqual([
       { path: '/a', canonical: '/main' }
     ])
-    const after = applyWorktreeEvidence(standIn, [], ['/a'])
+    const after = applyWorktreeEvidence(
+      standIn,
+      [],
+      [{ path: '/a', repository: repositoryIdentity }]
+    )
     expect(worktreeLinks(after)).toEqual([{ path: '/main', canonical: '/a' }])
     expect(after.find((entry) => entry.path === '/a')?.worktree).toBeUndefined()
   })
@@ -430,8 +441,9 @@ describe('worktrees', () => {
       { path: 'c:/REPO/main', canonical: 'c:/repo/A' },
       { path: 'C:/repo/z', canonical: 'c:/repo/A' }
     ]
-    const after = applyWorktreeEvidence(before, links, ['c:/repo/A'])
-    expect(applyWorktreeEvidence(before, [...links].reverse(), ['c:/repo/A'])).toEqual(after)
+    const canonical = [{ path: 'c:/repo/A' }]
+    const after = applyWorktreeEvidence(before, links, canonical)
+    expect(applyWorktreeEvidence(before, [...links].reverse(), canonical)).toEqual(after)
     expect(worktreeLinks(after)).toEqual([
       { path: 'C:/repo/main', canonical: 'C:/repo/a' },
       { path: 'C:/repo/z', canonical: 'C:/repo/a' }
@@ -496,15 +508,15 @@ describe('worktrees', () => {
     const promoted = applyWorktreeEvidence(
       linked,
       [{ path: '/code/c', canonical: '/code/b' }],
-      ['/code/b']
+      [{ path: '/code/b' }]
     )
 
     const b = promoted.find((entry) => entry.path === '/code/b')!
     expect(b.worktree).toBeUndefined()
     expect(b.linkedTo).toBeUndefined()
-    expect(roots(promoted)).toEqual(['/code/b'])
+    expect(roots(promoted)).toEqual(['/code/a', '/code/b'])
     expect(resolveUsageProjectPath('/code/c', promoted)).toBe('/code/b')
-    expect(resolveUsageProjectPath('/code/a', promoted)).toBe('/code/b')
+    expect(resolveUsageProjectPath('/code/a', promoted)).toBe('/code/a')
   })
 
   it("sends Claude Code's worktree layout inside a Worktree to that Worktree's Canonical Checkout", () => {
@@ -527,7 +539,7 @@ describe('worktrees', () => {
     const swapped = applyWorktreeEvidence(
       linked,
       [{ path: '/code/a', canonical: '/code/b' }],
-      ['/code/b']
+      [{ path: '/code/b' }]
     )
 
     expect(swapped.find((entry) => entry.path === '/code/b')!.worktree).toBeUndefined()

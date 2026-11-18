@@ -116,9 +116,12 @@ rediscovery at the same path.
   picks the first live worktree by path. A bare container whose `.git` file points to that
   repository shares the canonical worktree's Usage. Its own skills are skipped.
 - A canonical transition requires positive checkout evidence from a complete Git index, carried
-  separately from catalog rows (a directly granted stand-in is also a repository row). The prior
-  checkout graph moves together, including retired checkouts; location IDs and manual external
-  Usage associations survive. Skill checkout links remain direct to the new Canonical Checkout.
+  separately from catalog rows (a directly granted stand-in is also a repository row). The common
+  Git directory's recorded file identity proves continuity even when only one checkout survives.
+  An explicit reverse link can establish continuity for older links without a repository identity.
+  A former worktree path that now has its own Git repository separates from its former group.
+  Genuine transitions keep retired checkouts, location IDs and manual external Usage associations.
+  Skill checkout links remain direct to the new Canonical Checkout.
 - A listed worktree counts as pruned unless locked when an existing granted folder above it
   shows it gone. A missing grant (an unmounted volume) proves nothing. Outside grants, the
   repository list is the available evidence. Saved Usage links survive pruning and move
@@ -178,7 +181,10 @@ delete it, and nothing syncs off device.
   (`usageArchiveFilename()`). Coverage ranges describe one `history.jsonl`, so profiles never share
   a file, and the original name needs no migration. A folder linked to `~/.claude`, or spelled in
   another case, shares its archive; a moved or renamed folder starts a fresh one. No archive is
-  ever deleted, so switching back finds the old one intact.
+  ever deleted, so switching back finds the old one intact. A named folder's canonical target
+  is fixed for that process. Main and the scan worker use the same archive path. A launch while
+  the configured alias is unavailable uses its last known target to find the cached data. A
+  restart on a new target rebuilds the derived index even if the configured alias was unchanged.
 
 ### Additive-only shape
 

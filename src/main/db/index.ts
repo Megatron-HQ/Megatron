@@ -8,9 +8,14 @@ import { openUsageArchive, usageArchiveFilename } from './usage-archive'
 
 let db: Database.Database | null = null
 let usageArchive: Database.Database | null = null
+let archivePath: string | undefined
 
 export function usageArchivePath(): string {
-  return join(app.getPath('userData'), usageArchiveFilename(claudeConfig().directory, homedir()))
+  const config = claudeConfig()
+  return (archivePath ??= join(
+    app.getPath('userData'),
+    usageArchiveFilename(config.directory, homedir(), config.canonicalDirectory)
+  ))
 }
 
 export function getUsageArchive(): Database.Database {
@@ -27,7 +32,12 @@ export function getUsageArchive(): Database.Database {
 export function getDb(): Database.Database {
   if (!db) {
     securePrivateDataDirectory(app.getPath('userData'), join(app.getPath('appData'), app.getName()))
-    db = openIndex(join(app.getPath('userData'), 'megatron.db'), claudeConfig().directory)
+    const config = claudeConfig()
+    const profile =
+      config.canonicalDirectory === undefined
+        ? config.directory
+        : `${config.directory}\0${config.canonicalDirectory}`
+    db = openIndex(join(app.getPath('userData'), 'megatron.db'), profile)
     securePrivateDataDirectory(app.getPath('userData'), join(app.getPath('appData'), app.getName()))
   }
   return db

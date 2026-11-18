@@ -5,6 +5,7 @@ import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClaudeFolderStatus } from '../shared/ipc'
 import { createClaudeFolder } from './claude-folder'
+import { assertConfigRootAvailable } from './config-root'
 import type { ThemeStore } from './theme'
 
 let home: string
@@ -40,10 +41,14 @@ function profile(name: string, marker = 'settings.json'): string {
   return directory
 }
 
-function controller(environment?: string): ReturnType<typeof createClaudeFolder> {
+function controller(
+  environment?: string,
+  isPrimaryInstance = true
+): ReturnType<typeof createClaudeFolder> {
   return createClaudeFolder({
     home,
     environment,
+    isPrimaryInstance,
     store,
     watch: (path, onChange) => {
       watched.push(path)
@@ -120,7 +125,7 @@ describe('a folder chosen in Settings that goes missing', () => {
     const usb = join(home, '.claude-usb')
     store.set('claudeConfigDir', usb)
     const folder = controller()
-    expect(folder.root).toEqual({
+    expect(folder.root).toMatchObject({
       directory: usb,
       claudeJson: join(usb, '.claude.json'),
       source: 'settings'
@@ -191,6 +196,76 @@ it('never pauses on ~/.claude, even before Claude Code creates it', () => {
   expect(folder.paused()).toBe(false)
   expect(watched).toEqual([])
   expect(events).toEqual([])
+})
+
+describe('a linked Claude Code folder', () => {
+  const linkType = process.platform === 'win32' ? 'junction' : 'dir'
+
+  it('refuses scans and CLI runs into a new target until Megatron restarts', async () => {
+    const first = profile('first')
+    const second = profile('second')
+    const selected = join(home, 'active')
+    symlinkSync(first, selected, linkType)
+    let finishPluginAction!: () => void
+    idle = new Promise<void>((resolve) => {
+      finishPluginAction = resolve
+    })
+    const folder = controller(selected)
+
+    rmSync(selected)
+    symlinkSync(second, selected, linkType)
+
+    expect(folder.cliRefusal()).not.toBeNull()
+    expect(folder.paused()).toBe(true)
+    expect(folder.status().state).toBe('switching')
+    expect(() => assertConfigRootAvailable(folder.root)).toThrow()
+    expect(events).toEqual([])
+    finishPluginAction()
+    await vi.waitFor(() => expect(events).toEqual(['stopScans', 'relaunch']))
+    expect(controller(selected).cliRefusal()).toBeNull()
+  })
+
+  it('resumes after a temporary disconnect when the link returns to the same target', async () => {
+    const target = profile('work')
+    const selected = join(home, 'active')
+    symlinkSync(target, selected, linkType)
+    const folder = controller(selected)
+
+    rmSync(selected)
+    expect(folder.paused()).toBe(true)
+    symlinkSync(target, selected, linkType)
+    onWatch?.()
+
+    await vi.waitFor(() => expect(events).toEqual(['resume']))
+    expect(folder.cliRefusal()).toBeNull()
+  })
+
+  it('retains the known profile identity when Megatron starts while the link is disconnected', async () => {
+    const target = profile('work')
+    const selected = join(home, 'active')
+    symlinkSync(target, selected, linkType)
+    const first = controller(selected)
+    rmSync(selected)
+
+    const second = controller(selected)
+    expect(second.paused()).toBe(true)
+    expect(second.root.canonicalDirectory).toBe(first.root.canonicalDirectory)
+
+    symlinkSync(target, selected, linkType)
+    onWatch?.()
+    await vi.waitFor(() => expect(events).toEqual(['resume']))
+  })
+
+  it('keeps the primary instance’s cache binding when a second instance starts', () => {
+    const primaryProfile = profile('primary')
+    const secondProfile = profile('other')
+    controller(primaryProfile)
+    const primaryBinding = store.get('claudeConfigBinding')
+
+    controller(secondProfile, false)
+
+    expect(store.get('claudeConfigBinding')).toEqual(primaryBinding)
+  })
 })
 
 it.each([
@@ -289,6 +364,7 @@ describe('choosing a folder', () => {
     const folder = createClaudeFolder({
       home,
       environment: undefined,
+      isPrimaryInstance: true,
       store,
       watch: () => {},
       pluginActionsIdle: async () => {},
@@ -356,7 +432,7 @@ describe('choosing a folder', () => {
     await vi.waitFor(() => expect(events).toEqual(['stopScans', 'relaunch']))
 
     const relaunched = controller()
-    expect(relaunched.root).toEqual({
+    expect(relaunched.root).toMatchObject({
       directory: claude,
       claudeJson: join(claude, '.claude.json'),
       source: 'settings'

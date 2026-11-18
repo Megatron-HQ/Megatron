@@ -98,6 +98,7 @@ describe('runClaude', () => {
       const folder = createClaudeFolder({
         home,
         environment: work,
+        isPrimaryInstance: true,
         store: new Store({ name: 'preferences', cwd: join(home, 'userData') }),
         watch: () => {},
         pluginActionsIdle: async () => {},

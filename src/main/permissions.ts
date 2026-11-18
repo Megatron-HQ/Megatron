@@ -51,6 +51,9 @@ export interface ConfigRoot {
   directory: string
   claudeJson: string
   source: 'default' | 'environment' | 'settings'
+  // A named folder retains its configured spelling for Claude Code paths and pins its target
+  // separately so the lifetime of the main process and its workers uses one profile.
+  canonicalDirectory?: string
 }
 
 export function defaultConfigRoot(home: string): ConfigRoot {
@@ -83,11 +86,10 @@ let tier1Files: string[]
 setClaudeConfig(defaultConfigRoot(homedir()))
 
 // Set once per process before any read: main at startup, the scan worker from its workerData.
-export function setClaudeConfig({ directory, claudeJson, source }: ConfigRoot): void {
+export function setClaudeConfig(root: ConfigRoot): void {
+  const { directory } = root
   activeConfig = {
-    directory,
-    claudeJson,
-    source,
+    ...root,
     skills: join(directory, 'skills'),
     plugins: join(directory, 'plugins'),
     projects: join(directory, 'projects'),
@@ -469,6 +471,19 @@ export function allowedRealpathSync(path: string): string | null {
   } catch {
     return null
   }
+}
+
+export function allowedDirectoryIdentitySync(path: string): string | undefined {
+  const canonical = allowedRealpathSync(path)
+  if (canonical === null) return undefined
+  try {
+    const stats = statSync(canonical, { bigint: true })
+    if (stats.isDirectory() && stats.ino !== 0n)
+      return `${stats.dev}:${stats.ino}:${stats.birthtimeNs}`
+  } catch {
+    // The directory may have disappeared after resolving the allowed path.
+  }
+  return undefined
 }
 
 // Only the folder's own link counts: a real skill folder under a linked ~/.claude returns null.

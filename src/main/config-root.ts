@@ -17,10 +17,29 @@ export interface ConfigRootResolution {
   issue?: ConfigRootIssue
 }
 
+export function configDirectoryKey(directory: string): string {
+  return process.platform === 'win32' ? directory.toLowerCase() : directory
+}
+
+export function currentConfigDirectory(directory: string): string | null {
+  try {
+    return statSync(directory).isDirectory()
+      ? configDirectoryKey(realpathSync.native(directory))
+      : null
+  } catch {
+    return null
+  }
+}
+
 // Fixed startup capability, never an arbitrary renderer path. A present folder may legitimately
 // lose its last marker when the user deletes skills; reconnect validation is stricter.
 export function assertConfigRootAvailable(root: ConfigRoot = claudeConfig()): void {
   if (!namesConfigFolder(root)) return
+  if (
+    root.canonicalDirectory !== undefined &&
+    currentConfigDirectory(root.directory) !== root.canonicalDirectory
+  )
+    throw new Error(`Claude Code folder is unavailable or has changed: ${root.directory}`)
   const { issue } = resolveConfigRoot(
     root.directory,
     homedir(),

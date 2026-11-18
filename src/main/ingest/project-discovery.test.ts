@@ -19,6 +19,7 @@ import Database from 'better-sqlite3'
 import { applySchema } from '../db/schema'
 import { listSkills, setWorktreeLinkSource } from '../db/queries'
 import { applyWorktreeEvidence, reconcileUsageProjects, worktreeLinks } from '../usage-projects'
+import { resolveUsageProjectPath } from '../../shared/usage-projects'
 import { scanSkills } from './skills-scanner'
 
 // Git config values treat a backslash as an escape, so tests write paths the way git does.
@@ -538,6 +539,35 @@ describe('git worktrees', () => {
     addSkills(app)
   })
 
+  it('keeps a repository and its surviving worktree together when a former path is reused', () => {
+    const common = join(app, '.git')
+    const reused = join(root, 'reused')
+    const sibling = join(root, 'sibling')
+    addWorktree(common, reused)
+    addWorktree(common, sibling)
+    const first = discoverProjects()
+    const initial = applyWorktreeEvidence(
+      reconcileUsageProjects([], first.projects, []),
+      first.worktrees,
+      first.canonicalCheckouts
+    )
+
+    rmSync(reused, { recursive: true })
+    rmSync(join(common, 'worktrees', 'reused'), { recursive: true })
+    mkdirSync(join(reused, '.git'), { recursive: true })
+    const second = discoverProjects(undefined, first.projects, undefined, worktreeLinks(initial))
+    const resolved = applyWorktreeEvidence(
+      JSON.parse(JSON.stringify(initial)),
+      second.worktrees,
+      second.canonicalCheckouts
+    )
+
+    expect(resolveUsageProjectPath(app, resolved)).toBe(app)
+    expect(resolveUsageProjectPath(sibling, resolved)).toBe(app)
+    expect(resolveUsageProjectPath(reused, resolved)).toBe(reused)
+    expect(resolved.map((entry) => entry.id)).toEqual(initial.map((entry) => entry.id))
+  })
+
   it('links every worktree a repository lists, even outside the grant', () => {
     addWorktree(join(app, '.git'), join(root, 'elsewhere', 'app-feature'))
     resetGrantedPaths()
@@ -763,7 +793,8 @@ describe('git worktrees', () => {
           const first = scanSkills(db)
           let locations = applyWorktreeEvidence(
             reconcileUsageProjects([], first.projects!, []),
-            first.worktrees!
+            first.worktrees!,
+            first.canonicalCheckouts
           )
           if (prune) {
             rmSync(main, { recursive: true })
@@ -788,7 +819,7 @@ describe('git worktrees', () => {
             total_invocations: survivors
           })
           expect(locations.find((entry) => entry.path === a)?.worktree).toBeUndefined()
-          expect(second.canonicalCheckouts).toContain(a)
+          expect(second.canonicalCheckouts).toContainEqual(expect.objectContaining({ path: a }))
         } finally {
           setWorktreeLinkSource(() => [])
           db.close()

@@ -16,6 +16,8 @@ export interface UsageProjectLocation extends ProjectFolder {
   worktree?: true
   // Older links have no provenance. Real Git evidence can override an excluded Claude layout.
   worktreeEvidence?: 'git'
+  // Identifies the common Git directory that proved the link, even if the checkout path is reused.
+  worktreeRepository?: string
 }
 
 export interface UsageProject {

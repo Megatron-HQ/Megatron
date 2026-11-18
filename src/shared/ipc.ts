@@ -134,6 +134,12 @@ export interface WorktreeLink {
   canonical: string
 }
 
+export interface CanonicalCheckout {
+  path: string
+  // Filesystem identity of the approved common Git directory, when the filesystem supplies it.
+  repository?: string
+}
+
 export type SourceType = 'global' | 'project' | 'plugin'
 export type LintSeverity = 'error' | 'warning'
 export type LintStatus = 'error' | 'warning' | 'clean'
@@ -236,7 +242,7 @@ export type ScanWorkerProgress =
       source: ScanSourceSummary
       projects?: ProjectFolder[]
       worktrees?: WorktreeLink[]
-      canonicalCheckouts?: string[]
+      canonicalCheckouts?: CanonicalCheckout[]
     }
 
 export interface ScanProgress {
@@ -272,7 +278,7 @@ export interface ScanTaskResult {
   projects?: ProjectFolder[]
   worktrees?: WorktreeLink[]
   // Positive discovery evidence; unlike catalog repositories, these are never stand-ins.
-  canonicalCheckouts?: string[]
+  canonicalCheckouts?: CanonicalCheckout[]
 }
 
 export interface ScanSummary {
@@ -283,7 +289,7 @@ export interface ScanSummary {
   lastSuccessfulAt?: string | null
   projects?: ProjectFolder[]
   worktrees?: WorktreeLink[]
-  canonicalCheckouts?: string[]
+  canonicalCheckouts?: CanonicalCheckout[]
 }
 
 export type FileStatus = 'ok' | 'too_large' | 'unreadable' | 'preview_limit'
