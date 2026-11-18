@@ -1,6 +1,6 @@
 # Megatron
 
-A local-first desktop app that inventories, lints, and tracks usage of every Claude Code skill a user has. Read-only in v1: it discovers and describes state, it never writes to `~/.claude`.
+A local-first desktop app that inventories, lints, and tracks usage of every Claude Code skill a user has, and manages their installed Plugins. Megatron never edits a Skill; Plugin management is its one write, and it goes only through Claude Code's own `claude plugin` commands.
 
 ## Language
 
@@ -19,7 +19,7 @@ Which of the three places a Skill lives: Global, Project, or Plugin. Determines 
 _Avoid_: Tier, kind, type — "tier" specifically collides with Permission Tier below; use Skill Source for this axis
 
 **Permission Tier**:
-Which trust bucket governs whether Megatron may read a path without asking: **Tier 1** (auto-trusted at launch — covers both the Global and Plugin Skill Sources) or **Tier 2** (requires explicit user consent via the onboarding picker — covers only the Project Skill Source). Deliberately not the same grouping as Skill Source: Global and Plugin are different Sources but the same Tier.
+Which trust bucket governs whether Megatron may read a path without asking: **Tier 1** (auto-trusted at launch — the Claude Code Folder's Skills, Plugins, and Transcripts, so both the Global and Plugin Skill Sources) or **Tier 2** (requires explicit user consent via the onboarding picker — covers only the Project Skill Source). Deliberately not the same grouping as Skill Source: Global and Plugin are different Sources but the same Tier.
 _Avoid_: Skill Source — a Tier is a permission bucket, not a place a Skill lives; the two happen to overlap but aren't interchangeable
 
 **Grant** (verb) / **Granted Path** (noun):
@@ -27,6 +27,10 @@ A user consenting, via the onboarding picker, to let Megatron read one specific 
 _Avoid_: Permission (too generic — Grant is the specific consent action that produces one)
 
 ### Scanning
+
+**Claude Code Folder**:
+The one folder of Claude Code data Megatron reads at a time: the folder chosen in Settings, else the one `CLAUDE_CONFIG_DIR` names, else `~/.claude`. Identified by its resolved location, so a link to it is the same Folder, and a moved one is a new Folder that starts with no recorded history. `~/.claude` can be read two ways, **Default** (`.claude.json` beside it in home) or **Named** (`.claude.json` inside it), and both readings are the same Folder.
+_Avoid_: Config root, config folder, profile (a profile sounds like it survives a move; a Claude Code Folder doesn't), `~/.claude` (only the default location)
 
 **Scan**:
 The read-only pass that walks every trusted or granted path across the three Skill Sources and reconciles the Index to match what's currently on disk — adding Skills that appeared, removing ones that vanished. Discovers what exists; does not judge it.
@@ -41,7 +45,7 @@ Any other checkout of the same repo, proven by git's own `.git/worktrees` link o
 _Avoid_: Clone, copy, workspace (Orca's and Conductor's word for the folder, not the relationship)
 
 **Index**:
-The local database a Scan writes into — Megatron's own regenerable record of what Skills, Sessions, and Skill Invocations exist. Never a source of truth in its own right; deleting it and rescanning is always safe and lossless for anything still on disk.
+The local database a Scan writes into — Megatron's own regenerable record of what Skills, Sessions, and Skill Invocations exist in one Claude Code Folder. Never a source of truth in its own right; deleting it and rescanning is always safe and lossless for anything still on disk.
 _Avoid_: Database, cache
 
 ### Usage tracking
@@ -55,7 +59,7 @@ The on-disk record of a Session's turns, owned and formatted by Claude Code itse
 _Avoid_: Log, history
 
 **Prompt History**:
-Claude Code's `~/.claude/history.jsonl` — one line per prompt the user submitted, carrying the time, project, and Session id but **no Session turns and no Skill Invocations**. A separate data source from the Transcript. Claude Code prunes it to `cleanupPeriodDays` (~30 days by default), so Megatron's `prompt_history` mirror is capped by design — it is wiped and reloaded whole on every Scan, and stores no prompt text.
+Claude Code's `history.jsonl` in the Claude Code Folder — one line per prompt the user submitted, carrying the time, project, and Session id but **no Session turns and no Skill Invocations**. A separate data source from the Transcript. Claude Code prunes it to `cleanupPeriodDays` (~30 days by default), so Megatron's `prompt_history` mirror is capped by design — it is wiped and reloaded whole on every Scan, and stores no prompt text.
 _Avoid_: Transcript (that's the turn-by-turn record), Activity (that's the derived view)
 
 **Prompt**:
