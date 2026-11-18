@@ -24,7 +24,8 @@ through the Claude CLI.
 - **macOS (Apple silicon) and Windows (x64).** Releases ship as an ad-hoc signed app installed by a
   Homebrew cask or a one-line installer on macOS, and a per-user NSIS installer on Windows. Neither
   is notarized or code-signed yet; see [Install](#install). Both platforms run the development
-  checks in CI. Linux is not a distribution target.
+  checks in CI. Linux is not a distribution target. On Windows, Megatron reads Claude Code
+  installed on Windows itself; Claude Code running inside WSL is not supported.
 
 ## Features
 
