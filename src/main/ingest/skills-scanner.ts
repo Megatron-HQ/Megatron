@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import { assertConfigRootAvailable } from '../config-root'
 import type { ProjectFolder, ScanIssue, ScanTaskResult } from '../../shared/ipc'
 import { dirname, join, relative, sep } from 'path'
 import { writeSkillScan, type SkillScanRow } from '../db/queries'
@@ -162,6 +163,7 @@ export function scanSkills(
   userSettingsPath?: string,
   previousProjects: ProjectFolder[] = []
 ): ScanTaskResult {
+  assertConfigRootAvailable()
   const discovery =
     roots === undefined ? discoverProjects(getGrantedPaths(), previousProjects) : undefined
   roots ??= defaultSkillRoots(discovery)
@@ -215,8 +217,10 @@ export function scanSkills(
             isRemovedSkillDirectory(skill.project_root, skill.source_path))
       )
       .map((skill) => dirname(skill.source_path))
-    if (excludedRootDirectories.length > 0)
+    if (excludedRootDirectories.length > 0) {
+      assertConfigRootAvailable()
       writeSkillScan(db, 'project', [], excludedRootDirectories)
+    }
   }
   for (const skill of previous) {
     const priorRoot = dirname(skill.source_path)
@@ -317,6 +321,7 @@ export function scanSkills(
   }
 
   for (const [sourceType, rootDirs] of rootDirsBySourceType) {
+    assertConfigRootAvailable()
     const rows = rowsBySourceType.get(sourceType) ?? []
     if (sourceType === 'project') {
       const cached = db
@@ -347,7 +352,8 @@ export function scanSkills(
               ? { ...project, status: 'unavailable' as const }
               : project
           ),
-          worktrees: discovery.worktrees
+          worktrees: discovery.worktrees,
+          canonicalCheckouts: discovery.canonicalCheckouts
         }
       : {})
   }

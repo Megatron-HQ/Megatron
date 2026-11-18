@@ -112,6 +112,10 @@ rediscovery at the same path.
   newer evidence names another repository, and cannot be unlinked. Submodules and their worktrees
   stay independent. Accepted gap: a worktree created and pruned while Megatron was closed leaves
   no evidence, and one pruned before this rule shipped stays a separate location.
+- A canonical transition requires positive checkout evidence from a complete Git index, carried
+  separately from catalog rows (a directly granted stand-in is also a repository row). The prior
+  checkout graph moves together, including retired checkouts; location IDs and manual external
+  Usage associations survive. Skill checkout links remain direct to the new Canonical Checkout.
 - A confirmed link merges Usage identity only, applied at query time. It never rewrites source
   records, changes skill or plugin ownership, or grants filesystem access, and unlinking restores
   separate totals without deleting anything. Linking has no UI yet; existing links stay intact.

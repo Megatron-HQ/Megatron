@@ -1,4 +1,5 @@
 import { parentPort, workerData } from 'worker_threads'
+import { assertConfigRootAvailable } from '../config-root'
 import Database from 'better-sqlite3'
 import { restoreGrantedPath, setClaudeConfig, type ConfigRoot } from '../permissions'
 import { setWorktreeLinkSource } from '../db/queries'
@@ -63,7 +64,15 @@ try {
         run: (db: Database.Database) => recordPluginSkillSightings(db, getArchive())
       },
       { name: 'runLinter', run: runLinter }
-    ]),
+    ]).map((task) => ({
+      name: task.name,
+      run: (db: Database.Database) => {
+        assertConfigRootAvailable()
+        const result = typeof task === 'function' ? task(db) : task.run(db)
+        assertConfigRootAvailable()
+        return result
+      }
+    })),
     (error) => {
       console.error('[ingest] scan failed', error)
     },

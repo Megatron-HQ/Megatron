@@ -160,6 +160,11 @@ const claudeFolder = createClaudeFolder({
   hold: holdClaude,
   pluginActionsIdle,
   stopScans: () => scans.cancel(),
+  suspendScans: () => {
+    usageSourceStatus.clear()
+    return scans.suspend()
+  },
+  resumeScans: () => scans.resume(),
   // exit, not quit: quitting runs before-quit, which would swap in a staged macOS update mid-switch.
   relaunch: () => {
     app.relaunch()
@@ -172,8 +177,9 @@ const claudeFolder = createClaudeFolder({
   // Deferred: a resume found inside scanAndNotify's own pause check must not start a nested scan.
   onResume: () =>
     setImmediate(() => {
+      if (claudeFolder.paused() || claudeFolder.status().state === 'switching') return
       inventoryWatcher?.update()
-      void scanAndNotify('announce', true)
+      void scanAndNotify('announce')
     })
 })
 setClaudeConfig(claudeFolder.root)
@@ -282,6 +288,7 @@ const scans = createScanController((scope) =>
     },
     undefined,
     (progress) => {
+      if (claudeFolder.paused() || claudeFolder.status().state === 'switching') return
       if (progress.type !== 'source-complete') return
       if (progress.source.name === 'archivePrompts') usageComplete = true
       if (progress.source.name === 'scanTranscripts' || progress.source.name === 'archivePrompts')
@@ -305,7 +312,7 @@ async function scanAndNotify(
 ): Promise<ScanSummary> {
   // A scan of a missing folder would delete every cached row. Cached rows stay on screen, and this
   // summary is never stored, so the folder banner explains the pause instead of a scan warning.
-  if (claudeFolder.paused()) {
+  if (claudeFolder.paused() || claudeFolder.status().state === 'switching') {
     scanComplete = true
     return { outcome: 'failed', completedAt: new Date().toISOString(), sources: [] }
   }
@@ -328,9 +335,27 @@ async function scanAndNotify(
     }
     scanSummary = {
       ...scanSummary,
+      ...(claudeFolder.paused()
+        ? {
+            outcome: 'failed' as const,
+            sources: [
+              {
+                name: 'scanWorker',
+                status: 'failed' as const,
+                failureReason: 'scan_error' as const,
+                issues: [{ code: 'source_unavailable' as const, path: claudeFolder.root.directory }]
+              }
+            ],
+            projects: undefined,
+            worktrees: undefined,
+            canonicalCheckouts: undefined
+          }
+        : {}),
       isStartup: run.isStartup,
       lastSuccessfulAt:
-        scanSummary.outcome === 'complete' ? scanSummary.completedAt : previousSuccess
+        !claudeFolder.paused() && scanSummary.outcome === 'complete'
+          ? scanSummary.completedAt
+          : previousSuccess
     }
     if (scanSummary.projects) {
       try {
@@ -339,11 +364,15 @@ async function scanAndNotify(
         console.error('[ingest] could not save project catalog', error)
       }
     }
-    if (scanSummary.worktrees) {
+    if (scanSummary.worktrees || scanSummary.canonicalCheckouts) {
       try {
         themeStore.set(
           'usageProjects',
-          applyWorktreeEvidence(usageProjectLocations(), scanSummary.worktrees)
+          applyWorktreeEvidence(
+            usageProjectLocations(),
+            scanSummary.worktrees ?? [],
+            scanSummary.canonicalCheckouts
+          )
         )
       } catch (error) {
         console.error('[ingest] could not save worktree links', error)

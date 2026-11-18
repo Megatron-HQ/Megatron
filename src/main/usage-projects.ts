@@ -249,13 +249,14 @@ export function worktreeLinks(saved: unknown): WorktreeLink[] {
 // worktree's git entry if that ever matters.
 export function applyWorktreeEvidence(
   locations: UsageProjectLocation[],
-  links: readonly WorktreeLink[]
+  links: readonly WorktreeLink[],
+  canonicalCheckouts: readonly string[] = []
 ): UsageProjectLocation[] {
   const result = locations.map((entry) => ({ ...entry }))
+  const previousById = new Map(locations.map((entry) => [entry.id, entry]))
+  const byPath = new Map(result.map((entry) => [normalizeProjectPath(entry.path), entry]))
   const locate = (path: string): UsageProjectLocation | undefined => {
-    const existing = result.find(
-      (entry) => normalizeProjectPath(entry.path) === normalizeProjectPath(path)
-    )
+    const existing = byPath.get(normalizeProjectPath(path))
     if (existing || result.length >= MAX_LOCATIONS) return existing
     const created: UsageProjectLocation = {
       id: randomUUID(),
@@ -264,15 +265,54 @@ export function applyWorktreeEvidence(
       status: 'needs_access'
     }
     result.push(created)
+    byPath.set(normalizeProjectPath(path), created)
     return created
   }
-  for (const link of links) {
+  const currentLinks = links.filter(
+    (link) =>
+      validPath(link.path) &&
+      validPath(link.canonical) &&
+      normalizeProjectPath(link.path) !== normalizeProjectPath(link.canonical)
+  )
+  const checkoutRoot = (entry: UsageProjectLocation): UsageProjectLocation => {
+    const seen = new Set<string>()
+    while (entry.worktree && entry.linkedTo && !seen.has(entry.id)) {
+      seen.add(entry.id)
+      const parent = previousById.get(entry.linkedTo)
+      if (!parent) break
+      entry = parent
+    }
+    return entry
+  }
+  // Snapshot the old graph before promoting anything: historical checkouts must move together,
+  // while a manual Usage association beyond the checkout stays separate from skill scoping.
+  const promotions = [...canonicalCheckouts].filter(validPath).sort()
+  for (const path of promotions) {
+    const canonical = locate(path)
+    const previous = canonical && previousById.get(canonical.id)
+    if (!canonical || !previous?.worktree) continue
+    const oldRoot = checkoutRoot(previous)
+    delete canonical.worktree
+    delete canonical.linkedTo
+    delete canonical.inferredOwner
+    canonical.kind = 'repository'
     if (
-      !validPath(link.path) ||
-      !validPath(link.canonical) ||
-      normalizeProjectPath(link.path) === normalizeProjectPath(link.canonical)
+      oldRoot.linkedTo &&
+      !oldRoot.worktree &&
+      !oldRoot.inferredOwner &&
+      oldRoot.linkedTo !== canonical.id
     )
-      continue
+      canonical.linkedTo = oldRoot.linkedTo
+    for (const entry of result) {
+      const old = previousById.get(entry.id)
+      if (entry.id === canonical.id || !old || checkoutRoot(old).id !== oldRoot.id) continue
+      entry.linkedTo = canonical.id
+      entry.worktree = true
+      entry.kind = 'repository'
+      delete entry.inferredOwner
+    }
+  }
+  for (const link of currentLinks) {
     const canonical = locate(link.canonical)
     const worktree = locate(link.path)
     if (!canonical || !worktree) continue

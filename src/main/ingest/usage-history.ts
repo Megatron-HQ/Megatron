@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import { assertConfigRootAvailable } from '../config-root'
 
 const TOKEN_COLUMNS = [
   'input_tokens',
@@ -213,10 +214,12 @@ export function archiveUsageHistory(
   now: Date = new Date()
 ): void {
   archive.transaction(() => {
+    assertConfigRootAvailable()
     if (sources.prompts) archivePrompts(index, archive, now)
     if (sources.tokens) {
       copyTokenSources(index, archive)
       rebuildTokenShares(archive)
     }
+    assertConfigRootAvailable()
   })()
 }

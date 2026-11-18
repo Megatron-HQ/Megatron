@@ -23,6 +23,41 @@ function claudeFolderFixture(result, mode) {
     { id: 'home:.claude-personal', path: join(home, '.claude-personal'), tags: [], active: false }
   ]
   const named = { path: work, source: 'settings', options: options('work') }
+  if (mode.startsWith('claude-folder-many')) {
+    const path = join(
+      home,
+      'profiles',
+      'a-long-team-name-with-several-environments',
+      'claude-code-production-profile'
+    )
+    const fallback = mode.endsWith('fallback')
+    return {
+      path: fallback ? defaultPath : path,
+      source: fallback ? 'default' : 'settings',
+      state: mode.endsWith('paused') ? 'paused' : 'ok',
+      issue:
+        mode === 'claude-folder-many'
+          ? null
+          : {
+              value: path,
+              reason: fallback ? 'no-marker' : 'missing',
+              source: 'settings'
+            },
+      options: [
+        { id: 'saved', path, tags: ['environment'], active: !fallback },
+        ...options(fallback ? 'default' : 'none').filter((option) => option.id !== 'saved'),
+        ...Array.from({ length: 16 }, (_, index) => ({
+          id: `home:long-profile-${index}`,
+          path:
+            index % 2 === 0
+              ? `D:\\Team Profiles\\A very long organization name\\Production environments\\Claude Code profile ${index}`
+              : `/Volumes/Team profiles/A very long organization name/Production environments/Claude Code profile ${index}`,
+          tags: index === 0 ? ['environment'] : [],
+          active: false
+        }))
+      ]
+    }
+  }
   switch (mode) {
     case 'claude-folder-options':
       return { ...named, state: 'ok', issue: null }

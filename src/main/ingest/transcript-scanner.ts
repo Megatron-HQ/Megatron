@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import { assertConfigRootAvailable } from '../config-root'
 import { basename, dirname, join } from 'path'
 import {
   claudeConfig,
@@ -576,6 +577,7 @@ export function scanTranscripts(
   db: Database.Database,
   projectsDir: string = claudeConfig().projects
 ): ScanTaskResult {
+  assertConfigRootAvailable()
   const upsertSession = db.prepare(`
     INSERT INTO sessions_meta
       (session_id, cwd, git_branch, started_at, message_count, continued_in_session_id,
@@ -805,6 +807,7 @@ export function scanTranscripts(
       }
     }
 
+    assertConfigRootAvailable()
     if (!scanIsAuthoritative) {
       reconcileReplayedInvocations(
         db,
@@ -861,6 +864,7 @@ export function scanTranscripts(
     reconcileReplayedTurns(db, previousTurns, parsedTurns, unchangedSources, insertTurn)
     rebuildCostLineages(db)
     rebuildSessionSkillCosts(db)
+    assertConfigRootAvailable()
     return { status: 'complete' as const }
   })
 

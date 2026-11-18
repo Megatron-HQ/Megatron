@@ -233,6 +233,7 @@ export type ScanWorkerProgress =
       source: ScanSourceSummary
       projects?: ProjectFolder[]
       worktrees?: WorktreeLink[]
+      canonicalCheckouts?: string[]
     }
 
 export interface ScanProgress {
@@ -267,6 +268,8 @@ export interface ScanTaskResult {
   issues?: ScanIssue[]
   projects?: ProjectFolder[]
   worktrees?: WorktreeLink[]
+  // Positive discovery evidence; unlike catalog repositories, these are never stand-ins.
+  canonicalCheckouts?: string[]
 }
 
 export interface ScanSummary {
@@ -277,6 +280,7 @@ export interface ScanSummary {
   lastSuccessfulAt?: string | null
   projects?: ProjectFolder[]
   worktrees?: WorktreeLink[]
+  canonicalCheckouts?: string[]
 }
 
 export type FileStatus = 'ok' | 'too_large' | 'unreadable' | 'preview_limit'

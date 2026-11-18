@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import { assertConfigRootAvailable } from '../config-root'
 import { claudeConfig, visitAllowedUtf8LinesSync } from '../permissions'
 import type { ScanTaskResult } from '../../shared/ipc'
 
@@ -68,6 +69,7 @@ export function scanPromptHistory(
   historyFile: string = claudeConfig().history,
   maximumRows = MAX_HISTORY_ROWS
 ): ScanTaskResult {
+  assertConfigRootAvailable()
   const rows: PromptHistoryRow[] = []
   let retainedBytes = 0
   class HistoryLimitError extends Error {}
@@ -100,6 +102,7 @@ export function scanPromptHistory(
      VALUES (@session_id, @project, @typed_at, @is_slash_command)`
   )
   db.transaction(() => {
+    assertConfigRootAvailable()
     db.prepare('DELETE FROM prompt_history').run()
     for (const row of rows) insert.run(row)
   })()

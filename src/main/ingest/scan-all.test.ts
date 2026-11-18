@@ -6,6 +6,26 @@ import type { ScanWorkerProgress } from '../../shared/ipc'
 const database = {} as Database.Database
 
 describe('runAllScans', () => {
+  it.each(['complete', 'partial'])(
+    'carries positive canonical evidence through %s and later failure',
+    (status) => {
+      const progress: ScanWorkerProgress[] = []
+      const result = runAllScans(
+        database,
+        [
+          () => ({ status, canonicalCheckouts: ['/a'] }),
+          () => {
+            throw new Error('later')
+          }
+        ],
+        undefined,
+        (entry) => progress.push(entry)
+      )
+      expect(result.canonicalCheckouts).toEqual(['/a'])
+      expect(progress[1]).toMatchObject({ canonicalCheckouts: ['/a'] })
+      expect(runAllScans(database, [() => undefined]).canonicalCheckouts).toBeUndefined()
+    }
+  )
   it('limits live inventory refreshes to inventory and linting sources', () => {
     const tasks = [
       'scanTranscripts',

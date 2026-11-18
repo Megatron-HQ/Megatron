@@ -114,7 +114,7 @@ export function OnboardingDialog({
     <Dialog open={open} onOpenChange={(next) => !next && onFinish()}>
       <DialogContent
         aria-describedby={undefined}
-        className="gap-0 overflow-hidden p-0 sm:max-w-[560px]"
+        className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[560px]"
         onOpenAutoFocus={(event) => event.preventDefault()}
         onInteractOutside={(event) => event.preventDefault()}
         onKeyDown={(event) => {
@@ -141,7 +141,7 @@ export function OnboardingDialog({
           initial={false}
           animate={{ height: height ?? 'auto' }}
           transition={reduceMotion ? { duration: 0 } : SPRING}
-          className="relative overflow-hidden"
+          className="relative min-h-0 shrink overflow-x-hidden overflow-y-auto"
         >
           <div ref={measure} className="relative px-6 pt-7 pb-6">
             <AnimatePresence initial={false} mode="popLayout" custom={direction}>
@@ -178,7 +178,7 @@ export function OnboardingDialog({
           </div>
         </motion.div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-border px-6 py-4">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border px-6 py-4">
           <div role="group" aria-label="Onboarding progress" className="flex items-center">
             {STEPS.map((name, index) => (
               <button

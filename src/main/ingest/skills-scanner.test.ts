@@ -27,6 +27,12 @@ import {
   scanSkills,
   type SkillRoot
 } from './skills-scanner'
+import { scanPluginRegistry } from './plugin-registry'
+import { scanTranscripts } from './transcript-scanner'
+import { scanPromptHistory } from './prompt-history-scanner'
+import { createUsageScanTasks } from './usage-scan-tasks'
+import { runAllScans } from './scan-all'
+import { openUsageArchive } from '../db/usage-archive'
 
 let db: Database.Database
 let tmpDir: string
@@ -64,6 +70,7 @@ function writeUserSettings(content: unknown): void {
 }
 
 beforeEach(() => {
+  setClaudeConfig(defaultConfigRoot(homedir()))
   db = new Database(':memory:')
   applySchema(db)
   tmpDir = realpathSync(mkdtempSync(join(tmpdir(), 'megatron-test-')))
@@ -72,6 +79,136 @@ beforeEach(() => {
 })
 
 describe('live project reconciliation', () => {
+  it('does not commit archive coverage if the profile disappears while the archive opens', () => {
+    const directory = join(tmpDir, 'profile')
+    mkdirSync(directory)
+    writeFileSync(
+      join(directory, 'history.jsonl'),
+      JSON.stringify({
+        sessionId: 'saved',
+        project: '/repo',
+        timestamp: 1794960000000,
+        display: 'hello'
+      })
+    )
+    setClaudeConfig({ directory, claudeJson: join(directory, '.claude.json'), source: 'settings' })
+    const archive = openUsageArchive(':memory:')
+    let opens = 0
+    try {
+      const result = runAllScans(
+        db,
+        createUsageScanTasks({
+          scanTranscripts,
+          scanPromptHistory,
+          getArchive: () => {
+            if (++opens === 2) rmSync(directory, { recursive: true })
+            return archive
+          }
+        })
+      )
+      expect(result.sources.find((entry) => entry.name === 'archivePrompts')?.status).toBe('failed')
+      expect(archive.prepare('SELECT COUNT(*) AS count FROM history_coverage').get()).toEqual({
+        count: 0
+      })
+      expect(archive.prepare('SELECT COUNT(*) AS count FROM history_prompts').get()).toEqual({
+        count: 0
+      })
+    } finally {
+      archive.close()
+    }
+  })
+
+  it.each(['plugins', 'transcripts'] as const)(
+    'retains cached %s when the profile disappears during enumeration',
+    (source) => {
+      const directory = join(tmpDir, 'profile')
+      mkdirSync(join(directory, source === 'plugins' ? 'plugins' : 'projects'), { recursive: true })
+      writeFileSync(join(directory, 'settings.json'), '{}')
+      setClaudeConfig({
+        directory,
+        claudeJson: join(directory, '.claude.json'),
+        source: 'settings'
+      })
+      db.prepare(
+        "INSERT INTO sessions_meta (session_id, cwd, started_at, message_count, source_mtime_ms) VALUES ('saved', '/repo', '2026-11-18T00:00:00Z', 1, 1)"
+      ).run()
+      db.prepare(
+        "INSERT INTO plugin_registry (name, marketplace, installed_version, scope, install_path, last_scanned_at) VALUES ('saved', 'market', '1', 'user', '/cache', '2026-11-18T00:00:00Z')"
+      ).run()
+      const read = permissions.readAllowedDirectory
+      vi.spyOn(permissions, 'readAllowedDirectory').mockImplementation((path, limit) => {
+        if (path === join(directory, source === 'plugins' ? 'plugins' : 'projects'))
+          rmSync(directory, { recursive: true, force: true })
+        return read(path, limit)
+      })
+      expect(() => (source === 'plugins' ? scanPluginRegistry(db) : scanTranscripts(db))).toThrow(
+        'unavailable'
+      )
+      expect(db.prepare('SELECT session_id FROM sessions_meta').all()).toEqual([
+        { session_id: 'saved' }
+      ])
+      expect(db.prepare('SELECT name FROM plugin_registry').all()).toEqual([{ name: 'saved' }])
+    }
+  )
+
+  it('does not archive unavailable sources as fresh coverage', () => {
+    const directory = join(tmpDir, 'disconnected')
+    setClaudeConfig({
+      directory,
+      claudeJson: join(directory, '.claude.json'),
+      source: 'environment'
+    })
+    const archive = openUsageArchive(':memory:')
+    try {
+      const tasks = createUsageScanTasks({
+        scanTranscripts,
+        scanPromptHistory,
+        getArchive: () => archive
+      })
+      const result = runAllScans(db, tasks)
+      expect(result.outcome).not.toBe('complete')
+      expect(result.sources.find((entry) => entry.name === 'archiveTokens')?.status).not.toBe(
+        'complete'
+      )
+      expect(result.sources.find((entry) => entry.name === 'archivePrompts')?.status).not.toBe(
+        'complete'
+      )
+    } finally {
+      archive.close()
+    }
+  })
+
+  it('still removes global skills intentionally deleted inside a present named profile', () => {
+    const directory = join(tmpDir, 'profile')
+    const skills = join(directory, 'skills')
+    writeSkillDir(skills, 'removed', '---\nname: removed\n---\nBody')
+    setClaudeConfig({ directory, claudeJson: join(directory, '.claude.json'), source: 'settings' })
+    scanSkills(db)
+    rmSync(skills, { recursive: true })
+    expect(scanSkills(db).status).toBe('complete')
+    expect(allSkills()).toEqual([])
+  })
+
+  it.each(['settings', 'environment'] as const)(
+    'preserves a global skill after a %s profile disappears during its read',
+    (source) => {
+      const directory = join(tmpDir, 'profile')
+      const skills = join(directory, 'skills')
+      writeSkillDir(skills, 'saved', '---\nname: saved\n---\nBody')
+      writeFileSync(join(directory, 'settings.json'), '{}')
+      setClaudeConfig({ directory, claudeJson: join(directory, '.claude.json'), source })
+      scanSkills(db)
+      expect(allSkills()).toHaveLength(1)
+      const read = permissions.readAllowedDirectory
+      vi.spyOn(permissions, 'readAllowedDirectory').mockImplementation((path, limit) => {
+        if (path === skills) rmSync(directory, { recursive: true, force: true })
+        return read(path, limit)
+      })
+      expect(() => scanSkills(db)).toThrow('unavailable')
+      expect(allSkills()).toHaveLength(1)
+    }
+  )
+
   it('removes stale skills when only a discovered child’s Claude folder is deleted', () => {
     const repository = join(tmpDir, 'still-present')
     writeSkillDir(join(repository, '.claude', 'skills'), 'removed', '---\nname: removed\n---\nBody')

@@ -331,6 +331,112 @@ describe('Claude app chats', () => {
 })
 
 describe('worktrees', () => {
+  it.each([false, true])(
+    'promotes a former worktree and preserves history and manual groups (manual=%s)',
+    (manual) => {
+      const before = applyWorktreeEvidence(
+        reconcileUsageProjects([], [repository('/external')], []),
+        [
+          { path: '/a', canonical: '/main' },
+          { path: '/z', canonical: '/main' }
+        ]
+      )
+      const main = before.find((entry) => entry.path === '/main')!
+      const external = before.find((entry) => entry.path === '/external')!
+      const saved = manual ? linkUsageProjects(before, main.id, external.id) : before
+      const after = applyWorktreeEvidence(
+        JSON.parse(JSON.stringify(saved)),
+        [{ path: '/z', canonical: '/a' }],
+        ['/a']
+      )
+      const restored = reconcileUsageProjects(
+        JSON.parse(JSON.stringify(after)),
+        [repository('/a')],
+        []
+      )
+      expect(restored.map((entry) => entry.id).sort()).toEqual(
+        before.map((entry) => entry.id).sort()
+      )
+      expect(restored.find((entry) => entry.path === '/a')?.worktree).toBeUndefined()
+      expect(worktreeLinks(restored)).toEqual(
+        expect.arrayContaining([
+          { path: '/main', canonical: '/a' },
+          { path: '/z', canonical: '/a' }
+        ])
+      )
+      expect(worktreeLinks(restored)).toHaveLength(2)
+      for (const path of ['/main', '/a', '/z'])
+        expect(resolveUsageProjectPath(path, restored)).toBe(manual ? '/external' : '/a')
+      expect(
+        groupProjectCounts(
+          [
+            { project: '/main', count: 3 },
+            { project: '/a', count: 1 },
+            { project: '/z', count: 1 }
+          ],
+          restored
+        )
+      ).toEqual([{ project: manual ? '/external' : '/a', count: 5 }])
+      expect(
+        groupProjectTokens(
+          [
+            {
+              key: '/main',
+              tokens: { input: 10, output: 0, cacheRead: 0, cacheWrite: 0, total: 10 }
+            },
+            { key: '/z', tokens: { input: 20, output: 0, cacheRead: 0, cacheWrite: 0, total: 20 } }
+          ],
+          restored
+        )
+      ).toEqual([
+        {
+          key: manual ? '/external' : '/a',
+          tokens: { input: 30, output: 0, cacheRead: 0, cacheWrite: 0, total: 30 }
+        }
+      ])
+      expect(
+        groupProjectSpending(
+          [
+            { project: '/main', costUsd: 1 },
+            { project: '/z', costUsd: 2 }
+          ],
+          restored
+        )
+      ).toEqual([{ project: manual ? '/external' : '/a', costUsd: 3 }])
+    }
+  )
+
+  it('promotes a single survivor only with positive canonical evidence', () => {
+    const before = applyWorktreeEvidence([], [{ path: '/a', canonical: '/main' }])
+    const standIn = reconcileUsageProjects(before, [repository('/a')], [])
+    expect(worktreeLinks(applyWorktreeEvidence(standIn, []))).toEqual([
+      { path: '/a', canonical: '/main' }
+    ])
+    const after = applyWorktreeEvidence(standIn, [], ['/a'])
+    expect(worktreeLinks(after)).toEqual([{ path: '/main', canonical: '/a' }])
+    expect(after.find((entry) => entry.path === '/a')?.worktree).toBeUndefined()
+  })
+
+  it('makes a canonical transition independent of link order and Windows spelling', () => {
+    const before = applyWorktreeEvidence(
+      [],
+      [
+        { path: 'C:/repo/a', canonical: 'C:/repo/main' },
+        { path: 'C:/repo/z', canonical: 'C:/repo/main' }
+      ]
+    )
+    const links = [
+      { path: 'c:/REPO/main', canonical: 'c:/repo/A' },
+      { path: 'C:/repo/z', canonical: 'c:/repo/A' }
+    ]
+    const after = applyWorktreeEvidence(before, links, ['c:/repo/A'])
+    expect(applyWorktreeEvidence(before, [...links].reverse(), ['c:/repo/A'])).toEqual(after)
+    expect(worktreeLinks(after)).toEqual([
+      { path: 'C:/repo/main', canonical: 'C:/repo/a' },
+      { path: 'C:/repo/z', canonical: 'C:/repo/a' }
+    ])
+  })
+
   const link = { path: '/wt/app-x', canonical: '/code/app' }
   const roots = (locations: ReturnType<typeof reconcileUsageProjects>): string[] =>
     usageProjectCatalog(locations)

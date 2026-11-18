@@ -1,13 +1,33 @@
 import { readdirSync, realpathSync, statSync } from 'fs'
 import { dirname, isAbsolute, join, resolve } from 'path'
+import { homedir } from 'os'
 import type { ClaudeFolderIssue, ClaudeFolderOption, ClaudeFolderTag } from '../shared/ipc'
-import { defaultConfigRoot, isWithinGrant, type ConfigRoot } from './permissions'
+import {
+  claudeConfig,
+  defaultConfigRoot,
+  isWithinGrant,
+  namesConfigFolder,
+  type ConfigRoot
+} from './permissions'
 
 export type ConfigRootIssue = ClaudeFolderIssue
 
 export interface ConfigRootResolution {
   root: ConfigRoot
   issue?: ConfigRootIssue
+}
+
+// Fixed startup capability, never an arbitrary renderer path. A present folder may legitimately
+// lose its last marker when the user deletes skills; reconnect validation is stricter.
+export function assertConfigRootAvailable(root: ConfigRoot = claudeConfig()): void {
+  if (!namesConfigFolder(root)) return
+  const { issue } = resolveConfigRoot(
+    root.directory,
+    homedir(),
+    root.source === 'environment' ? 'environment' : 'settings'
+  )
+  if (issue && issue.reason !== 'no-marker')
+    throw new Error(`Claude Code folder is unavailable: ${root.directory} (${issue.reason})`)
 }
 
 const CLAUDE_MARKERS = new Set([
@@ -180,8 +200,13 @@ export function listConfigFolders(
   const options: ClaudeFolderOption[] = []
   for (const candidate of candidates) {
     const match = options.find((option) => sameFolder(option.path, candidate.path))
-    if (match) match.tags = [...new Set([...match.tags, ...candidate.tags])]
-    else options.push({ ...candidate, active: sameFolder(candidate.path, active) })
+    if (match) {
+      match.tags = [...new Set([...match.tags, ...candidate.tags])]
+      if (candidate.id === 'default') {
+        match.id = candidate.id
+        match.path = candidate.path
+      }
+    } else options.push({ ...candidate, active: sameFolder(candidate.path, active) })
   }
   return options
 }

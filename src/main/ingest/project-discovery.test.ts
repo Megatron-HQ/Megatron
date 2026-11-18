@@ -6,6 +6,11 @@ import * as permissions from '../permissions'
 import { grantPath, resetGrantedPaths, revokePath } from '../permissions'
 import { createMissingProjectCheck, discoverProjects } from './project-discovery'
 import type { ProjectFolder } from '../../shared/ipc'
+import Database from 'better-sqlite3'
+import { applySchema } from '../db/schema'
+import { listSkills, setWorktreeLinkSource } from '../db/queries'
+import { applyWorktreeEvidence, reconcileUsageProjects, worktreeLinks } from '../usage-projects'
+import { scanSkills } from './skills-scanner'
 
 let root: string
 beforeEach(() => {
@@ -635,6 +640,68 @@ describe('git worktrees', () => {
   })
 
   describe('bare repositories', () => {
+    it.each([
+      { survivors: 1, prune: true },
+      { survivors: 2, prune: true },
+      { survivors: 2, prune: false }
+    ])(
+      'credits surviving checkouts after changing the canonical ($survivors survivors, prune=$prune)',
+      ({ survivors, prune }) => {
+        const bare = join(project, '.bare')
+        initBare(bare)
+        const main = join(project, 'main')
+        const a = join(project, 'a-feature')
+        const z = join(project, 'z-dev')
+        addWorktree(bare, main, 'ref: refs/heads/main')
+        addWorktree(bare, a, 'ref: refs/heads/feature')
+        if (survivors === 2) addWorktree(bare, z, 'ref: refs/heads/dev')
+        for (const checkout of [main, a, ...(survivors === 2 ? [z] : [])]) {
+          const dir = join(addSkills(checkout), 'deploy')
+          mkdirSync(dir)
+          writeFileSync(
+            join(dir, 'SKILL.md'),
+            '---\nname: deploy\ndescription: Deploy\n---\nDeploy'
+          )
+        }
+        const db = new Database(':memory:')
+        applySchema(db)
+        try {
+          const first = scanSkills(db)
+          let locations = applyWorktreeEvidence(
+            reconcileUsageProjects([], first.projects!, []),
+            first.worktrees!
+          )
+          if (prune) {
+            rmSync(main, { recursive: true })
+            rmSync(join(bare, 'worktrees', 'main'), { recursive: true })
+          } else writeFileSync(join(bare, 'HEAD'), 'ref: refs/heads/feature\n')
+          const second = scanSkills(db, undefined, undefined, first.projects)
+          locations = applyWorktreeEvidence(
+            JSON.parse(JSON.stringify(locations)),
+            second.worktrees!,
+            second.canonicalCheckouts
+          )
+          setWorktreeLinkSource(() => worktreeLinks(locations))
+          for (const [index, cwd] of [a, ...(survivors === 2 ? [z] : [])].entries()) {
+            db.prepare(
+              'INSERT INTO sessions_meta (session_id, cwd, started_at, message_count, source_mtime_ms) VALUES (?, ?, ?, 1, 1)'
+            ).run(String(index), cwd, '2026-11-18T00:00:00Z')
+            db.prepare(
+              "INSERT INTO skill_invocations (source_uuid, session_id, skill_name, invoked_at, trigger_type) VALUES (?, ?, 'deploy', ?, 'user_invoked')"
+            ).run(String(index), String(index), '2026-11-18T00:00:00Z')
+          }
+          expect(listSkills(db).find((skill) => skill.project_root === a)).toMatchObject({
+            total_invocations: survivors
+          })
+          expect(locations.find((entry) => entry.path === a)?.worktree).toBeUndefined()
+          expect(second.canonicalCheckouts).toContain(a)
+        } finally {
+          setWorktreeLinkSource(() => [])
+          db.close()
+        }
+      }
+    )
+
     let project: string
     beforeEach(() => {
       project = join(root, 'project')

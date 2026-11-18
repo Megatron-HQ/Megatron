@@ -273,6 +273,16 @@ describe('settingsChoice', () => {
 })
 
 describe('listConfigFolders', () => {
+  it('keeps the default action when a saved alias is repointed to the default', () => {
+    const saved = link(profile('profiles/work'), '.claude-alias')
+    const claude = profile('.claude')
+    rmSync(saved)
+    symlinkSync(claude, saved, process.platform === 'win32' ? 'junction' : 'dir')
+    expect(listConfigFolders({ saved, environment: claude, active: saved }, home)).toEqual([
+      { id: 'default', path: claude, tags: ['default', 'environment'], active: true }
+    ])
+  })
+
   function option(id: string, path: string, tags: string[] = [], active = false): object {
     return { id, path, tags, active }
   }

@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import { assertConfigRootAvailable } from '../config-root'
 import type { ScanIssue, ScanTaskResult, WorktreeLink } from '../../shared/ipc'
 import { dirname, join } from 'path'
 import { writeSkillScan, writeSkillScanAuthoritative, type SkillScanRow } from '../db/queries'
@@ -223,6 +224,7 @@ export function scanPluginRegistry(
   userSettingsPath?: string,
   worktreeLinks: readonly WorktreeLink[] = []
 ): ScanTaskResult {
+  assertConfigRootAvailable()
   const pluginsDirectory = readAllowedDirectory(pluginsDir)
   if (pluginsDirectory.status === 'unavailable') return { status: 'partial' }
 
@@ -557,6 +559,7 @@ export function scanPluginRegistry(
       install_path: string
       project_path: string
     }[]
+    assertConfigRootAvailable()
     const deleteRegistryRow = db.prepare(
       `DELETE FROM plugin_registry
        WHERE name = ? AND marketplace = ? AND scope = ? AND install_path = ? AND project_path = ?`
@@ -589,6 +592,7 @@ export function scanPluginRegistry(
     } else if (readableSkillRoots.length > 0) {
       writeSkillScan(db, 'plugin', skillRows, readableSkillRoots)
     }
+    assertConfigRootAvailable()
     return {
       status:
         pluginSkillScanIsAuthoritative && hasMarketplaceSnapshot && componentsComplete

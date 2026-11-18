@@ -52,8 +52,12 @@ fixed for the process; the scan worker receives it in `workerData`. Elsewhere in
   `runClaude`, the one path every spawned `claude` takes), so a missing drive can't empty the
   index. A 2-second `fs.watchFile` poll, plus a check on every scan request, notices it leave and
   return; a returning folder must pass the checks above again before anything resumes. This
-  narrows the old accepted risk of a folder reappearing as a link to a broad tree to a scan already
-  running at that instant. `~/.claude` read as the default never pauses, since a fresh install has
+  also suspends active scans and settles queued requests; reconnect waits for termination and
+  revalidates the folder before one fresh scan. Workers recheck the fixed root between tasks,
+  before destructive reconciliation, and inside archive transactions. Unavailable sources retain
+  cached rows and cannot establish fresh archive coverage. Deleting a data subdirectory in a
+  present profile still reconciles normally. These checks narrow same-user filesystem races;
+  they are not an atomic filesystem snapshot. `~/.claude` read as the default never pauses, since a fresh install has
   none until Claude Code first runs.
 - The marker probe lists names in the one named folder with plain `fs` before it becomes Tier 1.
   Settings' suggestions list `$HOME`'s entry names and, for `.claude-*`/`.claude_*` folders only,

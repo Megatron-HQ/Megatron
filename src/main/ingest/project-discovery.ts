@@ -107,6 +107,7 @@ export interface ProjectDiscovery {
   incomplete: boolean
   // Every worktree link seen this pass, from either side; see CONTEXT.md "Worktree".
   worktrees: WorktreeLink[]
+  canonicalCheckouts: string[]
   // Worktrees found under a grant that contribute no skills of their own.
   skippedWorktrees: string[]
 }
@@ -409,6 +410,12 @@ export function discoverProjects(
     skillRoots: [...roots.values()],
     incomplete,
     worktrees: [...links.values()],
+    canonicalCheckouts: [...gitDirs.values()].flatMap(({ commonDir, index }) => {
+      const canonical = canonicals.get(pathKey(commonDir))
+      return index?.complete && canonical && projects.get(pathKey(canonical))?.kind === 'repository'
+        ? [canonical]
+        : []
+    }),
     skippedWorktrees
   }
 }

@@ -3165,9 +3165,34 @@ export const scenarios = [
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
+  ...['claude-folder-many', 'claude-folder-many-paused', 'claude-folder-many-fallback'].flatMap(
+    (mode) =>
+      ['light', 'dark'].map((theme) => ({
+        name: `onboarding-no-data-${mode}-${theme}`,
+        screen: 'onboarding',
+        async run(window, app) {
+          await app.evaluate((_, fixture) => {
+            for (const channel of [
+              'skills:list',
+              'plugins:list',
+              'usage:projects',
+              'usage:overview'
+            ])
+              globalThis.megatronVisualFixtures.set(channel, 'no-data')
+            globalThis.megatronVisualFixtures.set('claudeFolder:get', fixture)
+          }, mode)
+          await window.evaluate((value) => window.api.setTheme(value), theme)
+          await window.reload()
+          await openOnboarding(window)
+          await window.getByRole('button', { name: 'Next', exact: true }).click()
+          await window.getByText('No Claude Code data found', { exact: true }).waitFor()
+          await window.waitForTimeout(MOTION_SETTLE_MS)
+        }
+      }))
+  ),
   ...['brief', 'overview', 'folders'].map((step, index) => ({
-    // Each onboarding step must fit the 860×500 minimum window, with only the folder list
-    // scrolling. Folder rows and counts are this machine's real Claude Code data.
+    // Each step fits the minimum window; tall bodies scroll above the persistent footer.
+    // Folder rows and counts are this machine's real Claude Code data.
     name: `onboarding-${step}`,
     screen: 'onboarding',
     async run(window) {

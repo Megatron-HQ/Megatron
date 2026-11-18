@@ -1,5 +1,5 @@
 import Store from 'electron-store'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -14,6 +14,8 @@ let watched: string[]
 let events: string[]
 let broadcasts: ClaudeFolderStatus[]
 let idle: Promise<void>
+let suspension: Promise<void>
+let suspensionCount: number
 
 beforeEach(() => {
   home = realpathSync(mkdtempSync(join(tmpdir(), 'megatron-claude-folder-')))
@@ -23,6 +25,8 @@ beforeEach(() => {
   events = []
   broadcasts = []
   idle = Promise.resolve()
+  suspension = Promise.resolve()
+  suspensionCount = 0
 })
 
 afterEach(() => {
@@ -50,6 +54,11 @@ function controller(environment?: string): ReturnType<typeof createClaudeFolder>
     stopScans: async () => {
       events.push('stopScans')
     },
+    suspendScans: async () => {
+      suspensionCount++
+      await suspension
+    },
+    resumeScans: () => {},
     relaunch: () => events.push('relaunch'),
     broadcast: (status) => broadcasts.push(status),
     onResume: () => events.push('resume')
@@ -57,7 +66,56 @@ function controller(environment?: string): ReturnType<typeof createClaudeFolder>
 }
 
 describe('a folder chosen in Settings that goes missing', () => {
-  it('starts paused with the CLI held, then resumes when the folder returns', () => {
+  it('keeps the CLI held when cancellation fails and retries before reconnecting', async () => {
+    const work = profile('.claude-work')
+    store.set('claudeConfigDir', work)
+    suspension = Promise.reject(new Error('worker termination failed'))
+    // The dependency consumes this rejection when suspension starts.
+    void suspension.catch(() => {})
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const folder = controller()
+      rmSync(work, { recursive: true })
+      onWatch?.()
+      await vi.waitFor(() => expect(errorLog).toHaveBeenCalledOnce())
+      profile('.claude-work')
+      suspension = Promise.resolve()
+      expect(folder.paused()).toBe(true)
+      expect(events).toEqual(['hold'])
+      await vi.waitFor(() => expect(events).toEqual(['hold', 'release', 'resume']))
+      expect(suspensionCount).toBe(2)
+    } finally {
+      errorLog.mockRestore()
+    }
+  })
+
+  it('waits for cancellation before resuming and revalidates a second disappearance', async () => {
+    const work = profile('.claude-work')
+    store.set('claudeConfigDir', work)
+    let stopped!: () => void
+    suspension = new Promise<void>((resolve) => {
+      stopped = resolve
+    })
+    const folder = controller()
+    rmSync(work, { recursive: true })
+    onWatch?.()
+    await Promise.resolve()
+    expect(suspensionCount).toBe(1)
+    profile('.claude-work')
+    expect(folder.paused()).toBe(true)
+    expect(events).toEqual(['hold'])
+    rmSync(work, { recursive: true })
+    stopped()
+    await vi.waitFor(() => expect(suspensionCount).toBe(1))
+    expect(folder.paused()).toBe(true)
+    profile('.claude-work')
+    onWatch?.()
+    await vi.waitFor(() => expect(events).toEqual(['hold', 'release', 'resume']))
+    onWatch?.()
+    expect(suspensionCount).toBe(1)
+  })
+
+  it('starts paused with the CLI held, then resumes when the folder returns', async () => {
     const usb = join(home, '.claude-usb')
     store.set('claudeConfigDir', usb)
     const folder = controller()
@@ -76,7 +134,7 @@ describe('a folder chosen in Settings that goes missing', () => {
 
     profile('.claude-usb')
     onWatch?.()
-    expect(events).toEqual(['hold', 'release', 'resume'])
+    await vi.waitFor(() => expect(events).toEqual(['hold', 'release', 'resume']))
     expect(broadcasts.at(-1)).toMatchObject({ state: 'ok', issue: null })
     expect(folder.paused()).toBe(false)
   })
@@ -132,6 +190,25 @@ it.each([
 })
 
 describe('choosing a folder', () => {
+  it('resolves Use default after a saved alias changes target and restores default read semantics', async () => {
+    const alternate = profile('profiles/work')
+    const alias = join(home, '.claude-alias')
+    symlinkSync(alternate, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    store.set('claudeConfigDir', alias)
+    const claude = profile('.claude')
+    rmSync(alias)
+    symlinkSync(claude, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    const folder = controller(alias)
+    expect(folder.root.claudeJson).toBe(join(alias, '.claude.json'))
+    await expect(folder.choose('default')).resolves.toMatchObject({
+      outcome: 'chosen',
+      status: { state: 'switching' }
+    })
+    expect(store.get('claudeConfigDir')).toBeNull()
+    await vi.waitFor(() => expect(events).toEqual(['hold', 'stopScans', 'relaunch']))
+    expect(controller(alias).root.claudeJson).toBe(join(home, '.claude.json'))
+  })
+
   it('saves nothing when the picker is canceled', async () => {
     await expect(controller().pickFolder(async () => null)).resolves.toEqual({
       outcome: 'canceled'
@@ -179,6 +256,8 @@ describe('choosing a folder', () => {
       stopScans: async () => {
         throw new Error('worker would not stop')
       },
+      suspendScans: async () => {},
+      resumeScans: () => {},
       relaunch: () => events.push('relaunch'),
       broadcast: () => {},
       onResume: () => {}

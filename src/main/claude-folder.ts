@@ -7,7 +7,7 @@ import {
   sameFolder,
   settingsChoice
 } from './config-root'
-import { namesConfigFolder, type ConfigRoot } from './permissions'
+import { defaultConfigRoot, namesConfigFolder, type ConfigRoot } from './permissions'
 import type { ThemeStore } from './theme'
 
 const RESTARTING_MESSAGE =
@@ -25,6 +25,8 @@ export interface ClaudeFolderDependencies {
   hold: (reason: string | null) => void
   pluginActionsIdle: () => Promise<void>
   stopScans: () => Promise<void>
+  suspendScans: () => Promise<void>
+  resumeScans: () => void
   relaunch: () => void
   broadcast: (status: ClaudeFolderStatus) => void
   onResume: () => void
@@ -60,6 +62,28 @@ export function createClaudeFolder(deps: ClaudeFolderDependencies): {
   let pauseIssue: ClaudeFolderIssue | null = null
   // ~/.claude read as the default never pauses: a fresh install has none until Claude Code runs.
   const canPause = namesConfigFolder(root)
+  let suspension: Promise<void> | null = null
+  let scansSuspended = false
+
+  function suspendScans(): void {
+    if (suspension || scansSuspended) return
+    suspension = Promise.resolve()
+      .then(() => deps.suspendScans())
+      .then(
+        () => {
+          suspension = null
+          scansSuspended = true
+          paused()
+        },
+        (error) => {
+          suspension = null
+          console.error(
+            '[ingest] could not suspend scans for unavailable Claude Code folder',
+            error
+          )
+        }
+      )
+  }
 
   function status(): ClaudeFolderStatus {
     return {
@@ -76,6 +100,7 @@ export function createClaudeFolder(deps: ClaudeFolderDependencies): {
     state = 'paused'
     pauseIssue = issue
     if (!wasPaused) deps.hold(unavailableMessage(root.directory))
+    suspendScans()
     deps.broadcast(status())
   }
 
@@ -94,9 +119,15 @@ export function createClaudeFolder(deps: ClaudeFolderDependencies): {
       if (issue.reason !== pauseIssue?.reason) pause(issue)
       return true
     }
+    if (!scansSuspended) {
+      suspendScans()
+      return true
+    }
     state = 'ok'
     pauseIssue = null
     deps.hold(null)
+    scansSuspended = false
+    deps.resumeScans()
     deps.onResume()
     deps.broadcast(status())
     return false
@@ -143,6 +174,7 @@ export function createClaudeFolder(deps: ClaudeFolderDependencies): {
     paused,
     status,
     async choose(id) {
+      if (id === 'default') return save(defaultConfigRoot(home).directory)
       const option = listConfigFolders({ saved, environment, active: root.directory }, home).find(
         (candidate) => candidate.id === id
       )
