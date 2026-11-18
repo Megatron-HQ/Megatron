@@ -1,5 +1,5 @@
 import { readdirSync, realpathSync, statSync } from 'fs'
-import { dirname, isAbsolute, join, resolve } from 'path'
+import { basename, dirname, isAbsolute, join, resolve } from 'path'
 import { homedir } from 'os'
 import type { ClaudeFolderIssue, ClaudeFolderOption, ClaudeFolderTag } from '../shared/ipc'
 import {
@@ -28,6 +28,21 @@ export function currentConfigDirectory(directory: string): string | null {
       : null
   } catch {
     return null
+  }
+}
+
+// When a profile is offline, resolve the existing part of its path. A newly created child
+// should have the same identity through a parent symlink, junction, or Windows short name.
+export function expectedConfigDirectory(directory: string): string {
+  const absolute = resolve(directory)
+  const missing: string[] = []
+  for (let current = absolute; ; current = dirname(current)) {
+    try {
+      return configDirectoryKey(join(realpathSync.native(current), ...missing))
+    } catch {
+      if (dirname(current) === current) return configDirectoryKey(absolute)
+      missing.unshift(basename(current))
+    }
   }
 }
 

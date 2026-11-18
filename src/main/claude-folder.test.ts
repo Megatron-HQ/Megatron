@@ -201,6 +201,22 @@ it('never pauses on ~/.claude, even before Claude Code creates it', () => {
 describe('a linked Claude Code folder', () => {
   const linkType = process.platform === 'win32' ? 'junction' : 'dir'
 
+  it('resumes when a missing profile appears below an aliased parent folder', async () => {
+    const parent = join(home, 'physical-parent')
+    const parentAlias = join(home, 'selected-parent')
+    mkdirSync(parent)
+    symlinkSync(parent, parentAlias, linkType)
+    const selected = join(parentAlias, 'work')
+    const folder = controller(selected)
+    expect(folder.paused()).toBe(true)
+
+    profile('physical-parent/work')
+    onWatch?.()
+
+    await vi.waitFor(() => expect(events).toEqual(['resume']))
+    expect(folder.cliRefusal()).toBeNull()
+  })
+
   it('refuses scans and CLI runs into a new target until Megatron restarts', async () => {
     const first = profile('first')
     const second = profile('second')

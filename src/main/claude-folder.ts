@@ -4,6 +4,7 @@ import {
   activeConfigRoot,
   configDirectoryKey,
   currentConfigDirectory,
+  expectedConfigDirectory,
   listConfigFolders,
   resolveConfigRoot,
   sameFolder,
@@ -72,7 +73,7 @@ export function createClaudeFolder(deps: ClaudeFolderDependencies): {
         : null
     root = {
       ...root,
-      canonicalDirectory: current ?? lastKnown ?? directory
+      canonicalDirectory: current ?? lastKnown ?? expectedConfigDirectory(root.directory)
     }
     if (current !== null && startup.issue?.reason !== 'missing') rememberBinding(current)
   }

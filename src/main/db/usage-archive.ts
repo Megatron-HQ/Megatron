@@ -1,25 +1,7 @@
 import Database from 'better-sqlite3'
 import { createHash } from 'crypto'
-import { realpathSync } from 'fs'
-import { basename, dirname, join, resolve } from 'path'
-
-// The nearest existing ancestor's realpath plus the missing tail, so a folder keeps its archive name
-// when it's created later under a linked parent (macOS /var -> /private/var, Windows 8.3 names).
-// Native, because fs.realpathSync keeps the given letter case on macOS and 8.3 names on Windows.
-function canonicalLocation(path: string): string {
-  const missing: string[] = []
-  let location = resolve(path)
-  for (let current = location; ; current = dirname(current)) {
-    try {
-      location = join(realpathSync.native(current), ...missing)
-      break
-    } catch {
-      if (dirname(current) === current) break
-      missing.unshift(basename(current))
-    }
-  }
-  return process.platform === 'win32' ? location.toLowerCase() : location
-}
+import { join } from 'path'
+import { expectedConfigDirectory } from '../config-root'
 
 // One archive per Claude Code config folder: history_coverage records time ranges of one
 // history.jsonl, so two profiles can't share a file. ~/.claude keeps the original name, so archives
@@ -29,8 +11,8 @@ export function usageArchiveFilename(
   home: string,
   canonicalDirectory?: string
 ): string {
-  const location = canonicalDirectory ?? canonicalLocation(configDirectory)
-  if (location === canonicalLocation(join(home, '.claude'))) return 'usage-history.db'
+  const location = canonicalDirectory ?? expectedConfigDirectory(configDirectory)
+  if (location === expectedConfigDirectory(join(home, '.claude'))) return 'usage-history.db'
   return `usage-history-${createHash('sha256').update(location).digest('hex').slice(0, 16)}.db`
 }
 
