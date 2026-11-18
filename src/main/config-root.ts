@@ -127,12 +127,14 @@ export function activeConfigRoot(
 }
 
 // Saved as given, never as its real path, just as CLAUDE_CONFIG_DIR is kept: a link the user
-// repoints later is followed, and the safety checks resolve it again on every launch.
+// repoints later is followed, and the safety checks resolve it again on every launch. Unless chosen
+// as `named` (.claude.json inside, as when CLAUDE_CONFIG_DIR names it), ~/.claude saves null.
 export function settingsChoice(
   path: string,
-  home: string
+  home: string,
+  named = false
 ): string | null | { reason: ConfigRootIssue['reason'] } {
-  if (sameFolder(path, defaultConfigRoot(home).directory)) return null
+  if (!named && sameFolder(path, defaultConfigRoot(home).directory)) return null
   const { root, issue } = resolveConfigRoot(path, home, 'settings')
   return issue ? { reason: issue.reason } : root.directory
 }
@@ -159,54 +161,68 @@ export function sameFolder(a: string, b: string): boolean {
 const PROFILE_NAME = /^\.claude[-_]/i
 const PROFILE_MARKERS = new Set(['settings.json', '.claude.json', 'projects'])
 
-function homeProfiles(home: string): string[] {
-  let names: string[]
+function entryNames(directory: string): string[] {
   try {
-    names = readdirSync(home)
+    return readdirSync(directory)
   } catch {
     return []
   }
-  return names
-    .filter((name) => {
-      if (!PROFILE_NAME.test(name)) return false
-      try {
-        return readdirSync(join(home, name)).some((entry) => PROFILE_MARKERS.has(entry))
-      } catch {
-        return false
-      }
-    })
+}
+
+function homeProfiles(home: string): string[] {
+  return entryNames(home)
+    .filter(
+      (name) =>
+        PROFILE_NAME.test(name) &&
+        entryNames(join(home, name)).some((entry) => PROFILE_MARKERS.has(entry))
+    )
     .sort()
 }
 
+// An option is a folder read one way: ~/.claude named (.claude.json inside, as CLAUDE_CONFIG_DIR
+// reads it) is a different option from ~/.claude as the default (~/.claude.json). Only the
+// default option is unnamed; every other path is saved and read as a named folder.
 export function listConfigFolders(
   {
     saved,
     environment,
     active
-  }: { saved: string | null | undefined; environment: string | undefined; active: string },
+  }: { saved: string | null | undefined; environment: string | undefined; active: ConfigRoot },
   home: string
 ): ClaudeFolderOption[] {
-  const candidates: { id: string; path: string; tags: ClaudeFolderTag[] }[] = []
-  if (typeof saved === 'string') candidates.push({ id: 'saved', path: saved, tags: [] })
-  candidates.push({ id: 'default', path: defaultConfigRoot(home).directory, tags: ['default'] })
+  const claude = defaultConfigRoot(home).directory
+  const candidates: { id: string; path: string; tags: ClaudeFolderTag[]; named: boolean }[] = []
+  if (typeof saved === 'string')
+    candidates.push({ id: 'saved', path: saved, tags: [], named: true })
+  candidates.push({ id: 'default', path: claude, tags: ['default'], named: false })
+  // Claude Code writes .claude.json into ~/.claude only when CLAUDE_CONFIG_DIR names it, so this
+  // offers that form to an app launched from Finder or the Dock, without the variable.
+  if (entryNames(claude).includes('.claude.json'))
+    candidates.push({ id: 'named', path: claude, tags: [], named: true })
   if (environment !== undefined && isAbsolute(environment))
     candidates.push({
       id: 'environment',
       path: resolve(environment.normalize('NFC')),
-      tags: ['environment']
+      tags: ['environment'],
+      named: true
     })
   for (const name of homeProfiles(home))
-    candidates.push({ id: `home:${name}`, path: join(home, name), tags: [] })
-  const options: ClaudeFolderOption[] = []
+    candidates.push({ id: `home:${name}`, path: join(home, name), tags: [], named: true })
+  const activeNamed = namesConfigFolder(active)
+  const options: (ClaudeFolderOption & { named: boolean })[] = []
   for (const candidate of candidates) {
-    const match = options.find((option) => sameFolder(option.path, candidate.path))
-    if (match) {
-      match.tags = [...new Set([...match.tags, ...candidate.tags])]
-      if (candidate.id === 'default') {
-        match.id = candidate.id
-        match.path = candidate.path
-      }
-    } else options.push({ ...candidate, active: sameFolder(candidate.path, active) })
+    const match = options.find(
+      (option) => option.named === candidate.named && sameFolder(option.path, candidate.path)
+    )
+    if (match) match.tags = [...new Set([...match.tags, ...candidate.tags])]
+    else
+      options.push({
+        ...candidate,
+        active: candidate.named === activeNamed && sameFolder(candidate.path, active.directory)
+      })
   }
-  return options
+  return options.map(({ named, ...option }) => ({
+    ...option,
+    tags: named && sameFolder(option.path, claude) ? [...option.tags, 'named'] : option.tags
+  }))
 }

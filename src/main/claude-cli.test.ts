@@ -11,6 +11,7 @@ import { homedir, tmpdir } from 'os'
 import { delimiter, join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveClaudeCommand } from './claude-cli'
+import { activeConfigRoot } from './config-root'
 import { defaultConfigRoot, setClaudeConfig } from './permissions'
 
 let root: string
@@ -113,6 +114,14 @@ describe('the Claude Code config folder the CLI runs against', () => {
     const work = join(root, '.claude-work')
     setClaudeConfig({ directory: work, claudeJson: join(work, '.claude.json'), source: 'settings' })
     expect(configEntries()).toEqual([['CLAUDE_CONFIG_DIR', work]])
+  })
+
+  it('points the CLI at ~/.claude when Settings saved it as a named folder', () => {
+    const claude = join(root, '.claude')
+    mkdirSync(claude)
+    writeFileSync(join(claude, 'settings.json'), '{}')
+    setClaudeConfig(activeConfigRoot({ saved: claude, environment: undefined }, root).root)
+    expect(configEntries()).toEqual([['CLAUDE_CONFIG_DIR', claude]])
   })
 
   it('strips the variable when Settings chose ~/.claude, so the CLI reads .claude.json from home', () => {

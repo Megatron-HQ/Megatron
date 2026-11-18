@@ -1274,8 +1274,8 @@ export const scenarios = [
     }
   },
   // The Claude Code folder section: the saved profile active, ~/.claude and a home profile
-  // suggested, tags beside each path.
-  ...['options', 'missing'].map((state) => ({
+  // suggested, tags beside each path; then ~/.claude named by CLAUDE_CONFIG_DIR beside the default.
+  ...['options', 'missing', 'named'].map((state) => ({
     name: `settings-claude-folder-${state}`,
     screen: 'settings-dialog',
     async run(window, app) {

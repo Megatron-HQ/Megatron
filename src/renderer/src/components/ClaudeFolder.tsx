@@ -15,7 +15,9 @@ import type {
 
 const TAG_LABELS: Record<ClaudeFolderTag, string> = {
   default: 'Default',
-  environment: 'CLAUDE_CONFIG_DIR'
+  environment: 'CLAUDE_CONFIG_DIR',
+  // Tells this ~/.claude row from the Default one, which reads ~/.claude.json instead.
+  named: '.claude.json inside'
 }
 
 const SOURCE_LINES: Record<ClaudeFolderStatus['source'], string> = {

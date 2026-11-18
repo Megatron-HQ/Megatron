@@ -64,10 +64,13 @@ export interface ClaudeFolderIssue {
   source: 'settings' | 'environment'
 }
 
-export type ClaudeFolderTag = 'default' | 'environment'
+// named: ~/.claude read with .claude.json inside it, as when CLAUDE_CONFIG_DIR names it, rather
+// than as the default, which reads ~/.claude.json.
+export type ClaudeFolderTag = 'default' | 'environment' | 'named'
 
 export interface ClaudeFolderOption {
-  // 'saved', 'default', 'environment' or `home:<name>`: the renderer chooses by id, never by path.
+  // 'saved', 'default', 'named', 'environment' or `home:<name>`: the renderer chooses by id, never
+  // by path.
   id: string
   path: string
   tags: ClaudeFolderTag[]

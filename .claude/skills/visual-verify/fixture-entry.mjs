@@ -75,6 +75,25 @@ function claudeFolderFixture(result, mode) {
       }
     case 'claude-folder-switching':
       return { ...named, state: 'switching', issue: null }
+    // CLAUDE_CONFIG_DIR names ~/.claude, so it reads .claude.json inside it: a second ~/.claude
+    // row beside the Default one, told apart by its tags.
+    case 'claude-folder-named':
+      return {
+        path: defaultPath,
+        source: 'environment',
+        state: 'ok',
+        issue: null,
+        options: [
+          { id: 'default', path: defaultPath, tags: ['default'], active: false },
+          { id: 'environment', path: defaultPath, tags: ['environment', 'named'], active: true },
+          {
+            id: 'home:.claude-personal',
+            path: join(home, '.claude-personal'),
+            tags: [],
+            active: false
+          }
+        ]
+      }
     case 'claude-folder-fallback':
       return {
         path: defaultPath,

@@ -49,7 +49,6 @@ function controller(environment?: string): ReturnType<typeof createClaudeFolder>
       watched.push(path)
       onWatch = onChange
     },
-    hold: (reason) => events.push(reason === null ? 'release' : 'hold'),
     pluginActionsIdle: () => idle,
     stopScans: async () => {
       events.push('stopScans')
@@ -66,7 +65,7 @@ function controller(environment?: string): ReturnType<typeof createClaudeFolder>
 }
 
 describe('a folder chosen in Settings that goes missing', () => {
-  it('keeps the CLI held when cancellation fails and retries before reconnecting', async () => {
+  it('keeps the CLI refused when cancellation fails and retries before reconnecting', async () => {
     const work = profile('.claude-work')
     store.set('claudeConfigDir', work)
     suspension = Promise.reject(new Error('worker termination failed'))
@@ -81,8 +80,9 @@ describe('a folder chosen in Settings that goes missing', () => {
       profile('.claude-work')
       suspension = Promise.resolve()
       expect(folder.paused()).toBe(true)
-      expect(events).toEqual(['hold'])
-      await vi.waitFor(() => expect(events).toEqual(['hold', 'release', 'resume']))
+      expect(folder.cliRefusal()).toContain(work)
+      expect(events).toEqual([])
+      await vi.waitFor(() => expect(events).toEqual(['resume']))
       expect(suspensionCount).toBe(2)
     } finally {
       errorLog.mockRestore()
@@ -103,19 +103,20 @@ describe('a folder chosen in Settings that goes missing', () => {
     expect(suspensionCount).toBe(1)
     profile('.claude-work')
     expect(folder.paused()).toBe(true)
-    expect(events).toEqual(['hold'])
+    expect(folder.cliRefusal()).toContain(work)
+    expect(events).toEqual([])
     rmSync(work, { recursive: true })
     stopped()
     await vi.waitFor(() => expect(suspensionCount).toBe(1))
     expect(folder.paused()).toBe(true)
     profile('.claude-work')
     onWatch?.()
-    await vi.waitFor(() => expect(events).toEqual(['hold', 'release', 'resume']))
+    await vi.waitFor(() => expect(events).toEqual(['resume']))
     onWatch?.()
     expect(suspensionCount).toBe(1)
   })
 
-  it('starts paused with the CLI held, then resumes when the folder returns', async () => {
+  it('starts paused with the CLI refused, then resumes when the folder returns', async () => {
     const usb = join(home, '.claude-usb')
     store.set('claudeConfigDir', usb)
     const folder = controller()
@@ -125,7 +126,7 @@ describe('a folder chosen in Settings that goes missing', () => {
       source: 'settings'
     })
     expect(folder.paused()).toBe(true)
-    expect(events).toEqual(['hold'])
+    expect(folder.cliRefusal()).toContain(usb)
     expect(folder.status()).toMatchObject({
       state: 'paused',
       issue: { value: usb, reason: 'missing', source: 'settings' }
@@ -134,9 +135,10 @@ describe('a folder chosen in Settings that goes missing', () => {
 
     profile('.claude-usb')
     onWatch?.()
-    await vi.waitFor(() => expect(events).toEqual(['hold', 'release', 'resume']))
+    await vi.waitFor(() => expect(events).toEqual(['resume']))
     expect(broadcasts.at(-1)).toMatchObject({ state: 'ok', issue: null })
     expect(folder.paused()).toBe(false)
+    expect(folder.cliRefusal()).toBeNull()
   })
 
   it('stays paused when the folder that returns was never used by Claude Code', () => {
@@ -147,7 +149,8 @@ describe('a folder chosen in Settings that goes missing', () => {
     profile('.claude-usb', 'notes.txt')
     onWatch?.()
     expect(folder.paused()).toBe(true)
-    expect(events).toEqual(['hold'])
+    expect(folder.cliRefusal()).toContain(usb)
+    expect(events).toEqual([])
     expect(broadcasts.at(-1)).toMatchObject({
       state: 'paused',
       issue: { value: usb, reason: 'no-marker', source: 'settings' }
@@ -162,7 +165,17 @@ describe('a folder chosen in Settings that goes missing', () => {
 
     rmSync(work, { recursive: true })
     expect(folder.paused()).toBe(true)
-    expect(events).toEqual(['hold'])
+    expect(broadcasts.at(-1)).toMatchObject({ state: 'paused' })
+  })
+
+  it('refuses the CLI the moment the folder disappears, before any poll fires', () => {
+    const work = profile('.claude-work')
+    store.set('claudeConfigDir', work)
+    const folder = controller()
+    expect(folder.cliRefusal()).toBeNull()
+
+    rmSync(work, { recursive: true })
+    expect(folder.cliRefusal()).toContain(work)
     expect(broadcasts.at(-1)).toMatchObject({ state: 'paused' })
   })
 
@@ -205,7 +218,8 @@ describe('choosing a folder', () => {
       status: { state: 'switching' }
     })
     expect(store.get('claudeConfigDir')).toBeNull()
-    await vi.waitFor(() => expect(events).toEqual(['hold', 'stopScans', 'relaunch']))
+    await vi.waitFor(() => expect(events).toEqual(['stopScans', 'relaunch']))
+    expect(folder.cliRefusal()).toContain('restarting')
     expect(controller(alias).root.claudeJson).toBe(join(home, '.claude.json'))
   })
 
@@ -239,9 +253,35 @@ describe('choosing a folder', () => {
     expect(broadcasts.at(-1)).toMatchObject({ state: 'switching' })
     await Promise.resolve()
     expect(events).toEqual([])
+    // A running update still has its install step to run.
+    expect(folder.cliRefusal()).toBeNull()
 
     finishActions()
-    await vi.waitFor(() => expect(events).toEqual(['hold', 'stopScans', 'relaunch']))
+    await vi.waitFor(() => expect(events).toEqual(['stopScans', 'relaunch']))
+    expect(folder.cliRefusal()).toMatch(/restarting/)
+  })
+
+  it('keeps refusing the CLI for a missing folder while switching away from it', async () => {
+    store.set('claudeConfigDir', join(home, '.claude-usb'))
+    idle = new Promise(() => {})
+    const folder = controller()
+    await folder.choose('default')
+    expect(folder.status().state).toBe('switching')
+    expect(folder.cliRefusal()).toContain('.claude-usb')
+  })
+
+  it('refuses the CLI when the folder disappears while switching away from it', async () => {
+    const work = profile('.claude-work')
+    profile('.claude-personal')
+    store.set('claudeConfigDir', work)
+    idle = new Promise(() => {})
+    const folder = controller()
+    await folder.choose('home:.claude-personal')
+    expect(folder.cliRefusal()).toBeNull()
+
+    rmSync(work, { recursive: true })
+    expect(folder.cliRefusal()).toContain(work)
+    expect(folder.status().state).toBe('switching')
   })
 
   it('relaunches even when stopping the scans fails', async () => {
@@ -251,7 +291,6 @@ describe('choosing a folder', () => {
       environment: undefined,
       store,
       watch: () => {},
-      hold: () => {},
       pluginActionsIdle: async () => {},
       stopScans: async () => {
         throw new Error('worker would not stop')
@@ -273,7 +312,7 @@ describe('choosing a folder', () => {
     await folder.choose('home:.claude-work')
     await folder.choose('home:.claude-personal')
     expect(store.get('claudeConfigDir')).toBe(personal)
-    await vi.waitFor(() => expect(events).toEqual(['hold', 'stopScans', 'relaunch']))
+    await vi.waitFor(() => expect(events).toEqual(['stopScans', 'relaunch']))
   })
 
   it('saves the folder already in use without relaunching', async () => {
@@ -301,7 +340,41 @@ describe('choosing a folder', () => {
     const claude = profile('.claude')
     const folder = controller(claude)
     await folder.choose('default')
-    await vi.waitFor(() => expect(events).toEqual(['hold', 'stopScans', 'relaunch']))
+    await vi.waitFor(() => expect(events).toEqual(['stopScans', 'relaunch']))
+  })
+
+  it('saves the default for ~/.claude picked in the dialog', async () => {
+    const claude = profile('.claude', '.claude.json')
+    await controller(claude).pickFolder(async () => claude)
+    expect(store.get('claudeConfigDir')).toBeNull()
+  })
+
+  it('chooses ~/.claude as a named folder, saving its path so .claude.json is read inside it', async () => {
+    const claude = profile('.claude', '.claude.json')
+    await controller().choose('named')
+    expect(store.get('claudeConfigDir')).toBe(claude)
+    await vi.waitFor(() => expect(events).toEqual(['stopScans', 'relaunch']))
+
+    const relaunched = controller()
+    expect(relaunched.root).toEqual({
+      directory: claude,
+      claudeJson: join(claude, '.claude.json'),
+      source: 'settings'
+    })
+    expect(relaunched.status().options).toMatchObject([
+      { id: 'saved', tags: ['named'], active: true },
+      { id: 'default', active: false }
+    ])
+  })
+
+  it('lets a variable naming ~/.claude be chosen after Settings saved the default', async () => {
+    const claude = profile('.claude')
+    store.set('claudeConfigDir', null)
+    const folder = controller(claude)
+    expect(folder.root.claudeJson).toBe(join(home, '.claude.json'))
+    await folder.choose('environment')
+    expect(store.get('claudeConfigDir')).toBe(claude)
+    await vi.waitFor(() => expect(events).toEqual(['stopScans', 'relaunch']))
   })
 
   it('refuses an id it never offered', async () => {

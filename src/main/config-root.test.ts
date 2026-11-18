@@ -16,6 +16,7 @@ import {
   resolveConfigRoot,
   settingsChoice
 } from './config-root'
+import { defaultConfigRoot, type ConfigRoot } from './permissions'
 
 let home: string
 
@@ -248,6 +249,11 @@ describe('settingsChoice', () => {
     expect(settingsChoice(link(profile('.claude'), '.claude-main'), home)).toBeNull()
   })
 
+  it('saves ~/.claude itself when chosen as a named folder, so .claude.json moves inside', () => {
+    const claude = profile('.claude')
+    expect(settingsChoice(claude, home, true)).toBe(claude)
+  })
+
   it('saves the default for ~/.claude spelled in another case', ({ skip }) => {
     profile('.claude')
     const value = join(home, '.CLAUDE')
@@ -273,13 +279,16 @@ describe('settingsChoice', () => {
 })
 
 describe('listConfigFolders', () => {
+  // The alias is read named (.claude.json inside), so it stays its own option; Default, the one
+  // unnamed option, is never merged into it and so stays resolvable.
   it('keeps the default action when a saved alias is repointed to the default', () => {
     const saved = link(profile('profiles/work'), '.claude-alias')
     const claude = profile('.claude')
     rmSync(saved)
     symlinkSync(claude, saved, process.platform === 'win32' ? 'junction' : 'dir')
-    expect(listConfigFolders({ saved, environment: claude, active: saved }, home)).toEqual([
-      { id: 'default', path: claude, tags: ['default', 'environment'], active: true }
+    expect(listConfigFolders({ saved, environment: claude, active: named(saved) }, home)).toEqual([
+      option('saved', saved, ['environment', 'named'], true),
+      option('default', claude, ['default'])
     ])
   })
 
@@ -287,13 +296,19 @@ describe('listConfigFolders', () => {
     return { id, path, tags, active }
   }
 
+  function named(directory: string): ConfigRoot {
+    return { directory, claudeJson: join(directory, '.claude.json'), source: 'settings' }
+  }
+
+  const unnamed = (): ConfigRoot => defaultConfigRoot(home)
+
   it('lists the saved folder, ~/.claude, the overridden variable, then home profiles', () => {
     profile('.claude')
     const saved = profile('profiles/chosen')
     const environment = profile('profiles/env')
     const work = profile('.claude-work')
     const personal = profile('.Claude_Personal', 'projects')
-    expect(listConfigFolders({ saved, environment, active: saved }, home)).toEqual([
+    expect(listConfigFolders({ saved, environment, active: named(saved) }, home)).toEqual([
       option('saved', saved, [], true),
       option('default', join(home, '.claude'), ['default']),
       option('environment', environment, ['environment']),
@@ -305,7 +320,7 @@ describe('listConfigFolders', () => {
   it('always lists ~/.claude, even before Claude Code creates it', () => {
     const claude = join(home, '.claude')
     expect(
-      listConfigFolders({ saved: null, environment: undefined, active: claude }, home)
+      listConfigFolders({ saved: null, environment: undefined, active: unnamed() }, home)
     ).toEqual([option('default', claude, ['default'], true)])
   })
 
@@ -317,29 +332,69 @@ describe('listConfigFolders', () => {
     writeFileSync(join(home, '.claude-file'), '')
     const claude = join(home, '.claude')
     expect(
-      listConfigFolders({ saved: undefined, environment: '.claude-work', active: claude }, home)
+      listConfigFolders({ saved: undefined, environment: '.claude-work', active: unnamed() }, home)
     ).toEqual([option('default', claude, ['default'], true)])
   })
 
   it('merges a variable naming a home profile into one entry', () => {
     const work = profile('.claude-work')
-    expect(listConfigFolders({ saved: undefined, environment: work, active: work }, home)).toEqual([
+    expect(
+      listConfigFolders({ saved: undefined, environment: work, active: named(work) }, home)
+    ).toEqual([
       option('default', join(home, '.claude'), ['default']),
       option('environment', work, ['environment'], true)
     ])
   })
 
-  it('merges a home profile linked to ~/.claude into the default entry', () => {
+  it('keeps a variable naming ~/.claude apart from the default, which reads ~/.claude.json', () => {
     const claude = profile('.claude')
+    expect(
+      listConfigFolders({ saved: undefined, environment: claude, active: named(claude) }, home)
+    ).toEqual([
+      option('default', claude, ['default']),
+      option('environment', claude, ['environment', 'named'], true)
+    ])
+  })
+
+  it('marks the default active, not the variable, when Settings chose the default', () => {
+    const claude = profile('.claude')
+    expect(
+      listConfigFolders({ saved: null, environment: claude, active: unnamed() }, home)
+    ).toEqual([
+      option('default', claude, ['default'], true),
+      option('environment', claude, ['environment', 'named'])
+    ])
+  })
+
+  // Claude Code writes .claude.json there only when run with CLAUDE_CONFIG_DIR naming ~/.claude, so
+  // an app launched from Finder, without the variable, can still offer that form.
+  it('offers ~/.claude as a named folder when .claude.json is inside it', () => {
+    const claude = profile('.claude', '.claude.json')
+    expect(
+      listConfigFolders({ saved: undefined, environment: undefined, active: unnamed() }, home)
+    ).toEqual([option('default', claude, ['default'], true), option('named', claude, ['named'])])
+  })
+
+  it('marks a named ~/.claude saved in Settings active, not the default', () => {
+    const claude = profile('.claude', '.claude.json')
+    expect(
+      listConfigFolders({ saved: claude, environment: undefined, active: named(claude) }, home)
+    ).toEqual([option('saved', claude, ['named'], true), option('default', claude, ['default'])])
+  })
+
+  it('merges a home profile linked to ~/.claude into the named entry, not the default', () => {
+    const claude = profile('.claude', '.claude.json')
     link(claude, '.claude-main')
     expect(
-      listConfigFolders({ saved: undefined, environment: undefined, active: claude }, home)
-    ).toEqual([option('default', claude, ['default'], true)])
+      listConfigFolders({ saved: undefined, environment: undefined, active: unnamed() }, home)
+    ).toEqual([option('default', claude, ['default'], true), option('named', claude, ['named'])])
   })
 
   it('combines tags when the saved folder is also the variable', () => {
     const work = profile('.claude-work')
-    expect(listConfigFolders({ saved: work, environment: work, active: work }, home)).toEqual([
+    expect(
+      listConfigFolders({ saved: work, environment: work, active: named(work) }, home)
+    ).toEqual([
       option('saved', work, ['environment'], true),
       option('default', join(home, '.claude'), ['default'])
     ])
@@ -351,7 +406,7 @@ describe('listConfigFolders', () => {
       const saved = join(home, '.claude-usb')
       const claude = join(home, '.claude')
       expect(
-        listConfigFolders({ saved, environment: saved.toUpperCase(), active: saved }, home)
+        listConfigFolders({ saved, environment: saved.toUpperCase(), active: named(saved) }, home)
       ).toEqual([
         option('saved', saved, ['environment'], true),
         option('default', claude, ['default'])

@@ -68,7 +68,7 @@ import {
   setClaudeConfig
 } from './permissions'
 import { createClaudeFolder } from './claude-folder'
-import { holdClaude } from './claude-process'
+import { gateClaude } from './claude-process'
 import {
   markOnboardingDone,
   resolveInitialSection,
@@ -157,7 +157,6 @@ const claudeFolder = createClaudeFolder({
   // A stat poll, unlike fs.watch, notices a folder that doesn't exist yet appearing (a drive
   // reconnecting), and it costs one stat every 2 seconds.
   watch: (path, onChange) => watchFile(path, { interval: 2000, persistent: false }, onChange),
-  hold: holdClaude,
   pluginActionsIdle,
   stopScans: () => scans.cancel(),
   suspendScans: () => {
@@ -183,6 +182,7 @@ const claudeFolder = createClaudeFolder({
     })
 })
 setClaudeConfig(claudeFolder.root)
+gateClaude(claudeFolder.cliRefusal)
 setWorktreeLinkSource(() => worktreeLinks(themeStore.get('usageProjects')))
 // Bundled and validated by its own test, so a parse failure here means a broken build, not user data.
 const whatsNewCatalog = parseWhatsNewCatalog(whatsNewJson)

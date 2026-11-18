@@ -28,18 +28,20 @@ function runError(
   return output || error.message
 }
 
-let hold: string | null = null
+let gate: () => string | null = () => null
 
 // Every spawned `claude` (plugin actions, /context) comes through runClaude, so this one gate keeps
-// the CLI off a missing Claude Code folder and out of the way of a relaunch.
-export function holdClaude(reason: string | null): void {
-  hold = reason
+// the CLI off a missing Claude Code folder and out of the way of a relaunch. It is asked on every
+// run, so a folder that vanished since the last poll is caught before the CLI writes into its path.
+export function gateClaude(check: () => string | null): void {
+  gate = check
 }
 
 // Separate from claude-cli.ts so callers' tests can mock CLI discovery while still exercising
 // this error mapping: a call inside one ES module can't be intercepted by mocking its export.
 export function runClaude(args: string[], options: RunClaudeOptions): Promise<RunClaudeResult> {
-  if (hold !== null) return Promise.resolve({ ok: false, error: hold })
+  const refusal = gate()
+  if (refusal !== null) return Promise.resolve({ ok: false, error: refusal })
   const command = resolveClaudeCommand(options.cwd)
   if (command === null) return Promise.resolve({ ok: false, error: CLAUDE_NOT_FOUND_MESSAGE })
   return new Promise((resolve) => {

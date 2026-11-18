@@ -126,7 +126,8 @@ export function SettingsDialog({
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
 
-        <div className="flex flex-col">
+        {/* min-w-0: a grid item otherwise widens to its longest row, so folder paths never truncate. */}
+        <div className="flex min-w-0 flex-col">
           <section className="flex flex-col gap-2 py-3">
             <p className="text-sm font-medium">Appearance</p>
             <div

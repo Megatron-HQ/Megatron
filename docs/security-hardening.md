@@ -34,8 +34,12 @@ fixed for the process; the scan worker receives it in `workerData`. Elsewhere in
   replaces `~/.claude` in Tier 1 and `.claude.json` moves inside it. Verified against Claude Code
   2.1.326, 2026-11-17: the folder is `(CLAUDE_CONFIG_DIR ?? ~/.claude).normalize('NFC')` and
   `.claude.json` is `join(CLAUDE_CONFIG_DIR || homedir(), '.claude.json')`, so "unset" and
-  "explicitly `~/.claude`" read different `.claude.json` files. Choosing `~/.claude` in Settings,
-  by any spelling or link, saves `null`, which means the unset form even when the variable is set.
+  "explicitly `~/.claude`" read different `.claude.json` files, and Settings lists them as two
+  options. The Default option, and `~/.claude` picked in the native dialog by any spelling or link,
+  save `null`: the unset form, even when the variable is set. The named option (tagged
+  `.claude.json inside`) saves the path, as every option but Default does. It is offered when the
+  variable names `~/.claude` or `~/.claude/.claude.json` exists, which Claude Code writes only when
+  run with the variable naming `~/.claude`, so a Finder- or Dock-launched app can still choose it.
 - A folder, from either source, is used only when both its given form and its realpath are
   absolute, not UNC, not a filesystem or drive root, and not `$HOME` or an ancestor of it (also by
   file identity, so another casing or an 8.3 name can't slip past), and the folder holds a Claude
@@ -48,24 +52,26 @@ fixed for the process; the scan worker receives it in `workerData`. Elsewhere in
   form; the Settings choice is saved as chosen and never re-resolved. A linked folder is followed
   by the setup-link rule under Cache preservation, like a linked `~/.claude`.
 - A missing folder is held, never replaced: reading another profile in its place would be silently
-  wrong. While it is missing, new scans and every CLI run are refused (`holdClaude`, in
-  `runClaude`, the one path every spawned `claude` takes), so a missing drive can't empty the
-  index. A 2-second `fs.watchFile` poll, plus a check on every scan request, notices it leave and
-  return; a returning folder must pass the checks above again before anything resumes. This
-  also suspends active scans and settles queued requests; reconnect waits for termination and
-  revalidates the folder before one fresh scan. Workers recheck the fixed root between tasks,
-  before destructive reconciliation, and inside archive transactions. Unavailable sources retain
-  cached rows and cannot establish fresh archive coverage. Deleting a data subdirectory in a
-  present profile still reconciles normally. These checks narrow same-user filesystem races;
-  they are not an atomic filesystem snapshot. `~/.claude` read as the default never pauses, since a fresh install has
-  none until Claude Code first runs.
+  wrong. While it is missing, new scans and every CLI run are refused, so a missing drive can't
+  empty the index and the CLI can't create folders at its path. Each scan request, and each spawn
+  in `runClaude` (the one path every `claude` takes, through the gate main registers with
+  `gateClaude`), checks the disk at call time, also while a switch waits to relaunch. A 2-second
+  `fs.watchFile` poll notices it leave and return between requests; a returning folder must pass
+  the checks above again before anything resumes. Going missing also suspends active scans and
+  settles queued requests; reconnect waits for termination and revalidates the folder before one
+  fresh scan. Workers recheck the fixed root between tasks, before destructive reconciliation, and
+  inside archive transactions. Unavailable sources retain cached rows and cannot establish fresh
+  archive coverage. Deleting a data subdirectory in a present profile still reconciles normally.
+  These checks narrow same-user filesystem races; they are not an atomic filesystem snapshot.
+  `~/.claude` read as the default never pauses, since a fresh install has none until Claude Code
+  first runs.
 - The marker probe lists names in the one named folder with plain `fs` before it becomes Tier 1.
-  Settings' suggestions list `$HOME`'s entry names and, for `.claude-*`/`.claude_*` folders only,
-  their entry names (`settings.json`, `.claude.json`, `projects/`); no file contents are read. Like
-  CLI discovery, both are a separate capability from `isPathAllowed()`.
+  Settings' suggestions list the entry names of `$HOME`, of `~/.claude` (for `.claude.json`) and of
+  `.claude-*`/`.claude_*` folders (`settings.json`, `.claude.json`, `projects/`); no file contents
+  are read. Like CLI discovery, both are a separate capability from `isPathAllowed()`.
 - The renderer never names a folder: it chooses by an id from main's own list, or main opens the
   native picker. IPC carries one id of at most 300 characters.
-- Switching relaunches: wait for running plugin actions, hold the CLI, stop scans, then
+- Switching relaunches: wait for running plugin actions, refuse new CLI runs, stop scans, then
   `app.relaunch()` and `app.exit(0)`. `exit` skips `before-quit`, so a staged macOS update is not
   swapped in mid-switch.
 - CLI runs (`/context`, plugin actions) get `CLAUDE_CONFIG_DIR` set exactly when the active folder
