@@ -66,6 +66,11 @@ function pointAt(folder: string, gitdir: string): void {
   mkdirSync(folder, { recursive: true })
   writeFileSync(join(folder, '.git'), `gitdir: ${gitdir}\n`)
 }
+// Git for Windows writes drive-letter pointers; a bare `/…` pointer there is a WSL path the parser
+// refuses, so an ungranted POSIX path stands for the same layout on C: under Windows.
+function ungranted(path: string): string {
+  return process.platform === 'win32' && path.startsWith('/') ? `C:${path}` : path
+}
 
 describe('meeting folders', () => {
   let app: string
@@ -139,7 +144,7 @@ describe('meeting folders', () => {
     ['C:/outside-the-grant', 'checkout']
   ])('reads a .git file naming ungranted %s as a %s', (gitdir, kind) => {
     const worktree = join(root, 'wt')
-    pointAt(worktree, gitdir)
+    pointAt(worktree, ungranted(gitdir))
     expect(meet(createGitRepos(empty), worktree)).toBe(kind)
   })
 
@@ -238,19 +243,19 @@ describe('Canonical Checkouts', () => {
   })
 
   it('groups the worktrees of an unreadable repository under the folder holding its .git', () => {
-    pointAt(join(root, 'a'), '/code/app/.git/worktrees/a')
-    pointAt(join(root, 'b'), '/code/app/.git/worktrees/b')
+    pointAt(join(root, 'a'), ungranted('/code/app/.git/worktrees/a'))
+    pointAt(join(root, 'b'), ungranted('/code/app/.git/worktrees/b'))
     const repos = createGitRepos(empty)
     meet(repos, join(root, 'a'))
     meet(repos, join(root, 'b'))
     expect(repos.resolve().repos).toEqual([
-      { canonical: '/code/app', worktrees: [join(root, 'a'), join(root, 'b')] }
+      { canonical: ungranted('/code/app'), worktrees: [join(root, 'a'), join(root, 'b')] }
     ])
   })
 
   it('picks the first worktree by path when an unreadable bare repository lists none', () => {
-    pointAt(join(root, 'wt-b'), '/code/app.git/worktrees/b')
-    pointAt(join(root, 'wt-a'), '/code/app.git/worktrees/a')
+    pointAt(join(root, 'wt-b'), ungranted('/code/app.git/worktrees/b'))
+    pointAt(join(root, 'wt-a'), ungranted('/code/app.git/worktrees/a'))
     expect(canonicalOf(join(root, 'wt-b'), join(root, 'wt-a'))).toEqual([join(root, 'wt-a')])
   })
 
