@@ -7,11 +7,21 @@ import * as permissions from '../permissions'
 import { applySchema } from '../db/schema'
 import { grantPath, resetGrantedPaths, revokePath } from '../permissions'
 import { scanPluginRegistry } from './plugin-registry'
-import { readProjectIdentity, type ProjectIdentity } from '../../shared/project-identity'
+import { createProjectIdentity } from '../project-identity'
+import { createGitRepos, type GitRepos } from './git-repos'
 import type { WorktreeLink } from '../../shared/ipc'
 
-const linkedBy = (links: WorktreeLink[]): ProjectIdentity =>
-  readProjectIdentity({ locations: [], claudeCodeFolders: [] }, links)
+// This Scan's Git Repos, given the links an earlier Scan saved through main's owner.
+function reposSaving(links: WorktreeLink[]): GitRepos {
+  const owner = createProjectIdentity({
+    store: { read: () => [], write: () => undefined },
+    claudeCodeFolders: [],
+    sessionPaths: () => [],
+    catalog: () => []
+  })
+  owner.recordScan({ worktrees: links, canonicalCheckouts: [] })
+  return createGitRepos(owner.snapshot())
+}
 
 let db: Database.Database
 let tmpDir: string
@@ -159,7 +169,7 @@ describe('removed project installs', () => {
         db,
         pluginsDir,
         userSettingsPath,
-        linkedBy([{ path: worktree('gone'), canonical: app }])
+        reposSaving([{ path: worktree('gone'), canonical: app }])
       )
       expect(allRegistry()).toEqual([])
     })
@@ -170,7 +180,7 @@ describe('removed project installs', () => {
         db,
         pluginsDir,
         userSettingsPath,
-        linkedBy([{ path: worktree('live'), canonical: app }])
+        reposSaving([{ path: worktree('live'), canonical: app }])
       )
       expect(allRegistry()).toHaveLength(1)
     })
@@ -187,7 +197,7 @@ describe('removed project installs', () => {
         db,
         pluginsDir,
         userSettingsPath,
-        linkedBy([{ path: locked, canonical: app }])
+        reposSaving([{ path: locked, canonical: app }])
       )
       expect(allRegistry()).toHaveLength(1)
     })
@@ -198,7 +208,7 @@ describe('removed project installs', () => {
         db,
         pluginsDir,
         userSettingsPath,
-        linkedBy([{ path: worktree('gone'), canonical: worktree('ungranted-app') }])
+        reposSaving([{ path: worktree('gone'), canonical: worktree('ungranted-app') }])
       )
       expect(allRegistry()).toHaveLength(1)
     })

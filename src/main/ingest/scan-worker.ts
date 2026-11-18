@@ -3,9 +3,10 @@ import { assertConfigRootAvailable } from '../config-root'
 import Database from 'better-sqlite3'
 import { restoreGrantedPath, setClaudeConfig, type ConfigRoot } from '../permissions'
 import { scanSkills as runSkillScan } from './skills-scanner'
-import type { ProjectFolder, ScanTaskResult } from '../../shared/ipc'
+import type { ProjectFolder } from '../../shared/ipc'
 import { readProjectIdentity, type ProjectIdentitySnapshot } from '../../shared/project-identity'
 import { scanPluginRegistry } from './plugin-registry'
+import { createGitRepos } from './git-repos'
 import { scanTranscripts as runTranscriptScan } from './transcript-scanner'
 import { scanPromptHistory as runPromptScan } from './prompt-history-scanner'
 import { openUsageArchive } from '../db/usage-archive'
@@ -43,25 +44,22 @@ const usageScans = createUsageScanTasks({
   scanPromptHistory: runPromptScan,
   getArchive
 })
+// One per Scan: the skills and plugin tasks share its git reads and this Scan's links.
+const repos = createGitRepos(projectIdentity)
 let sourceStartedAt = 0
-// Plugin pruning also needs the Worktrees this Scan just found, before main records them.
-let pruningIdentity = identity
-function scanSkills(db: Database.Database): ScanTaskResult {
-  const result = runSkillScan(db, undefined, undefined, previousProjects, identity)
-  if (result.findings)
-    pruningIdentity = readProjectIdentity(projectIdentity, result.findings.worktrees)
-  return result
-}
 try {
   const summary = runAllScans(
     database,
     selectScanTasks(scope, [
       ...usageScans,
-      { name: 'scanSkills', run: scanSkills },
+      {
+        name: 'scanSkills',
+        run: (db: Database.Database) =>
+          runSkillScan(db, undefined, undefined, previousProjects, repos)
+      },
       {
         name: 'scanPluginRegistry',
-        run: (db: Database.Database) =>
-          scanPluginRegistry(db, undefined, undefined, pruningIdentity)
+        run: (db: Database.Database) => scanPluginRegistry(db, undefined, undefined, repos)
       },
       // Not gated on the registry scan's status: leftover index rows are still real sightings,
       // and recording one late only delays a 30-day signal. Full scans only (selectScanTasks).

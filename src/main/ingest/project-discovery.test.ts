@@ -19,12 +19,10 @@ import Database from 'better-sqlite3'
 import { applySchema } from '../db/schema'
 import { listSkills } from '../db/queries'
 import { createProjectIdentity, type ProjectIdentityOwner } from '../project-identity'
-import { readProjectIdentity, type ProjectIdentity } from '../../shared/project-identity'
 import type { WorktreeLink } from '../../shared/ipc'
 import { scanSkills } from './skills-scanner'
+import { createGitRepos, type GitRepos } from './git-repos'
 
-const linkedBy = (links: WorktreeLink[]): ProjectIdentity =>
-  readProjectIdentity({ locations: [], claudeCodeFolders: [] }, links)
 // Main's owner over an in-memory preferences.json, fed one catalog for the whole test.
 const ownerOf = (catalog: () => ProjectFolder[]): ProjectIdentityOwner =>
   createProjectIdentity({
@@ -33,6 +31,12 @@ const ownerOf = (catalog: () => ProjectFolder[]): ProjectIdentityOwner =>
     sessionPaths: () => [],
     catalog
   })
+// This Scan's Git Repos, given the links an earlier Scan saved.
+const reposSaving = (links: WorktreeLink[]): GitRepos => {
+  const owner = ownerOf(() => [])
+  owner.recordScan({ worktrees: links, canonicalCheckouts: [] })
+  return createGitRepos(owner.snapshot())
+}
 
 // Git config values treat a backslash as an escape, so tests write paths the way git does.
 const gitPath = (path: string): string => path.replace(/\\/g, '/')
@@ -169,23 +173,24 @@ describe('project discovery continuity', () => {
     expect(after.incomplete).toBe(true)
   })
 
-  it.each(process.platform === 'win32' ? ['.tmp', '.temp', '.TMP'] : ['.tmp', '.temp'])(
-    'ignores automatically discovered repositories under %s',
-    (temporaryName) => {
-      const temporaryRepo = join(root, temporaryName, 'fixture-project')
-      const repository = join(root, 'real-project')
-      for (const directory of [temporaryRepo, repository]) {
-        mkdirSync(join(directory, '.git'), { recursive: true })
-        mkdirSync(join(directory, '.claude', 'skills'), { recursive: true })
-      }
-
-      const result = discoverProjects([root])
-
-      expect(result.incomplete).toBe(false)
-      expect(result.projects.map((entry) => entry.path).sort()).toEqual([root, repository].sort())
-      expect(result.skillRoots.some((entry) => entry.projectRoot === temporaryRepo)).toBe(false)
+  it.each(
+    process.platform === 'win32'
+      ? ['.tmp', '.temp', '.TMP', 'node_modules']
+      : ['.tmp', '.temp', 'node_modules']
+  )('ignores automatically discovered repositories under %s', (temporaryName) => {
+    const temporaryRepo = join(root, temporaryName, 'fixture-project')
+    const repository = join(root, 'real-project')
+    for (const directory of [temporaryRepo, repository]) {
+      mkdirSync(join(directory, '.git'), { recursive: true })
+      mkdirSync(join(directory, '.claude', 'skills'), { recursive: true })
     }
-  )
+
+    const result = discoverProjects([root])
+
+    expect(result.incomplete).toBe(false)
+    expect(result.projects.map((entry) => entry.path).sort()).toEqual([root, repository].sort())
+    expect(result.skillRoots.some((entry) => entry.projectRoot === temporaryRepo)).toBe(false)
+  })
 
   it.each(['.tmp', '.temp', 'node_modules'])(
     'does not resurrect cached projects under an excluded %s directory',
@@ -374,6 +379,20 @@ describe('project discovery continuity', () => {
       kind: 'repository',
       status: 'available'
     })
+  })
+
+  it('does not read a fixture inside a skill as a nested package', () => {
+    const fixture = join(root, '.claude', 'skills', 'my-skill', 'references', '.claude', 'skills')
+    mkdirSync(join(fixture, 'fake'), { recursive: true })
+    expect(discoverProjects([root]).skillRoots.map((entry) => entry.dir)).toEqual([
+      join(root, '.claude', 'skills')
+    ])
+  })
+
+  it.skipIf(process.platform === 'win32')('walks a symlink cycle once', () => {
+    mkdirSync(join(root, 'a'))
+    symlinkSync(join(root, 'a'), join(root, 'a', 'loop'), 'dir')
+    expect(discoverProjects([root]).incomplete).toBe(false)
   })
 
   it('skips __MACOSX directories during project traversal', () => {
@@ -565,7 +584,12 @@ describe('git worktrees', () => {
     rmSync(reused, { recursive: true })
     rmSync(join(common, 'worktrees', 'reused'), { recursive: true })
     mkdirSync(join(reused, '.git'), { recursive: true })
-    const second = discoverProjects(undefined, first.projects, undefined, owner.identity())
+    const second = discoverProjects(
+      undefined,
+      first.projects,
+      undefined,
+      createGitRepos(owner.snapshot())
+    )
     owner.recordScan({ worktrees: second.worktrees, canonicalCheckouts: second.canonicalCheckouts })
 
     const usagePath = (path: string): string | undefined =>
@@ -907,9 +931,9 @@ describe('git worktrees', () => {
       addWorktree(bare, first, 'ref: refs/heads/a')
       addWorktree(bare, former, 'ref: refs/heads/z')
       const saved = [{ path: first, canonical: former }]
-      expect(discoverProjects([root], [], undefined, linkedBy(saved)).worktrees).toEqual(saved)
+      expect(discoverProjects([root], [], undefined, reposSaving(saved)).worktrees).toEqual(saved)
       writeFileSync(join(bare, 'HEAD'), 'ref: refs/heads/a\n')
-      expect(discoverProjects([root], [], undefined, linkedBy(saved)).worktrees).toEqual([
+      expect(discoverProjects([root], [], undefined, reposSaving(saved)).worktrees).toEqual([
         { path: former, canonical: first }
       ])
     })

@@ -5,7 +5,7 @@ import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { grantPath, readAllowedDirectory, resetGrantedPaths } from '../permissions'
 import { applySchema } from '../db/schema'
-import { findNestedSkillsDirs } from './skills-scanner'
+import { discoverProjects } from './project-discovery'
 import { parseTranscript } from './transcript-scanner'
 import { scanPromptHistory } from './prompt-history-scanner'
 
@@ -32,20 +32,7 @@ describe('scan work budgets', () => {
 
   it('reports incomplete discovery when a directory budget is exhausted', () => {
     mkdirSync(join(root, 'a', 'b', 'c'), { recursive: true })
-    let incomplete = false
-    const discover = findNestedSkillsDirs as (
-      path: string,
-      onUnavailable: () => void,
-      limits: { maxDepth: number; maxDirectories: number }
-    ) => string[]
-    discover(
-      root,
-      () => {
-        incomplete = true
-      },
-      { maxDepth: 1, maxDirectories: 2 }
-    )
-    expect(incomplete).toBe(true)
+    expect(discoverProjects([root], [], { maxDepth: 1, maxDirectories: 2 }).incomplete).toBe(true)
   })
 
   it('rejects a transcript snapshot when retained records exceed the budget', () => {

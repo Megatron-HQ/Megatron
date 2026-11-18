@@ -1,7 +1,6 @@
 import type Database from 'better-sqlite3'
 import { assertConfigRootAvailable } from '../config-root'
 import type { ScanIssue, ScanTaskResult } from '../../shared/ipc'
-import { readProjectIdentity, type ProjectIdentity } from '../../shared/project-identity'
 import { dirname, join } from 'path'
 import { writeSkillScan, writeSkillScanAuthoritative, type SkillScanRow } from '../db/queries'
 import {
@@ -20,7 +19,7 @@ import {
 import { parseSkillDirectory } from './skill-parser'
 import { isSemanticVersion } from '../../shared/version'
 import { createMissingProjectCheck } from './project-discovery'
-import { createPrunedWorktreeCheck } from './worktrees'
+import { createGitRepos, type GitRepos } from './git-repos'
 
 interface PluginInstallEntry {
   scope?: unknown
@@ -223,7 +222,7 @@ export function scanPluginRegistry(
   db: Database.Database,
   pluginsDir: string = claudeConfig().plugins,
   userSettingsPath?: string,
-  identity: ProjectIdentity = readProjectIdentity({ locations: [], claudeCodeFolders: [] })
+  repos: GitRepos = createGitRepos({ locations: [], claudeCodeFolders: [] })
 ): ScanTaskResult {
   assertConfigRootAvailable()
   const pluginsDirectory = readAllowedDirectory(pluginsDir)
@@ -234,7 +233,8 @@ export function scanPluginRegistry(
   const enablementCache = new Map<string, Set<string>>()
   const unknownProjects = new Set<string>()
   // Claude Code never removes a pruned worktree's installs from installed_plugins.json.
-  const isMissingProject = createPrunedWorktreeCheck(identity, createMissingProjectCheck())
+  const isMissingFolder = createMissingProjectCheck()
+  const isMissingProject = (path: string): boolean => repos.isPrunedWorktree(path, isMissingFolder)
   const missingProjects = new Map<string, boolean>()
   const issues = new Map<string, ScanIssue>()
   function disabledPluginsFor(projectPath: string): Set<string> {

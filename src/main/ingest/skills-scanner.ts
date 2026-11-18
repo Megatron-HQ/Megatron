@@ -1,7 +1,6 @@
 import type Database from 'better-sqlite3'
 import { assertConfigRootAvailable } from '../config-root'
 import type { ProjectFolder, ScanIssue, ScanTaskResult } from '../../shared/ipc'
-import { readProjectIdentity, type ProjectIdentity } from '../../shared/project-identity'
 import { dirname, join, relative, sep } from 'path'
 import { writeSkillScan, type SkillScanRow } from '../db/queries'
 import {
@@ -16,24 +15,9 @@ import { parseSkillDirectory } from './skill-parser'
 import {
   discoverProjects,
   createMissingProjectCheck,
-  isProjectDiscoveryExcluded,
-  PROJECT_DISCOVERY_LIMITS
+  isProjectDiscoveryExcluded
 } from './project-discovery'
-
-export function findNestedSkillsDirs(
-  repoRoot: string,
-  onUnavailable: () => void = () => undefined,
-  limits = PROJECT_DISCOVERY_LIMITS
-): string[] {
-  const discovery = discoverProjects([repoRoot], [], limits)
-  if (discovery.incomplete) onUnavailable()
-  return discovery.skillRoots
-    .filter(
-      (root) =>
-        root.dir !== join(repoRoot, '.claude', 'skills') && allowedStatSync(root.dir)?.isDirectory()
-    )
-    .map((root) => root.dir)
-}
+import { createGitRepos, type GitRepos } from './git-repos'
 
 export interface SkillRoot {
   dir: string
@@ -163,12 +147,12 @@ export function scanSkills(
   roots: SkillRoot[] | undefined = undefined,
   userSettingsPath?: string,
   previousProjects: ProjectFolder[] = [],
-  identity: ProjectIdentity = readProjectIdentity({ locations: [], claudeCodeFolders: [] })
+  repos: GitRepos = createGitRepos({ locations: [], claudeCodeFolders: [] })
 ): ScanTaskResult {
   assertConfigRootAvailable()
   const discovery =
     roots === undefined
-      ? discoverProjects(getGrantedPaths(), previousProjects, undefined, identity)
+      ? discoverProjects(getGrantedPaths(), previousProjects, undefined, repos)
       : undefined
   roots ??= defaultSkillRoots(discovery)
   let partial = roots.some((root) => root.discoveryIncomplete === true)
