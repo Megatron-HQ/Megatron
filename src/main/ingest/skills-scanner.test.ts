@@ -293,6 +293,7 @@ describe('live project reconciliation', () => {
     expect(projectRoots()).toEqual([worktree])
     const entry = join(app, '.git', 'worktrees', 'app-feature')
     mkdirSync(entry, { recursive: true })
+    writeFileSync(join(entry, 'commondir'), '../..\n')
     writeFileSync(join(entry, 'gitdir'), `${join(worktree, '.git')}\n`)
     rmSync(join(worktree, '.git'), { recursive: true })
     writeFileSync(join(worktree, '.git'), `gitdir: ${entry}\n`)

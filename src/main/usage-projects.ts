@@ -14,6 +14,7 @@ import {
   groupProjectTokens
 } from '../shared/usage-projects'
 import {
+  isGitDirectoryPath,
   normalizeProjectPath,
   isWithinProjectPath,
   nativeWorktreeRoot
@@ -218,7 +219,10 @@ function savedLocations(saved: unknown): UsageProjectLocation[] {
       status: entry.status,
       ...(typeof entry.linkedTo === 'string' ? { linkedTo: entry.linkedTo } : {}),
       ...(entry.inferredOwner === true ? { inferredOwner: true } : {}),
-      ...(entry.worktree === true ? { worktree: true as const } : {})
+      ...(entry.worktree === true ? { worktree: true as const } : {}),
+      ...(entry.worktree === true && entry.worktreeEvidence === 'git'
+        ? { worktreeEvidence: 'git' as const }
+        : {})
     })
   }
   return locations.map((entry) => {
@@ -229,17 +233,37 @@ function savedLocations(saved: unknown): UsageProjectLocation[] {
     delete unlinked.linkedTo
     delete unlinked.inferredOwner
     delete unlinked.worktree
+    delete unlinked.worktreeEvidence
     return unlinked
   })
 }
 
+function invalidWorktreeTarget(
+  entry: UsageProjectLocation,
+  canonical: UsageProjectLocation
+): boolean {
+  if (isGitDirectoryPath(canonical.path)) return true
+  if (entry.worktreeEvidence === 'git') return false
+  const layout = nativeWorktreeRoot(entry.path, 'config')
+  return (
+    layout !== null &&
+    normalizeProjectPath(layout.canonical) === normalizeProjectPath(canonical.path)
+  )
+}
+
 export function worktreeLinks(saved: unknown): WorktreeLink[] {
   const locations = savedLocations(saved)
+  const byId = new Map(locations.map((entry) => [entry.id, entry]))
+  const targetOf = (entry: UsageProjectLocation): UsageProjectLocation | undefined => {
+    const canonical = entry.worktree && entry.linkedTo ? byId.get(entry.linkedTo) : undefined
+    return canonical && !invalidWorktreeTarget(entry, canonical) ? canonical : undefined
+  }
   return locations.flatMap((entry) => {
-    const canonical = entry.worktree
-      ? locations.find((candidate) => candidate.id === entry.linkedTo)
-      : undefined
-    return canonical ? [{ path: entry.path, canonical: canonical.path }] : []
+    let canonical = targetOf(entry)
+    if (!canonical) return []
+    // A formerly canonical checkout can become a worktree while older, pruned links still name it.
+    for (let next = targetOf(canonical); next; next = targetOf(next)) canonical = next
+    return [{ path: entry.path, canonical: canonical.path }]
   })
 }
 
@@ -250,7 +274,8 @@ export function worktreeLinks(saved: unknown): WorktreeLink[] {
 export function applyWorktreeEvidence(
   locations: UsageProjectLocation[],
   links: readonly WorktreeLink[],
-  canonicalCheckouts: readonly string[] = []
+  canonicalCheckouts: readonly string[] = [],
+  source: 'git' | 'layout' = 'git'
 ): UsageProjectLocation[] {
   const result = locations.map((entry) => ({ ...entry }))
   const previousById = new Map(locations.map((entry) => [entry.id, entry]))
@@ -293,6 +318,7 @@ export function applyWorktreeEvidence(
     if (!canonical || !previous?.worktree) continue
     const oldRoot = checkoutRoot(previous)
     delete canonical.worktree
+    delete canonical.worktreeEvidence
     delete canonical.linkedTo
     delete canonical.inferredOwner
     canonical.kind = 'repository'
@@ -327,6 +353,7 @@ export function applyWorktreeEvidence(
     worktree.kind = 'repository'
     worktree.linkedTo = canonical.id
     worktree.worktree = true
+    if (source === 'git') worktree.worktreeEvidence = 'git'
     delete worktree.inferredOwner
   }
   return result
@@ -341,6 +368,34 @@ export function reconcileUsageProjects(
     ...entry,
     status: 'needs_access' as ProjectFolder['status']
   }))
+  const byId = new Map(locations.map((entry) => [entry.id, entry]))
+  const formerTargets = new Set<string>()
+  for (const entry of locations) {
+    if (!entry.worktree || !entry.linkedTo) continue
+    const canonical = byId.get(entry.linkedTo)
+    if (!canonical || !invalidWorktreeTarget(entry, canonical)) continue
+    formerTargets.add(canonical.id)
+    delete entry.worktree
+    delete entry.worktreeEvidence
+    delete entry.linkedTo
+  }
+  if (formerTargets.size > 0) {
+    const linkedTargets = new Set(locations.map((entry) => entry.linkedTo))
+    const discovered = new Set(projects.map((project) => normalizeProjectPath(project.path)))
+    locations = locations.filter(
+      (entry) =>
+        !formerTargets.has(entry.id) ||
+        entry.linkedTo !== undefined ||
+        linkedTargets.has(entry.id) ||
+        discovered.has(normalizeProjectPath(entry.path)) ||
+        paths.some(
+          (path) =>
+            validPath(path) &&
+            isWithinProjectPath(path, entry.path) &&
+            usageProjectOwner(path, locations)?.id === entry.id
+        )
+    )
+  }
   const insert = (project: ProjectFolder): void => {
     const existing = locations.find(
       (entry) => normalizeProjectPath(entry.path) === normalizeProjectPath(project.path)
@@ -358,18 +413,22 @@ export function reconcileUsageProjects(
   for (const project of projects) if (validPath(project.path)) insert(project)
   // Claude Code's own worktree layout is evidence without reading git; a link git already gave
   // for that folder wins.
+  const savedWorktree = (path: string): UsageProjectLocation | undefined =>
+    locations.find(
+      (entry) => entry.worktree && normalizeProjectPath(entry.path) === normalizeProjectPath(path)
+    )
   locations = applyWorktreeEvidence(
     locations,
     paths.flatMap((path) => {
       const link = validPath(path) ? nativeWorktreeRoot(path) : null
-      return link &&
-        !locations.some(
-          (entry) =>
-            entry.worktree && normalizeProjectPath(entry.path) === normalizeProjectPath(link.path)
-        )
-        ? [link]
-        : []
-    })
+      if (!link || savedWorktree(link.path)) return []
+      // A layout inside a folder git proved is a Worktree belongs to that Worktree's repository;
+      // the layout alone can't promote it to a Canonical Checkout.
+      const host = savedWorktree(link.canonical)
+      return [host ? { ...link, canonical: primaryUsageProject(host, locations).path } : link]
+    }),
+    [],
+    'layout'
   )
   for (const path of paths) {
     if (!validPath(path) || usageProjectOwner(path, locations)) continue

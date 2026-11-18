@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import { canonicalProjectPath, nativeWorktreeRoot } from './project-path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { canonicalProjectPath, nativeWorktreeRoot, setClaudeCodeFolders } from './project-path'
+
+afterEach(() => setClaudeCodeFolders([]))
 
 describe('nativeWorktreeRoot', () => {
   it.each([
@@ -37,6 +39,15 @@ describe('nativeWorktreeRoot', () => {
     ''
   ])('leaves %s alone', (path) => {
     expect(nativeWorktreeRoot(path)).toBeNull()
+  })
+
+  it('excludes both the active Claude Code Folder and the default home layout', () => {
+    setClaudeCodeFolders(['/home/user/.claude', 'C:\\Profiles\\Work\\.claude'])
+    expect(nativeWorktreeRoot('/home/user/.claude/worktrees/hook/src')).toBeNull()
+    expect(nativeWorktreeRoot('c:/profiles/work/.claude/worktrees/hook/src')).toBeNull()
+    expect(nativeWorktreeRoot('/home/user/code/app/.claude/worktrees/hook')?.canonical).toBe(
+      '/home/user/code/app'
+    )
   })
 })
 
@@ -89,5 +100,11 @@ describe('canonicalProjectPath', () => {
 
   it('leaves a path outside every worktree unchanged', () => {
     expect(canonicalProjectPath('/Users/sai/code/app/src', links)).toBe('/Users/sai/code/app/src')
+  })
+
+  it('keeps paths inside a bare container’s canonical checkout unchanged', () => {
+    const container = [{ path: '/code/app', canonical: '/code/app/main' }]
+    expect(canonicalProjectPath('/code/app', container)).toBe('/code/app/main')
+    expect(canonicalProjectPath('/code/app/main/src', container)).toBe('/code/app/main/src')
   })
 })

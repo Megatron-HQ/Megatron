@@ -1,10 +1,13 @@
 import { parentPort, workerData } from 'worker_threads'
 import { assertConfigRootAvailable } from '../config-root'
+import { homedir } from 'os'
+import { join } from 'path'
 import Database from 'better-sqlite3'
 import { restoreGrantedPath, setClaudeConfig, type ConfigRoot } from '../permissions'
 import { setWorktreeLinkSource } from '../db/queries'
 import { scanSkills as runSkillScan } from './skills-scanner'
 import type { ProjectFolder, ScanTaskResult, WorktreeLink } from '../../shared/ipc'
+import { setClaudeCodeFolders } from '../../shared/project-path'
 import { scanPluginRegistry } from './plugin-registry'
 import { scanTranscripts as runTranscriptScan } from './transcript-scanner'
 import { scanPromptHistory as runPromptScan } from './prompt-history-scanner'
@@ -31,11 +34,9 @@ const {
   worktreeLinks?: WorktreeLink[]
   scope?: ScanScope
 }
-function scanSkills(db: Database.Database): ScanTaskResult {
-  return runSkillScan(db, undefined, undefined, previousProjects)
-}
 // The worker has its own module state: Tier 1 must name the same folder main resolved at startup.
 setClaudeConfig(configRoot)
+setClaudeCodeFolders([configRoot.directory, join(homedir(), '.claude')])
 for (const path of grantedPaths) restoreGrantedPath(path)
 setWorktreeLinkSource(() => worktreeLinks)
 const database = new Database(databasePath)
@@ -47,6 +48,12 @@ const usageScans = createUsageScanTasks({
   getArchive
 })
 let sourceStartedAt = 0
+let pruningLinks = worktreeLinks
+function scanSkills(db: Database.Database): ScanTaskResult {
+  const result = runSkillScan(db, undefined, undefined, previousProjects, worktreeLinks)
+  if (result.worktrees) pruningLinks = [...result.worktrees, ...worktreeLinks]
+  return result
+}
 try {
   const summary = runAllScans(
     database,
@@ -55,7 +62,7 @@ try {
       { name: 'scanSkills', run: scanSkills },
       {
         name: 'scanPluginRegistry',
-        run: (db: Database.Database) => scanPluginRegistry(db, undefined, undefined, worktreeLinks)
+        run: (db: Database.Database) => scanPluginRegistry(db, undefined, undefined, pruningLinks)
       },
       // Not gated on the registry scan's status: leftover index rows are still real sightings,
       // and recording one late only delays a 30-day signal. Full scans only (selectScanTasks).

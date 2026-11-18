@@ -198,7 +198,8 @@ findings apply to every source. History queries return 200 rows per page; dialog
 and identify searches as applying to loaded entries.
 
 Permission-aware buffered file reads are capped at 16 MiB, and streamed transcript/history lines
-at 64 MiB. The line assembler scans incoming chunks once; it does not repeatedly split a growing
+at 64 MiB. A ranged read (the reftable reader's blocks) returns at most its byte cap from the given
+offset instead of failing as too large; that reader stops after the first 32 MiB of a table. The line assembler scans incoming chunks once; it does not repeatedly split a growing
 line. An oversized line fails the source read instead of emitting truncated JSON.
 
 File previews allow 256 KiB per file and 4 MiB of aggregate content. Traversal is capped at 1,024

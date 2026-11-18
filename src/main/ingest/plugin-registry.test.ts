@@ -164,6 +164,18 @@ describe('removed project installs', () => {
       expect(allRegistry()).toHaveLength(1)
     })
 
+    it('keeps an install in a locked worktree whose folder is temporarily missing', () => {
+      const locked = join(tmpDir, 'locked')
+      const entry = join(app, '.git', 'worktrees', 'locked')
+      mkdirSync(entry, { recursive: true })
+      writeFileSync(join(entry, 'gitdir'), join(locked, '.git') + '\n')
+      writeFileSync(join(entry, 'locked'), 'on a removable drive\n')
+      installAt(locked)
+
+      scanPluginRegistry(db, pluginsDir, userSettingsPath, [{ path: locked, canonical: app }])
+      expect(allRegistry()).toHaveLength(1)
+    })
+
     it('keeps an install when the repository cannot be read', () => {
       installAt(worktree('gone'))
       scanPluginRegistry(db, pluginsDir, userSettingsPath, [

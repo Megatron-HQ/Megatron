@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3'
 import { assertConfigRootAvailable } from '../config-root'
-import type { ProjectFolder, ScanIssue, ScanTaskResult } from '../../shared/ipc'
+import type { ProjectFolder, ScanIssue, ScanTaskResult, WorktreeLink } from '../../shared/ipc'
 import { dirname, join, relative, sep } from 'path'
 import { writeSkillScan, type SkillScanRow } from '../db/queries'
 import {
@@ -161,11 +161,14 @@ export function scanSkills(
   db: Database.Database,
   roots: SkillRoot[] | undefined = undefined,
   userSettingsPath?: string,
-  previousProjects: ProjectFolder[] = []
+  previousProjects: ProjectFolder[] = [],
+  worktreeLinks: readonly WorktreeLink[] = []
 ): ScanTaskResult {
   assertConfigRootAvailable()
   const discovery =
-    roots === undefined ? discoverProjects(getGrantedPaths(), previousProjects) : undefined
+    roots === undefined
+      ? discoverProjects(getGrantedPaths(), previousProjects, undefined, worktreeLinks)
+      : undefined
   roots ??= defaultSkillRoots(discovery)
   let partial = roots.some((root) => root.discoveryIncomplete === true)
   const unavailableProjects = new Set<string>()
@@ -190,12 +193,12 @@ export function scanSkills(
     const isMissingProject = createMissingProjectCheck()
     const missingProjects = new Map<string, boolean>()
     const readableProjects = new Map<string, boolean>()
-    const skippedWorktrees = new Set(discovery.skippedWorktrees)
+    const skippedProjects = new Set([...discovery.skippedWorktrees, ...discovery.gitDirHolders])
     const shouldDiscardProject = (path: string): boolean => {
       let missing = missingProjects.get(path)
       if (missing === undefined) {
         missing =
-          skippedWorktrees.has(path) || isProjectDiscoveryExcluded(path) || isMissingProject(path)
+          skippedProjects.has(path) || isProjectDiscoveryExcluded(path) || isMissingProject(path)
         missingProjects.set(path, missing)
       }
       return missing

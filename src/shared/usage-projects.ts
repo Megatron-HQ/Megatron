@@ -14,6 +14,8 @@ export interface UsageProjectLocation extends ProjectFolder {
   // A git worktree, linked straight to its Canonical Checkout (never flattened to the project's
   // primary): project-skill scoping reads that checkout's path. See CONTEXT.md.
   worktree?: true
+  // Older links have no provenance. Real Git evidence can override an excluded Claude layout.
+  worktreeEvidence?: 'git'
 }
 
 export interface UsageProject {

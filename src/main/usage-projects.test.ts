@@ -25,6 +25,7 @@ import {
   matchesUsageProjectSearch
 } from '../shared/usage-projects'
 import type { ProjectFolder } from '../shared/ipc'
+import { setClaudeCodeFolders } from '../shared/project-path'
 
 const repository = (path: string): ProjectFolder => ({
   path,
@@ -479,6 +480,74 @@ describe('worktrees', () => {
     expect(resolveUsageProjectPath('/wt/app-x', moved)).toBe('/code/other')
   })
 
+  it('keeps a Worktree linked when only a link names it canonical', () => {
+    const linked = applyWorktreeEvidence([], [{ path: '/code/b', canonical: '/code/a' }])
+
+    const later = applyWorktreeEvidence(linked, [{ path: '/code/c', canonical: '/code/b' }])
+
+    expect(later.find((entry) => entry.path === '/code/b')).toMatchObject({ worktree: true })
+    expect(roots(later)).toEqual(['/code/a'])
+    expect(worktreeLinks(later)).toContainEqual({ path: '/code/c', canonical: '/code/a' })
+  })
+
+  it('makes a former Worktree its own project when positive evidence names it canonical', () => {
+    const linked = applyWorktreeEvidence([], [{ path: '/code/b', canonical: '/code/a' }])
+
+    const promoted = applyWorktreeEvidence(
+      linked,
+      [{ path: '/code/c', canonical: '/code/b' }],
+      ['/code/b']
+    )
+
+    const b = promoted.find((entry) => entry.path === '/code/b')!
+    expect(b.worktree).toBeUndefined()
+    expect(b.linkedTo).toBeUndefined()
+    expect(roots(promoted)).toEqual(['/code/b'])
+    expect(resolveUsageProjectPath('/code/c', promoted)).toBe('/code/b')
+    expect(resolveUsageProjectPath('/code/a', promoted)).toBe('/code/b')
+  })
+
+  it("sends Claude Code's worktree layout inside a Worktree to that Worktree's Canonical Checkout", () => {
+    const linked = applyWorktreeEvidence([], [{ path: '/code/b', canonical: '/code/a' }])
+
+    const later = reconcileUsageProjects(
+      JSON.parse(JSON.stringify(linked)),
+      [],
+      ['/code/b/.claude/worktrees/x']
+    )
+
+    expect(later.find((entry) => entry.path === '/code/b')).toMatchObject({ worktree: true })
+    expect(roots(later)).toEqual(['/code/a'])
+    expect(resolveUsageProjectPath('/code/b/.claude/worktrees/x', later)).toBe('/code/a')
+  })
+
+  it('turns the Worktree link around when evidence swaps the two checkouts', () => {
+    const linked = applyWorktreeEvidence([], [{ path: '/code/b', canonical: '/code/a' }])
+
+    const swapped = applyWorktreeEvidence(
+      linked,
+      [{ path: '/code/a', canonical: '/code/b' }],
+      ['/code/b']
+    )
+
+    expect(swapped.find((entry) => entry.path === '/code/b')!.worktree).toBeUndefined()
+    expect(worktreeLinks(swapped)).toEqual([{ path: '/code/a', canonical: '/code/b' }])
+    expect(resolveUsageProjectPath('/code/a', swapped)).toBe('/code/b')
+  })
+
+  it('routes a previously pruned worktree through a new canonical checkout', () => {
+    const saved = applyWorktreeEvidence(
+      [],
+      [
+        { path: '/code/old', canonical: '/code/a' },
+        { path: '/code/b', canonical: '/code/a' }
+      ]
+    )
+    const swapped = applyWorktreeEvidence(saved, [{ path: '/code/a', canonical: '/code/b' }])
+    expect(resolveUsageProjectPath('/code/old/src', swapped)).toBe('/code/b')
+    expect(worktreeLinks(swapped)).toContainEqual({ path: '/code/old', canonical: '/code/b' })
+  })
+
   it('keeps a worktree pointed at its checkout when that checkout is linked elsewhere', () => {
     const base = reconcileUsageProjects([], [repository('/code/app'), repository('/old/app')], [])
     const withWorktree = applyWorktreeEvidence(base, [link])
@@ -519,5 +588,42 @@ describe('worktrees', () => {
     expect(resolveUsageProjectPath('/code/app/.claude/worktrees/fix/src', locations)).toBe(
       '/code/app'
     )
+  })
+
+  it('drops a saved link into Git metadata and removes its empty target', () => {
+    const invalid = { path: '/wt/legacy', canonical: '/code/app/.git/modules' }
+    const saved = applyWorktreeEvidence([], [invalid])
+    expect(worktreeLinks(saved)).toEqual([])
+    expect(roots(reconcileUsageProjects(saved, [], ['/wt/legacy/src']))).toEqual(['/wt/legacy'])
+  })
+
+  it('keeps a former target with sessions or another link', () => {
+    const ghost = '/code/app/.git/modules'
+    const saved = applyWorktreeEvidence([], [{ path: '/wt/legacy', canonical: ghost }])
+    expect(roots(reconcileUsageProjects(saved, [], [ghost + '/scripts']))).toEqual([
+      ghost,
+      '/wt/legacy'
+    ])
+    const linked = linkUsageProjects(
+      [...saved, { ...repository('/retained'), id: 'retained' }],
+      'retained',
+      saved.find((entry) => entry.path === ghost)!.id
+    )
+    expect(roots(reconcileUsageProjects(linked, [], []))).toEqual([ghost, '/wt/legacy'])
+  })
+
+  it('cleans a legacy home-layout link while preserving independently proven Git evidence', () => {
+    const path = '/home/user/.claude/worktrees/hook'
+    const link = { path, canonical: '/home/user' }
+    const legacy = reconcileUsageProjects([], [], [path])
+    setClaudeCodeFolders(['/home/user/.claude'])
+    try {
+      expect(roots(reconcileUsageProjects(legacy, [], [path + '/src']))).toEqual([path])
+      expect(roots(reconcileUsageProjects([], [], [path]))).toEqual([path])
+      const proven = applyWorktreeEvidence([], [link])
+      expect(worktreeLinks(reconcileUsageProjects(proven, [], [path]))).toEqual([link])
+    } finally {
+      setClaudeCodeFolders([])
+    }
   })
 })

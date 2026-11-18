@@ -101,21 +101,40 @@ rediscovery at the same path.
 - A working directory belongs to the deepest retained repository root. Parent-folder activity with
   no owning repository is its own workspace. Separate clones stay independent: a matching name
   never proves identity.
-- **Worktrees belong to their repository's Canonical Checkout** (terms in `CONTEXT.md`). Evidence
-  is git's own link, read from either side: a repository's `.git/worktrees/*/gitdir` (inside its
-  grant), or a granted worktree's `.git` file naming an ungranted repository. Claude Code's
-  `<repo>/.claude/worktrees/<name>` layout is evidence on its own, with no read (verified against
-  real `~/.claude` 2026-11-15). The link is stored as `linkedTo` + `worktree: true`, pointing
-  straight at the Canonical Checkout rather than the project's primary, because project-skill
-  scoping canonicalizes paths through it (`canonical_project_path` in `queries.ts`; raw
-  `sessions_meta.cwd` is never rewritten). It is sticky after the worktree is pruned, moves when
-  newer evidence names another repository, and cannot be unlinked. Submodules and their worktrees
-  stay independent. Accepted gap: a worktree created and pruned while Megatron was closed leaves
-  no evidence, and one pruned before this rule shipped stays a separate location.
+- **Worktrees belong to their repository's Canonical Checkout** (terms in `CONTEXT.md`). A
+  checkout's `.git` file identifies its administrative directory, whose `commondir` identifies
+  the shared Git directory. If the admin directory is ungranted, `worktrees/<name>` in the
+  pointer is enough to infer its common directory. A repository's reverse `gitdir` pointer
+  can prove a link when the checkout is ungranted. If the pointers disagree, the checkout's
+  own pointer wins while the admin directory it names exists; once that directory is provably
+  gone (a main checkout renamed without `git worktree repair`), the repository's list wins.
+  Submodules and their worktrees stay independent regardless of their names.
+- A separate Git directory's Canonical Checkout comes from a checkout's `.git` pointer, then
+  `core.worktree`, then the parent of a directory named `.git`. An unknown checkout leaves
+  the worktree independent. For a bare repo, a worktree on the repo's `HEAD` branch wins
+  (including reftable `HEAD`). The fallback keeps the saved checkout if still live, then
+  picks the first live worktree by path. A bare container whose `.git` file points to that
+  repository shares the canonical worktree's Usage. Its own skills are skipped.
 - A canonical transition requires positive checkout evidence from a complete Git index, carried
   separately from catalog rows (a directly granted stand-in is also a repository row). The prior
   checkout graph moves together, including retired checkouts; location IDs and manual external
   Usage associations survive. Skill checkout links remain direct to the new Canonical Checkout.
+- A listed worktree counts as pruned unless locked when an existing granted folder above it
+  shows it gone. A missing grant (an unmounted volume) proves nothing. Outside grants, the
+  repository list is the available evidence. Saved Usage links survive pruning and move
+  when newer evidence identifies a different checkout. A new link cannot target Git metadata
+  or a provably absent checkout. Reconciliation clears saved links into Git metadata and
+  removes the former target when it has neither activity nor references.
+- The `<repo>/.claude/worktrees/<name>` layout supplies evidence without a filesystem read
+  (verified 2026-11-15). This applies to project-local hook folders and excludes the active
+  Claude Code Folder and `~/.claude`. Saved links inferred from the excluded layout are
+  cleared. Git evidence takes precedence. Jujutsu workspaces and `git-new-workdir` supply
+  no Git worktree evidence. Revisit Jujutsu if users report split Usage for one repository.
+- Usage stores `linkedTo` and `worktree: true` in preferences. Git evidence also records
+  `worktreeEvidence: "git"` so a proven link survives the layout cleanup. Project-skill scoping
+  follows Git links to the Canonical Checkout. Usage grouping can also follow the checkout's
+  manual link to another project. Source working directories remain intact. A worktree created
+  and pruned between scans can leave no evidence.
 - A confirmed link merges Usage identity only, applied at query time. It never rewrites source
   records, changes skill or plugin ownership, or grants filesystem access, and unlinking restores
   separate totals without deleting anything. Linking has no UI yet; existing links stay intact.

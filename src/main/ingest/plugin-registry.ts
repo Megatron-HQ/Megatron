@@ -232,9 +232,8 @@ export function scanPluginRegistry(
   // a project with several plugins would otherwise re-read the same two settings files each time.
   const enablementCache = new Map<string, Set<string>>()
   const unknownProjects = new Set<string>()
-  const isMissingProject = createMissingProjectCheck()
   // Claude Code never removes a pruned worktree's installs from installed_plugins.json.
-  const isPrunedWorktree = createPrunedWorktreeCheck(worktreeLinks)
+  const isMissingProject = createPrunedWorktreeCheck(worktreeLinks, createMissingProjectCheck())
   const missingProjects = new Map<string, boolean>()
   const issues = new Map<string, ScanIssue>()
   function disabledPluginsFor(projectPath: string): Set<string> {
@@ -418,7 +417,7 @@ export function scanPluginRegistry(
         if (projectPath !== '') {
           let missing = missingProjects.get(projectPath)
           if (missing === undefined) {
-            missing = isMissingProject(projectPath) || isPrunedWorktree(projectPath)
+            missing = isMissingProject(projectPath)
             missingProjects.set(projectPath, missing)
           }
           if (missing) continue

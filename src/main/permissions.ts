@@ -578,7 +578,8 @@ function openAllowedRegularFile(path: string): number {
 
 export function readAllowedFile(
   path: string,
-  maxBytes = MAX_FILE_READ_BYTES
+  maxBytes = MAX_FILE_READ_BYTES,
+  range?: { offset: number }
 ): {
   status: AllowedFileReadStatus | 'too_large'
   // Set only when the path is approved but resolves through a link to a folder that isn't: a
@@ -609,14 +610,22 @@ export function readAllowedFile(
   try {
     const chunks: Buffer[] = []
     let total = 0
-    while (true) {
-      const chunk = Buffer.allocUnsafe(Math.min(STREAM_READ_CHUNK_BYTES, maxBytes - total + 1))
-      const count = readSync(descriptor, chunk, 0, chunk.length, null)
-      if (count === 0) return { status: 'ok', contents: Buffer.concat(chunks, total) }
+    while (!range || total < maxBytes) {
+      const remaining = maxBytes - total + (range ? 0 : 1)
+      const chunk = Buffer.allocUnsafe(Math.min(STREAM_READ_CHUNK_BYTES, remaining))
+      const count = readSync(
+        descriptor,
+        chunk,
+        0,
+        chunk.length,
+        range ? range.offset + total : null
+      )
+      if (count === 0) break
       total += count
       if (total > maxBytes) return { status: 'too_large', contents: null }
       chunks.push(chunk.subarray(0, count))
     }
+    return { status: 'ok', contents: Buffer.concat(chunks, total) }
   } catch {
     return { status: 'unavailable', contents: null }
   } finally {

@@ -1,4 +1,13 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -11,6 +20,10 @@ import { applySchema } from '../db/schema'
 import { listSkills, setWorktreeLinkSource } from '../db/queries'
 import { applyWorktreeEvidence, reconcileUsageProjects, worktreeLinks } from '../usage-projects'
 import { scanSkills } from './skills-scanner'
+
+// Git config values treat a backslash as an escape, so tests write paths the way git does.
+const gitPath = (path: string): string => path.replace(/\\/g, '/')
+const caseInsensitive = existsSync(tmpdir().toUpperCase()) && existsSync(tmpdir().toLowerCase())
 
 let root: string
 beforeEach(() => {
@@ -498,6 +511,7 @@ describe('git worktrees', () => {
     const name = worktree.split(/[\\/]/).pop()!
     const entry = join(commonDir, 'worktrees', name)
     mkdirSync(entry, { recursive: true })
+    writeFileSync(join(entry, 'commondir'), '../..\n')
     writeFileSync(join(entry, 'gitdir'), `${join(worktree, '.git')}\n`)
     writeFileSync(join(entry, 'HEAD'), `${head}\n`)
     mkdirSync(worktree, { recursive: true })
@@ -547,6 +561,86 @@ describe('git worktrees', () => {
     expect(rootDirs(result)).not.toContain(packageSkills)
     expect(result.skippedWorktrees).toEqual([worktree])
     expect(result.worktrees).toEqual([{ path: worktree, canonical: app }])
+  })
+
+  it('uses the checkout pointer when a copied repository also lists that worktree', () => {
+    const checkout = join(root, 'worktree')
+    addWorktree(join(root, 'zz-copy', '.git'), checkout)
+    addWorktree(join(app, '.git'), checkout)
+    expect(discoverProjects([root]).worktrees).toEqual([{ path: checkout, canonical: app }])
+  })
+
+  it('leaves a checkout independent when its named admin directory is gone', () => {
+    const checkout = join(root, 'worktree')
+    addWorktree(join(app, '.git'), checkout)
+    rmSync(join(app, '.git', 'worktrees', 'worktree'), { recursive: true })
+    const result = discoverProjects([root])
+    expect(result.worktrees).toEqual([])
+    expect(repositories(result.projects)).toContain(checkout)
+  })
+
+  it('links a worktree to its main checkout after the checkout was renamed', () => {
+    const worktree = join(root, 'wt')
+    addWorktree(join(app, '.git'), worktree)
+    const moved = join(root, 'code', 'app-moved')
+    renameSync(app, moved)
+    const result = discoverProjects([root])
+
+    expect(result.worktrees).toEqual([{ path: worktree, canonical: moved }])
+    expect(repositories(result.projects)).toEqual([moved])
+    expect(result.skippedWorktrees).toEqual([worktree])
+  })
+
+  it('keeps a repository whose core.worktree names itself through a symlink', () => {
+    // Sorts after `code`, so the walk reaches the repository by its real path first.
+    const alias = join(root, 'zz-alias')
+    symlinkSync(app, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    writeFileSync(join(app, '.git', 'config'), `[core]\n worktree = ${gitPath(alias)}\n`)
+    const result = discoverProjects([root])
+
+    expect(repositories(result.projects)).toEqual([app])
+    expect(rootDirs(result)).toContain(join(app, '.claude', 'skills'))
+  })
+
+  it.skipIf(!caseInsensitive)(
+    'keeps a repository whose core.worktree names itself in another letter case',
+    () => {
+      writeFileSync(
+        join(app, '.git', 'config'),
+        `[core]\n worktree = ${gitPath(join(root, 'code', 'APP'))}\n`
+      )
+      expect(repositories(discoverProjects([root]).projects)).toEqual([app])
+    }
+  )
+
+  it("does not make a standalone git dir's core.worktree target a repository", () => {
+    const home = join(root, 'home')
+    const dotfiles = join(home, '.dotfiles')
+    for (const name of ['objects', 'refs']) mkdirSync(join(dotfiles, name), { recursive: true })
+    writeFileSync(join(dotfiles, 'HEAD'), 'ref: refs/heads/main\n')
+    writeFileSync(join(dotfiles, 'config'), `[core]\n bare = false\n worktree = ${gitPath(home)}\n`)
+    const notes = join(home, 'notes')
+    const skills = addSkills(notes)
+    const result = discoverProjects([home])
+
+    expect(repositories(result.projects)).toEqual([notes])
+    expect(result.skillRoots).toContainEqual({
+      dir: skills,
+      sourceType: 'project',
+      projectRoot: notes
+    })
+  })
+
+  it('keeps a submodule named worktrees/x and its own linked worktree independent', () => {
+    const common = join(app, '.git', 'modules', 'worktrees', 'x')
+    const submodule = join(app, 'worktrees', 'x')
+    const checkout = join(root, 'worktree')
+    addWorktree(common, checkout)
+    addSkills(submodule)
+    writeFileSync(join(submodule, '.git'), 'gitdir: ../../.git/modules/worktrees/x\n')
+    const result = discoverProjects([root])
+    expect(result.worktrees).toEqual([])
+    expect(repositories(result.projects)).toEqual([app, submodule, checkout].sort())
   })
 
   it('links a worktree to an ungranted repository from its own .git file', () => {
@@ -754,6 +848,48 @@ describe('git worktrees', () => {
         [app, join(project, 'main')].sort()
       )
     })
+
+    it('links a directly granted bare container and excludes its own skills', () => {
+      const bare = join(project, '.bare')
+      const main = join(project, 'main')
+      initBare(bare)
+      writeFileSync(join(project, '.git'), 'gitdir: ./.bare\n')
+      const containerSkills = addSkills(project)
+      addWorktree(bare, main, 'ref: refs/heads/main')
+      const result = discoverProjects([project])
+
+      expect(result.projects.map(({ path }) => path)).toEqual([main])
+      expect(rootDirs(result)).not.toContain(containerSkills)
+      expect(result.skippedWorktrees).toContain(project)
+      expect(result.worktrees).toContainEqual({ path: project, canonical: main })
+    })
+
+    it('uses the previous live canonical until the bare default branch appears', () => {
+      const bare = join(root, 'remote.git')
+      const first = join(root, 'a')
+      const former = join(root, 'z')
+      initBare(bare)
+      addWorktree(bare, first, 'ref: refs/heads/a')
+      addWorktree(bare, former, 'ref: refs/heads/z')
+      const saved = [{ path: first, canonical: former }]
+      expect(discoverProjects([root], [], undefined, saved).worktrees).toEqual(saved)
+      writeFileSync(join(bare, 'HEAD'), 'ref: refs/heads/a\n')
+      expect(discoverProjects([root], [], undefined, saved).worktrees).toEqual([
+        { path: former, canonical: first }
+      ])
+    })
+
+    it('keeps a locked default-branch checkout as canonical while it is offline', () => {
+      const bare = join(root, 'remote.git')
+      const main = join(root, 'main')
+      const dev = join(root, 'dev')
+      initBare(bare)
+      addWorktree(bare, main, 'ref: refs/heads/main')
+      addWorktree(bare, dev, 'ref: refs/heads/dev')
+      writeFileSync(join(bare, 'worktrees', 'main', 'locked'), 'unmounted volume')
+      rmSync(main, { recursive: true })
+      expect(discoverProjects([root]).worktrees).toEqual([{ path: dev, canonical: main }])
+    })
   })
 
   it('links worktrees to the checkout of a separate git dir', () => {
@@ -771,5 +907,55 @@ describe('git worktrees', () => {
 
     expect(repositories(result.projects)).toEqual([app, separate].sort())
     expect(result.worktrees).toEqual([{ path: worktree, canonical: separate }])
+  })
+
+  it('leaves a directly granted worktree independent when the separate checkout is unknown', () => {
+    const store = join(root, 'store', 'app.git')
+    const checkout = join(root, 'wt')
+    addWorktree(store, checkout)
+    const skills = addSkills(checkout)
+    const result = discoverProjects([store, checkout])
+
+    expect(result.worktrees).toEqual([])
+    expect(rootDirs(result)).toContain(skills)
+  })
+
+  it('removes a .git holder when the real checkout points at that git directory', () => {
+    const holder = join(root, 'holder')
+    const checkout = join(root, 'separate')
+    mkdirSync(join(holder, '.git'), { recursive: true })
+    mkdirSync(checkout)
+    writeFileSync(join(checkout, '.git'), 'gitdir: ../holder/.git\n')
+    const result = discoverProjects([root])
+
+    expect(repositories(result.projects)).toEqual([app, checkout].sort())
+    expect(rootDirs(result)).not.toContain(join(holder, '.claude', 'skills'))
+  })
+
+  it('discovers a core.worktree checkout without a .git entry of its own', () => {
+    const checkout = join(root, 'a-redirected-checkout')
+    const holder = join(root, 'z-holder')
+    const common = join(holder, '.git')
+    const skills = addSkills(join(checkout, 'packages', 'web'))
+    const worktree = join(root, 'wt')
+    addWorktree(common, worktree)
+    writeFileSync(join(common, 'config'), '[core]\n worktree = ../../a-redirected-checkout\n')
+    const result = discoverProjects([root])
+
+    expect(repositories(result.projects)).toEqual([app, checkout].sort())
+    expect(result.skillRoots).toContainEqual({
+      dir: skills,
+      sourceType: 'project',
+      projectRoot: checkout
+    })
+    expect(result.worktrees).toEqual([{ path: worktree, canonical: checkout }])
+  })
+
+  it('drops fresh links to a missing core.worktree directory inside a grant', () => {
+    const common = join(root, 'holder', '.git')
+    const worktree = join(root, 'wt')
+    addWorktree(common, worktree)
+    writeFileSync(join(common, 'config'), '[core]\n worktree = ../../missing\n')
+    expect(discoverProjects([root]).worktrees).toEqual([])
   })
 })

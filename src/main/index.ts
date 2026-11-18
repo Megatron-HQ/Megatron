@@ -36,6 +36,7 @@ import {
   worktreeLinks
 } from './usage-projects'
 import type { UsageProjectCatalog, UsageProjectLocation } from '../shared/usage-projects'
+import { setClaudeCodeFolders } from '../shared/project-path'
 import { createScanSession, type ScanUrgency } from './scan-session'
 import { disableChromiumHttpCache } from './chromium-cache'
 import { changeAllowedPaths, listAllowedPaths, normalizeAllowedPaths } from './folder-grants'
@@ -182,6 +183,7 @@ const claudeFolder = createClaudeFolder({
     })
 })
 setClaudeConfig(claudeFolder.root)
+setClaudeCodeFolders([claudeFolder.root.directory, join(homedir(), '.claude')])
 gateClaude(claudeFolder.cliRefusal)
 setWorktreeLinkSource(() => worktreeLinks(themeStore.get('usageProjects')))
 // Bundled and validated by its own test, so a parse failure here means a broken build, not user data.
