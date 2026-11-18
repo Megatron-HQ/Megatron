@@ -230,7 +230,8 @@ Megatron has no automatic upload of the index. Default macOS cache directories/f
 absolute Windows PowerShell command with paths passed as environment values. Linked or special cache
 files are rejected, including hardlinks, on every call and before any database opens; that check
 fails closed. Existing custom profile parent permissions are preserved; directory changes apply only
-to a new directory or the exact default app-owned directory. Cache files are protected separately.
+to a new directory or the exact default app-owned directory (`megatron`, or `megatron-dev` for an
+unpackaged run). Cache files are protected separately.
 On Windows each directory and file is changed at most once per process, and a file created after
 this process locked its directory is not changed again, because it inherits the protected,
 inheritable directory ACL. A SQLite `-wal`/`-shm` sidecar that vanishes before the change is

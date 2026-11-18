@@ -47,7 +47,8 @@ vi.mock('electron', () => {
   }
   return {
     app: {
-      commandLine: { appendSwitch: vi.fn() },
+      // An isolated --user-data-dir launch, so startup keeps the fake '/unused' data folder.
+      commandLine: { appendSwitch: vi.fn(), hasSwitch: (name: string) => name === 'user-data-dir' },
       getPath: () => '/unused',
       getName: () => 'folder-access-test',
       requestSingleInstanceLock: () => true,

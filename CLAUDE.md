@@ -8,6 +8,7 @@ Local-first desktop app that inventories, lints, and tracks usage of every Claud
 
 - `npm test` is vitest only. Tests for the release and packaging scripts (`scripts/*.test.mjs`) run under `npm run test:package-security`; tests for the visual-verify harness and the Electron launch helpers run under `npm run test:visual-verify`, which CI does not run.
 - `npm run db:reset` deletes only the derived index (`megatron.db`). `usage-history.db` and the folder grants in `preferences.json` survive. A `schema.sql` change rebuilds the index without it.
+- `npm run dev` uses its own data folder (`megatron-dev`), not the installed app's `megatron`, so onboarding, folder grants and the usage archive start empty there.
 - `src/renderer/src/components/ui/` is shadcn-vendored — don't hand-edit.
 - Path alias `@/*` → `src/renderer/src/*` must be declared in **both** `tsconfig.json` (so the `shadcn` CLI resolves it) and `tsconfig.web.json` (so the renderer actually compiles).
 

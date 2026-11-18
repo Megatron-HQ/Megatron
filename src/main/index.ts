@@ -43,6 +43,7 @@ import { changeAllowedPaths, listAllowedPaths, normalizeAllowedPaths } from './f
 import { createUpdater, type Updates } from './updater'
 import { readSwapResult, scheduleSwap, selfUpdateBlocker, stageUpdate } from './mac-self-update'
 import { claimSingleInstance } from './single-instance'
+import { ownedDataFolder, separateDevDataFolder } from './data-folder'
 import {
   deleteSkillsForProjectRoot,
   getContextBudget,
@@ -142,11 +143,12 @@ const MIN_FOCUS_SCAN_INTERVAL_MS = 10_000
 const APP_CONTENT_SECURITY_POLICY =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; worker-src 'none'"
 
-// Before anything touches the data folder: a second copy on the same data quits here.
+// Before anything touches the data folder: pick it (the lock is keyed on it), then a second copy on
+// the same data quits here.
+separateDevDataFolder(app)
 const isPrimaryInstance = claimSingleInstance(app, () => BrowserWindow.getAllWindows())
 
-if (isPrimaryInstance)
-  securePrivateDataDirectory(app.getPath('userData'), join(app.getPath('appData'), app.getName()))
+if (isPrimaryInstance) securePrivateDataDirectory(app.getPath('userData'), ownedDataFolder(app))
 const themeStore: ThemeStore = new Store({ name: 'preferences' })
 
 // Before anything reads Claude Code's data: every reader, Tier 1, the scan worker and the CLI follow
