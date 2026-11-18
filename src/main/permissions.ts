@@ -8,6 +8,7 @@ import {
   openSync,
   readSync,
   opendirSync,
+  readdirSync,
   realpathSync,
   statSync,
   watch,
@@ -44,18 +45,64 @@ foreach ($file in $env:MEGATRON_PRIVATE_DATA_FILES.Split([char[]]@('|'), [System
 exit 0
 `
 
-const TIER_1_ROOTS = ['skills', 'plugins', 'projects'].map((dir) =>
-  resolve(homedir(), '.claude', dir)
-)
-const GLOBAL_SKILLS_ROOT = TIER_1_ROOTS[0]
+// The one Claude Code config folder this process reads (claude-folder.ts picks it at startup).
+// Claude Code keeps .claude.json in $HOME by default but inside CLAUDE_CONFIG_DIR when that's set.
+export interface ConfigRoot {
+  directory: string
+  claudeJson: string
+  source: 'default' | 'environment' | 'settings'
+  // A named folder retains its configured spelling for Claude Code paths and pins its target
+  // separately so the lifetime of the main process and its workers uses one profile.
+  canonicalDirectory?: string
+}
 
-// User-level Claude Code config — not under ~/.claude/{skills,plugins,projects}, but some
-// scanners need specific fields out of them. File-only, not the rest of $HOME.
-const TIER_1_FILES = [
-  resolve(homedir(), '.claude.json'), // mcpServers, for the MCP linter
-  resolve(homedir(), '.claude/settings.json'), // enabledPlugins/skillOverrides, for disabled-skill detection
-  resolve(homedir(), '.claude/history.jsonl') // Prompt History, for the Usage view
-]
+export function defaultConfigRoot(home: string): ConfigRoot {
+  return {
+    directory: resolve(home, '.claude'),
+    claudeJson: resolve(home, '.claude.json'),
+    source: 'default'
+  }
+}
+
+// Claude Code moves .claude.json into the folder exactly when CLAUDE_CONFIG_DIR names it, so this
+// one check says whether the CLI must be given the variable to read what Megatron reads.
+export function namesConfigFolder(root: ConfigRoot): boolean {
+  return root.claudeJson === join(root.directory, '.claude.json')
+}
+
+export interface ClaudeConfig extends ConfigRoot {
+  skills: string
+  plugins: string
+  projects: string
+  settings: string
+  history: string
+}
+
+let activeConfig: ClaudeConfig
+// Tier 1: the config folder's skills/plugins/projects, plus the few files scanners need fields from
+// (mcpServers, enabledPlugins/skillOverrides, Prompt History). Never the rest of the folder or $HOME.
+let tier1Roots: string[]
+let tier1Files: string[]
+setClaudeConfig(defaultConfigRoot(homedir()))
+
+// Set once per process before any read: main at startup, the scan worker from its workerData.
+export function setClaudeConfig(root: ConfigRoot): void {
+  const { directory } = root
+  activeConfig = {
+    ...root,
+    skills: join(directory, 'skills'),
+    plugins: join(directory, 'plugins'),
+    projects: join(directory, 'projects'),
+    settings: join(directory, 'settings.json'),
+    history: join(directory, 'history.jsonl')
+  }
+  tier1Roots = [activeConfig.skills, activeConfig.plugins, activeConfig.projects]
+  tier1Files = [activeConfig.claudeJson, activeConfig.settings, activeConfig.history]
+}
+
+export function claudeConfig(): ClaudeConfig {
+  return activeConfig
+}
 
 const grantedPaths = new Map<string, string>()
 const MAX_DIRECTORY_ENTRIES = 20_000
@@ -112,22 +159,23 @@ export function isWithinGrant(path: string, root: string): boolean {
 
 export function isPathAllowed(path: string): boolean {
   const resolved = normalizeFsPath(resolve(path))
-  if (TIER_1_FILES.some((file) => normalizeFsPath(file) === resolved)) return true
-  return [...TIER_1_ROOTS, ...grantedPaths.keys(), ...grantedPaths.values()].some((root) =>
+  if (tier1Files.some((file) => normalizeFsPath(file) === resolved)) return true
+  return [...tier1Roots, ...grantedPaths.keys(), ...grantedPaths.values()].some((root) =>
     isWithinGrant(path, root)
   )
 }
 
 // The deepest point at which a link is part of the user's own Claude Code setup rather than content
-// someone else wrote: ~/.claude itself, a Tier 1 root or file, or one top-level entry of the global
-// skills folder (Orca and `npx skills` link these out to ~/.agents/skills). Links below the anchor,
-// and every link in repos and plugin content, keep the strict rule. See docs/security-hardening.md.
+// someone else wrote: the config folder itself, a Tier 1 root or file, or one top-level entry of the
+// global skills folder (Orca and `npx skills` link these out to ~/.agents/skills). Links below the
+// anchor, and every link in repos and plugin content, keep the strict rule.
+// See docs/security-hardening.md.
 function setupAnchor(path: string): string | null {
   const resolved = resolve(path)
-  const file = TIER_1_FILES.find((file) => normalizeFsPath(file) === normalizeFsPath(resolved))
+  const file = tier1Files.find((file) => normalizeFsPath(file) === normalizeFsPath(resolved))
   if (file !== undefined) return file
-  const root = TIER_1_ROOTS.find((root) => isWithinGrant(resolved, root))
-  if (root !== GLOBAL_SKILLS_ROOT) return root ?? null
+  const root = tier1Roots.find((root) => isWithinGrant(resolved, root))
+  if (root !== activeConfig.skills) return root ?? null
   const [entry, syncedEntry] = resolved.slice(root.length + 1).split(sep)
   if (!entry) return root
   // Claude Code scans synced/ (any capitalization) one level deeper, like the skills scanner.
@@ -234,7 +282,12 @@ export function securePrivateDataDirectory(directory: string, ownedRoot?: string
     'preferences.json',
     'usage-history.db',
     'usage-history.db-wal',
-    'usage-history.db-shm'
+    'usage-history.db-shm',
+    // One usage archive per Claude Code config folder (usage-archive.ts). Names only: the checks
+    // below still refuse a linked or special file.
+    ...readdirSync(directory).filter((name) =>
+      /^usage-history-[0-9a-f]{16}\.db(-wal|-shm)?$/.test(name)
+    )
   ]) {
     const file = join(directory, name)
     try {
@@ -420,6 +473,19 @@ export function allowedRealpathSync(path: string): string | null {
   }
 }
 
+export function allowedDirectoryIdentitySync(path: string): string | undefined {
+  const canonical = allowedRealpathSync(path)
+  if (canonical === null) return undefined
+  try {
+    const stats = statSync(canonical, { bigint: true })
+    if (stats.isDirectory() && stats.ino !== 0n)
+      return `${stats.dev}:${stats.ino}:${stats.birthtimeNs}`
+  } catch {
+    // The directory may have disappeared after resolving the allowed path.
+  }
+  return undefined
+}
+
 // Only the folder's own link counts: a real skill folder under a linked ~/.claude returns null.
 export function allowedLinkTargetSync(path: string): string | null {
   if (!isPathAllowed(path)) return null
@@ -527,7 +593,8 @@ function openAllowedRegularFile(path: string): number {
 
 export function readAllowedFile(
   path: string,
-  maxBytes = MAX_FILE_READ_BYTES
+  maxBytes = MAX_FILE_READ_BYTES,
+  range?: { offset: number }
 ): {
   status: AllowedFileReadStatus | 'too_large'
   // Set only when the path is approved but resolves through a link to a folder that isn't: a
@@ -558,14 +625,22 @@ export function readAllowedFile(
   try {
     const chunks: Buffer[] = []
     let total = 0
-    while (true) {
-      const chunk = Buffer.allocUnsafe(Math.min(STREAM_READ_CHUNK_BYTES, maxBytes - total + 1))
-      const count = readSync(descriptor, chunk, 0, chunk.length, null)
-      if (count === 0) return { status: 'ok', contents: Buffer.concat(chunks, total) }
+    while (!range || total < maxBytes) {
+      const remaining = maxBytes - total + (range ? 0 : 1)
+      const chunk = Buffer.allocUnsafe(Math.min(STREAM_READ_CHUNK_BYTES, remaining))
+      const count = readSync(
+        descriptor,
+        chunk,
+        0,
+        chunk.length,
+        range ? range.offset + total : null
+      )
+      if (count === 0) break
       total += count
       if (total > maxBytes) return { status: 'too_large', contents: null }
       chunks.push(chunk.subarray(0, count))
     }
+    return { status: 'ok', contents: Buffer.concat(chunks, total) }
   } catch {
     return { status: 'unavailable', contents: null }
   } finally {

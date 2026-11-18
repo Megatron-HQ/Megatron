@@ -23,6 +23,35 @@ const api = scans as typeof scans & {
 }
 
 describe('isolated scans', () => {
+  it('settles active and queued requests on suspension and starts once after resume', async () => {
+    let starts = 0
+    let finishCancellation!: () => void
+    const controller = scans.createScanController(() => {
+      starts++
+      return {
+        result: new Promise<ScanSummary>(() => {}),
+        cancel: () =>
+          new Promise<void>((resolve) => {
+            finishCancellation = resolve
+          })
+      }
+    })
+    const pending = ['all', 'inventory', 'plugins'].map((scope) =>
+      controller.request({ scope: scope as scans.ScanScope }).catch((error) => error)
+    )
+    const suspended = controller.suspend()
+    await Promise.resolve()
+    expect((await Promise.all(pending)).every((error) => error instanceof Error)).toBe(true)
+    await expect(controller.request()).rejects.toThrow('unavailable')
+    expect(starts).toBe(1)
+    finishCancellation()
+    await suspended
+    await expect(controller.request({ scope: 'inventory' })).rejects.toThrow('unavailable')
+    controller.resume()
+    void controller.request()
+    expect(starts).toBe(2)
+  })
+
   it('runs an inventory-only snapshot after a full scan without losing its queued request', async () => {
     const starts: string[] = []
     const finishes: ((summary: ScanSummary) => void)[] = []
@@ -234,6 +263,25 @@ describe('isolated scans', () => {
     const replacement = controller.request()
     expect(await first).toEqual(summary)
     expect(await replacement).toEqual(summary)
+  })
+
+  it('keeps worktree links from a finished source when a later source times out', async () => {
+    const task = api.startScanWorker(
+      workerUrl(`
+      import { parentPort } from 'node:worker_threads';
+      parentPort.postMessage({ type: 'source-complete', source: { name: 'scanSkills', status: 'complete' }, worktrees: [{ path: '/wt', canonical: '/app' }], canonicalCheckouts: [{ path: '/app', repository: '1:2:3' }] });
+      parentPort.postMessage({ type: 'source-started', name: 'runLinter' });
+      while (true) {}
+    `),
+      {},
+      500
+    )
+    await expect(task.result).rejects.toMatchObject({
+      summary: {
+        worktrees: [{ path: '/wt', canonical: '/app' }],
+        canonicalCheckouts: [{ path: '/app', repository: '1:2:3' }]
+      }
+    })
   })
 
   it('terminates a worker that exceeds its time budget', async () => {

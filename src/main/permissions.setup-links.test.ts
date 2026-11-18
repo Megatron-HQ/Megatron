@@ -5,10 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi, type TestContext } fro
 import {
   allowedLinkTargetSync,
   allowedStatSync,
+  defaultConfigRoot,
   grantPath,
   readAllowedDirectory,
   readAllowedFile,
   resetGrantedPaths,
+  setClaudeConfig,
   visitAllowedUtf8LinesSync,
   watchAllowedPath
 } from './permissions'
@@ -171,6 +173,49 @@ describe('links that make up the Claude Code setup', () => {
 
     expect(text(join(claude, 'settings.json'))).toBe('{"skillOverrides":{}}')
     expect(text(join(home, '.claude.json'))).toBe('{"mcpServers":{}}')
+  })
+})
+
+describe('links under a CLAUDE_CONFIG_DIR folder', () => {
+  const work = join(home, '.claude-work')
+
+  beforeEach(() => {
+    setClaudeConfig({
+      directory: work,
+      claudeJson: join(work, '.claude.json'),
+      source: 'environment'
+    })
+  })
+
+  afterEach(() => {
+    setClaudeConfig(defaultConfigRoot(home))
+    rmSync(work, { recursive: true, force: true })
+  })
+
+  it('reads a top-level skill linked out of the folder’s skills', () => {
+    writeFile(join(home, '.agents', 'skills', 'orca-cli', 'SKILL.md'), 'Linked')
+    linkDirectory(join(home, '.agents', 'skills', 'orca-cli'), join(work, 'skills', 'orca-cli'))
+
+    expect(text(join(work, 'skills', 'orca-cli', 'SKILL.md'))).toBe('Linked')
+  })
+
+  it('reads skills and config when the whole folder is a dotfiles link', () => {
+    const real = join(home, 'dotfiles', 'claude-work')
+    writeFile(join(real, 'skills', 'mine', 'SKILL.md'), 'Mine')
+    writeFile(join(real, '.claude.json'), '{"mcpServers":{}}')
+    linkDirectory(real, work)
+
+    expect(text(join(work, 'skills', 'mine', 'SKILL.md'))).toBe('Mine')
+    expect(text(join(work, '.claude.json'))).toBe('{"mcpServers":{}}')
+  })
+
+  it('no longer follows a skill linked out of ~/.claude/skills', () => {
+    writeFile(join(home, '.agents', 'skills', 'orca-cli', 'SKILL.md'), 'Linked')
+    linkDirectory(join(home, '.agents', 'skills', 'orca-cli'), join(claude, 'skills', 'orca-cli'))
+
+    expect(readAllowedFile(join(claude, 'skills', 'orca-cli', 'SKILL.md')).status).toBe(
+      'unavailable'
+    )
   })
 })
 

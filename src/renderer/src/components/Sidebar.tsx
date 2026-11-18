@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { Blocks, ChevronRight, Globe, List } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
+import { AppBrand } from '@/components/AppBrand'
 import { ContextBudgetDialog } from '@/components/ContextBudgetDialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { budgetStatus } from '@/lib/context-budget'
@@ -117,9 +118,7 @@ export function Sidebar({
 
   return (
     <div className="flex w-[220px] shrink-0 flex-col">
-      <div className="flex h-10 shrink-0 items-center px-4">
-        <span className="text-sm font-semibold">Megatron</span>
-      </div>
+      <AppBrand />
       <div className="flex-1 overflow-y-auto px-2">
         <nav
           ref={containerRef}

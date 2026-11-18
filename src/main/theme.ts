@@ -19,6 +19,10 @@ export type ThemeStore = Store<{
   onboardingDone?: boolean
   whatsNewSeenVersion?: string
   whatsNewDots?: { anchors: string[]; expiresAt: string }
+  // A path, or null for Claude Code's default (~/.claude); absent when never chosen.
+  claudeConfigDir?: string | null
+  // An offline launch can find the same profile's caches until the configured path returns.
+  claudeConfigBinding?: { directory: string; canonicalDirectory: string }
 }>
 
 export function getStoredTheme(store: ThemeStore): ThemePreference | undefined {

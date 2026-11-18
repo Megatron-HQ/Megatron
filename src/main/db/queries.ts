@@ -3,7 +3,11 @@ import { INVOCATION_PAGE_SIZE, MAX_INVOCATION_OFFSET } from '../../shared/ipc'
 import { dirname, join, resolve, sep } from 'path'
 import { CHARS_PER_TOKEN } from '../ingest/skill-parser'
 import { readPluginEnablement } from '../ingest/claude-settings'
-import { isWithinProjectPath, normalizeProjectPath } from '../../shared/project-path'
+import {
+  canonicalProjectPath,
+  isWithinProjectPath,
+  normalizeProjectPath
+} from '../../shared/project-path'
 import type {
   ActivityBucketDetails,
   ActivityStats,
@@ -27,8 +31,40 @@ import type {
   SkillStatsWindow,
   SkillUsageDetail,
   SourceType,
-  TriggerTypeCount
+  TriggerTypeCount,
+  WorktreeLink
 } from '../../shared/ipc'
+
+// Worktree links live in preferences.json, outside the index, and electron-store reads that file
+// on every get. So every query that scopes by project path takes one snapshot up front, and the
+// SQL function and resolveSkillTarget both read that snapshot instead of settings per row.
+let worktreeLinkSource: () => readonly WorktreeLink[] = () => []
+let activeLinks: readonly WorktreeLink[] = []
+let canonicalPaths = new Map<string, string>()
+const projectPathFunctions = new WeakSet<Database.Database>()
+
+export function setWorktreeLinkSource(source: () => readonly WorktreeLink[]): void {
+  worktreeLinkSource = source
+}
+
+function canonicalPath(path: string): string {
+  let canonical = canonicalPaths.get(path)
+  if (canonical === undefined) {
+    canonical = canonicalProjectPath(path, activeLinks)
+    canonicalPaths.set(path, canonical)
+  }
+  return canonical
+}
+
+function snapshotWorktreeLinks(db: Database.Database): void {
+  activeLinks = worktreeLinkSource()
+  canonicalPaths = new Map()
+  if (projectPathFunctions.has(db)) return
+  db.function('canonical_project_path', (path: unknown) =>
+    typeof path === 'string' ? canonicalPath(path) : path
+  )
+  projectPathFunctions.add(db)
+}
 
 function normalizedProjectPathSql(expression: string): string {
   const slashes = `replace(${expression}, '\\', '/')`
@@ -37,9 +73,15 @@ function normalizedProjectPathSql(expression: string): string {
     THEN lower(${trimmed}) ELSE ${trimmed} END)`
 }
 
+// Both sides go through canonical_project_path, so a session in any worktree and a skill read
+// from a stand-in worktree meet at the same Canonical Checkout path.
+function canonicalPathSql(expression: string): string {
+  return normalizedProjectPathSql(`canonical_project_path(${expression})`)
+}
+
 function projectPathScopeSql(cwdExpression: string, rootExpression: string): string {
-  const cwd = normalizedProjectPathSql(cwdExpression)
-  const root = normalizedProjectPathSql(rootExpression)
+  const cwd = canonicalPathSql(cwdExpression)
+  const root = canonicalPathSql(rootExpression)
   const prefix = `(${root} || CASE WHEN ${root} = '/' THEN '' ELSE '/' END)`
   return `(${rootExpression} IS NOT NULL AND (${cwd} = ${root} OR substr(${cwd}, 1, length(${prefix})) = ${prefix}))`
 }
@@ -49,7 +91,7 @@ function projectSkillScopeSql(root: string, name: string, synced: string): strin
     SELECT 1 FROM skills nearer
     WHERE nearer.source_type = 'project' AND nearer.name = ${name}
       AND (nearer.is_synced = 0 OR ${synced} = 1)
-      AND length(${normalizedProjectPathSql('nearer.project_root')}) > length(${normalizedProjectPathSql(root)})
+      AND length(${canonicalPathSql('nearer.project_root')}) > length(${canonicalPathSql(root)})
       AND ${projectPathScopeSql('sm.cwd', 'nearer.project_root')}
   ))`
 }
@@ -129,10 +171,12 @@ const SKILLS_WITH_USAGE_SELECT = `
 `
 
 export function listSkills(db: Database.Database): SkillRow[] {
+  snapshotWorktreeLinks(db)
   return db.prepare(SKILLS_WITH_USAGE_SELECT).all() as SkillRow[]
 }
 
 export function getSkillById(db: Database.Database, id: number): SkillRow | null {
+  snapshotWorktreeLinks(db)
   const row = db.prepare(`SELECT * FROM (${SKILLS_WITH_USAGE_SELECT}) WHERE id = ?`).get(id) as
     SkillRow | undefined
   return row ?? null
@@ -381,6 +425,7 @@ export function getSkillUsageDetail(db: Database.Database, skill: SkillRow): Ski
     return { byTriggerType: [], byProject: [], recentTriggers: [] }
   }
 
+  snapshotWorktreeLinks(db)
   const scoped = skill.source_type === 'project' && skill.project_root !== null
   const scopeClause = scoped ? `AND ${PARAMETERIZED_PROJECT_PATH_SCOPE}` : ''
   const params = scoped
@@ -436,6 +481,7 @@ export function getSkillInvocationLog(
 ): SkillInvocationEntry[] {
   if (skill.shadowed_by_skill_id !== null) return []
 
+  snapshotWorktreeLinks(db)
   const scoped = skill.source_type === 'project' && skill.project_root !== null
   const scopeClause = scoped ? `AND ${PARAMETERIZED_PROJECT_PATH_SCOPE}` : ''
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > MAX_INVOCATION_OFFSET)
@@ -498,7 +544,13 @@ function preferredSkillTargets(named: SkillTargetRow[]): SkillTargetRow[] {
 }
 
 function isWithinProject(cwd: string, projectRoot: string): boolean {
-  return isWithinProjectPath(cwd, projectRoot)
+  return isWithinProjectPath(canonicalPath(cwd), canonicalPath(projectRoot))
+}
+
+function projectRootDepth(row: SkillTargetRow): number {
+  return row.project_root === null
+    ? 0
+    : normalizeProjectPath(canonicalPath(row.project_root)).length
 }
 
 function costTargetMatchesLineage(
@@ -534,16 +586,8 @@ function resolveSkillTarget(
     if (row.project_root === null) return false
     return isWithinProject(cwd, row.project_root)
   })
-  const deepestRoot = Math.max(
-    ...matching.map((row) =>
-      row.project_root === null ? 0 : normalizeProjectPath(row.project_root).length
-    )
-  )
-  const nearest = matching.filter(
-    (row) =>
-      (row.project_root === null ? 0 : normalizeProjectPath(row.project_root).length) ===
-      deepestRoot
-  )
+  const deepestRoot = Math.max(...matching.map(projectRootDepth))
+  const nearest = matching.filter((row) => projectRootDepth(row) === deepestRoot)
   return nearest.length === 1 ? nearest[0] : null
 }
 
@@ -567,6 +611,7 @@ export function getSkillInvocationSlice(
   ) {
     throw new RangeError('Invalid skill invocation time range')
   }
+  snapshotWorktreeLinks(db)
 
   const skillClause = input.skillName === undefined ? '' : 'AND si.skill_name = @skillName'
   const rows = db
@@ -1284,6 +1329,7 @@ function getSkillCostAttribution(
 }
 
 export function getSkillStats(db: Database.Database, now: Date = new Date()): SkillStats {
+  snapshotWorktreeLinks(db)
   const rows = db
     .prepare(
       `SELECT si.session_id, si.skill_name, si.invoked_at, si.trigger_type, sm.cwd
@@ -1408,6 +1454,7 @@ export function getPluginDetail(
 ): PluginDetailResult | null {
   const plugin = listPlugins(db).find((p) => p.name === name && p.marketplace === marketplace)
   if (!plugin) return null
+  snapshotWorktreeLinks(db)
 
   const skills = db
     .prepare(`SELECT * FROM (${SKILLS_WITH_USAGE_SELECT}) WHERE plugin_name = ?`)

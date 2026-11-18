@@ -1,4 +1,5 @@
 import { app, shell, BrowserWindow, dialog, ipcMain, net, protocol, session } from 'electron'
+import { watchFile } from 'fs'
 import { basename, join, resolve } from 'path'
 import { homedir } from 'os'
 import { pathToFileURL } from 'url'
@@ -21,7 +22,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 // The .ico, not the PNG, so Windows can pick the hand-tuned no-sparkle art at 16/24 px.
 import windowsIcon from '../../resources/icon.ico?asset'
-import { getDb, getUsageArchive } from './db'
+import { getDb, getUsageArchive, usageArchivePath } from './db'
 import {
   getUsageOverviewData,
   getProjectUsageCalendar,
@@ -30,9 +31,12 @@ import {
   usageProjectCatalog,
   readClaudeAppChats,
   linkUsageProjects,
-  unlinkUsageProject
+  unlinkUsageProject,
+  applyWorktreeEvidence,
+  worktreeLinks
 } from './usage-projects'
 import type { UsageProjectCatalog, UsageProjectLocation } from '../shared/usage-projects'
+import { setClaudeCodeFolders } from '../shared/project-path'
 import { createScanSession, type ScanUrgency } from './scan-session'
 import { disableChromiumHttpCache } from './chromium-cache'
 import { changeAllowedPaths, listAllowedPaths, normalizeAllowedPaths } from './folder-grants'
@@ -49,18 +53,23 @@ import {
   getSkillInvocationSlice,
   getSkillUsageDetail,
   listPlugins,
-  listSkills
+  listSkills,
+  setWorktreeLinkSource
 } from './db/queries'
 import {
   allowedLinkTargetSync,
   canonicalGrantPath,
+  claudeConfig,
   getGrantedPaths,
   isPathAllowed,
   grantPath,
   restoreGrantedPath,
   revokePath,
-  securePrivateDataDirectory
+  securePrivateDataDirectory,
+  setClaudeConfig
 } from './permissions'
+import { createClaudeFolder } from './claude-folder'
+import { gateClaude } from './claude-process'
 import {
   markOnboardingDone,
   resolveInitialSection,
@@ -90,12 +99,17 @@ import {
 import { createInventoryWatcher } from './inventory-watcher'
 import { findNewestRecordedRequest } from './ingest/recorded-request'
 import { measureContextBaseline } from './context-usage'
-import { USAGE_ARCHIVE_FILENAME } from './db/usage-archive'
 import { findStaleSkillIds, usageDataTrusted } from './db/stale-skills'
 import { sanitizeProjectFolders } from './ingest/project-discovery'
 import { readSkillFiles, readSkillMd } from './skill-files'
 import { openSafeExternal } from './shell'
-import { disablePlugin, enablePlugin, uninstallPlugin, updatePlugin } from './plugin-actions'
+import {
+  disablePlugin,
+  enablePlugin,
+  pluginActionsIdle,
+  uninstallPlugin,
+  updatePlugin
+} from './plugin-actions'
 import { createPluginActionService } from './plugin-action-service'
 import {
   GRANT_GUIDANCE,
@@ -134,6 +148,45 @@ const isPrimaryInstance = claimSingleInstance(app, () => BrowserWindow.getAllWin
 if (isPrimaryInstance)
   securePrivateDataDirectory(app.getPath('userData'), join(app.getPath('appData'), app.getName()))
 const themeStore: ThemeStore = new Store({ name: 'preferences' })
+
+// Before anything reads Claude Code's data: every reader, Tier 1, the scan worker and the CLI follow
+// this one folder for the life of the process; choosing another relaunches.
+const claudeFolder = createClaudeFolder({
+  home: homedir(),
+  environment: process.env.CLAUDE_CONFIG_DIR,
+  isPrimaryInstance,
+  store: themeStore,
+  // A stat poll, unlike fs.watch, notices a folder that doesn't exist yet appearing (a drive
+  // reconnecting), and it costs one stat every 2 seconds.
+  watch: (path, onChange) => watchFile(path, { interval: 2000, persistent: false }, onChange),
+  pluginActionsIdle,
+  stopScans: () => scans.cancel(),
+  suspendScans: () => {
+    usageSourceStatus.clear()
+    return scans.suspend()
+  },
+  resumeScans: () => scans.resume(),
+  // exit, not quit: quitting runs before-quit, which would swap in a staged macOS update mid-switch.
+  relaunch: () => {
+    app.relaunch()
+    app.exit(0)
+  },
+  broadcast: (status) => {
+    for (const window of BrowserWindow.getAllWindows())
+      window.webContents.send(IPC_CHANNELS.claudeFolderState, status)
+  },
+  // Deferred: a resume found inside scanAndNotify's own pause check must not start a nested scan.
+  onResume: () =>
+    setImmediate(() => {
+      if (claudeFolder.paused() || claudeFolder.status().state === 'switching') return
+      inventoryWatcher?.update()
+      void scanAndNotify('announce')
+    })
+})
+setClaudeConfig(claudeFolder.root)
+setClaudeCodeFolders([claudeFolder.root.directory, join(homedir(), '.claude')])
+gateClaude(claudeFolder.cliRefusal)
+setWorktreeLinkSource(() => worktreeLinks(themeStore.get('usageProjects')))
 // Bundled and validated by its own test, so a parse failure here means a broken build, not user data.
 const whatsNewCatalog = parseWhatsNewCatalog(whatsNewJson)
 
@@ -230,12 +283,15 @@ const scans = createScanController((scope) =>
     {
       scope,
       databasePath: getDb().name,
-      archivePath: join(app.getPath('userData'), USAGE_ARCHIVE_FILENAME),
+      archivePath: usageArchivePath(),
+      configRoot: claudeConfig(),
       grantedPaths: getGrantedPaths(),
-      previousProjects: sanitizeProjectFolders(themeStore.get('projectFolders'))
+      previousProjects: sanitizeProjectFolders(themeStore.get('projectFolders')),
+      worktreeLinks: worktreeLinks(themeStore.get('usageProjects'))
     },
     undefined,
     (progress) => {
+      if (claudeFolder.paused() || claudeFolder.status().state === 'switching') return
       if (progress.type !== 'source-complete') return
       if (progress.source.name === 'archivePrompts') usageComplete = true
       if (progress.source.name === 'scanTranscripts' || progress.source.name === 'archivePrompts')
@@ -257,6 +313,12 @@ async function scanAndNotify(
   fresh = false,
   scope: ScanScope = 'all'
 ): Promise<ScanSummary> {
+  // A scan of a missing folder would delete every cached row. Cached rows stay on screen, and this
+  // summary is never stored, so the folder banner explains the pause instead of a scan warning.
+  if (claudeFolder.paused() || claudeFolder.status().state === 'switching') {
+    scanComplete = true
+    return { outcome: 'failed', completedAt: new Date().toISOString(), sources: [] }
+  }
   const previousSuccess = scanSummary?.lastSuccessfulAt ?? null
   const { run, started, promoted } = scanSession.begin(Date.now(), urgency)
   if (started || promoted) notifyScanStarted(run)
@@ -276,15 +338,47 @@ async function scanAndNotify(
     }
     scanSummary = {
       ...scanSummary,
+      ...(claudeFolder.paused()
+        ? {
+            outcome: 'failed' as const,
+            sources: [
+              {
+                name: 'scanWorker',
+                status: 'failed' as const,
+                failureReason: 'scan_error' as const,
+                issues: [{ code: 'source_unavailable' as const, path: claudeFolder.root.directory }]
+              }
+            ],
+            projects: undefined,
+            worktrees: undefined,
+            canonicalCheckouts: undefined
+          }
+        : {}),
       isStartup: run.isStartup,
       lastSuccessfulAt:
-        scanSummary.outcome === 'complete' ? scanSummary.completedAt : previousSuccess
+        !claudeFolder.paused() && scanSummary.outcome === 'complete'
+          ? scanSummary.completedAt
+          : previousSuccess
     }
     if (scanSummary.projects) {
       try {
         themeStore.set('projectFolders', scanSummary.projects)
       } catch (error) {
         console.error('[ingest] could not save project catalog', error)
+      }
+    }
+    if (scanSummary.worktrees || scanSummary.canonicalCheckouts) {
+      try {
+        themeStore.set(
+          'usageProjects',
+          applyWorktreeEvidence(
+            usageProjectLocations(),
+            scanSummary.worktrees ?? [],
+            scanSummary.canonicalCheckouts
+          )
+        )
+      } catch (error) {
+        console.error('[ingest] could not save worktree links', error)
       }
     }
     scanComplete = true
@@ -403,7 +497,12 @@ app.whenReady().then(() => {
   secureIpc.handle(IPC_CHANNELS.listSkills, (): SkillsListResult => {
     const skills = listSkills(getDb())
     const staleIds = usageDataTrusted(usageSourceStatus)
-      ? findStaleSkillIds(getDb(), getUsageArchive(), skills)
+      ? findStaleSkillIds(
+          getDb(),
+          getUsageArchive(),
+          skills,
+          worktreeLinks(themeStore.get('usageProjects'))
+        )
       : new Set<number>()
     return {
       skills: skills.map((skill) => ({ ...skill, stale: staleIds.has(skill.id) })),
@@ -467,13 +566,11 @@ app.whenReady().then(() => {
 
   async function pickFolders(
     sender: Electron.WebContents,
-    options: Electron.OpenDialogOptions
+    options: Electron.OpenDialogOptions,
+    properties: Electron.OpenDialogOptions['properties'] = ['openDirectory', 'multiSelections']
   ): Promise<string[]> {
     const window = BrowserWindow.fromWebContents(sender)
-    const dialogOptions: Electron.OpenDialogOptions = {
-      ...options,
-      properties: ['openDirectory', 'multiSelections']
-    }
+    const dialogOptions: Electron.OpenDialogOptions = { ...options, properties }
     const result = window
       ? await dialog.showOpenDialog(window, dialogOptions)
       : await dialog.showOpenDialog(dialogOptions)
@@ -504,7 +601,7 @@ app.whenReady().then(() => {
     // still never names a path; it only saves the user navigating there.
     const defaultPath = suggestGrantStart(
       usageProjectLocations()
-        .filter((location) => location.status === 'needs_access')
+        .filter((location) => location.status === 'needs_access' && !location.worktree)
         .map((location) => location.path),
       listAllowedPaths(themeStore).map((row) => row.path),
       homedir()
@@ -539,6 +636,25 @@ app.whenReady().then(() => {
     async (_event, path: string) => (await changeGrants([], [path])).folders
   )
 
+  secureIpc.handle(IPC_CHANNELS.getClaudeFolder, () => claudeFolder.status())
+  // By id only: the renderer picks from the folders main listed, never names a path.
+  secureIpc.handle(IPC_CHANNELS.chooseClaudeFolder, (_event, id: string) => claudeFolder.choose(id))
+  secureIpc.handle(IPC_CHANNELS.pickClaudeFolder, (event) =>
+    claudeFolder.pickFolder(async () => {
+      const [path] = await pickFolders(
+        event.sender,
+        {
+          title: 'Choose Claude Code Folder',
+          message: 'Choose the folder Claude Code keeps its settings and history in.',
+          defaultPath: homedir()
+        },
+        // macOS hides dot-folders, and every Claude Code profile folder is one.
+        ['openDirectory', 'showHiddenFiles']
+      )
+      return path ?? null
+    })
+  )
+
   secureIpc.handle(IPC_CHANNELS.openExternal, (_event, url: string) => {
     openSafeExternal(url, (safeUrl) => {
       void shell.openExternal(safeUrl)
@@ -559,7 +675,7 @@ app.whenReady().then(() => {
       uninstall: uninstallPlugin
     },
     refresh: (scope) =>
-      scope === 'plugins'
+      scope === 'plugins' && !claudeFolder.paused()
         ? scans.request({ scope: 'plugins', fresh: true })
         : scanAndNotify('quiet', true),
     readDetail: (input) => getPluginDetail(getDb(), input.name, input.marketplace),
@@ -739,10 +855,10 @@ app.whenReady().then(() => {
       getRoots: () => [
         ...getGrantedPaths().map((path) => ({ path, kind: 'project' as const })),
         ...[
-          join(homedir(), '.claude', 'skills'),
-          join(homedir(), '.claude', 'plugins'),
-          join(homedir(), '.claude', 'settings.json'),
-          join(homedir(), '.claude.json')
+          claudeConfig().skills,
+          claudeConfig().plugins,
+          claudeConfig().settings,
+          claudeConfig().claudeJson
         ].map((path) => ({ path, kind: 'inventory' as const }))
       ],
       refresh: () => scanAndNotify('quiet', true, 'inventory'),

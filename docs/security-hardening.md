@@ -21,6 +21,68 @@ Release and updates section here covers their security consequences.
   ship its own `claude` executable or poison `PATH` to be run in its place.
 - Cost aggregation uses objects without prototypes, including inner model buckets.
 
+### Config root
+
+Tier 1 is one Claude Code config folder. `claude-folder.ts` picks it once at startup and it stays
+fixed for the process; the scan worker receives it in `workerData`. Elsewhere in these docs,
+`~/.claude` means this folder.
+
+- Order: the folder chosen in Settings, else `CLAUDE_CONFIG_DIR`, else `~/.claude`. Settings exists
+  because a Finder- or Dock-launched macOS app never sees shell variables, and shell aliases switch
+  profiles per terminal.
+- `CLAUDE_CONFIG_DIR` unset or blank: `~/.claude`, with `.claude.json` in `$HOME`. Set: that folder
+  replaces `~/.claude` in Tier 1 and `.claude.json` moves inside it. Verified against Claude Code
+  2.1.326, 2026-11-17: the folder is `(CLAUDE_CONFIG_DIR ?? ~/.claude).normalize('NFC')` and
+  `.claude.json` is `join(CLAUDE_CONFIG_DIR || homedir(), '.claude.json')`, so "unset" and
+  "explicitly `~/.claude`" read different `.claude.json` files, and Settings lists them as two
+  options. The Default option, and `~/.claude` picked in the native dialog by any spelling or link,
+  save `null`: the unset form, even when the variable is set. The named option (tagged
+  `.claude.json inside`) saves the path, as every option but Default does. It is offered when the
+  variable names `~/.claude` or `~/.claude/.claude.json` exists, which Claude Code writes only when
+  run with the variable naming `~/.claude`, so a Finder- or Dock-launched app can still choose it.
+- A folder, from either source, is used only when both its given form and its realpath are
+  absolute, not UNC, not a filesystem or drive root, and not `$HOME` or an ancestor of it (also by
+  file identity, so another casing or an 8.3 name can't slip past), and the folder holds a Claude
+  Code marker (`settings.json`, `.claude.json`, `projects/`, `plugins/`, `skills/`,
+  `history.jsonl`). Threat: a value naming `$HOME`, `/` or `~/Documents` would put that whole tree
+  in Tier 1. Consequence: a brand-new profile is refused until Claude Code has run in it once. A
+  Settings choice is checked when chosen (a refused one is never saved) and again on every launch;
+  one that fails later falls through to the variable or the default, with a notice.
+- Both sources keep the given form, not the realpath, because Claude Code records paths in that
+  form; the Settings choice is saved as chosen and never re-resolved. A linked folder is followed
+  by the setup-link rule under Cache preservation, like a linked `~/.claude`. A named folder also
+  pins its resolved directory for the process lifetime. A change to a different valid target
+  suspends scans and uses the existing profile relaunch flow. An invalid target stays paused.
+  The worker checks the pinned target at its scan and write boundaries, and the CLI gate refuses
+  the changed target while existing plugin actions settle.
+- A missing folder is held, never replaced: reading another profile in its place would be silently
+  wrong. While it is missing, new scans and every CLI run are refused, so a missing drive can't
+  empty the index and the CLI can't create folders at its path. Each scan request, and each spawn
+  in `runClaude` (the one path every `claude` takes, through the gate main registers with
+  `gateClaude`), checks the disk at call time, also while a switch waits to relaunch. A 2-second
+  `fs.watchFile` poll notices it leave and return between requests; a returning folder must pass
+  the checks above again before anything resumes. Going missing also suspends active scans and
+  settles queued requests; reconnect waits for termination and revalidates the folder before one
+  fresh scan. Workers recheck the fixed root between tasks, before destructive reconciliation, and
+  inside archive transactions. Unavailable sources retain cached rows and cannot establish fresh
+  archive coverage. Deleting a data subdirectory in a present profile still reconciles normally.
+  These checks narrow same-user filesystem races; they are not an atomic filesystem snapshot.
+  `~/.claude` read as the default never pauses, since a fresh install has none until Claude Code
+  first runs.
+- The marker probe lists names in the one named folder with plain `fs` before it becomes Tier 1.
+  Settings' suggestions list the entry names of `$HOME`, of `~/.claude` (for `.claude.json`) and of
+  `.claude-*`/`.claude_*` folders (`settings.json`, `.claude.json`, `projects/`); no file contents
+  are read. Like CLI discovery, both are a separate capability from `isPathAllowed()`.
+- The renderer never names a folder: it chooses by an id from main's own list, or main opens the
+  native picker. IPC carries one id of at most 300 characters.
+- Switching relaunches: wait for running plugin actions, refuse new CLI runs, stop scans, then
+  `app.relaunch()` and `app.exit(0)`. `exit` skips `before-quit`, so a staged macOS update is not
+  swapped in mid-switch.
+- CLI runs (`/context`, plugin actions) get `CLAUDE_CONFIG_DIR` set exactly when the active folder
+  is a named one (`.claude.json` inside it), and stripped in every casing otherwise, so a refused
+  value or "Use default" leaves both Megatron and the CLI on `~/.claude`. Threat: the CLI changing
+  one profile while Megatron shows another.
+
 ## Cache preservation
 
 Links inside content someone else wrote (granted repositories, plugin content, and folders nested
@@ -140,7 +202,8 @@ findings apply to every source. History queries return 200 rows per page; dialog
 and identify searches as applying to loaded entries.
 
 Permission-aware buffered file reads are capped at 16 MiB, and streamed transcript/history lines
-at 64 MiB. The line assembler scans incoming chunks once; it does not repeatedly split a growing
+at 64 MiB. A ranged read (the reftable reader's blocks) returns at most its byte cap from the given
+offset instead of failing as too large; that reader stops after the first 32 MiB of a table. The line assembler scans incoming chunks once; it does not repeatedly split a growing
 line. An oversized line fails the source read instead of emitting truncated JSON.
 
 File previews allow 256 KiB per file and 4 MiB of aggregate content. Traversal is capped at 1,024

@@ -1,6 +1,10 @@
-import { homedir } from 'os'
-import { join, resolve } from 'path'
-import { allowedStatSync, readAllowedDirectory, visitAllowedUtf8LinesSync } from '../permissions'
+import { join } from 'path'
+import {
+  claudeConfig,
+  allowedStatSync,
+  readAllowedDirectory,
+  visitAllowedUtf8LinesSync
+} from '../permissions'
 import type {
   RecordedCacheBreakpoint,
   RecordedCacheControl,
@@ -240,7 +244,7 @@ function readRecordedRequest(path: string): RecordedRequest | null {
 // current setup. Subagent transcripts live a level deeper (<session>/subagents/) and are never
 // candidates.
 export function findNewestRecordedRequest(
-  projectsDir: string = resolve(homedir(), '.claude', 'projects')
+  projectsDir: string = claudeConfig().projects
 ): RecordedRequest | null {
   const candidates: { path: string; mtimeMs: number }[] = []
   for (const project of readAllowedDirectory(projectsDir).entries) {

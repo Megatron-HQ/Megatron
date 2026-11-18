@@ -10,7 +10,11 @@ export const ACCEPTED = {
   // typescript-eslint, eslint-plugin-react, and electron-builder via glob/dir-compare/filelist).
   // Only lint/build tooling matches trusted repo globs, and the bug needs optimizationLevel >= 2.
   // Delete this entry once the script warns that the advisory is no longer reported.
-  'GHSA-g3hv-75wg-m249': 'minimatch globparts amplification; no fix reachable from dev tooling'
+  'GHSA-g3hv-75wg-m249': 'minimatch globparts amplification; no fix reachable from dev tooling',
+  // ponytail: every picomatch release (<= 4.0.7, latest as of 2026-11-17) is affected and none is
+  // patched. Only vite, vitest and electron-builder use it, on trusted repo globs; the shipped app
+  // has no picomatch. Delete this entry once the script warns that it is no longer reported.
+  'GHSA-fc5q-39xc-vjpf': 'picomatch extglob ReDoS; no patched release, dev tooling only'
 }
 
 const SEVERITIES = ['info', 'low', 'moderate', 'high', 'critical']

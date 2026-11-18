@@ -246,6 +246,7 @@ export function UsageView({
                 />
               ) : panel === 'tokens' ? (
                 <TokensSection
+                  key={tokenWindow}
                   stats={data.tokens}
                   windowKey={tokenWindow}
                   identifyModel={identifyModel}

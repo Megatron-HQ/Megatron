@@ -9,6 +9,7 @@ import { PluginSidebar } from '@/components/PluginSidebar'
 import { ScreenTransition } from '@/components/ScreenTransition'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { ScanStatusBanner, ScanUpdatingBanner } from '@/components/ScanStatus'
+import { ClaudeFolderBanner } from '@/components/ClaudeFolder'
 import { useScanBanner } from '@/lib/use-scan-banner'
 import { refreshScanQueries } from '@/lib/refresh-scan-queries'
 import { Sidebar } from '@/components/Sidebar'
@@ -160,6 +161,20 @@ function App(): React.JSX.Element {
     queryKey: ['plugins'],
     queryFn: () => window.api.listPlugins()
   })
+
+  const { data: claudeFolder } = useQuery({
+    queryKey: ['claudeFolder'],
+    queryFn: () => window.api.getClaudeFolder()
+  })
+  useEffect(
+    () =>
+      window.api.onClaudeFolderState((status) =>
+        queryClient.setQueryData(['claudeFolder'], status)
+      ),
+    [queryClient]
+  )
+  // While the folder is paused or switching, no scan runs, so its banner replaces the scan's.
+  const folderHoldsScans = claudeFolder !== undefined && claudeFolder.state !== 'ok'
 
   const { data: updateState } = useQuery({
     queryKey: ['updates'],
@@ -695,8 +710,17 @@ function App(): React.JSX.Element {
           {/* The inset is the sheet's own margin so the rail and sidebars reach the window's
               bottom edge; overflow-hidden clips the banner and scrollbars to the radius. */}
           <main className="mr-1.5 mb-1.5 flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-sheet">
-            {scanBanner.kind === 'updating' && <ScanUpdatingBanner message={scanBanner.message} />}
-            {scanBanner.kind === 'warning' && scanBannerSummary && (
+            {claudeFolder && (
+              <ClaudeFolderBanner
+                status={claudeFolder}
+                home={home}
+                onChooseAnother={() => setSettingsOpen(true)}
+              />
+            )}
+            {!folderHoldsScans && scanBanner.kind === 'updating' && (
+              <ScanUpdatingBanner message={scanBanner.message} />
+            )}
+            {!folderHoldsScans && scanBanner.kind === 'warning' && scanBannerSummary && (
               <ScanStatusBanner
                 summary={scanBannerSummary}
                 onOpenDetails={() => setSettingsOpen(true)}
@@ -756,6 +780,8 @@ function App(): React.JSX.Element {
           })
         }
         updateState={updateState}
+        claudeFolder={claudeFolder}
+        home={home}
       />
       <OnboardingDialog
         open={onboardingOpen}
@@ -766,6 +792,7 @@ function App(): React.JSX.Element {
         scanComplete={scanComplete}
         home={home}
         onAddFolders={handleAddFolders}
+        claudeFolder={claudeFolder}
       />
       <ManageFoldersDialog
         open={foldersDialogOpen}

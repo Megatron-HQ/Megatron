@@ -144,7 +144,7 @@ export function ManageUsageProjectsDialog({
                           {project.chat ? 'Claude app chat' : STATUS_LABEL[location.status]}
                         </p>
                       </div>
-                      {location.linkedTo && !location.inferredOwner && (
+                      {location.linkedTo && !location.inferredOwner && !location.worktree && (
                         <Button
                           variant="ghost"
                           size="sm"

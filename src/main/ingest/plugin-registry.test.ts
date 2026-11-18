@@ -127,6 +127,64 @@ describe('removed project installs', () => {
     expect(readFileSync(registryFile, 'utf8')).toBe(original)
   })
 
+  describe('worktree installs', () => {
+    // Outside every grant, so only the repository's own worktree list can say it is gone.
+    const worktree = (name: string): string => resolve(tmpDir, '..', `${tmpDir}-${name}`)
+    function installAt(projectPath: string): void {
+      const installPath = join(tmpDir, 'cache', 'plugin-a')
+      writePluginSkill(installPath, 'example', '---\nname: example\n---\nBody')
+      writeInstalledPlugins({
+        version: 2,
+        plugins: {
+          'plugin-a@market-1': [{ scope: 'local', projectPath, installPath, version: '1.0.0' }]
+        }
+      })
+    }
+    let app: string
+    beforeEach(() => {
+      app = join(tmpDir, 'app')
+      const entry = join(app, '.git', 'worktrees', 'live')
+      mkdirSync(entry, { recursive: true })
+      writeFileSync(join(entry, 'gitdir'), `${join(worktree('live'), '.git')}\n`)
+    })
+
+    it('drops an install in a worktree its repository has pruned', () => {
+      installAt(worktree('gone'))
+      scanPluginRegistry(db, pluginsDir, userSettingsPath, [
+        { path: worktree('gone'), canonical: app }
+      ])
+      expect(allRegistry()).toEqual([])
+    })
+
+    it('keeps an install in a live worktree', () => {
+      installAt(worktree('live'))
+      scanPluginRegistry(db, pluginsDir, userSettingsPath, [
+        { path: worktree('live'), canonical: app }
+      ])
+      expect(allRegistry()).toHaveLength(1)
+    })
+
+    it('keeps an install in a locked worktree whose folder is temporarily missing', () => {
+      const locked = join(tmpDir, 'locked')
+      const entry = join(app, '.git', 'worktrees', 'locked')
+      mkdirSync(entry, { recursive: true })
+      writeFileSync(join(entry, 'gitdir'), join(locked, '.git') + '\n')
+      writeFileSync(join(entry, 'locked'), 'on a removable drive\n')
+      installAt(locked)
+
+      scanPluginRegistry(db, pluginsDir, userSettingsPath, [{ path: locked, canonical: app }])
+      expect(allRegistry()).toHaveLength(1)
+    })
+
+    it('keeps an install when the repository cannot be read', () => {
+      installAt(worktree('gone'))
+      scanPluginRegistry(db, pluginsDir, userSettingsPath, [
+        { path: worktree('gone'), canonical: worktree('ungranted-app') }
+      ])
+      expect(allRegistry()).toHaveLength(1)
+    })
+  })
+
   it('retains missing individually granted installs and shared user installs', () => {
     const repository = join(tmpDir, 'direct')
     const installPath = join(tmpDir, 'cache', 'plugin-a')

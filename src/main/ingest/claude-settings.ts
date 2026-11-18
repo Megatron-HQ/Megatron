@@ -1,6 +1,6 @@
-import { homedir } from 'os'
-import { join, resolve } from 'path'
+import { join } from 'path'
 import {
+  claudeConfig,
   allowedStatSync,
   isPathAllowed,
   readAllowedDirectory,
@@ -40,8 +40,6 @@ export function readJson(filePath: string): JsonRead {
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
-
-const USER_SETTINGS_PATH = resolve(homedir(), '.claude', 'settings.json')
 
 export interface PluginEnablement {
   // Plugin keys ('name@marketplace') resolving to `false`.
@@ -89,7 +87,7 @@ function readEnabledPluginsFrom(settings: JsonRead): Map<string, boolean> {
 // Permission-denied settings are unavailable; only a confirmed absent file is missing.
 export function readPluginEnablement(
   projectRoot?: string,
-  userSettingsPath: string = USER_SETTINGS_PATH
+  userSettingsPath: string = claudeConfig().settings
 ): PluginEnablement {
   const paths = [
     userSettingsPath,
@@ -160,7 +158,7 @@ function readSkillOverridesFrom(settingsPath: string): Map<string, string> {
 // anchored to that root and can genuinely only ever mean that project's own resolved state.
 export function readSkillOverrides(
   projectRoot?: string,
-  userSettingsPath: string = USER_SETTINGS_PATH
+  userSettingsPath: string = claudeConfig().settings
 ): Map<string, string> {
   const merged = readSkillOverridesFrom(userSettingsPath)
   if (!projectRoot) return merged

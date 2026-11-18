@@ -1,9 +1,10 @@
 import type Database from 'better-sqlite3'
-import type { ScanIssue, ScanTaskResult } from '../../shared/ipc'
-import { homedir } from 'os'
-import { dirname, join, resolve } from 'path'
+import { assertConfigRootAvailable } from '../config-root'
+import type { ScanIssue, ScanTaskResult, WorktreeLink } from '../../shared/ipc'
+import { dirname, join } from 'path'
 import { writeSkillScan, writeSkillScanAuthoritative, type SkillScanRow } from '../db/queries'
 import {
+  claudeConfig,
   allowedReadFileSync,
   readAllowedFile,
   isPathAllowed,
@@ -18,6 +19,7 @@ import {
 import { parseSkillDirectory } from './skill-parser'
 import { isSemanticVersion } from '../../shared/version'
 import { createMissingProjectCheck } from './project-discovery'
+import { createPrunedWorktreeCheck } from './worktrees'
 
 interface PluginInstallEntry {
   scope?: unknown
@@ -218,9 +220,11 @@ function buildPluginSkillRow(
 
 export function scanPluginRegistry(
   db: Database.Database,
-  pluginsDir: string = resolve(homedir(), '.claude', 'plugins'),
-  userSettingsPath?: string
+  pluginsDir: string = claudeConfig().plugins,
+  userSettingsPath?: string,
+  worktreeLinks: readonly WorktreeLink[] = []
 ): ScanTaskResult {
+  assertConfigRootAvailable()
   const pluginsDirectory = readAllowedDirectory(pluginsDir)
   if (pluginsDirectory.status === 'unavailable') return { status: 'partial' }
 
@@ -228,7 +232,8 @@ export function scanPluginRegistry(
   // a project with several plugins would otherwise re-read the same two settings files each time.
   const enablementCache = new Map<string, Set<string>>()
   const unknownProjects = new Set<string>()
-  const isMissingProject = createMissingProjectCheck()
+  // Claude Code never removes a pruned worktree's installs from installed_plugins.json.
+  const isMissingProject = createPrunedWorktreeCheck(worktreeLinks, createMissingProjectCheck())
   const missingProjects = new Map<string, boolean>()
   const issues = new Map<string, ScanIssue>()
   function disabledPluginsFor(projectPath: string): Set<string> {
@@ -553,6 +558,7 @@ export function scanPluginRegistry(
       install_path: string
       project_path: string
     }[]
+    assertConfigRootAvailable()
     const deleteRegistryRow = db.prepare(
       `DELETE FROM plugin_registry
        WHERE name = ? AND marketplace = ? AND scope = ? AND install_path = ? AND project_path = ?`
@@ -585,6 +591,7 @@ export function scanPluginRegistry(
     } else if (readableSkillRoots.length > 0) {
       writeSkillScan(db, 'plugin', skillRows, readableSkillRoots)
     }
+    assertConfigRootAvailable()
     return {
       status:
         pluginSkillScanIsAuthoritative && hasMarketplaceSnapshot && componentsComplete

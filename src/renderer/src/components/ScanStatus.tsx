@@ -30,7 +30,7 @@ function needsFolderAccess(issue: ScanIssue): boolean {
   return issue.code === 'permission_required' || issue.code === 'link_unapproved'
 }
 
-const SCAN_BANNER_CLASS =
+export const SCAN_BANNER_CLASS =
   'flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-border bg-muted px-4 py-2 text-xs text-muted-foreground'
 
 interface ScanStatusProps {

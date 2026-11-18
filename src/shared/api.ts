@@ -3,6 +3,8 @@ import type { WhatsNewAnchorId, WhatsNewInitialState } from './whats-new'
 import type {
   AllowedPathRow,
   AppSection,
+  ClaudeFolderChoice,
+  ClaudeFolderStatus,
   GrantChangeResult,
   OpenSkillMetaResult,
   OpenSkillResult,
@@ -29,8 +31,8 @@ import type {
   UpdateState
 } from './ipc'
 
-// The bridge the preload exposes as `window.api`. Shared so the preload's implementation and the
-// fixture gallery's fake (src/renderer/src/fixtures/fake-api.ts) are both checked against it.
+// The bridge the preload exposes as `window.api`, typed once so the preload's implementation and
+// the renderer's view of it can't drift apart.
 export interface Api {
   platform: NodeJS.Platform
   listSkills: () => Promise<SkillsListResult>
@@ -76,6 +78,11 @@ export interface Api {
   checkForUpdates: () => Promise<void>
   installUpdate: () => Promise<void>
   setAutoUpdateCheck: (enabled: boolean) => Promise<void>
+  getClaudeFolder: () => Promise<ClaudeFolderStatus>
+  // "Use default" is choose('default'); ids come from the options main listed.
+  chooseClaudeFolder: (id: string) => Promise<ClaudeFolderChoice>
+  pickClaudeFolder: () => Promise<ClaudeFolderChoice>
+  onClaudeFolderState: (callback: (status: ClaudeFolderStatus) => void) => () => void
   onPluginUpdateProgress: (callback: (progress: PluginUpdateProgress) => void) => () => void
   onScanStarted: (callback: (activity: ScanActivity) => void) => () => void
   onScanComplete: (callback: (finished: ScanFinished) => void) => () => void

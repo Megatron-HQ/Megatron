@@ -6,7 +6,7 @@ Megatron inventories your global, project, and plugin skills, checks their defin
 how they are used across local Claude Code sessions. It also manages existing plugin installs
 through the Claude CLI.
 
-**[Download Megatron for macOS and Windows →](https://megatron-site.vercel.app)**
+**[Download Megatron for macOS and Windows →](https://www.getmegatron.app/)**
 
 [![Node.js Version](https://img.shields.io/badge/node-22.x-339933?logo=node.js&logoColor=white)](package.json)
 [![Electron](https://img.shields.io/badge/Electron-43-47848F?logo=electron&logoColor=white)](package.json)
@@ -24,7 +24,8 @@ through the Claude CLI.
 - **macOS (Apple silicon) and Windows (x64).** Releases ship as an ad-hoc signed app installed by a
   Homebrew cask or a one-line installer on macOS, and a per-user NSIS installer on Windows. Neither
   is notarized or code-signed yet; see [Install](#install). Both platforms run the development
-  checks in CI. Linux is not a distribution target.
+  checks in CI. Linux is not a distribution target. On Windows, Megatron reads Claude Code
+  installed on Windows itself; Claude Code running inside WSL is not supported.
 
 ## Features
 
@@ -124,7 +125,7 @@ newest interactive session's recorded request (Claude Code 2.1.300+).
 
 ## Install
 
-The quickest way is the [Megatron website](https://megatron-site.vercel.app). It links the latest
+The quickest way is the [Megatron website](https://www.getmegatron.app/). It links the latest
 macOS DMG and Windows installer and shows the Homebrew command. The steps below cover the same
 options, plus what to expect on first launch.
 

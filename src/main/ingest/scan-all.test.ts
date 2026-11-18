@@ -1,10 +1,33 @@
 import type Database from 'better-sqlite3'
 import { describe, expect, it, vi } from 'vitest'
 import { runAllScans, selectScanTasks, type ScanTask } from './scan-all'
+import type { ScanWorkerProgress } from '../../shared/ipc'
 
 const database = {} as Database.Database
 
 describe('runAllScans', () => {
+  it.each(['complete', 'partial'])(
+    'carries positive canonical evidence through %s and later failure',
+    (status) => {
+      const progress: ScanWorkerProgress[] = []
+      const result = runAllScans(
+        database,
+        [
+          () => ({ status, canonicalCheckouts: [{ path: '/a', repository: '1:2:3' }] }),
+          () => {
+            throw new Error('later')
+          }
+        ],
+        undefined,
+        (entry) => progress.push(entry)
+      )
+      expect(result.canonicalCheckouts).toEqual([{ path: '/a', repository: '1:2:3' }])
+      expect(progress[1]).toMatchObject({
+        canonicalCheckouts: [{ path: '/a', repository: '1:2:3' }]
+      })
+      expect(runAllScans(database, [() => undefined]).canonicalCheckouts).toBeUndefined()
+    }
+  )
   it('limits live inventory refreshes to inventory and linting sources', () => {
     const tasks = [
       'scanTranscripts',
@@ -66,6 +89,17 @@ describe('runAllScans', () => {
     expect(runAllScans(database, [() => ({ status: 'complete', projects })])).toMatchObject({
       projects
     })
+  })
+
+  it('carries worktree links through progress and the worker summary', () => {
+    const worktrees = [{ path: '/HQ/app-feature', canonical: '/HQ/app' }]
+    const progress: ScanWorkerProgress[] = []
+    expect(
+      runAllScans(database, [() => ({ status: 'complete', worktrees })], undefined, (entry) =>
+        progress.push(entry)
+      )
+    ).toMatchObject({ worktrees })
+    expect(progress.at(-1)).toMatchObject({ worktrees })
   })
 
   it('passes source diagnostics through to the renderer summary', () => {

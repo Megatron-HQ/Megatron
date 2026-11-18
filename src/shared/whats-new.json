@@ -1,4 +1,24 @@
 {
+  "0.3.0": {
+    "title": "Token details",
+    "highlights": [
+      {
+        "title": "Explore token usage by hour or day",
+        "body": "Click a token chart bar to see its input, output, cache reads and writes, plus model and project breakdowns.",
+        "action": {
+          "kind": "section",
+          "section": "usage"
+        }
+      },
+      {
+        "title": "Read Claude Code from any folder",
+        "body": "Megatron now follows CLAUDE_CONFIG_DIR, and Settings lets you choose the Claude Code folder yourself, with your profile folders suggested.",
+        "action": {
+          "kind": "settings"
+        }
+      }
+    ]
+  },
   "0.2.3": {
     "title": "Linked skills",
     "highlights": [

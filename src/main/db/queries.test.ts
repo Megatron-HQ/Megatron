@@ -7,7 +7,7 @@ import { join, resolve } from 'path'
 import { mkdirSync, mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { grantPath, isPathAllowed, resetGrantedPaths } from '../permissions'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applySchema } from './schema'
 import {
   deleteSkillsForProjectRoot,
@@ -24,6 +24,7 @@ import {
   insertLintFindings,
   listPlugins,
   listSkills,
+  setWorktreeLinkSource,
   writeSkillScan,
   writeSkillScanAuthoritative
 } from './queries'
@@ -3437,5 +3438,78 @@ describe('getModelStats', () => {
         total: 1
       }
     ])
+  })
+})
+
+describe('worktree sessions', () => {
+  const window = { startAt: '2026-08-14T00:00:00.000Z', endAt: '2026-08-15T00:00:00.000Z' }
+  afterEach(() => setWorktreeLinkSource(() => []))
+  function invokeIn(sessionId: string, cwd: string, skill = 'deploy'): void {
+    insertSession(sessionId, cwd)
+    insertInvocation({
+      source_uuid: sessionId,
+      session_id: sessionId,
+      skill_name: skill,
+      invoked_at: '2026-08-14T10:00:00.000Z'
+    })
+  }
+  const projectSkill = (root: string): number =>
+    insertSkill('deploy', {
+      source_type: 'project',
+      project_root: root,
+      source_path: `${root}/.claude/skills/deploy`
+    })
+
+  it("credits a worktree session to its Canonical Checkout's project skill", () => {
+    setWorktreeLinkSource(() => [{ path: '/wt/app-x', canonical: '/code/app' }])
+    const id = projectSkill('/code/app')
+    invokeIn('worktree', '/wt/app-x/packages/web')
+
+    const skill = getSkillById(db, id)!
+    expect(skill.total_invocations).toBe(1)
+    expect(listSkills(db)[0].total_invocations).toBe(1)
+    expect(getSkillUsageDetail(db, skill).byProject).toEqual([
+      { cwd: '/wt/app-x/packages/web', count: 1 }
+    ])
+    expect(getSkillInvocationLog(db, skill)).toHaveLength(1)
+    expect(getSkillInvocationSlice(db, window)[0].skillId).toBe(id)
+    expect(
+      getSkillStats(db, new Date('2026-08-14T12:00:00.000Z')).last24h.bySkill[0]
+    ).toMatchObject({ skillId: id })
+  })
+
+  it('credits the nearest package root inside a worktree', () => {
+    setWorktreeLinkSource(() => [{ path: '/wt/app-x', canonical: '/code/app' }])
+    projectSkill('/code/app')
+    const packageId = projectSkill('/code/app/packages/web')
+    invokeIn('worktree', '/wt/app-x/packages/web/src')
+
+    expect(listSkills(db).map((skill) => [skill.id, skill.total_invocations])).toEqual(
+      expect.arrayContaining([[packageId, 1]])
+    )
+    expect(listSkills(db).reduce((sum, skill) => sum + skill.total_invocations, 0)).toBe(1)
+    expect(getSkillInvocationSlice(db, window)[0].skillId).toBe(packageId)
+  })
+
+  it("credits a stand-in worktree's skill with sessions anywhere in its repository", () => {
+    setWorktreeLinkSource(() => [
+      { path: '/wt/app-x', canonical: '/code/app' },
+      { path: '/wt/app-y', canonical: '/code/app' }
+    ])
+    const id = projectSkill('/wt/app-x')
+    invokeIn('canonical', '/code/app/src')
+    invokeIn('sibling', '/wt/app-y')
+
+    expect(getSkillById(db, id)!.total_invocations).toBe(2)
+    expect(getSkillInvocationSlice(db, window).map((entry) => entry.skillId)).toEqual([id, id])
+  })
+
+  it("follows Claude Code's worktree layout without a stored link", () => {
+    projectSkill('/code/app')
+    const packageId = projectSkill('/code/app/packages/web')
+    invokeIn('native', '/code/app/.claude/worktrees/fix/packages/web')
+
+    expect(getSkillById(db, packageId)!.total_invocations).toBe(1)
+    expect(getSkillInvocationSlice(db, window)[0].skillId).toBe(packageId)
   })
 })

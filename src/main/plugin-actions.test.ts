@@ -4,7 +4,13 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { grantPath, resetGrantedPaths } from './permissions'
-import { disablePlugin, enablePlugin, uninstallPlugin, updatePlugin } from './plugin-actions'
+import {
+  disablePlugin,
+  enablePlugin,
+  pluginActionsIdle,
+  uninstallPlugin,
+  updatePlugin
+} from './plugin-actions'
 
 vi.mock('child_process', () => ({ execFile: vi.fn() }))
 vi.mock('./claude-cli', () => ({
@@ -44,6 +50,16 @@ function failWith(error: Error & { code?: string; killed?: boolean }, stderr = '
     const callback = args[args.length - 1] as NodeCallback
     callback(error, '', stderr)
   }) as typeof execFile)
+}
+
+// Leaves each command running until the test calls its callback; module state outlives a test, so
+// every held action must be finished before the test ends.
+function holdCallbacks(): NodeCallback[] {
+  const callbacks: NodeCallback[] = []
+  mockedExecFile.mockImplementation(((...args: unknown[]) => {
+    callbacks.push(args[args.length - 1] as NodeCallback)
+  }) as typeof execFile)
+  return callbacks
 }
 
 const input = {
@@ -397,30 +413,58 @@ describe('project and local scope', () => {
   })
 
   it('still blocks a second action on the very same install', async () => {
-    mockedExecFile.mockImplementation((() => {}) as unknown as typeof execFile)
+    const callbacks = holdCallbacks()
     const projectInput = { ...input, scope: 'project' as const, projectPath: projectRoot }
 
-    void enablePlugin(projectInput)
+    const running = enablePlugin(projectInput)
 
     await expect(disablePlugin(projectInput)).resolves.toEqual({
       ok: false,
       stderr: 'Another action is already running for this plugin. Wait for it to finish.'
     })
     expect(mockedExecFile).toHaveBeenCalledTimes(1)
+    callbacks[0](null, '', '')
+    await running
   })
 
   it('treats two projects installing one plugin as independent installs', async () => {
     const otherRoot = mkdtempSync(join(tmpdir(), 'megatron-plugin-action-b-'))
     grantPath(otherRoot)
     try {
-      mockedExecFile.mockImplementation((() => {}) as unknown as typeof execFile)
+      const callbacks = holdCallbacks()
 
-      void enablePlugin({ ...input, scope: 'project', projectPath: projectRoot })
-      void enablePlugin({ ...input, scope: 'project', projectPath: otherRoot })
+      const running = [
+        enablePlugin({ ...input, scope: 'project', projectPath: projectRoot }),
+        enablePlugin({ ...input, scope: 'project', projectPath: otherRoot })
+      ]
 
       expect(mockedExecFile).toHaveBeenCalledTimes(2)
+      for (const callback of callbacks) callback(null, '', '')
+      await Promise.all(running)
     } finally {
       rmSync(otherRoot, { recursive: true, force: true })
     }
+  })
+})
+
+describe('pluginActionsIdle', () => {
+  it('resolves at once when no plugin action is running', async () => {
+    await expect(pluginActionsIdle()).resolves.toBeUndefined()
+  })
+
+  it('waits for every running plugin action to finish', async () => {
+    const callbacks = holdCallbacks()
+    const enabling = enablePlugin(input)
+    const uninstalling = uninstallPlugin({ ...input, name: 'other' })
+    let idle = false
+    void pluginActionsIdle().then(() => (idle = true))
+
+    callbacks[0](null, '', '')
+    await enabling
+    expect(idle).toBe(false)
+
+    callbacks[1](null, '', '')
+    await uninstalling
+    await vi.waitFor(() => expect(idle).toBe(true))
   })
 })

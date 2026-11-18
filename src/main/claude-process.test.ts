@@ -1,7 +1,12 @@
 import { execFile } from 'child_process'
+import Store from 'electron-store'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveClaudeCommand } from './claude-cli'
-import { runClaude } from './claude-process'
+import { createClaudeFolder } from './claude-folder'
+import { gateClaude, runClaude } from './claude-process'
 
 vi.mock('child_process', () => ({ execFile: vi.fn() }))
 vi.mock('./claude-cli', () => ({ resolveClaudeCommand: vi.fn() }))
@@ -21,6 +26,7 @@ function respond(error: (Error & { code?: string; killed?: boolean }) | null, st
 const options = { timeoutMs: 60_000, timeoutMessage: 'Took too long.' }
 
 beforeEach(() => {
+  gateClaude(() => null)
   mockedExecFile.mockReset()
   mockedResolve.mockReturnValue({
     executable: '/trusted/claude',
@@ -65,5 +71,53 @@ describe('runClaude', () => {
     expect(result.ok).toBe(false)
     expect(!result.ok && result.error).toMatch(/Claude Code CLI was not found/)
     expect(mockedExecFile).not.toHaveBeenCalled()
+  })
+
+  it('asks the gate on every run, and refuses while it gives a reason', async () => {
+    respond(null, 'ok')
+    let reason: string | null = 'The Claude Code folder is missing.'
+    gateClaude(() => reason)
+    await expect(runClaude(['plugin', 'enable', 'demo'], options)).resolves.toEqual({
+      ok: false,
+      error: 'The Claude Code folder is missing.'
+    })
+    expect(mockedExecFile).not.toHaveBeenCalled()
+    reason = null
+    await expect(runClaude(['-p', '/context'], options)).resolves.toEqual({
+      ok: true,
+      stdout: 'ok'
+    })
+  })
+
+  it('refuses a run against a named folder removed after startup, before any poll fires', async () => {
+    const home = realpathSync(mkdtempSync(join(tmpdir(), 'megatron-claude-process-')))
+    try {
+      const work = join(home, '.claude-work')
+      mkdirSync(work)
+      writeFileSync(join(work, 'settings.json'), '{}')
+      const folder = createClaudeFolder({
+        home,
+        environment: work,
+        isPrimaryInstance: true,
+        store: new Store({ name: 'preferences', cwd: join(home, 'userData') }),
+        watch: () => {},
+        pluginActionsIdle: async () => {},
+        stopScans: async () => {},
+        suspendScans: async () => {},
+        resumeScans: () => {},
+        relaunch: () => {},
+        broadcast: () => {},
+        onResume: () => {}
+      })
+      gateClaude(folder.cliRefusal)
+      respond(null, 'ok')
+
+      rmSync(work, { recursive: true })
+      const result = await runClaude(['plugin', 'enable', 'demo'], options)
+      expect(result).toEqual({ ok: false, error: expect.stringContaining(work) })
+      expect(mockedExecFile).not.toHaveBeenCalled()
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
   })
 })

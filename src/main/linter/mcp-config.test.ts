@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { grantPath, resetGrantedPaths } from '../permissions'
+import { defaultConfigRoot, grantPath, resetGrantedPaths, setClaudeConfig } from '../permissions'
 import { getGlobalMcpServers, getProjectMcpServers } from './mcp-config'
 
 describe('mcp-config', () => {
@@ -44,6 +44,24 @@ describe('mcp-config', () => {
       )
       const servers = getGlobalMcpServers(filePath)
       expect(Array.from(servers)).toEqual(['filesystem', 'memory'])
+    })
+
+    it('reads .claude.json inside a CLAUDE_CONFIG_DIR folder', () => {
+      resetGrantedPaths()
+      fs.writeFileSync(
+        path.join(tmpDir, '.claude.json'),
+        JSON.stringify({ mcpServers: { github: { command: 'npx' } } })
+      )
+      setClaudeConfig({
+        directory: tmpDir,
+        claudeJson: path.join(tmpDir, '.claude.json'),
+        source: 'environment'
+      })
+      try {
+        expect(Array.from(getGlobalMcpServers())).toEqual(['github'])
+      } finally {
+        setClaudeConfig(defaultConfigRoot(os.homedir()))
+      }
     })
   })
 

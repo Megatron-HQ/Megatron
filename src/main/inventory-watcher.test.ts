@@ -132,6 +132,19 @@ describe('live inventory watching', () => {
     test.service.close()
   })
 
+  it('refreshes when a worktree is added or pruned but not when one changes branch', async () => {
+    const test = fixture()
+    test.change('change', 'repo/.git/worktrees/feature/HEAD')
+    test.change('rename', 'repo/.git/worktrees/feature/HEAD.lock')
+    test.change('rename', 'repo/.git/refs/heads/feature')
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(test.snapshots).toEqual([])
+    test.change('rename', 'repo/.git/worktrees/feature')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(test.snapshots).toHaveLength(1)
+    test.service.close()
+  })
+
   it('does not postpone refresh forever during a continuous stream of changes', async () => {
     const test = fixture()
     for (let index = 0; index < 10; index++) {

@@ -7,10 +7,12 @@ import {
   symlinkSync,
   writeFileSync
 } from 'fs'
-import { tmpdir } from 'os'
+import { homedir, tmpdir } from 'os'
 import { delimiter, join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveClaudeCommand } from './claude-cli'
+import { activeConfigRoot } from './config-root'
+import { defaultConfigRoot, setClaudeConfig } from './permissions'
 
 let root: string
 let prefix: string
@@ -73,5 +75,57 @@ describe('trusted CLI discovery', () => {
       executable: join(prefix, process.platform === 'win32' ? 'node.exe' : 'node'),
       prefixArguments: [entry]
     })
+  })
+})
+
+describe('the Claude Code config folder the CLI runs against', () => {
+  function configEntries(): [string, string | undefined][] {
+    const environment = resolveClaudeCommand(project)?.environment ?? {}
+    return Object.entries(environment).filter(
+      ([name]) => name.toUpperCase() === 'CLAUDE_CONFIG_DIR'
+    )
+  }
+
+  beforeEach(() => {
+    writeFileSync(join(prefix, process.platform === 'win32' ? 'claude.exe' : 'claude'), 'native')
+    vi.stubEnv('CLAUDE_CONFIG_DIR', join(root, 'inherited'))
+    vi.stubEnv('Claude_Config_Dir', join(root, 'inherited-mixed-case'))
+  })
+
+  afterEach(() => {
+    setClaudeConfig(defaultConfigRoot(homedir()))
+  })
+
+  it('strips an inherited CLAUDE_CONFIG_DIR in every casing when Megatron reads ~/.claude', () => {
+    expect(configEntries()).toEqual([])
+  })
+
+  it('points the CLI at the folder Megatron reads', () => {
+    const work = join(root, '.claude-work')
+    setClaudeConfig({
+      directory: work,
+      claudeJson: join(work, '.claude.json'),
+      source: 'environment'
+    })
+    expect(configEntries()).toEqual([['CLAUDE_CONFIG_DIR', work]])
+  })
+
+  it('points the CLI at a folder chosen in Settings', () => {
+    const work = join(root, '.claude-work')
+    setClaudeConfig({ directory: work, claudeJson: join(work, '.claude.json'), source: 'settings' })
+    expect(configEntries()).toEqual([['CLAUDE_CONFIG_DIR', work]])
+  })
+
+  it('points the CLI at ~/.claude when Settings saved it as a named folder', () => {
+    const claude = join(root, '.claude')
+    mkdirSync(claude)
+    writeFileSync(join(claude, 'settings.json'), '{}')
+    setClaudeConfig(activeConfigRoot({ saved: claude, environment: undefined }, root).root)
+    expect(configEntries()).toEqual([['CLAUDE_CONFIG_DIR', claude]])
+  })
+
+  it('strips the variable when Settings chose ~/.claude, so the CLI reads .claude.json from home', () => {
+    setClaudeConfig({ ...defaultConfigRoot(root), source: 'settings' })
+    expect(configEntries()).toEqual([])
   })
 })

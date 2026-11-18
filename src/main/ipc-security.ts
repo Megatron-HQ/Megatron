@@ -130,6 +130,9 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
     case IPC_CHANNELS.openExternal:
       valid = args.length === 1 && text(value)
       break
+    case IPC_CHANNELS.chooseClaudeFolder:
+      valid = args.length === 1 && text(value) && value.length <= MAX_CLAUDE_FOLDER_ID_LENGTH
+      break
     case IPC_CHANNELS.getPluginDetail:
       valid = args.length === 2 && args.every(text)
       break
@@ -166,6 +169,7 @@ import { resolve } from 'path'
 import {
   IPC_CHANNELS,
   APP_SECTIONS,
+  MAX_CLAUDE_FOLDER_ID_LENGTH,
   MAX_INVOCATION_OFFSET,
   type PluginActionInput,
   type PluginRow

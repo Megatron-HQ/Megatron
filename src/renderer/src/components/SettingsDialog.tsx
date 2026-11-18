@@ -3,13 +3,19 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Folder, Monitor, Moon, RefreshCw, RotateCw, Sun } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { TextLink } from '@/components/TextLink'
+import { ClaudeFolderSettings } from '@/components/ClaudeFolder'
 import { ScanIssueDetails } from '@/components/ScanStatus'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { refreshScanQueries } from '@/lib/refresh-scan-queries'
 import { isMissingProjectOnlyScan, preferScanSummary } from '../../../shared/scan-banner'
-import type { ScanSummary, ThemePreference, UpdateState } from '../../../shared/ipc'
+import type {
+  ClaudeFolderStatus,
+  ScanSummary,
+  ThemePreference,
+  UpdateState
+} from '../../../shared/ipc'
 
 interface SettingsDialogProps {
   open: boolean
@@ -24,6 +30,8 @@ interface SettingsDialogProps {
   // Null when this build has no release to replay; the link is then absent.
   onShowWhatsNew?: (() => void) | null
   updateState?: UpdateState
+  claudeFolder?: ClaudeFolderStatus
+  home: string
 }
 
 const INSTALL_COMMAND =
@@ -67,7 +75,9 @@ export function SettingsDialog({
   onManageFolders,
   onShowWelcome,
   onShowWhatsNew,
-  updateState
+  updateState,
+  claudeFolder,
+  home
 }: SettingsDialogProps): React.JSX.Element {
   const queryClient = useQueryClient()
   const [rescanPhase, setRescanPhase] = useState<'idle' | 'scanning' | 'refreshing'>('idle')
@@ -76,6 +86,8 @@ export function SettingsDialog({
   const latestSummary = preferScanSummary(rescanSummary, scanSummary)
   const isRescanning = rescanPhase !== 'idle'
   const busy = scanning || isRescanning
+  // A paused folder refuses scans in main; the folder section says why.
+  const folderPaused = claudeFolder !== undefined && claudeFolder.state !== 'ok'
 
   async function handleRescan(): Promise<void> {
     setRescanPhase('scanning')
@@ -114,7 +126,8 @@ export function SettingsDialog({
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
 
-        <div className="flex flex-col">
+        {/* min-w-0: a grid item otherwise widens to its longest row, so folder paths never truncate. */}
+        <div className="flex min-w-0 flex-col">
           <section className="flex flex-col gap-2 py-3">
             <p className="text-sm font-medium">Appearance</p>
             <div
@@ -146,6 +159,8 @@ export function SettingsDialog({
             </div>
           </section>
 
+          {claudeFolder && <ClaudeFolderSettings status={claudeFolder} home={home} />}
+
           {busy ? (
             <p role="status" className="py-2 text-xs text-muted-foreground">
               {rescanPhase === 'refreshing'
@@ -174,7 +189,7 @@ export function SettingsDialog({
               variant="outline"
               size="sm"
               onClick={handleRescan}
-              disabled={isRescanning}
+              disabled={isRescanning || folderPaused}
               className="flex shrink-0 items-center gap-1.5"
             >
               <RefreshCw className={cn('size-4', isRescanning && 'animate-spin')} />

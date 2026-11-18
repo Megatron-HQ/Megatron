@@ -139,7 +139,10 @@ function tokenWindow(allRows: TokenRow[], start: Date, end: Date, hourly: boolea
       key,
       startAt: new Date(Math.max(cursor.getTime(), start.getTime())).toISOString(),
       endAt: new Date(Math.min(next.getTime(), end.getTime())).toISOString(),
-      tokens: group.length > 0 ? sumTokens(group) : null
+      partial: !hourly && (cursor < start || next > end),
+      tokens: group.length > 0 ? sumTokens(group) : null,
+      byModel: breakdown(group, 'model'),
+      byProject: breakdown(group, 'project')
     })
     cursor.setTime(next.getTime())
     index++

@@ -1,12 +1,14 @@
 import Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
 import {
+  applyWorktreeEvidence,
   reconcileUsageProjects,
   linkUsageProjects,
   unlinkUsageProject,
   usageProjectCatalog,
   readClaudeAppChats,
-  refreshUsageProjectAvailability
+  refreshUsageProjectAvailability,
+  worktreeLinks
 } from './usage-projects'
 import { applySchema } from './db/schema'
 import { openUsageArchive } from './db/usage-archive'
@@ -23,6 +25,7 @@ import {
   matchesUsageProjectSearch
 } from '../shared/usage-projects'
 import type { ProjectFolder } from '../shared/ipc'
+import { setClaudeCodeFolders } from '../shared/project-path'
 
 const repository = (path: string): ProjectFolder => ({
   path,
@@ -325,5 +328,314 @@ describe('Claude app chats', () => {
       catalog.projects.find((project) => project.path === '/Users/sai/code/repo')
     ).not.toHaveProperty('chat')
     expect(JSON.stringify(catalog.locations)).toBe(saved)
+  })
+})
+
+describe('worktrees', () => {
+  const repositoryIdentity = '1:2:3'
+
+  it.each([false, true])(
+    'promotes a former worktree and preserves history and manual groups (manual=%s)',
+    (manual) => {
+      const before = applyWorktreeEvidence(
+        reconcileUsageProjects([], [repository('/external')], []),
+        [
+          { path: '/a', canonical: '/main' },
+          { path: '/z', canonical: '/main' }
+        ],
+        [{ path: '/main', repository: repositoryIdentity }]
+      )
+      const main = before.find((entry) => entry.path === '/main')!
+      const external = before.find((entry) => entry.path === '/external')!
+      const saved = manual ? linkUsageProjects(before, main.id, external.id) : before
+      const after = applyWorktreeEvidence(
+        JSON.parse(JSON.stringify(saved)),
+        [{ path: '/z', canonical: '/a' }],
+        [{ path: '/a', repository: repositoryIdentity }]
+      )
+      const restored = reconcileUsageProjects(
+        JSON.parse(JSON.stringify(after)),
+        [repository('/a')],
+        []
+      )
+      expect(restored.map((entry) => entry.id).sort()).toEqual(
+        before.map((entry) => entry.id).sort()
+      )
+      expect(restored.find((entry) => entry.path === '/a')?.worktree).toBeUndefined()
+      expect(worktreeLinks(restored)).toEqual(
+        expect.arrayContaining([
+          { path: '/main', canonical: '/a' },
+          { path: '/z', canonical: '/a' }
+        ])
+      )
+      expect(worktreeLinks(restored)).toHaveLength(2)
+      for (const path of ['/main', '/a', '/z'])
+        expect(resolveUsageProjectPath(path, restored)).toBe(manual ? '/external' : '/a')
+      expect(
+        groupProjectCounts(
+          [
+            { project: '/main', count: 3 },
+            { project: '/a', count: 1 },
+            { project: '/z', count: 1 }
+          ],
+          restored
+        )
+      ).toEqual([{ project: manual ? '/external' : '/a', count: 5 }])
+      expect(
+        groupProjectTokens(
+          [
+            {
+              key: '/main',
+              tokens: { input: 10, output: 0, cacheRead: 0, cacheWrite: 0, total: 10 }
+            },
+            { key: '/z', tokens: { input: 20, output: 0, cacheRead: 0, cacheWrite: 0, total: 20 } }
+          ],
+          restored
+        )
+      ).toEqual([
+        {
+          key: manual ? '/external' : '/a',
+          tokens: { input: 30, output: 0, cacheRead: 0, cacheWrite: 0, total: 30 }
+        }
+      ])
+      expect(
+        groupProjectSpending(
+          [
+            { project: '/main', costUsd: 1 },
+            { project: '/z', costUsd: 2 }
+          ],
+          restored
+        )
+      ).toEqual([{ project: manual ? '/external' : '/a', costUsd: 3 }])
+    }
+  )
+
+  it('promotes a single survivor only with positive canonical evidence', () => {
+    const before = applyWorktreeEvidence(
+      [],
+      [{ path: '/a', canonical: '/main' }],
+      [{ path: '/main', repository: repositoryIdentity }]
+    )
+    const standIn = reconcileUsageProjects(before, [repository('/a')], [])
+    expect(worktreeLinks(applyWorktreeEvidence(standIn, []))).toEqual([
+      { path: '/a', canonical: '/main' }
+    ])
+    const after = applyWorktreeEvidence(
+      standIn,
+      [],
+      [{ path: '/a', repository: repositoryIdentity }]
+    )
+    expect(worktreeLinks(after)).toEqual([{ path: '/main', canonical: '/a' }])
+    expect(after.find((entry) => entry.path === '/a')?.worktree).toBeUndefined()
+  })
+
+  it('makes a canonical transition independent of link order and Windows spelling', () => {
+    const before = applyWorktreeEvidence(
+      [],
+      [
+        { path: 'C:/repo/a', canonical: 'C:/repo/main' },
+        { path: 'C:/repo/z', canonical: 'C:/repo/main' }
+      ]
+    )
+    const links = [
+      { path: 'c:/REPO/main', canonical: 'c:/repo/A' },
+      { path: 'C:/repo/z', canonical: 'c:/repo/A' }
+    ]
+    const canonical = [{ path: 'c:/repo/A' }]
+    const after = applyWorktreeEvidence(before, links, canonical)
+    expect(applyWorktreeEvidence(before, [...links].reverse(), canonical)).toEqual(after)
+    expect(worktreeLinks(after)).toEqual([
+      { path: 'C:/repo/main', canonical: 'C:/repo/a' },
+      { path: 'C:/repo/z', canonical: 'C:/repo/a' }
+    ])
+  })
+
+  const link = { path: '/wt/app-x', canonical: '/code/app' }
+  const roots = (locations: ReturnType<typeof reconcileUsageProjects>): string[] =>
+    usageProjectCatalog(locations)
+      .projects.map((project) => project.path)
+      .sort()
+
+  it('merges a worktree and the folders under it into its Canonical Checkout', () => {
+    // What earlier versions saved: every worktree folder its own project.
+    const before = reconcileUsageProjects([], [], ['/wt/app-x', '/wt/app-x/src', '/code/app'])
+    expect(roots(before)).toEqual(['/code/app', '/wt/app-x', '/wt/app-x/src'])
+
+    const after = reconcileUsageProjects(applyWorktreeEvidence(before, [link]), [], [])
+
+    expect(roots(after)).toEqual(['/code/app'])
+    expect(resolveUsageProjectPath('/wt/app-x/src', after)).toBe('/code/app')
+    expect(resolveUsageProjectPath('/wt/app-x/new', after)).toBe('/code/app')
+  })
+
+  it('adds an unknown Canonical Checkout as a repository that needs access', () => {
+    const locations = applyWorktreeEvidence([], [link])
+    expect(locations.find((entry) => entry.path === '/code/app')).toMatchObject({
+      kind: 'repository',
+      status: 'needs_access'
+    })
+    expect(locations.find((entry) => entry.path === '/wt/app-x')).toMatchObject({
+      worktree: true
+    })
+  })
+
+  it('keeps the link after the worktree is gone', () => {
+    const linked = applyWorktreeEvidence([], [link])
+    const later = reconcileUsageProjects(JSON.parse(JSON.stringify(linked)), [], ['/wt/app-x'])
+    expect(roots(later)).toEqual(['/code/app'])
+    expect(worktreeLinks(later)).toEqual([link])
+  })
+
+  it('moves the link when newer evidence names another repository', () => {
+    const linked = applyWorktreeEvidence([], [link])
+    const moved = applyWorktreeEvidence(linked, [{ path: '/wt/app-x', canonical: '/code/other' }])
+    expect(resolveUsageProjectPath('/wt/app-x', moved)).toBe('/code/other')
+  })
+
+  it('keeps a Worktree linked when only a link names it canonical', () => {
+    const linked = applyWorktreeEvidence([], [{ path: '/code/b', canonical: '/code/a' }])
+
+    const later = applyWorktreeEvidence(linked, [{ path: '/code/c', canonical: '/code/b' }])
+
+    expect(later.find((entry) => entry.path === '/code/b')).toMatchObject({ worktree: true })
+    expect(roots(later)).toEqual(['/code/a'])
+    expect(worktreeLinks(later)).toContainEqual({ path: '/code/c', canonical: '/code/a' })
+  })
+
+  it('makes a former Worktree its own project when positive evidence names it canonical', () => {
+    const linked = applyWorktreeEvidence([], [{ path: '/code/b', canonical: '/code/a' }])
+
+    const promoted = applyWorktreeEvidence(
+      linked,
+      [{ path: '/code/c', canonical: '/code/b' }],
+      [{ path: '/code/b' }]
+    )
+
+    const b = promoted.find((entry) => entry.path === '/code/b')!
+    expect(b.worktree).toBeUndefined()
+    expect(b.linkedTo).toBeUndefined()
+    expect(roots(promoted)).toEqual(['/code/a', '/code/b'])
+    expect(resolveUsageProjectPath('/code/c', promoted)).toBe('/code/b')
+    expect(resolveUsageProjectPath('/code/a', promoted)).toBe('/code/a')
+  })
+
+  it("sends Claude Code's worktree layout inside a Worktree to that Worktree's Canonical Checkout", () => {
+    const linked = applyWorktreeEvidence([], [{ path: '/code/b', canonical: '/code/a' }])
+
+    const later = reconcileUsageProjects(
+      JSON.parse(JSON.stringify(linked)),
+      [],
+      ['/code/b/.claude/worktrees/x']
+    )
+
+    expect(later.find((entry) => entry.path === '/code/b')).toMatchObject({ worktree: true })
+    expect(roots(later)).toEqual(['/code/a'])
+    expect(resolveUsageProjectPath('/code/b/.claude/worktrees/x', later)).toBe('/code/a')
+  })
+
+  it('turns the Worktree link around when evidence swaps the two checkouts', () => {
+    const linked = applyWorktreeEvidence([], [{ path: '/code/b', canonical: '/code/a' }])
+
+    const swapped = applyWorktreeEvidence(
+      linked,
+      [{ path: '/code/a', canonical: '/code/b' }],
+      [{ path: '/code/b' }]
+    )
+
+    expect(swapped.find((entry) => entry.path === '/code/b')!.worktree).toBeUndefined()
+    expect(worktreeLinks(swapped)).toEqual([{ path: '/code/a', canonical: '/code/b' }])
+    expect(resolveUsageProjectPath('/code/a', swapped)).toBe('/code/b')
+  })
+
+  it('routes a previously pruned worktree through a new canonical checkout', () => {
+    const saved = applyWorktreeEvidence(
+      [],
+      [
+        { path: '/code/old', canonical: '/code/a' },
+        { path: '/code/b', canonical: '/code/a' }
+      ]
+    )
+    const swapped = applyWorktreeEvidence(saved, [{ path: '/code/a', canonical: '/code/b' }])
+    expect(resolveUsageProjectPath('/code/old/src', swapped)).toBe('/code/b')
+    expect(worktreeLinks(swapped)).toContainEqual({ path: '/code/old', canonical: '/code/b' })
+  })
+
+  it('keeps a worktree pointed at its checkout when that checkout is linked elsewhere', () => {
+    const base = reconcileUsageProjects([], [repository('/code/app'), repository('/old/app')], [])
+    const withWorktree = applyWorktreeEvidence(base, [link])
+    const app = withWorktree.find((entry) => entry.path === '/code/app')!
+    const old = withWorktree.find((entry) => entry.path === '/old/app')!
+
+    const linked = reconcileUsageProjects(
+      JSON.parse(JSON.stringify(linkUsageProjects(withWorktree, app.id, old.id))),
+      [],
+      []
+    )
+
+    expect(resolveUsageProjectPath('/wt/app-x', linked)).toBe('/old/app')
+    expect(worktreeLinks(linked)).toEqual([link])
+  })
+
+  it('refuses to unlink a worktree from its Canonical Checkout', () => {
+    const linked = applyWorktreeEvidence([], [link])
+    const worktree = linked.find((entry) => entry.path === '/wt/app-x')!
+    expect(() => unlinkUsageProject(linked, worktree.id)).toThrow()
+  })
+
+  it('breaks a manual link from the checkout into its own worktree', () => {
+    const base = reconcileUsageProjects([], [repository('/code/app')], ['/wt/app-x'])
+    const app = base.find((entry) => entry.path === '/code/app')!
+    const worktree = base.find((entry) => entry.path === '/wt/app-x')!
+    const manual = linkUsageProjects(base, app.id, worktree.id)
+
+    const linked = applyWorktreeEvidence(manual, [link])
+
+    expect(resolveUsageProjectPath('/code/app', linked)).toBe('/code/app')
+    expect(resolveUsageProjectPath('/wt/app-x', linked)).toBe('/code/app')
+  })
+
+  it("links Claude Code's own worktree layout without git evidence", () => {
+    const locations = reconcileUsageProjects([], [], ['/code/app/.claude/worktrees/fix/src'])
+    expect(roots(locations)).toEqual(['/code/app'])
+    expect(resolveUsageProjectPath('/code/app/.claude/worktrees/fix/src', locations)).toBe(
+      '/code/app'
+    )
+  })
+
+  it('drops a saved link into Git metadata and removes its empty target', () => {
+    const invalid = { path: '/wt/legacy', canonical: '/code/app/.git/modules' }
+    const saved = applyWorktreeEvidence([], [invalid])
+    expect(worktreeLinks(saved)).toEqual([])
+    expect(roots(reconcileUsageProjects(saved, [], ['/wt/legacy/src']))).toEqual(['/wt/legacy'])
+  })
+
+  it('keeps a former target with sessions or another link', () => {
+    const ghost = '/code/app/.git/modules'
+    const saved = applyWorktreeEvidence([], [{ path: '/wt/legacy', canonical: ghost }])
+    expect(roots(reconcileUsageProjects(saved, [], [ghost + '/scripts']))).toEqual([
+      ghost,
+      '/wt/legacy'
+    ])
+    const linked = linkUsageProjects(
+      [...saved, { ...repository('/retained'), id: 'retained' }],
+      'retained',
+      saved.find((entry) => entry.path === ghost)!.id
+    )
+    expect(roots(reconcileUsageProjects(linked, [], []))).toEqual([ghost, '/wt/legacy'])
+  })
+
+  it('cleans a legacy home-layout link while preserving independently proven Git evidence', () => {
+    const path = '/home/user/.claude/worktrees/hook'
+    const link = { path, canonical: '/home/user' }
+    const legacy = reconcileUsageProjects([], [], [path])
+    setClaudeCodeFolders(['/home/user/.claude'])
+    try {
+      expect(roots(reconcileUsageProjects(legacy, [], [path + '/src']))).toEqual([path])
+      expect(roots(reconcileUsageProjects([], [], [path]))).toEqual([path])
+      const proven = applyWorktreeEvidence([], [link])
+      expect(worktreeLinks(reconcileUsageProjects(proven, [], [path]))).toEqual([link])
+    } finally {
+      setClaudeCodeFolders([])
+    }
   })
 })

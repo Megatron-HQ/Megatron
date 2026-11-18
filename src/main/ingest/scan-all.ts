@@ -36,6 +36,8 @@ export function startScanWorker(
   let activeSource: string | null = null
   const sources: ScanSourceSummary[] = []
   let projects: ScanSummary['projects']
+  let worktrees: ScanSummary['worktrees']
+  let canonicalCheckouts: ScanSummary['canonicalCheckouts']
   function failure(message: string, reason: ScanSourceSummary['failureReason']): ScanWorkerError {
     return new ScanWorkerError(message, {
       outcome: sources.some((source) => source.status !== 'failed') ? 'partial' : 'failed',
@@ -44,7 +46,9 @@ export function startScanWorker(
         ...sources,
         { name: activeSource ?? 'scanWorker', status: 'failed', failureReason: reason }
       ],
-      ...(projects === undefined ? {} : { projects })
+      ...(projects === undefined ? {} : { projects }),
+      ...(worktrees === undefined ? {} : { worktrees }),
+      ...(canonicalCheckouts === undefined ? {} : { canonicalCheckouts })
     })
   }
   const result = new Promise<ScanSummary>((resolve, reject) => {
@@ -57,6 +61,9 @@ export function startScanWorker(
           sources.push(message.source)
           activeSource = null
           if (message.projects !== undefined) projects = message.projects
+          if (message.worktrees !== undefined) worktrees = message.worktrees
+          if (message.canonicalCheckouts !== undefined)
+            canonicalCheckouts = message.canonicalCheckouts
         }
         onProgress(message)
         return
@@ -100,6 +107,8 @@ export type ScanScope = 'all' | 'inventory' | 'plugins'
 export function createScanController(start: (scope: ScanScope) => ScanWorkerTask): {
   request: (options?: { fresh?: boolean; scope?: ScanScope }) => Promise<ScanSummary>
   cancel: () => Promise<void>
+  suspend: () => Promise<void>
+  resume: () => void
 } {
   type Completion = {
     result: Promise<ScanSummary>
@@ -118,9 +127,10 @@ export function createScanController(start: (scope: ScanScope) => ScanWorkerTask
   let current: ActiveScan | null = null
   let cancellation: Promise<void> | null = null
   let permissionEpoch = 0
+  let suspended = false
 
   function startNext(): void {
-    if (current !== null || cancellation !== null) return
+    if (suspended || current !== null || cancellation !== null) return
     const scope = (['plugins', 'all', 'inventory'] as const).find((candidate) =>
       completions.has(candidate)
     )
@@ -200,6 +210,8 @@ export function createScanController(start: (scope: ScanScope) => ScanWorkerTask
 
   return {
     request(options) {
+      if (suspended)
+        return Promise.reject(new Error('Claude Code folder is unavailable; scans are suspended'))
       const scope = options?.scope ?? 'all'
       let pending = completions.get(scope)
       if (!pending) {
@@ -223,6 +235,18 @@ export function createScanController(start: (scope: ScanScope) => ScanWorkerTask
     cancel() {
       permissionEpoch++
       return cancelActive()
+    },
+    suspend() {
+      suspended = true
+      permissionEpoch++
+      const error = new Error('Claude Code folder is unavailable; scan interrupted')
+      for (const pending of completions.values()) pending.reject(error)
+      completions.clear()
+      return cancelActive()
+    },
+    resume() {
+      suspended = false
+      startNext()
     }
   }
 }
@@ -252,16 +276,28 @@ export function runAllScans(
 ): ScanSummary {
   const sources: ScanSummary['sources'] = []
   let projects: ScanSummary['projects']
+  let worktrees: ScanSummary['worktrees']
+  let canonicalCheckouts: ScanSummary['canonicalCheckouts']
   for (const task of scans) {
     const name = task.name || 'scan'
     const scan = typeof task === 'function' ? task : task.run
     reportProgress({ type: 'source-started', name })
     let discoveredProjects: ScanSummary['projects']
+    let discoveredWorktrees: ScanSummary['worktrees']
+    let discoveredCanonicals: ScanSummary['canonicalCheckouts']
     try {
       const result = scan(db) as ScanTaskResult | undefined
       if (result?.projects !== undefined) {
         projects = result.projects
         discoveredProjects = result.projects
+      }
+      if (result?.worktrees !== undefined) {
+        worktrees = result.worktrees
+        discoveredWorktrees = result.worktrees
+      }
+      if (result?.canonicalCheckouts !== undefined) {
+        canonicalCheckouts = result.canonicalCheckouts
+        discoveredCanonicals = result.canonicalCheckouts
       }
       sources.push({
         name,
@@ -275,7 +311,9 @@ export function runAllScans(
     reportProgress({
       type: 'source-complete',
       source: sources[sources.length - 1],
-      ...(discoveredProjects === undefined ? {} : { projects: discoveredProjects })
+      ...(discoveredProjects === undefined ? {} : { projects: discoveredProjects }),
+      ...(discoveredWorktrees === undefined ? {} : { worktrees: discoveredWorktrees }),
+      ...(discoveredCanonicals === undefined ? {} : { canonicalCheckouts: discoveredCanonicals })
     })
   }
   return {
@@ -286,6 +324,8 @@ export function runAllScans(
         : 'partial',
     completedAt: new Date().toISOString(),
     sources,
-    ...(projects !== undefined ? { projects } : {})
+    ...(projects !== undefined ? { projects } : {}),
+    ...(worktrees !== undefined ? { worktrees } : {}),
+    ...(canonicalCheckouts !== undefined ? { canonicalCheckouts } : {})
   }
 }

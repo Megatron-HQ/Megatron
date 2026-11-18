@@ -121,6 +121,24 @@ describe('private application cache', () => {
       expect(statSync(join(directory, 'megatron.db')).mode & 0o777).toBe(0o600)
     }
   }, 20_000)
+  it.runIf(process.platform !== 'win32')(
+    'restricts a per-folder usage archive and its sidecars to the owner',
+    () => {
+      const directory = join(root, 'profile')
+      mkdirSync(directory)
+      const names = ['', '-wal', '-shm'].map(
+        (suffix) => `usage-history-0123456789abcdef.db${suffix}`
+      )
+      for (const name of names) writeFileSync(join(directory, name), '', { mode: 0o644 })
+      api.securePrivateDataDirectory(directory)
+      for (const name of names) expect(statSync(join(directory, name)).mode & 0o777).toBe(0o600)
+    }
+  )
+  it('rejects a special per-folder usage archive path before opening it', () => {
+    const directory = join(root, 'profile')
+    mkdirSync(join(directory, 'usage-history-0123456789abcdef.db'), { recursive: true })
+    expect(() => api.securePrivateDataDirectory(directory)).toThrow(/linked/)
+  })
   it('refuses a linked data directory before opening or changing a database', () => {
     const outside = join(root, 'outside')
     mkdirSync(outside)

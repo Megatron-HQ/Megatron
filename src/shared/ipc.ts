@@ -45,8 +45,51 @@ export const IPC_CHANNELS = {
   checkForUpdates: 'updates:check',
   installUpdate: 'updates:install',
   setAutoUpdateCheck: 'updates:setAutoCheck',
-  updateState: 'updates:state'
+  updateState: 'updates:state',
+  getClaudeFolder: 'claudeFolder:get',
+  chooseClaudeFolder: 'claudeFolder:choose',
+  pickClaudeFolder: 'claudeFolder:pick',
+  claudeFolderState: 'claudeFolder:state'
 } as const
+
+// Longer than any home-entry id (`home:` plus a folder name); the renderer only echoes ids main sent.
+export const MAX_CLAUDE_FOLDER_ID_LENGTH = 300
+
+export interface ClaudeFolderIssue {
+  value: string
+  // invalid: not an absolute local folder Megatron may read as a whole (relative, UNC, $HOME or an
+  // ancestor, a drive root, a file, unreadable). missing: doesn't exist yet. no-marker: exists, but
+  // Claude Code has never written to it. Only `missing` keeps the folder; the rest fall back.
+  reason: 'invalid' | 'missing' | 'no-marker'
+  source: 'settings' | 'environment'
+}
+
+// named: ~/.claude read with .claude.json inside it, as when CLAUDE_CONFIG_DIR names it, rather
+// than as the default, which reads ~/.claude.json.
+export type ClaudeFolderTag = 'default' | 'environment' | 'named'
+
+export interface ClaudeFolderOption {
+  // 'saved', 'default', 'named', 'environment' or `home:<name>`: the renderer chooses by id, never
+  // by path.
+  id: string
+  path: string
+  tags: ClaudeFolderTag[]
+  active: boolean
+}
+
+export interface ClaudeFolderStatus {
+  path: string
+  source: 'default' | 'environment' | 'settings'
+  // paused: the folder is gone, or came back failing the checks; scans and the CLI wait for it.
+  state: 'ok' | 'paused' | 'switching'
+  issue: ClaudeFolderIssue | null
+  options: ClaudeFolderOption[]
+}
+
+export type ClaudeFolderChoice =
+  | { outcome: 'canceled' }
+  | { outcome: 'rejected'; path: string; reason: ClaudeFolderIssue['reason'] }
+  | { outcome: 'chosen'; status: ClaudeFolderStatus }
 
 // 'manual': a newer version exists but this install can't replace itself; detail says why.
 export type UpdateStatus =
@@ -82,6 +125,19 @@ export interface ProjectFolder {
   path: string
   kind: 'folder' | 'repository'
   status: 'available' | 'unavailable' | 'missing' | 'needs_access'
+}
+
+// A git worktree (or Claude Code's .claude/worktrees layout) and the Canonical Checkout it
+// belongs to; see CONTEXT.md.
+export interface WorktreeLink {
+  path: string
+  canonical: string
+}
+
+export interface CanonicalCheckout {
+  path: string
+  // Filesystem identity of the approved common Git directory, when the filesystem supplies it.
+  repository?: string
 }
 
 export type SourceType = 'global' | 'project' | 'plugin'
@@ -181,7 +237,13 @@ export interface ScanSourceSummary {
 
 export type ScanWorkerProgress =
   | { type: 'source-started'; name: string }
-  | { type: 'source-complete'; source: ScanSourceSummary; projects?: ProjectFolder[] }
+  | {
+      type: 'source-complete'
+      source: ScanSourceSummary
+      projects?: ProjectFolder[]
+      worktrees?: WorktreeLink[]
+      canonicalCheckouts?: CanonicalCheckout[]
+    }
 
 export interface ScanProgress {
   id: number
@@ -214,6 +276,9 @@ export interface ScanTaskResult {
   status: 'complete' | 'partial'
   issues?: ScanIssue[]
   projects?: ProjectFolder[]
+  worktrees?: WorktreeLink[]
+  // Positive discovery evidence; unlike catalog repositories, these are never stand-ins.
+  canonicalCheckouts?: CanonicalCheckout[]
 }
 
 export interface ScanSummary {
@@ -223,6 +288,8 @@ export interface ScanSummary {
   isStartup?: boolean
   lastSuccessfulAt?: string | null
   projects?: ProjectFolder[]
+  worktrees?: WorktreeLink[]
+  canonicalCheckouts?: CanonicalCheckout[]
 }
 
 export type FileStatus = 'ok' | 'too_large' | 'unreadable' | 'preview_limit'
@@ -742,7 +809,11 @@ export interface TokenBucket {
   key: string
   startAt: string
   endAt: string
+  // Daily bucket clipped by the rolling window; always false for hourly buckets.
+  partial: boolean
   tokens: TokenCounts | null
+  byModel: TokenBreakdown[]
+  byProject: TokenBreakdown[]
 }
 
 export interface TokenWindow {

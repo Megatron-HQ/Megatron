@@ -490,6 +490,154 @@ describe('persistent usage history', () => {
   })
 })
 
+describe('token bucket details', () => {
+  function share(
+    timestamp: string,
+    project: string,
+    model: string,
+    counts: [number, number, number, number]
+  ): void {
+    archive
+      .prepare('INSERT INTO history_token_shares VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('session', project, model, timestamp, ...counts)
+  }
+
+  it.each(['last24h', 'last7d', 'last30d'] as const)(
+    'reconciles %s bucket breakdowns in every category without including adjacent buckets',
+    (windowKey) => {
+      const timestamp = new Date(now.getTime() - 2 * 3600000).toISOString()
+      share(timestamp, '/repo/a', 'sonnet', [1, 2, 3, 4])
+      share(timestamp, '/repo/b', 'sonnet', [5, 6, 7, 8])
+      share(timestamp, '/repo/a', 'opus', [9, 10, 11, 12])
+      share(new Date(now.getTime() - 3600000).toISOString(), '/repo/b', 'sonnet', [13, 14, 15, 16])
+      const window = getTokenStats(archive, now)[windowKey]
+      const bucket = window.trend.find(
+        (candidate) => candidate.startAt <= timestamp && candidate.endAt > timestamp
+      )!
+      expect(bucket.tokens).toEqual(
+        windowKey === 'last24h'
+          ? { input: 15, output: 18, cacheRead: 21, cacheWrite: 24, total: 78 }
+          : { input: 28, output: 32, cacheRead: 36, cacheWrite: 40, total: 136 }
+      )
+      expect(bucket.byModel?.map((row) => [row.key, row.tokens.total])).toEqual(
+        windowKey === 'last24h'
+          ? [
+              ['opus', 42],
+              ['sonnet', 36]
+            ]
+          : [
+              ['sonnet', 94],
+              ['opus', 42]
+            ]
+      )
+      expect(bucket.byProject.map((row) => [row.key, row.tokens.total])).toEqual(
+        windowKey === 'last24h'
+          ? [
+              ['/repo/a', 52],
+              ['/repo/b', 26]
+            ]
+          : [
+              ['/repo/b', 84],
+              ['/repo/a', 52]
+            ]
+      )
+      for (const category of ['input', 'output', 'cacheRead', 'cacheWrite', 'total'] as const) {
+        expect(window.trend.reduce((sum, row) => sum + (row.tokens?.[category] ?? 0), 0)).toBe(
+          window.tokens![category]
+        )
+        for (const dimension of ['byModel', 'byProject'] as const) {
+          expect(bucket[dimension].reduce((sum, row) => sum + row.tokens[category], 0)).toBe(
+            bucket.tokens![category]
+          )
+        }
+      }
+    }
+  )
+
+  it('keeps unrecorded buckets distinct from recorded zero totals', () => {
+    const timestamp = new Date(now.getTime() - 3600000).toISOString()
+    share(timestamp, '/repo', 'sonnet', [0, 0, 0, 0])
+    const buckets = getTokenStats(archive, now).last24h.trend
+    expect(buckets[0]).toMatchObject({ tokens: null, byModel: [], byProject: [] })
+    expect(buckets.find((bucket) => bucket.startAt === timestamp)).toMatchObject({
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      byModel: [{ key: 'sonnet', tokens: { total: 0 } }],
+      byProject: [{ key: '/repo', tokens: { total: 0 } }]
+    })
+  })
+
+  it('clips bucket details to the rolling cutoff and includes the as-of instant only once', () => {
+    const cutoff = now.getTime() - 86400000
+    for (const [time, input] of [
+      [cutoff - 1, 1],
+      [cutoff, 2],
+      [cutoff + 3600000, 4],
+      [now.getTime(), 8],
+      [now.getTime() + 1, 16]
+    ])
+      share(new Date(time).toISOString(), '/repo', 'sonnet', [input, 0, 0, 0])
+    const window = getTokenStats(archive, now).last24h
+    expect(window.trend[0]).toMatchObject({
+      startAt: new Date(cutoff).toISOString(),
+      tokens: { total: 2 },
+      byModel: [{ key: 'sonnet', tokens: { total: 2 } }]
+    })
+    expect(window.trend[1].byProject).toMatchObject([{ key: '/repo', tokens: { total: 4 } }])
+    expect(window.trend.at(-1)).toMatchObject({
+      endAt: new Date(now.getTime() + 1).toISOString(),
+      tokens: { total: 8 }
+    })
+    expect(window.tokens?.total).toBe(14)
+  })
+
+  it.each(['last7d', 'last30d'] as const)('marks only clipped local days partial in %s', (key) => {
+    const buckets = getTokenStats(archive, now)[key].trend
+    expect(buckets[0].partial).toBe(true)
+    expect(buckets.at(-1)?.partial).toBe(true)
+    expect(buckets.slice(1, -1).every((bucket) => bucket.partial === false)).toBe(true)
+  })
+
+  it('groups bucket projects under canonical checkouts while preserving nested repositories', () => {
+    const timestamp = new Date(now.getTime() - 3600000).toISOString()
+    for (const [project, input] of [
+      ['c:/HQ/Repo/src/', 1],
+      ['C:\\HQ\\Worktree\\src', 2],
+      ['C:\\HQ\\Repo\\Child\\src', 4]
+    ] as const)
+      share(timestamp, project, 'sonnet', [input, input, input, input])
+    const locations = [
+      { id: 'repo', path: 'C:\\HQ\\Repo', kind: 'repository', status: 'available' },
+      {
+        id: 'worktree',
+        path: 'C:\\HQ\\Worktree',
+        kind: 'repository',
+        status: 'missing',
+        linkedTo: 'repo',
+        worktree: true
+      },
+      { id: 'child', path: 'C:\\HQ\\Repo\\Child', kind: 'repository', status: 'needs_access' }
+    ] as const
+    const overview = getUsageOverviewData(index, archive, [...locations], now)
+    for (const window of [
+      overview.tokens.last24h,
+      overview.tokens.last7d,
+      overview.tokens.last30d
+    ]) {
+      expect(window.trend.find((bucket) => bucket.tokens !== null)?.byProject).toEqual([
+        {
+          key: 'C:\\HQ\\Repo\\Child',
+          tokens: { input: 4, output: 4, cacheRead: 4, cacheWrite: 4, total: 16 }
+        },
+        {
+          key: 'C:\\HQ\\Repo',
+          tokens: { input: 3, output: 3, cacheRead: 3, cacheWrite: 3, total: 12 }
+        }
+      ])
+      expect(window.tokens?.total).toBe(28)
+    }
+  })
+})
+
 describe('usage history across a skipped local midnight', () => {
   let previousTimezone: string | undefined
 
@@ -550,30 +698,76 @@ describe('usage history across a skipped local midnight', () => {
             date: bucket.key,
             start: bucket.startAt,
             end: bucket.endAt,
-            total: bucket.tokens?.total
+            total: bucket.tokens?.total,
+            partial: bucket.partial,
+            models: bucket.byModel?.map((row) => row.tokens.total)
           }))
       ).toEqual([
         {
           date: '2026-09-06',
           start: '2026-09-06T04:00:00.000Z',
           end: '2026-09-07T03:00:00.000Z',
-          total: 100
+          total: 100,
+          partial: false,
+          models: [100]
         },
         {
           date: '2026-09-07',
           start: '2026-09-07T03:00:00.000Z',
           end: '2026-09-08T03:00:00.000Z',
-          total: 200
+          total: 200,
+          partial: false,
+          models: [200]
         },
         {
           date: '2026-09-08',
           start: '2026-09-08T03:00:00.000Z',
           end: '2026-09-08T03:30:00.001Z',
-          total: 300
+          total: 300,
+          partial: true,
+          models: [300]
         }
       ])
       expect(window.tokens?.total).toBe(600)
       expect(window.trend.reduce((sum, bucket) => sum + (bucket.tokens?.total ?? 0), 0)).toBe(600)
+    }
+  )
+})
+
+describe('token bucket details across daylight-saving changes', () => {
+  let previousTimezone: string | undefined
+
+  beforeEach(() => {
+    previousTimezone = process.env.TZ
+    process.env.TZ = 'America/New_York'
+  })
+
+  afterEach(() => {
+    if (previousTimezone === undefined) delete process.env.TZ
+    else process.env.TZ = previousTimezone
+  })
+
+  it.each([
+    { date: '2026-03-08', start: '2026-03-08T05:00:00.000Z', end: '2026-03-09T04:00:00.000Z' },
+    { date: '2026-11-01', start: '2026-11-01T04:00:00.000Z', end: '2026-11-02T05:00:00.000Z' }
+  ])(
+    'keeps the full local day $date together regardless of its duration',
+    ({ date, start, end }) => {
+      const insert = archive.prepare(
+        "INSERT INTO history_token_shares VALUES ('session', '/repo', 'sonnet', ?, ?, 0, 0, 0)"
+      )
+      insert.run(start, 1)
+      insert.run(new Date(Date.parse(end) - 1).toISOString(), 2)
+      insert.run(end, 4)
+      const window = getTokenStats(archive, new Date(Date.parse(end) + 86400000)).last7d
+      expect(window.trend.find((bucket) => bucket.key === date)).toMatchObject({
+        startAt: start,
+        endAt: end,
+        partial: false,
+        tokens: { total: 3 },
+        byModel: [{ key: 'sonnet', tokens: { total: 3 } }],
+        byProject: [{ key: '/repo', tokens: { total: 3 } }]
+      })
     }
   )
 })

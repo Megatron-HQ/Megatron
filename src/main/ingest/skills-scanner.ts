@@ -1,9 +1,10 @@
 import type Database from 'better-sqlite3'
-import type { ProjectFolder, ScanIssue, ScanTaskResult } from '../../shared/ipc'
-import { homedir } from 'os'
-import { dirname, join, relative, resolve, sep } from 'path'
+import { assertConfigRootAvailable } from '../config-root'
+import type { ProjectFolder, ScanIssue, ScanTaskResult, WorktreeLink } from '../../shared/ipc'
+import { dirname, join, relative, sep } from 'path'
 import { writeSkillScan, type SkillScanRow } from '../db/queries'
 import {
+  claudeConfig,
   allowedStatSync,
   getGrantedPaths,
   readAllowedFile,
@@ -41,10 +42,7 @@ export interface SkillRoot {
 }
 
 export function defaultSkillRoots(discovery = discoverProjects()): SkillRoot[] {
-  return [
-    { dir: resolve(homedir(), '.claude', 'skills'), sourceType: 'global' },
-    ...discovery.skillRoots
-  ]
+  return [{ dir: claudeConfig().skills, sourceType: 'global' }, ...discovery.skillRoots]
 }
 
 const SYNCED_DIR_NAME = 'synced'
@@ -163,10 +161,14 @@ export function scanSkills(
   db: Database.Database,
   roots: SkillRoot[] | undefined = undefined,
   userSettingsPath?: string,
-  previousProjects: ProjectFolder[] = []
+  previousProjects: ProjectFolder[] = [],
+  worktreeLinks: readonly WorktreeLink[] = []
 ): ScanTaskResult {
+  assertConfigRootAvailable()
   const discovery =
-    roots === undefined ? discoverProjects(getGrantedPaths(), previousProjects) : undefined
+    roots === undefined
+      ? discoverProjects(getGrantedPaths(), previousProjects, undefined, worktreeLinks)
+      : undefined
   roots ??= defaultSkillRoots(discovery)
   let partial = roots.some((root) => root.discoveryIncomplete === true)
   const unavailableProjects = new Set<string>()
@@ -191,10 +193,12 @@ export function scanSkills(
     const isMissingProject = createMissingProjectCheck()
     const missingProjects = new Map<string, boolean>()
     const readableProjects = new Map<string, boolean>()
+    const skippedProjects = new Set([...discovery.skippedWorktrees, ...discovery.gitDirHolders])
     const shouldDiscardProject = (path: string): boolean => {
       let missing = missingProjects.get(path)
       if (missing === undefined) {
-        missing = isProjectDiscoveryExcluded(path) || isMissingProject(path)
+        missing =
+          skippedProjects.has(path) || isProjectDiscoveryExcluded(path) || isMissingProject(path)
         missingProjects.set(path, missing)
       }
       return missing
@@ -216,8 +220,10 @@ export function scanSkills(
             isRemovedSkillDirectory(skill.project_root, skill.source_path))
       )
       .map((skill) => dirname(skill.source_path))
-    if (excludedRootDirectories.length > 0)
+    if (excludedRootDirectories.length > 0) {
+      assertConfigRootAvailable()
       writeSkillScan(db, 'project', [], excludedRootDirectories)
+    }
   }
   for (const skill of previous) {
     const priorRoot = dirname(skill.source_path)
@@ -318,6 +324,7 @@ export function scanSkills(
   }
 
   for (const [sourceType, rootDirs] of rootDirsBySourceType) {
+    assertConfigRootAvailable()
     const rows = rowsBySourceType.get(sourceType) ?? []
     if (sourceType === 'project') {
       const cached = db
@@ -347,7 +354,9 @@ export function scanSkills(
             project.status === 'available' && unavailableProjects.has(project.path)
               ? { ...project, status: 'unavailable' as const }
               : project
-          )
+          ),
+          worktrees: discovery.worktrees,
+          canonicalCheckouts: discovery.canonicalCheckouts
         }
       : {})
   }
