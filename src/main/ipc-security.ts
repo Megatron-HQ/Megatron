@@ -139,6 +139,10 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
     case IPC_CHANNELS.getMcpServerDetail:
       valid = args.length === 1 && text(value) && value.length <= MAX_MCP_SERVER_ID_LENGTH
       break
+    // No path: the general check. A path: one granted project, refused in main if it isn't.
+    case IPC_CHANNELS.checkMcpConnections:
+      valid = args.length === 0 || (args.length === 1 && text(value))
+      break
     case IPC_CHANNELS.revealMcpSource:
       valid =
         args.length === 2 &&

@@ -24,6 +24,9 @@ export const IPC_CHANNELS = {
   listMcpServers: 'mcp:list',
   getMcpServerDetail: 'mcp:detail',
   revealMcpSource: 'mcp:revealSource',
+  checkMcpConnections: 'mcp:checkConnections',
+  getInitialMcpCheckConfirmed: 'mcp:getInitialCheckConfirmed',
+  confirmMcpCheck: 'mcp:confirmCheck',
   getInitialSection: 'app:getInitialSection',
   setLastSection: 'app:setLastSection',
   getInitialOnboarding: 'app:getInitialOnboarding',
@@ -475,6 +478,34 @@ export type McpDeclarationScope = 'local' | 'project' | 'user' | 'plugin'
 export type McpConfigProblem = 'url_without_type' | 'unknown_type' | 'no_endpoint'
 export type McpApproval = 'approved' | 'rejected' | 'pending'
 
+// What `claude mcp list` reported, mapped from its own wording (docs/mcp-servers.md, Live check).
+export type McpLiveStatus =
+  | 'connected'
+  | 'degraded'
+  | 'needs_auth'
+  | 'failed'
+  | 'pending_approval'
+  | 'rejected'
+  | 'disabled'
+  | 'not_configured'
+
+export interface McpLiveServer {
+  // As the CLI printed it: a configured name, plugin:<p>:<s>, or 'claude.ai <Name>'.
+  name: string
+  status: McpLiveStatus
+}
+
+// One run of `claude mcp list`, kept for the app session only. projectPath null: the general check,
+// run from an empty folder, so only user servers, connectors, and user plugins appear.
+export interface McpConnectionCheck {
+  projectPath: string | null
+  checkedAt: string
+  servers: McpLiveServer[]
+}
+
+export type McpConnectionCheckResult =
+  { ok: true; check: McpConnectionCheck } | { ok: false; error: string }
+
 // A key Claude Code passes to the server; its value never leaves the main process.
 export interface McpKeyName {
   name: string
@@ -514,6 +545,8 @@ export interface McpServerRow {
   // Lint findings by severity (docs/mcp-servers.md, Lint).
   warnings: number
   notices: number
+  // From the last general connection check this session; null until one has run or included it.
+  liveStatus: { status: McpLiveStatus; checkedAt: string } | null
 }
 
 export type McpLintSeverity = 'warning' | 'info'
@@ -541,6 +574,8 @@ export interface McpServerList {
   lastCallAt: string | null
   // Projects Claude Code knows whose .mcp.json Megatron may not read.
   ungrantedProjects: number
+  // When the general connection check last ran this session.
+  lastCheckedAt: string | null
 }
 
 // Where a declaration loses to a higher-precedence one. projectPath null: in every project.
@@ -586,6 +621,8 @@ export interface McpServerDetail {
   connectorsDisabledIn: string[]
   tools: McpToolUsage[]
   findings: McpLintFinding[]
+  // Per-project connection checks this session that included this server.
+  projectStatuses: { projectPath: string; status: McpLiveStatus; checkedAt: string }[]
   // Tool-definition tokens from the last /context run this launch; null until one has run.
   definitionTokens: { tokens: number; measuredAt: string } | null
 }

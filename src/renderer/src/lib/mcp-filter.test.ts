@@ -32,6 +32,7 @@ function row(overrides: Partial<McpServerRow>): McpServerRow {
     pluginDisabled: false,
     warnings: 0,
     notices: 0,
+    liveStatus: null,
     ...overrides
   }
 }

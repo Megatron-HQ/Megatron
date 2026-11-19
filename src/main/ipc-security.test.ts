@@ -92,7 +92,11 @@ describe('renderer trust boundary', () => {
     [IPC_CHANNELS.getMcpServerDetail, ['configured:github']],
     [IPC_CHANNELS.getMcpServerDetail, ['plugin:p:s'.padEnd(1024, 'x')]],
     [IPC_CHANNELS.revealMcpSource, ['configured:api', '/repo/.mcp.json']],
-    [IPC_CHANNELS.setLastSection, ['mcp']]
+    [IPC_CHANNELS.setLastSection, ['mcp']],
+    [IPC_CHANNELS.checkMcpConnections, []],
+    [IPC_CHANNELS.checkMcpConnections, ['/repo']],
+    [IPC_CHANNELS.confirmMcpCheck, []],
+    [IPC_CHANNELS.getInitialMcpCheckConfirmed, []]
   ])('accepts MCP requests for %s', (channel, args) => {
     expect(() => security.validateIpcArguments(channel, args)).not.toThrow()
   })
@@ -108,7 +112,11 @@ describe('renderer trust boundary', () => {
     [IPC_CHANNELS.revealMcpSource, ['configured:api', '']],
     [IPC_CHANNELS.revealMcpSource, ['configured:api', 7]],
     [IPC_CHANNELS.revealMcpSource, ['x'.repeat(1025), '/repo/.mcp.json']],
-    [IPC_CHANNELS.revealMcpSource, ['configured:api', '/repo/.mcp.json', 'extra']]
+    [IPC_CHANNELS.revealMcpSource, ['configured:api', '/repo/.mcp.json', 'extra']],
+    [IPC_CHANNELS.checkMcpConnections, ['']],
+    [IPC_CHANNELS.checkMcpConnections, [42]],
+    [IPC_CHANNELS.checkMcpConnections, ['/repo', '/other']],
+    [IPC_CHANNELS.confirmMcpCheck, [true]]
   ])('rejects malformed MCP requests for %s', (channel, args) => {
     expect(() => security.validateIpcArguments(channel, args)).toThrow()
   })

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AppRail } from '@/components/AppRail'
 import { CommandPalette } from '@/components/CommandPalette'
 import { ManageFoldersDialog } from '@/components/ManageFoldersDialog'
@@ -7,6 +7,7 @@ import { OnboardingDialog } from '@/components/onboarding/OnboardingDialog'
 import { PluginActionToasts, type PluginActionToast } from '@/components/PluginActionToasts'
 import { PluginSidebar } from '@/components/PluginSidebar'
 import { McpSidebar } from '@/components/McpSidebar'
+import { McpCheckDialog } from '@/components/McpCheckDialog'
 import { ScreenTransition } from '@/components/ScreenTransition'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { ScanStatusBanner, ScanUpdatingBanner } from '@/components/ScanStatus'
@@ -102,6 +103,15 @@ function App(): React.JSX.Element {
   const [mcpView, setMcpView] = useState<McpView>({ kind: 'list' })
   const [mcpFilter, setMcpFilter] = useState<McpFilter>({ kind: 'all' })
   const [mcpExpandedProjects, setMcpExpandedProjects] = useState(() => new Set(['$projects']))
+  const [mcpCheckConfirmed, setMcpCheckConfirmed] = useState(() =>
+    window.api.getInitialMcpCheckConfirmed()
+  )
+  // undefined: no confirmation open. null: the general check. A path: that project's check.
+  const [mcpCheckTarget, setMcpCheckTarget] = useState<string | null | undefined>(undefined)
+  const [mcpCheckError, setMcpCheckError] = useState<{
+    projectPath: string | null
+    message: string
+  } | null>(null)
   const [usagePanel, setUsagePanel] = useState<UsagePanel>('activity')
   const [usageActivityWindow, setUsageActivityWindow] = useState<ActivityWindowKey>('30d')
   const [usageTokenWindow, setUsageTokenWindow] = useState<SkillStatsWindowKey>('30d')
@@ -366,6 +376,42 @@ function App(): React.JSX.Element {
     setFilter(next)
   }
 
+  const mcpCheck = useMutation({
+    mutationFn: (projectPath: string | null) =>
+      window.api.checkMcpConnections(projectPath ?? undefined),
+    onSuccess: (result, projectPath) => {
+      if (!result.ok) {
+        setMcpCheckError({ projectPath, message: result.error })
+        return
+      }
+      setMcpCheckError(null)
+      void queryClient.invalidateQueries({ queryKey: ['mcp-servers'] })
+      void queryClient.invalidateQueries({ queryKey: ['mcp-detail'] })
+    },
+    onError: (error, projectPath) =>
+      setMcpCheckError({
+        projectPath,
+        message: error instanceof Error ? error.message : String(error)
+      })
+  })
+  const mcpCheckingPath = mcpCheck.isPending ? (mcpCheck.variables ?? null) : undefined
+
+  // The check starts the user's servers, so the first one waits for a one-time confirmation.
+  function requestMcpCheck(projectPath: string | null): void {
+    if (mcpCheck.isPending) return
+    if (mcpCheckConfirmed) mcpCheck.mutate(projectPath)
+    else setMcpCheckTarget(projectPath)
+  }
+
+  function confirmMcpCheck(): void {
+    const target = mcpCheckTarget
+    setMcpCheckTarget(undefined)
+    if (target === undefined) return
+    setMcpCheckConfirmed(true)
+    void window.api.confirmMcpCheck()
+    mcpCheck.mutate(target)
+  }
+
   const filteredMcpServers = useMemo(
     () => mcpServers.filter((server) => matchesMcpFilter(server, mcpFilter)),
     [mcpServers, mcpFilter]
@@ -561,6 +607,7 @@ function App(): React.JSX.Element {
     !settingsOpen &&
     !paletteOpen &&
     !foldersDialogOpen &&
+    mcpCheckTarget === undefined &&
     !(section === 'usage' && skillInvocationOpen) &&
     pluginActionToasts.length === 0
 
@@ -714,6 +761,12 @@ function App(): React.JSX.Element {
           id={mcpView.id}
           summary={mcpServers.find((server) => server.id === mcpView.id)}
           onBack={leaveMcpDetail}
+          canCheckProject={(path) => projectAvailability(path) === 'available'}
+          onCheckProject={requestMcpCheck}
+          checkingProject={typeof mcpCheckingPath === 'string' ? mcpCheckingPath : null}
+          projectCheckError={
+            mcpCheckError && mcpCheckError.projectPath !== null ? mcpCheckError : null
+          }
         />
       ) : mcpError ? (
         <div
@@ -740,6 +793,10 @@ function App(): React.JSX.Element {
           loading={mcpPending}
           filter={mcpFilter}
           firstCallAt={mcpData?.firstCallAt ?? null}
+          lastCheckedAt={mcpData?.lastCheckedAt ?? null}
+          checking={mcpCheckingPath === null}
+          checkError={mcpCheckError?.projectPath === null ? mcpCheckError.message : null}
+          onCheckConnections={() => requestMcpCheck(null)}
           onSelect={(server) => {
             setReturnMcpId(null)
             setMcpView({ kind: 'detail', id: server.id })
@@ -860,6 +917,11 @@ function App(): React.JSX.Element {
         onSelectPlugin={selectPluginFromPalette}
         mcpServers={mcpServers}
         onSelectMcpServer={selectMcpServerFromPalette}
+      />
+      <McpCheckDialog
+        projectPath={mcpCheckTarget}
+        onConfirm={confirmMcpCheck}
+        onCancel={() => setMcpCheckTarget(undefined)}
       />
       <SettingsDialog
         open={settingsOpen}

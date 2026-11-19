@@ -3272,6 +3272,29 @@ export const scenarios = [
       await window.locator('tbody tr').first().click()
       await window.getByRole('heading', { name: /^Declarations/ }).waitFor()
     }
+  },
+  // The harness profile never confirms, so this click opens the confirmation and runs nothing.
+  {
+    name: 'mcp-check-confirm',
+    screen: 'mcp-inventory',
+    async run(window) {
+      await openMcpSection(window)
+      await window.getByRole('button', { name: 'Check connections', exact: true }).click()
+      await window.getByRole('dialog', { name: 'Check MCP connections?' }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'mcp-inventory-checked',
+    screen: 'mcp-inventory',
+    shouldSkip: skipWithoutMcpServers,
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('mcp:list', 'mcp-checked'))
+      await window.reload()
+      await openMcpSection(window)
+      // A pill, not the "Checked …" caption, which narrow windows hide.
+      await window.getByText('Connected', { exact: true }).first().waitFor()
+    }
   }
 ]
 
