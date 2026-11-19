@@ -3390,8 +3390,130 @@ export const scenarios = [
       // A pill, not the "Checked …" caption, which narrow windows hide.
       await window.getByText('Connected', { exact: true }).first().waitFor()
     }
+  },
+  // MCP actions (#49), on the fixture server: no sweep ever runs the real `claude mcp`.
+  {
+    name: 'mcp-detail-actions',
+    screen: 'mcp-detail',
+    async run(window, app) {
+      await openFixtureMcpServer(window, app)
+      await window.getByText('Grant this folder to change it', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'mcp-remove-confirm-project',
+    screen: 'mcp-detail',
+    async run(window, app) {
+      await openFixtureMcpServer(window, app)
+      await requestMcpAction(window, 'Remove', 1)
+      await window.getByText(/a file your team may share/).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'mcp-logout-confirm',
+    screen: 'mcp-detail',
+    async run(window, app) {
+      await openFixtureMcpServer(window, app)
+      await requestMcpAction(window, 'Log out')
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'mcp-reset-confirm',
+    screen: 'mcp-detail',
+    async run(window, app) {
+      await openFixtureMcpServer(window, app)
+      await requestMcpAction(window, "Reset this project's choices")
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'mcp-action-pending',
+    screen: 'mcp-detail',
+    async run(window, app) {
+      await openFixtureMcpServer(window, app, 'pending')
+      await requestMcpAction(window, 'Remove')
+      await window.getByRole('dialog').getByRole('button', { name: 'Remove' }).click()
+      await window.getByText('Removing…', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'mcp-action-failed',
+    screen: 'mcp-detail',
+    async run(window, app) {
+      await openFixtureMcpServer(window, app, 'mcp-action-failed')
+      await requestMcpAction(window, 'Remove')
+      await window.getByRole('dialog').getByRole('button', { name: 'Remove' }).click()
+      await window
+        .getByRole('alert')
+        .getByText(/No MCP server named/)
+        .waitFor()
+    }
+  },
+  {
+    name: 'mcp-action-unconfirmed',
+    screen: 'mcp-detail',
+    async run(window, app) {
+      await openFixtureMcpServer(window, app, 'mcp-action-unconfirmed')
+      await requestMcpAction(window, 'Log out')
+      await window.getByRole('dialog').getByRole('button', { name: 'Log out' }).click()
+      await window
+        .getByRole('alert')
+        .getByText(/couldn't confirm it/)
+        .waitFor()
+    }
+  },
+  {
+    name: 'mcp-action-success-toast',
+    screen: 'mcp-detail',
+    async run(window, app) {
+      await openFixtureMcpServer(window, app, 'mcp-action-ok')
+      await requestMcpAction(window, "Reset this project's choices")
+      await window.getByRole('dialog').getByRole('button', { name: 'Reset' }).click()
+      await window.getByText(/Reset the \.mcp\.json choices:/).waitFor()
+    }
+  },
+  {
+    name: 'mcp-detail-connector',
+    screen: 'mcp-detail',
+    async shouldSkip(window) {
+      const servers = await window.evaluate(() => window.api.listMcpServers())
+      return servers.servers.some((server) => server.kind === 'connector')
+        ? null
+        : 'no claude.ai connector here'
+    },
+    async run(window) {
+      await openMcpSection(window)
+      await window.getByRole('button', { name: /^claude\.ai\s*\d+$/ }).click()
+      await window.locator('tbody tr').first().click()
+      await window.getByText(/^Managed in claude\.ai/).waitFor()
+    }
   }
 ]
+
+// The fixture server's detail (mcp-actions-fixture.mjs): Declarations in user scope, a granted
+// project, and an ungranted one. actionMode sets every MCP action's canned result.
+async function openFixtureMcpServer(window, app, actionMode = null) {
+  await app.evaluate((_, mode) => {
+    const fixtures = globalThis.megatronVisualFixtures
+    for (const channel of ['mcp:list', 'mcp:detail', 'projects:list'])
+      fixtures.set(channel, 'mcp-actions')
+    if (mode)
+      for (const channel of ['mcp:remove', 'mcp:logout', 'mcp:resetProjectChoices'])
+        fixtures.set(channel, mode)
+  }, actionMode)
+  await window.reload()
+  await openMcpSection(window)
+  await window.locator('tbody tr:has-text("fixture-api")').click()
+  await window.getByRole('heading', { name: /^Declarations/ }).waitFor()
+}
+
+// Cards run user, project, local, so the nth button of a kind is that card's.
+async function requestMcpAction(window, label, index = 0) {
+  await window.getByRole('button', { name: label, exact: true }).nth(index).click()
+  await window.getByRole('dialog').waitFor()
+}
 
 // The heading's "· N" count renders only once the list has loaded; skeleton rows are rows too.
 async function openMcpSection(window) {
