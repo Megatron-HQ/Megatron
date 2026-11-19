@@ -71,6 +71,7 @@ type PluginView =
   { kind: 'list' } | { kind: 'detail'; name: string; marketplace: string; context?: PluginContext }
 type McpView = { kind: 'list' } | { kind: 'detail'; id: string }
 type SkillBackTarget = 'inventory' | 'usage-skills' | 'usage-skills-dialog'
+type McpBackTarget = 'inventory' | 'usage-mcp'
 
 // Real value always arrives from the listSkills IPC round-trip almost immediately; this only
 // covers the brief pre-response instant, so it deliberately doesn't guess at the real limit
@@ -119,10 +120,12 @@ function App(): React.JSX.Element {
   const [usageCostWindow, setUsageCostWindow] = useState<CostWindowKey>('30d')
   const [usageModelWindow, setUsageModelWindow] = useState<SkillStatsWindowKey>('30d')
   const [usageSkillWindow, setUsageSkillWindow] = useState<SkillStatsWindowKey>('30d')
+  const [usageMcpWindow, setUsageMcpWindow] = useState<SkillStatsWindowKey>('30d')
   const [skillInvocationSelection, setSkillInvocationSelection] =
     useState<SkillInvocationSelection | null>(null)
   const [skillInvocationOpen, setSkillInvocationOpen] = useState(false)
   const [skillBackTarget, setSkillBackTarget] = useState<SkillBackTarget>('inventory')
+  const [mcpBackTarget, setMcpBackTarget] = useState<McpBackTarget>('inventory')
   // The row Back left from, so the list it returns to focuses it and scrolls it into view.
   // Only Back sets these; a filter or section change clears them, so every other route to a list
   // starts at row 0.
@@ -423,17 +426,33 @@ function App(): React.JSX.Element {
     setMcpFilter(next)
   }
 
+  function openMcpDetail(id: string, backTarget: McpBackTarget): void {
+    setMcpBackTarget(backTarget)
+    setReturnMcpId(null)
+    setMcpView({ kind: 'detail', id })
+  }
+
   function leaveMcpDetail(): void {
-    if (mcpView.kind === 'detail') setReturnMcpId(mcpView.id)
     setMcpView({ kind: 'list' })
+    if (mcpBackTarget === 'usage-mcp') {
+      setUsagePanel('mcp')
+      handleSectionChange('usage')
+      return
+    }
+    if (mcpView.kind === 'detail') setReturnMcpId(mcpView.id)
   }
 
   function selectMcpServerFromPalette(id: string): void {
     handleSectionChange('mcp')
     // As for plugins: a narrowed filter would make Back land on a list without this server.
     setMcpFilter({ kind: 'all' })
-    setReturnMcpId(null)
-    setMcpView({ kind: 'detail', id })
+    openMcpDetail(id, 'inventory')
+  }
+
+  function openMcpDetailFromUsage(id: string): void {
+    handleSectionChange('mcp')
+    setMcpFilter({ kind: 'all' })
+    openMcpDetail(id, 'usage-mcp')
   }
 
   function handlePluginFilterChange(next: PluginFilter): void {
@@ -797,10 +816,7 @@ function App(): React.JSX.Element {
           checking={mcpCheckingPath === null}
           checkError={mcpCheckError?.projectPath === null ? mcpCheckError.message : null}
           onCheckConnections={() => requestMcpCheck(null)}
-          onSelect={(server) => {
-            setReturnMcpId(null)
-            setMcpView({ kind: 'detail', id: server.id })
-          }}
+          onSelect={(server) => openMcpDetail(server.id, 'inventory')}
           onOpenSearch={() => setPaletteOpen(true)}
           restoreFocusId={returnMcpId}
         />
@@ -820,7 +836,10 @@ function App(): React.JSX.Element {
         onModelWindowChange={setUsageModelWindow}
         skillWindow={usageSkillWindow}
         onSkillWindowChange={changeSkillWindow}
+        mcpWindow={usageMcpWindow}
+        onMcpWindowChange={setUsageMcpWindow}
         onSelectSkill={openDetailFromUsage}
+        onSelectMcpServer={openMcpDetailFromUsage}
         onShowInvocations={showSkillInvocations}
       />
     )

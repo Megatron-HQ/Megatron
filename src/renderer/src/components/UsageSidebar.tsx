@@ -5,7 +5,8 @@ import {
   Cpu,
   Layers3,
   Binary,
-  CalendarDays
+  CalendarDays,
+  Plug
 } from 'lucide-react'
 import { motion } from 'motion/react'
 import { AppBrand } from '@/components/AppBrand'
@@ -13,7 +14,7 @@ import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
 
 export type UsagePanel =
-  'activity' | 'history' | 'tokens' | 'cost' | 'models' | 'skills' | 'resident-tax'
+  'activity' | 'history' | 'tokens' | 'cost' | 'models' | 'skills' | 'mcp' | 'resident-tax'
 
 const PANELS = [
   { key: 'activity', label: 'Activity', Icon: Activity },
@@ -22,6 +23,7 @@ const PANELS = [
   { key: 'cost', label: 'Cost', Icon: CircleDollarSign },
   { key: 'models', label: 'Models', Icon: Cpu },
   { key: 'skills', label: 'Skills', Icon: BrainCircuit },
+  { key: 'mcp', label: 'MCP servers', Icon: Plug },
   { key: 'resident-tax', label: 'Resident tax', Icon: Layers3 }
 ] as const
 

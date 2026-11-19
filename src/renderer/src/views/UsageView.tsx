@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { usageOverviewQuery } from '@/lib/usage-overview-query'
+import { mcpUsageQuery } from '@/lib/mcp-usage-query'
 import { motion, useReducedMotion } from 'motion/react'
 import {
   Activity,
@@ -9,7 +10,8 @@ import {
   Cpu,
   Layers3,
   Binary,
-  CalendarDays
+  CalendarDays,
+  Plug
 } from 'lucide-react'
 import { TokensSection } from '@/components/usage/TokensSection'
 import {
@@ -34,6 +36,7 @@ import { CostSection } from '@/components/usage/CostSection'
 import { SkillsSection, SkillWindowToggle } from '@/components/usage/SkillsSection'
 import type { SkillInvocationSelection } from '@/components/usage/SkillInvocationDialog'
 import { ModelsSection } from '@/components/usage/ModelsSection'
+import { McpUsageSection } from '@/components/usage/McpUsageSection'
 import { ResidentTaxRefresh, ResidentTaxSection } from '@/components/usage/ResidentTaxSection'
 import { formatCount } from '@/components/usage/chart-utils'
 import type { UsagePanel } from '@/components/UsageSidebar'
@@ -54,6 +57,7 @@ const PANEL_META = {
   cost: { label: 'Cost', Icon: CircleDollarSign },
   models: { label: 'Models', Icon: Cpu },
   skills: { label: 'Skills', Icon: BrainCircuit },
+  mcp: { label: 'MCP servers', Icon: Plug },
   'resident-tax': { label: 'Resident tax', Icon: Layers3 }
 } as const
 
@@ -71,7 +75,10 @@ export function UsageView({
   onModelWindowChange,
   skillWindow,
   onSkillWindowChange,
+  mcpWindow,
+  onMcpWindowChange,
   onSelectSkill,
+  onSelectMcpServer,
   onShowInvocations
 }: {
   panel: UsagePanel
@@ -87,7 +94,10 @@ export function UsageView({
   onModelWindowChange: (window: SkillStatsWindowKey) => void
   skillWindow: SkillStatsWindowKey
   onSkillWindowChange: (window: SkillStatsWindowKey) => void
+  mcpWindow: SkillStatsWindowKey
+  onMcpWindowChange: (window: SkillStatsWindowKey) => void
   onSelectSkill?: (skillId: number) => void
+  onSelectMcpServer: (id: string) => void
   onShowInvocations: (selection: SkillInvocationSelection) => void
 }): React.JSX.Element {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -121,6 +131,13 @@ export function UsageView({
   const { resolveProjectLabel } = projects
 
   const loading = isPending || !data?.scanComplete || projects.isPending
+  const mcp = useQuery({
+    ...mcpUsageQuery,
+    enabled: panel === 'mcp' && data?.scanComplete === true
+  })
+  // Kept apart from `loading` and the overview's error, which also gate the retained History.
+  const mcpLoading = panel === 'mcp' && mcp.isPending
+  const mcpError = panel === 'mcp' && mcp.isError
   const { label, Icon } = PANEL_META[panel]
   const history = useMemo(
     () => (
@@ -191,6 +208,13 @@ export function UsageView({
                     ariaLabel="Model activity window"
                   />
                 )}
+                {panel === 'mcp' && !mcpLoading && !mcpError && (
+                  <SkillWindowToggle
+                    value={mcpWindow}
+                    onChange={onMcpWindowChange}
+                    ariaLabel="MCP activity window"
+                  />
+                )}
                 {data?.activity && (
                   <span
                     className={cn(
@@ -222,7 +246,7 @@ export function UsageView({
             >
               {panel === 'resident-tax' ? (
                 <ResidentTaxSection />
-              ) : isError || projects.isError ? (
+              ) : isError || projects.isError || mcpError ? (
                 <div role="alert" className="py-6 text-sm text-muted-foreground">
                   <p>Could not load usage data.</p>
                   <button
@@ -231,13 +255,25 @@ export function UsageView({
                     onClick={() => {
                       void refetch()
                       void projects.refetch()
+                      if (mcpError) void mcp.refetch()
                     }}
                   >
                     Retry
                   </button>
                 </div>
-              ) : loading ? (
+              ) : loading || mcpLoading ? (
                 <UsageSkeleton panel={panel} />
+              ) : panel === 'mcp' ? (
+                mcp.data && mcp.data.last30d.calls > 0 ? (
+                  <McpUsageSection
+                    stats={mcp.data}
+                    windowKey={mcpWindow}
+                    onSelectServer={onSelectMcpServer}
+                    resolveProjectLabel={resolveProjectLabel}
+                  />
+                ) : (
+                  <McpUsageEmpty />
+                )
               ) : panel === 'activity' ? (
                 <ActivityPanel
                   activity={data?.activity ?? null}
@@ -504,6 +540,18 @@ function SkillsEmpty(): React.JSX.Element {
       <p className="max-w-[380px] text-[13px] text-muted-foreground">
         Skill invocations will appear here after they are recorded and Megatron rescans your
         sessions.
+      </p>
+    </div>
+  )
+}
+
+function McpUsageEmpty(): React.JSX.Element {
+  return (
+    <div className="flex flex-col items-center gap-2 py-24 text-center">
+      <Plug className="size-8 text-muted-foreground" />
+      <p className="text-[13px] font-medium">No MCP tool calls in the last 30 days</p>
+      <p className="max-w-[380px] text-[13px] text-muted-foreground">
+        Calls to MCP servers appear here after Megatron rescans a Claude Code session that used one.
       </p>
     </div>
   )

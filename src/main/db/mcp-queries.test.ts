@@ -5,6 +5,7 @@ import {
   getMcpServerDetail,
   knownMcpPrefixes,
   listMcpServers,
+  mcpCallOwners,
   revealableMcpSource
 } from './mcp-queries'
 import { grantPath, resetGrantedPaths } from '../permissions'
@@ -471,6 +472,44 @@ describe('MCP lint through the queries', () => {
     expect(finding.ruleId).toBe('mcp-prefix-collision')
     expect(finding.message).toContain('my_server')
     expect(finding.message).not.toContain('my.server,')
+  })
+})
+
+describe('mcpCallOwners', () => {
+  it('names the server each recorded tool name belongs to', () => {
+    declare({ scope: 'user', name: 'github.com' })
+    installPlugin('playwright', '/plugins/playwright', { playwright: 'stdio · npx' })
+    call('github_com__search')
+    call('plugin_playwright_playwright__browser_click')
+    call('claude_ai_Google_Drive__search')
+    call('claude-in-chrome__navigate')
+
+    expect(Object.fromEntries(mcpCallOwners(db))).toEqual({
+      github_com__search: { id: 'configured:github.com', name: 'github.com', kind: 'configured' },
+      plugin_playwright_playwright__browser_click: {
+        id: 'plugin:playwright:playwright',
+        name: 'plugin:playwright:playwright',
+        kind: 'plugin'
+      },
+      claude_ai_Google_Drive__search: {
+        id: 'connector:claude_ai_Google_Drive',
+        name: 'claude.ai Google Drive',
+        kind: 'connector'
+      },
+      'claude-in-chrome__navigate': {
+        id: 'observed:claude-in-chrome',
+        name: 'claude-in-chrome',
+        kind: 'observed'
+      }
+    })
+  })
+
+  it('marks a tool name on a prefix two servers share as ambiguous', () => {
+    declare({ scope: 'user', name: 'my.server' })
+    declare({ scope: 'user', name: 'my_server' })
+    call('my_server__run')
+
+    expect(mcpCallOwners(db).get('my_server__run')).toBe('ambiguous')
   })
 })
 

@@ -9,6 +9,15 @@
           "kind": "section",
           "section": "mcp"
         }
+      },
+      {
+        "title": "Track MCP calls in Usage",
+        "body": "Usage has an MCP servers panel: calls over time, the busiest servers, how often each one fails, and how much its results add to your context.",
+        "action": {
+          "kind": "section",
+          "section": "usage",
+          "anchor": "usage-mcp"
+        }
       }
     ]
   },

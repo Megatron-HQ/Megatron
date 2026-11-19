@@ -1058,8 +1058,9 @@ function resolvePricedTerminal(
   return costsBySession.get(sessionId) ?? null
 }
 
-function buildSkillTrend(
-  rows: SkillStatsInvocationRow[],
+// Rows already narrowed to the window; MCP calls (mcp-usage.ts) share these buckets.
+export function buildSkillTrend(
+  rows: ReadonlyArray<{ invoked_at: string }>,
   now: Date,
   window: '24h' | '7d' | '30d',
   days: number

@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query'
 import type { ScanSummary } from '../../../shared/ipc'
+import { MCP_USAGE_QUERY_KEY } from './mcp-usage-query'
 
 const SCAN_QUERY_KEYS = [
   'skills',
@@ -30,8 +31,14 @@ export async function refreshScanQueries(
     summary !== undefined &&
     summary.sources.length > 0 &&
     summary.sources.every((source) => INVENTORY_SOURCE_NAMES.has(source.name))
-  const queryKeys = inventoryOnly ? SCAN_QUERY_KEYS : [...SCAN_QUERY_KEYS, ...USAGE_QUERY_KEYS]
+  const queryKeys: ReadonlyArray<readonly string[]> = [
+    ...(inventoryOnly ? SCAN_QUERY_KEYS : [...SCAN_QUERY_KEYS, ...USAGE_QUERY_KEYS]).map((key) => [
+      key
+    ]),
+    // Credits calls by the Declarations an inventory scan rereads (docs/mcp-servers.md).
+    ...(inventoryOnly ? [MCP_USAGE_QUERY_KEY] : [])
+  ]
   await Promise.all(
-    queryKeys.map((key) => client.invalidateQueries({ queryKey: [key] }, { throwOnError }))
+    queryKeys.map((queryKey) => client.invalidateQueries({ queryKey }, { throwOnError }))
   )
 }

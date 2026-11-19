@@ -94,12 +94,25 @@ tools fetch failed`, `! Needs authentication`, `✗ Failed to connect`, `✗ Con
 `⏸ Pending approval`, `Rejected (see disabledMcpjsonServers in settings)`, `⊘ Disabled for this
 project`, and `- Not configured`. With no servers it prints `No MCP servers configured`.
 
-Megatron reads the name up to the first `: ` and the status from the last ` - ` segment that reads
+Megatron reads the name up to the first `: ` and the status from the last `-` segment that reads
 as one, by its words with the glyph stripped. Indented lines, unknown statuses, and everything in
 between are dropped inside the parser; output with no readable line is an error, not an empty
 list. The general check runs from an empty app-private folder, so only user servers, connectors,
 and user plugins appear; local and project servers answer only from their own project, checked one
 granted project at a time. A real run took about 10 seconds with seven connectors.
+
+## Usage panel
+
+Usage → MCP servers reads the same `mcp_tool_calls` rows over rolling 24-hour, 7-day, and 30-day
+windows, through its own `usage:mcp` channel rather than the polled overview. A call is credited to
+the server the MCP section credits it to (`mcpCallOwners`), so the panel and the server list never
+disagree; a call on a shared prefix counts in the totals and credits no server. A call's project is
+its own `cwd`, else its session's, grouped by Usage project. Error rate is errors over calls that
+weren't refused; refusals are counted apart, and a call with no recorded result is not an error.
+Result tokens are estimated from returned characters (`CHARS_PER_TOKEN`). When the oldest call
+the index holds is newer than the window's start, the panel names that date, since pruned
+transcripts take their calls with them (Retention above). The panel refreshes after inventory
+scans too, because a changed Declaration can move calls to another server.
 
 ## Lint
 

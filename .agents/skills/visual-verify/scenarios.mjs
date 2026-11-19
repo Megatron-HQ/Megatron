@@ -3148,6 +3148,101 @@ export const scenarios = [
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   },
+  // Usage → MCP servers (#46). This machine's real MCP calls, so the data scenarios skip without.
+  {
+    name: 'usage-mcp-default',
+    screen: 'usage',
+    shouldSkip: skipWithoutMcpCalls,
+    async run(window) {
+      await openUsageMcpPanel(window)
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // The lower half: the errors-and-weight table and By project, in dark mode.
+    name: 'usage-mcp-table-dark',
+    screen: 'usage',
+    shouldSkip: skipWithoutMcpCalls,
+    async run(window) {
+      await window.evaluate(() => window.api.setTheme('dark'))
+      await window.reload()
+      await window.waitForFunction(() => document.documentElement.classList.contains('dark'))
+      await openUsageMcpPanel(window)
+      await window.getByText('Errors and result weight', { exact: true }).scrollIntoViewIfNeeded()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // The panel's own window control; the 24-hour trend buckets by hour.
+    name: 'usage-mcp-24-hour',
+    screen: 'usage',
+    shouldSkip: skipWithoutMcpCalls,
+    async run(window) {
+      await openUsageMcpPanel(window)
+      await window
+        .getByRole('radiogroup', { name: 'MCP activity window' })
+        .getByRole('radio', { name: '24 hours' })
+        .click()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    // A Top servers row opens the MCP detail, and Back lands on this panel again.
+    name: 'usage-mcp-detail-back',
+    screen: ['usage', 'mcp-detail'],
+    shouldSkip: skipWithoutMcpCalls,
+    async run(window) {
+      await openUsageMcpPanel(window)
+      const list = window.getByText('Top servers', { exact: true }).locator('..')
+      await list
+        .getByRole('button', { name: /^Open .* detail$/ })
+        .first()
+        .click()
+      const back = window.getByRole('button', { name: 'Back to MCP servers' })
+      await back.waitFor()
+      await back.click()
+      await window.getByText('Top servers', { exact: true }).waitFor()
+      const current = await window
+        .getByRole('navigation', { name: 'Usage panels' })
+        .getByRole('button', { name: 'MCP servers', exact: true })
+        .getAttribute('aria-current')
+      if (current !== 'page') throw new Error('Usage MCP servers panel was not restored')
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'usage-mcp-captions',
+    screen: 'usage',
+    shouldSkip: skipWithoutMcpCalls,
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:mcp', 'mcp-usage-captions')
+      )
+      await openUsageMcpPanel(window)
+      await window.getByText(/^Calls since /).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'usage-mcp-empty',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('usage:mcp', 'mcp-usage-empty')
+      )
+      await openUsagePanel(window, 'MCP servers')
+      await window.getByText('No MCP tool calls in the last 30 days', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'usage-mcp-load-error',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('usage:mcp', 'error'))
+      await openUsagePanel(window, 'MCP servers')
+      await window.getByText('Could not load usage data.', { exact: true }).waitFor()
+    }
+  },
   {
     // The overview step on a machine with no Claude Code data: the active folder, the other
     // folders to choose from, and Rescan, all inside the 860×500 minimum window.
@@ -3302,6 +3397,16 @@ export const scenarios = [
 async function openMcpSection(window) {
   await window.getByRole('button', { name: 'MCP servers', exact: true }).click()
   await window.getByRole('heading', { name: /^All MCP servers · \d+$/ }).waitFor()
+}
+
+async function openUsageMcpPanel(window) {
+  await openUsagePanel(window, 'MCP servers')
+  await window.getByText('Top servers', { exact: true }).waitFor()
+}
+
+async function skipWithoutMcpCalls(window) {
+  const stats = await window.evaluate(() => window.api.getUsageMcp())
+  return stats.last30d.calls > 0 ? null : 'no MCP tool calls in the last 30 days here'
 }
 
 async function skipWithoutMcpServers(window) {
