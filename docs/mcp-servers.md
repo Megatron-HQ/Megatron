@@ -84,6 +84,19 @@ machine. Resident tax measures from an empty folder, so local and project server
 Megatron therefore shows a server's tool-definition tokens, never whether they sit in context, and
 reads them only from the last measurement this launch.
 
+## Lint
+
+Findings are derived from the index each time a server is read, never stored: every input is already
+there, so they can't go stale. A server Claude Code skips gets only that finding.
+
+| Rule                     | Severity | Fires when                                                                         |
+| ------------------------ | -------- | ---------------------------------------------------------------------------------- |
+| `mcp-server-skipped`     | warning  | A Declaration has a config problem (url without type, unknown type, no endpoint)   |
+| `mcp-inlined-credential` | warning  | A literal credential-looking value; names the literal keys, never a value          |
+| `mcp-prefix-collision`   | warning  | Another server sanitizes to the same prefix, so neither is credited with its calls |
+| `mcp-pending-approval`   | info     | A `.mcp.json` server in a granted project is neither approved nor rejected         |
+| `mcp-shadowed`           | info     | A Declaration loses to a higher-precedence one somewhere                           |
+
 ## Non-goals
 
 | Non-goal                                      | Revisit when                                                                      |

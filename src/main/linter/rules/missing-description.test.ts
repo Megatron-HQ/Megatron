@@ -21,7 +21,7 @@ describe('missingDescriptionRule', () => {
 
   const dummyContext: LinterContext = {
     skills: [],
-    globalMcpServers: new Set()
+    mcpPrefixes: { everywhere: new Set(), byProject: new Map() }
   }
 
   it('skips plugin skills', () => {

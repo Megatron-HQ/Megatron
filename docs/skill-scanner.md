@@ -93,13 +93,13 @@ ratio overstates how "over" a listing is on an extended-context session.
 
 All rules are static; no API key.
 
-| Rule                                  | Certainty                                                                                |
-| ------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Missing or malformed YAML frontmatter | Deterministic                                                                            |
-| Empty or missing `description`        | Deterministic                                                                            |
-| Exact-name collision                  | Deterministic                                                                            |
-| Broken file path in the skill body    | Heuristic: a regex over the body; false positives and negatives are both possible        |
-| MCP server missing from user config   | Heuristic in finding the `mcp__<server>__` reference; the config lookup is deterministic |
+| Rule                                  | Certainty                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Missing or malformed YAML frontmatter | Deterministic                                                                                                                                                                                                                                                                                                                                    |
+| Empty or missing `description`        | Deterministic                                                                                                                                                                                                                                                                                                                                    |
+| Exact-name collision                  | Deterministic                                                                                                                                                                                                                                                                                                                                    |
+| Broken file path in the skill body    | Heuristic: a regex over the body; false positives and negatives are both possible                                                                                                                                                                                                                                                                |
+| MCP server missing from user config   | Heuristic in finding the `mcp__<server>__` reference. The lookup is the index's MCP servers (`docs/mcp-servers.md`): user, plugin, connector, and seen servers everywhere, local and project ones for that project's skills, matched by longest prefix. A `claude_ai_` reference is never flagged: a connector lives in the account, not on disk |
 
 Shadow detection lives outside `lint_findings`. A project skill shadowed by a same-named global
 skill is dead; two same-named project skills in different repos both work and are informational

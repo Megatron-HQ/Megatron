@@ -21,7 +21,7 @@ describe('brokenFilePathsRule', () => {
 
   const dummyContext: LinterContext = {
     skills: [],
-    globalMcpServers: new Set()
+    mcpPrefixes: { everywhere: new Set(), byProject: new Map() }
   }
 
   it('detects broken markdown link targets in SKILL.md as warnings', () => {

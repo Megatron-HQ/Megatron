@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applySchema } from './schema'
-import { getMcpServerDetail, listMcpServers } from './mcp-queries'
+import { getMcpServerDetail, knownMcpPrefixes, listMcpServers } from './mcp-queries'
 
 let db: Database.Database
 
@@ -435,5 +435,57 @@ describe('getMcpServerDetail', () => {
     )
     declare({ scope: 'user', name: 'github' })
     expect(getMcpServerDetail(db, 'configured:github', baseline)?.definitionTokens).toBeNull()
+  })
+})
+
+describe('MCP lint through the queries', () => {
+  it('counts warnings and notices on each row', () => {
+    declare({ scope: 'user', name: 'github', credential: true })
+    declare({ scope: 'local', project: '/a', name: 'github' })
+    declare({ scope: 'project', project: '/b', name: 'github', approval: 'pending' })
+
+    expect(server('configured:github')).toMatchObject({ warnings: 1, notices: 2 })
+  })
+
+  it('lists the findings on the detail', () => {
+    declare({ scope: 'user', name: 'broken', transport: null, problem: 'url_without_type' })
+
+    expect(getMcpServerDetail(db, 'configured:broken', null)?.findings).toEqual([
+      expect.objectContaining({ ruleId: 'mcp-server-skipped', scope: 'user', projectPath: null })
+    ])
+  })
+
+  it('names the other servers sharing a prefix', () => {
+    declare({ scope: 'user', name: 'my.server' })
+    declare({ scope: 'user', name: 'my_server' })
+
+    const [finding] = getMcpServerDetail(db, 'configured:my.server', null)!.findings
+    expect(finding.ruleId).toBe('mcp-prefix-collision')
+    expect(finding.message).toContain('my_server')
+    expect(finding.message).not.toContain('my.server,')
+  })
+})
+
+describe('knownMcpPrefixes', () => {
+  it('knows user, plugin, connector, and seen servers everywhere, and the rest per project', () => {
+    declare({ scope: 'user', name: 'github' })
+    declare({ scope: 'local', project: 'C:/Work/App', name: 'db.local' })
+    declare({ scope: 'project', project: '/repo', name: 'api', approval: 'pending' })
+    installPlugin('playwright', '/cache/a', { playwright: 'stdio · npx' })
+    toggle('/x', 'claude.ai Slack')
+    call('claude-in-chrome__navigate')
+
+    const known = knownMcpPrefixes(db)
+
+    expect([...known.everywhere].sort()).toEqual([
+      'claude-in-chrome',
+      'claude_ai_Slack',
+      'github',
+      'plugin_playwright_playwright'
+    ])
+    expect(Object.fromEntries([...known.byProject].map(([key, set]) => [key, [...set]]))).toEqual({
+      'c:/work/app': ['db_local'],
+      '/repo': ['api']
+    })
   })
 })

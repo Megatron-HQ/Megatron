@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3'
 import { listSkills, replaceAllLintFindings, type InsertLintFindingInput } from '../db/queries'
-import { getGlobalMcpServers } from './mcp-config'
+import { knownMcpPrefixes } from '../db/mcp-queries'
 import type { LintRule, LinterContext, SkillLintTarget } from './types'
 import { yamlFrontmatterRule } from './rules/yaml-frontmatter'
 import { missingDescriptionRule } from './rules/missing-description'
@@ -35,10 +35,9 @@ export function runLinter(db: Database.Database, identity: ProjectIdentity): Sca
     shadowed_by_skill_id: s.shadowed_by_skill_id
   }))
 
-  const globalMcpServers = getGlobalMcpServers()
   const context: LinterContext = {
     skills,
-    globalMcpServers
+    mcpPrefixes: knownMcpPrefixes(db)
   }
 
   const allFindings: (InsertLintFindingInput & { skill_id: number })[] = []
@@ -81,4 +80,3 @@ export function runLinter(db: Database.Database, identity: ProjectIdentity): Sca
 }
 
 export * from './types'
-export * from './mcp-config'

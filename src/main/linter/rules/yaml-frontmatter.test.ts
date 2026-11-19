@@ -21,7 +21,7 @@ describe('yamlFrontmatterRule', () => {
 
   const dummyContext: LinterContext = {
     skills: [],
-    globalMcpServers: new Set()
+    mcpPrefixes: { everywhere: new Set(), byProject: new Map() }
   }
 
   it('reports recursive metadata as malformed frontmatter', () => {
