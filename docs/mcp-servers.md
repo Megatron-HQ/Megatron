@@ -55,7 +55,7 @@ one shell, which Megatron cannot see.
 | Retention             | Tool calls live only in the derived index (`megatron.db`), like Skill Invocations, so they age out with Claude Code's transcript pruning (~30 days). The UI names the window it covers. Archiving both together is #51                                                                                        | Archiving MCP calls alone would make the two histories disagree                                                                                                       |
 | Cost                  | Context weight only, in tokens: resident tool-definition tokens per server from the existing `/context` measurement (never a new run; deferred tools marked), and estimated result tokens from result size. No dollar figure                                                                                  | Per-call dollars would need a new allocation model across the `cost-state` hazards in `docs/usage-analytics.md`                                                       |
 | Live check            | `claude mcp list` runs only when the user asks, after a one-time confirm, from an empty app-private folder (user scope and connectors) or a granted repo (that project). Only each line's leading name and trailing status are kept; the middle is dropped inside the CLI wrapper. Cached for the app session | It is the only source for unused connectors and auth state, but it starts every approved stdio server, contacts every remote one, and prints commands, args, and URLs |
-| Writes                | Only through the CLI: `claude mcp remove --scope <scope>`, `reset-project-choices`, and `logout` (#48). Never edit `.claude.json` or `.mcp.json` directly                                                                                                                                                     | Claude Code rewrites `.claude.json` on every start; a second writer risks corrupting it. Enable/disable has no CLI command, so it waits for one                       |
+| Writes                | Only through the CLI: `claude mcp remove --scope <scope>`, `reset-project-choices`, and `logout` (#48). Never edit `.claude.json` or `.mcp.json` directly. No logout for claude.ai connectors: they read "Managed in claude.ai" (Connector logout below)                                                      | Claude Code rewrites `.claude.json` on every start; a second writer risks corrupting it. Enable/disable has no CLI command, so it waits for one                       |
 | Rescans               | No file watcher on `.claude.json`. Declarations are reread whole on every inventory and plugin Scan; parsing the file is cheap                                                                                                                                                                                | Claude Code writes the file constantly (startup counters, tips), so a watcher would rescan nonstop                                                                    |
 
 ## Tool names
@@ -94,12 +94,24 @@ tools fetch failed`, `! Needs authentication`, `✗ Failed to connect`, `✗ Con
 `⏸ Pending approval`, `Rejected (see disabledMcpjsonServers in settings)`, `⊘ Disabled for this
 project`, and `- Not configured`. With no servers it prints `No MCP servers configured`.
 
-Megatron reads the name up to the first `: ` and the status from the last `-` segment that reads
+Megatron reads the name up to the first `: ` and the status from the last `" - "` segment that reads
 as one, by its words with the glyph stripped. Indented lines, unknown statuses, and everything in
 between are dropped inside the parser; output with no readable line is an error, not an empty
 list. The general check runs from an empty app-private folder, so only user servers, connectors,
 and user plugins appear; local and project servers answer only from their own project, checked one
 granted project at a time. A real run took about 10 seconds with seven connectors.
+
+## Connector logout
+
+Verified 2026-11-19 against Claude Code 2.1.328 (#47), with a throwaway connector. `claude mcp
+logout "claude.ai <Name>"` changes nothing: it prints that the connector's credentials live on
+claude.ai, not this machine, names `https://claude.ai/customize/connectors` as the place to
+disconnect it, and exits 0. The connector still reads `✔ Connected` afterwards, and the
+verifying Windows machine's `.credentials.json` (macOS keeps these in the Keychain) holds no
+per-server MCP token, only the Claude account sign-in. So a
+connector can be disconnected only on claude.ai, where its credentials live, and Megatron offers
+no logout for one. Logout stays for remote servers that aren't connectors, and because a
+refusal also exits 0, its success is judged by the server's state afterwards, never the exit code.
 
 ## Usage panel
 
