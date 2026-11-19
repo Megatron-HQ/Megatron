@@ -124,6 +124,32 @@ _Avoid_: Registry, repo — see Marketplace Repo, which is a different, resolved
 The specific GitHub repository a Marketplace points to. Resolved independently of Plugin installation records; the deep-link target when a user wants to report a Plugin issue.
 _Avoid_: Marketplace (the Marketplace is the named registry; the Repo is one resolved fact about it, and can be absent even when the Marketplace isn't)
 
+### MCP
+
+**MCP Server**:
+One server Claude Code can connect to for tools, shown as one row however many places declare it: a configured name, a Plugin's `plugin:<plugin>:<server>`, a Connector, or an Observed Server. See `docs/mcp-servers.md`.
+_Avoid_: Connector (only the claude.ai kind), integration, tool (a server offers many tools)
+
+**Declaration**:
+One place that defines an MCP Server: an entry in local, project, or user scope, or in a Plugin. Several Declarations of the same server resolve by precedence, local > project > user > plugin > Connector, and the losers are Shadowed in that project.
+_Avoid_: Config, install, entry
+
+**Connector**:
+An MCP Server added to the user's claude.ai account and fetched by Claude Code at startup, named `claude.ai <Name>`. Never declared on disk, so Megatron knows one only from tool calls or a Live Check.
+_Avoid_: Integration, remote server (a configured server can be remote too)
+
+**Observed Server**:
+An MCP Server known only because a Transcript records calls to its tools, with no Declaration Megatron can read: a built-in, a Connector before any Live Check, a server from an ungranted repo, or one since removed.
+_Avoid_: Unknown server, orphan
+
+**MCP Tool Call**:
+One recorded call to an MCP Server's tool during a Session, kept as metadata only: which server and tool, when, whether it errored, and how large the result was. Never its input or result.
+_Avoid_: Invocation (that's a Skill's event), request
+
+**Live Check**:
+An on-demand run of `claude mcp list` the user asks for, reporting each MCP Server's connection status. It starts the user's approved servers, so it never runs on its own.
+_Avoid_: Health check (suggests a background poll), ping
+
 ### Linting
 
 **Lint Finding**:
