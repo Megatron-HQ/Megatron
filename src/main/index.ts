@@ -95,9 +95,24 @@ import {
 import { createInventoryWatcher } from './inventory-watcher'
 import { findNewestRecordedRequest } from './ingest/recorded-request'
 import { latestContextBaseline, mcpDefinitionTokens, measureContextBaseline } from './context-usage'
-import { getMcpServerDetail, listMcpServers, revealableMcpSource } from './db/mcp-queries'
+import {
+  getMcpServerDetail,
+  listMcpServers,
+  mcpActionTarget,
+  mcpProjectApprovals,
+  mcpResetTarget,
+  revealableMcpSource
+} from './db/mcp-queries'
+import { mcpActionsIdle, runMcpAction } from './mcp-actions'
+import { createMcpActionService } from './mcp-action-service'
 import { getMcpUsageStats } from './db/mcp-usage'
-import { checkMcpConnections, latestMcpChecks } from './mcp-status'
+import {
+  checkMcpConnections,
+  checkMcpServer,
+  forgetMcpChecks,
+  latestMcpChecks,
+  mcpCheckFolder
+} from './mcp-status'
 import { findStaleSkillIds, usageDataTrusted } from './db/stale-skills'
 import { sanitizeProjectFolders } from './ingest/project-discovery'
 import { readSkillFiles, readSkillMd } from './skill-files'
@@ -116,6 +131,7 @@ import {
   INVOCATION_PAGE_SIZE,
   type AppSection,
   type GrantChangeResult,
+  type McpDeclarationRef,
   type OpenSkillMetaResult,
   type OpenSkillResult,
   type PluginActionInput,
@@ -160,7 +176,9 @@ const claudeFolder = createClaudeFolder({
   // A stat poll, unlike fs.watch, notices a folder that doesn't exist yet appearing (a drive
   // reconnecting), and it costs one stat every 2 seconds.
   watch: (path, onChange) => watchFile(path, { interval: 2000, persistent: false }, onChange),
-  pluginActionsIdle,
+  cliActionsIdle: async () => {
+    await Promise.all([pluginActionsIdle(), mcpActionsIdle()])
+  },
   stopScans: () => scans.cancel(),
   suspendScans: () => {
     usageSourceStatus.clear()
@@ -744,6 +762,32 @@ app.whenReady().then(() => {
   )
   secureIpc.handle(IPC_CHANNELS.uninstallPlugin, (_event, input: PluginActionInput) =>
     pluginActions.run('uninstall', input)
+  )
+
+  // Writes go only through `claude mcp` (docs/mcp-servers.md, Writes); a plugins-scope scan
+  // rereads the Declarations they change.
+  const mcpActions = createMcpActionService({
+    target: (ref, verb) => mcpActionTarget(getDb(), ref, verb),
+    resetTarget: (projectPath) => mcpResetTarget(getDb(), projectPath),
+    approvals: (projectPath) => mcpProjectApprovals(getDb(), projectPath),
+    folder: (projectPath) => mcpCheckFolder(projectPath, app.getPath('userData'), 'change'),
+    run: runMcpAction,
+    refresh: () =>
+      claudeFolder.paused()
+        ? scanAndNotify('quiet', true)
+        : scans.request({ scope: 'plugins', fresh: true }),
+    serverStatus: checkMcpServer,
+    forgetChecks: forgetMcpChecks,
+    reportError: (action, error) => console.error('[mcp] action verification failed', action, error)
+  })
+  secureIpc.handle(IPC_CHANNELS.removeMcpServer, (_event, ref: McpDeclarationRef) =>
+    mcpActions.remove(ref)
+  )
+  secureIpc.handle(IPC_CHANNELS.logoutMcpServer, (_event, ref: McpDeclarationRef) =>
+    mcpActions.logout(ref)
+  )
+  secureIpc.handle(IPC_CHANNELS.resetMcpProjectChoices, (_event, projectPath: string) =>
+    mcpActions.resetProjectChoices(projectPath)
   )
 
   // Composes like skills:list — the renderer polls until scanComplete.

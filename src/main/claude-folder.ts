@@ -26,7 +26,8 @@ export interface ClaudeFolderDependencies {
   isPrimaryInstance: boolean
   store: ThemeStore
   watch: (path: string, onChange: () => void) => void
-  pluginActionsIdle: () => Promise<void>
+  // Resolves once no CLI write (plugin or MCP action) is running.
+  cliActionsIdle: () => Promise<void>
   stopScans: () => Promise<void>
   suspendScans: () => Promise<void>
   resumeScans: () => void
@@ -180,8 +181,9 @@ export function createClaudeFolder(deps: ClaudeFolderDependencies): {
   }
 
   async function relaunch(): Promise<void> {
-    // Waiting first means no plugin action is killed mid-write; refusing next means none starts.
-    await deps.pluginActionsIdle()
+    // Waiting first means no plugin or MCP action is killed mid-write; refusing next means none
+    // starts.
+    await deps.cliActionsIdle()
     relaunching = true
     await deps.stopScans().catch(() => {})
     deps.relaunch()

@@ -101,6 +101,33 @@ list. The general check runs from an empty app-private folder, so only user serv
 and user plugins appear; local and project servers answer only from their own project, checked one
 granted project at a time. A real run took about 10 seconds with seven connectors.
 
+## Writes
+
+Three actions, each one `claude mcp` command (#48). The renderer names a Declaration by server id,
+scope, and project; main finds it in the index and takes the name from there, since names are free
+text. Plugin servers are changed from their plugin, connectors on claude.ai, and Observed servers
+have no Declaration to change, so all three are refused.
+
+| Action        | Command                                       | For                                   | Runs from                                                        |
+| ------------- | --------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------- |
+| Remove        | `claude mcp remove --scope <scope> -- <name>` | A local, project, or user Declaration | The granted project (local, project), an empty app folder (user) |
+| Reset choices | `claude mcp reset-project-choices`            | A project whose `.mcp.json` was read  | That granted project                                             |
+| Logout        | `claude mcp logout -- <name>`                 | A configured http, sse, or ws server  | As for Remove                                                    |
+
+Verified 2026-11-19 against Claude Code 2.1.328: `--` ends the options, so a name starting with `-`
+stays the name, and a name the scope doesn't hold exits 1 with `No MCP server named "<name>" in
+<scope> scope`. `claude mcp get -- <name>` health-checks that one server and prints its scope,
+`Status: <status>` in the list's wording, and its URL or command line; only the status line is read.
+
+One action runs at a time across every server, because each can rewrite `.claude.json`, and a
+Claude Code folder switch waits for it before relaunching. Every action is judged by the state it
+leaves (a refusal can exit 0, Connector logout below): a remove rescans and confirms the
+Declaration is gone, else reports that Claude Code left it in place (a project key `.claude.json`
+spells differently, say); a reset rescans and reports how many `.mcp.json` servers now wait for
+approval and how many a settings file still approves or rejects; a logout reads `claude mcp get`
+and counts only "Needs authentication" as signed out. Every action drops the session's live
+connection statuses, which may no longer hold.
+
 ## Connector logout
 
 Verified 2026-11-19 against Claude Code 2.1.328 (#47), with a throwaway connector. `claude mcp

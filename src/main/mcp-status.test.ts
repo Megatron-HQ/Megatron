@@ -6,8 +6,11 @@ import { runClaude } from './claude-process'
 import { grantPath, resetGrantedPaths } from './permissions'
 import {
   checkMcpConnections,
+  checkMcpServer,
+  forgetMcpChecks,
   latestMcpChecks,
   mcpCheckFolder,
+  parseMcpGetStatus,
   parseMcpList,
   resetMcpChecks
 } from './mcp-status'
@@ -110,6 +113,67 @@ describe('mcpCheckFolder', () => {
 
     expect(mcpCheckFolder(file, tmpDir)).toMatchObject({ ok: false })
   })
+
+  it('names the change, not a check, when refusing a folder for an action', () => {
+    const project = join(tmpDir, 'repo')
+    mkdirSync(project)
+
+    const refused = mcpCheckFolder(project, tmpDir, 'change')
+
+    expect(refused.ok === false && refused.error).toMatch(/before changing its servers/)
+  })
+})
+
+// Shaped like real `claude mcp get` output (Claude Code 2.1.328, 2026-11-19); a configured server
+// also prints its URL or command line, credentials included.
+const GET_OUTPUT = [
+  'api:',
+  '  Scope: User config (available in all your projects)',
+  '  Status: ! Needs authentication',
+  '  Type: http',
+  '  URL: https://api.example.dev/mcp?token=SECRET',
+  ''
+].join('\n')
+
+describe('parseMcpGetStatus', () => {
+  it("reads the server's status line", () => {
+    expect(parseMcpGetStatus(GET_OUTPUT)).toBe('needs_auth')
+    expect(
+      parseMcpGetStatus('claude.ai Lovable:\n  Scope: claude.ai config\n  Status: ✔ Connected')
+    ).toBe('connected')
+  })
+
+  it('reads nothing from output without a status line it knows', () => {
+    expect(parseMcpGetStatus('api:\n  URL: https://x.dev - ✔ Connected')).toBeNull()
+    expect(parseMcpGetStatus('api:\n  Status: Warming up')).toBeNull()
+  })
+})
+
+describe('checkMcpServer', () => {
+  beforeEach(() => mockedRunClaude.mockReset())
+
+  it('runs claude mcp get for exactly that name from the given folder', async () => {
+    mockedRunClaude.mockResolvedValue({ ok: true, stdout: GET_OUTPUT })
+
+    const result = await checkMcpServer('-my api', '/work/repo')
+
+    expect(mockedRunClaude).toHaveBeenCalledWith(
+      ['mcp', 'get', '--', '-my api'],
+      expect.objectContaining({ cwd: '/work/repo' })
+    )
+    expect(result).toEqual({ ok: true, status: 'needs_auth' })
+  })
+
+  it('reports output it cannot read, and passes a CLI failure through', async () => {
+    mockedRunClaude.mockResolvedValueOnce({ ok: true, stdout: 'api:\n' })
+    mockedRunClaude.mockResolvedValueOnce({ ok: false, error: 'No MCP server named "api"' })
+
+    expect(await checkMcpServer('api', '/w')).toMatchObject({ ok: false })
+    expect(await checkMcpServer('api', '/w')).toEqual({
+      ok: false,
+      error: 'No MCP server named "api"'
+    })
+  })
 })
 
 describe('checkMcpConnections', () => {
@@ -209,5 +273,19 @@ describe('checkMcpConnections', () => {
 
     expect(result).toMatchObject({ ok: false })
     expect(mockedRunClaude).not.toHaveBeenCalled()
+  })
+
+  // After a remove or logout every kept status may be wrong, so none is shown as current.
+  it('forgets every kept check, general and per project', async () => {
+    const project = join(tmpDir, 'repo')
+    mkdirSync(project)
+    grantPath(project)
+    mockedRunClaude.mockResolvedValue({ ok: true, stdout: 'api: x - ✔ Connected' })
+    await checkMcpConnections(null, tmpDir)
+    await checkMcpConnections(project, tmpDir)
+
+    forgetMcpChecks()
+
+    expect(latestMcpChecks()).toEqual({ general: null, projects: [] })
   })
 })

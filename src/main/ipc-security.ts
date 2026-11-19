@@ -143,6 +143,14 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
     case IPC_CHANNELS.checkMcpConnections:
       valid = args.length === 0 || (args.length === 1 && text(value))
       break
+    // Shape only: the action itself is checked against the index (mcp-action-service.ts).
+    case IPC_CHANNELS.removeMcpServer:
+    case IPC_CHANNELS.logoutMcpServer:
+      valid = args.length === 1 && isMcpDeclarationRef(value)
+      break
+    case IPC_CHANNELS.resetMcpProjectChoices:
+      valid = args.length === 1 && text(value) && isAbsolute(value)
+      break
     case IPC_CHANNELS.revealMcpSource:
       valid =
         args.length === 2 &&
@@ -178,7 +186,7 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
   }
   if (!valid) throw new Error('Invalid application request')
 }
-import { resolve } from 'path'
+import { isAbsolute, resolve } from 'path'
 import {
   IPC_CHANNELS,
   APP_SECTIONS,
@@ -191,6 +199,7 @@ import {
 import { missingProjectInstallMessage } from '../shared/missing-project'
 import { WHATS_NEW_ANCHOR_IDS } from '../shared/whats-new'
 import { isPluginActionInput } from './plugin-actions'
+import { isMcpDeclarationRef } from './mcp-actions'
 
 const PLUGIN_ACTION_UNAVAILABLE =
   'Plugin installation is unavailable or its settings are unknown. Refresh the plugin list.'

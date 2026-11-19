@@ -2,6 +2,9 @@ import type Database from 'better-sqlite3'
 import { CHARS_PER_TOKEN } from '../ingest/skill-parser'
 import type {
   McpConfigProblem,
+  McpConfiguredScope,
+  McpDeclarationRef,
+  McpProjectApprovals,
   McpDeclarationDetail,
   McpDeclarationScope,
   McpConnectionCheck,
@@ -564,6 +567,107 @@ function findingsFor(
     .map((other) => other.name)
     .sort()
   return lintMcpServer({ name: identity.name, prefix: identity.prefix, declarations, sharedWith })
+}
+
+export type McpActionVerb = 'remove' | 'logout'
+
+export type McpActionTarget =
+  | { ok: true; name: string; scope: McpConfiguredScope; projectPath: string | null }
+  | { ok: false; error: string }
+
+const REMOTE_TRANSPORTS = new Set<McpTransport>(['http', 'sse', 'ws'])
+const CONNECTORS_PAGE = 'https://claude.ai/customize/connectors'
+const UNKNOWN_SERVER_MESSAGE =
+  'Megatron no longer finds this server. Refresh the list and try again.'
+const OBSERVED_SERVER_MESSAGE =
+  "Megatron only knows this server from its tool calls, so it can't tell Claude Code which " +
+  'declaration to change.'
+const NOTHING_TO_LOG_OUT_MESSAGE =
+  'Only remote servers (HTTP, SSE, WebSocket) sign in, so this one has nothing to log out of.'
+
+function samePath(first: string, second: string): boolean {
+  return normalizeProjectPath(first) === normalizeProjectPath(second)
+}
+
+function managedElsewhere(identity: ServerIdentity): string {
+  if (identity.kind === 'plugin') {
+    const plugins = distinct(identity.plugins.map((plugin) => plugin.plugin_name)).join(', ')
+    return `Managed by plugin ${plugins}. Change it from the plugin.`
+  }
+  if (identity.kind === 'connector')
+    return `Managed in claude.ai. Disconnect it at ${CONNECTORS_PAGE}.`
+  return OBSERVED_SERVER_MESSAGE
+}
+
+// The one Declaration an action may change, checked against the index rather than trusted from the
+// renderer: names can hold spaces and anything else, so the name comes from here.
+export function mcpActionTarget(
+  db: Database.Database,
+  ref: McpDeclarationRef,
+  verb: McpActionVerb
+): McpActionTarget {
+  const identity = readSnapshot(db).identities.get(ref.serverId)
+  if (identity === undefined) return { ok: false, error: UNKNOWN_SERVER_MESSAGE }
+  if (identity.kind !== 'configured') return { ok: false, error: managedElsewhere(identity) }
+  const declaration = identity.declarations.find(
+    (row) =>
+      row.scope === ref.scope &&
+      (ref.projectPath === null
+        ? row.project_path === ''
+        : row.project_path !== '' && samePath(row.project_path, ref.projectPath))
+  )
+  if (declaration === undefined) {
+    const where = ref.projectPath === null ? '' : ' in that project'
+    return {
+      ok: false,
+      error: `${identity.name} has no ${ref.scope} declaration${where} any more. Refresh the list and try again.`
+    }
+  }
+  if (verb === 'logout' && !REMOTE_TRANSPORTS.has(declaration.transport as McpTransport))
+    return { ok: false, error: NOTHING_TO_LOG_OUT_MESSAGE }
+  return {
+    ok: true,
+    name: declaration.name,
+    scope: declaration.scope,
+    projectPath: declaration.project_path === '' ? null : declaration.project_path
+  }
+}
+
+export type McpResetTarget =
+  { ok: true; projectPath: string; approvals: McpProjectApprovals } | { ok: false; error: string }
+
+const NOTHING_TO_RESET_MESSAGE =
+  "Megatron hasn't read a .mcp.json in this project, so there are no choices to reset. Grant the " +
+  'folder in Manage Folders and rescan if it has one.'
+
+// reset-project-choices clears a project's approve/reject choices for its .mcp.json servers; only
+// a project whose .mcp.json the index read has any to show before and after.
+export function mcpResetTarget(db: Database.Database, projectPath: string): McpResetTarget {
+  const state = (
+    db.prepare("SELECT project_path FROM mcp_project_state WHERE mcp_json = 'read'").all() as {
+      project_path: string
+    }[]
+  ).find((row) => samePath(row.project_path, projectPath))
+  if (state === undefined) return { ok: false, error: NOTHING_TO_RESET_MESSAGE }
+  return {
+    ok: true,
+    projectPath: state.project_path,
+    approvals: mcpProjectApprovals(db, state.project_path)
+  }
+}
+
+export function mcpProjectApprovals(
+  db: Database.Database,
+  projectPath: string
+): McpProjectApprovals {
+  const approvals: McpProjectApprovals = { approved: 0, pending: 0, rejected: 0 }
+  const rows = db
+    .prepare("SELECT project_path, approval FROM mcp_declarations WHERE scope = 'project'")
+    .all() as { project_path: string; approval: DeclarationRow['approval'] }[]
+  for (const row of rows)
+    if (row.approval !== null && samePath(row.project_path, projectPath))
+      approvals[row.approval] += 1
+  return approvals
 }
 
 export interface McpCallOwner {
