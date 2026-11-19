@@ -5,6 +5,7 @@ import type {
   McpDeclarationDetail,
   McpDeclarationScope,
   McpKeyName,
+  McpLintFinding,
   McpServerDetail,
   McpServerKind,
   McpServerList,
@@ -19,6 +20,8 @@ import {
   resolveQualifiedName,
   sanitizeMcpServerName
 } from './mcp-identity'
+import { lintMcpServer } from './mcp-lint'
+import { normalizeProjectPath } from '../../shared/project-path'
 
 // One row per MCP server out of the Declarations, plugin components, /mcp switches, and tool calls
 // a Scan indexed (docs/mcp-servers.md, Server identity and Precedence).
@@ -248,7 +251,7 @@ function distinct<T>(values: T[]): T[] {
   return [...new Set(values)]
 }
 
-function toRow(identity: ServerIdentity): McpServerRow {
+function toRow(identity: ServerIdentity, findings: McpLintFinding[]): McpServerRow {
   const plugins = identity.plugins.map((plugin) => parsePluginDetail(plugin.detail))
   const ranked = [
     ...SCOPE_ORDER.slice(0, 3).flatMap((scope) =>
@@ -294,7 +297,9 @@ function toRow(identity: ServerIdentity): McpServerRow {
     prefixCollision: identity.prefixCollision,
     pluginDisabled:
       identity.plugins.length > 0 &&
-      identity.plugins.every((plugin) => plugin.disabled_reason !== null)
+      identity.plugins.every((plugin) => plugin.disabled_reason !== null),
+    warnings: findings.filter((finding) => finding.severity === 'warning').length,
+    notices: findings.filter((finding) => finding.severity === 'info').length
   }
 }
 
@@ -303,7 +308,7 @@ function byName(first: { name: string }, second: { name: string }): number {
 }
 
 export function listMcpServers(db: Database.Database): McpServerList {
-  const { identities } = readSnapshot(db)
+  const snapshot = readSnapshot(db)
   const window = db
     .prepare('SELECT MIN(invoked_at) AS first, MAX(invoked_at) AS last FROM mcp_tool_calls')
     .get() as { first: string | null; last: string | null }
@@ -311,7 +316,12 @@ export function listMcpServers(db: Database.Database): McpServerList {
     .prepare("SELECT COUNT(*) AS count FROM mcp_project_state WHERE mcp_json = 'ungranted'")
     .get() as { count: number }
   return {
-    servers: [...identities.values()].map(toRow).sort(byName),
+    servers: [...snapshot.identities.values()]
+      .map((identity) => {
+        const declarations = declarationDetails(db, identity, snapshot)
+        return toRow(identity, findingsFor(identity, declarations, snapshot))
+      })
+      .sort(byName),
     firstCallAt: window.first,
     lastCallAt: window.last,
     ungrantedProjects: ungranted.count
@@ -468,6 +478,58 @@ function toolUsage(identity: ServerIdentity): McpToolUsage[] {
     .sort((first, second) => second.calls - first.calls || first.tool.localeCompare(second.tool))
 }
 
+function declarationDetails(
+  db: Database.Database,
+  identity: ServerIdentity,
+  snapshot: IndexSnapshot
+): McpDeclarationDetail[] {
+  return [
+    ...identity.declarations.map((declaration) =>
+      configuredDetail(declaration, identity.declarations)
+    ),
+    ...identity.plugins.map((plugin) => pluginDetail(db, plugin, snapshot))
+  ]
+}
+
+function findingsFor(
+  identity: ServerIdentity,
+  declarations: McpDeclarationDetail[],
+  snapshot: IndexSnapshot
+): McpLintFinding[] {
+  const sharedWith = [...snapshot.identities.values()]
+    .filter((other) => other !== identity && other.prefix === identity.prefix)
+    .map((other) => other.name)
+    .sort()
+  return lintMcpServer({ name: identity.name, prefix: identity.prefix, declarations, sharedWith })
+}
+
+export interface KnownMcpPrefixes {
+  everywhere: ReadonlySet<string>
+  // Keyed by normalizeProjectPath: local and project servers load only in their own project.
+  byProject: ReadonlyMap<string, ReadonlySet<string>>
+}
+
+// For the missing-mcp-server skill rule: every prefix a skill's mcp__ reference may name.
+export function knownMcpPrefixes(db: Database.Database): KnownMcpPrefixes {
+  const everywhere = new Set<string>()
+  const byProject = new Map<string, Set<string>>()
+  for (const identity of readSnapshot(db).identities.values()) {
+    if (identity.kind !== 'configured') {
+      everywhere.add(identity.prefix)
+      continue
+    }
+    for (const declaration of identity.declarations) {
+      if (declaration.scope === 'user') {
+        everywhere.add(identity.prefix)
+        continue
+      }
+      const key = normalizeProjectPath(declaration.project_path)
+      byProject.set(key, (byProject.get(key) ?? new Set()).add(identity.prefix))
+    }
+  }
+  return { everywhere, byProject }
+}
+
 export function getMcpServerDetail(
   db: Database.Database,
   id: string,
@@ -477,12 +539,8 @@ export function getMcpServerDetail(
   const identity = snapshot.identities.get(id)
   if (identity === undefined) return null
 
-  const declarations = [
-    ...identity.declarations.map((declaration) =>
-      configuredDetail(declaration, identity.declarations)
-    ),
-    ...identity.plugins.map((plugin) => pluginDetail(db, plugin, snapshot))
-  ]
+  const declarations = declarationDetails(db, identity, snapshot)
+  const findings = findingsFor(identity, declarations, snapshot)
   const disabledIn = distinct(
     snapshot.disabledToggles
       .filter((toggle) => toggle.server_name === identity.name)
@@ -501,11 +559,12 @@ export function getMcpServerDetail(
       : []
   const tokens = baseline?.byPrefix.get(identity.prefix)
   return {
-    server: toRow(identity),
+    server: toRow(identity, findings),
     declarations,
     disabledIn,
     connectorsDisabledIn,
     tools: toolUsage(identity),
+    findings,
     definitionTokens:
       baseline === null || tokens === undefined ? null : { tokens, measuredAt: baseline.measuredAt }
   }

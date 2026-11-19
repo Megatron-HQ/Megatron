@@ -1,4 +1,5 @@
 import type { LintSeverity, SourceType } from '../../shared/ipc'
+import type { KnownMcpPrefixes } from '../db/mcp-queries'
 
 export interface LintFindingInput {
   skill_id: number
@@ -23,7 +24,8 @@ export interface SkillLintTarget {
 
 export interface LinterContext {
   skills: SkillLintTarget[]
-  globalMcpServers: Set<string>
+  // From the index's MCP servers (docs/mcp-servers.md), never read from config files here.
+  mcpPrefixes: KnownMcpPrefixes
 }
 
 export interface LintRule {

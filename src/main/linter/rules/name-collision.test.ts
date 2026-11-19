@@ -16,7 +16,7 @@ describe('nameCollisionRule', () => {
     }
     const context: LinterContext = {
       skills: [skill],
-      globalMcpServers: new Set()
+      mcpPrefixes: { everywhere: new Set(), byProject: new Map() }
     }
 
     const findings = nameCollisionRule.run(skill, context)
@@ -52,7 +52,7 @@ describe('nameCollisionRule', () => {
     }
     const context: LinterContext = {
       skills: [pluginSkill, globalSkill],
-      globalMcpServers: new Set()
+      mcpPrefixes: { everywhere: new Set(), byProject: new Map() }
     }
 
     expect(nameCollisionRule.run(pluginSkill, context)).toEqual([])
@@ -82,7 +82,7 @@ describe('nameCollisionRule', () => {
     }
     const context: LinterContext = {
       skills: [skillA, skillB],
-      globalMcpServers: new Set()
+      mcpPrefixes: { everywhere: new Set(), byProject: new Map() }
     }
 
     expect(nameCollisionRule.run(skillA, context)).toEqual([])

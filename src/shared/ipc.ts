@@ -508,6 +508,27 @@ export interface McpServerRow {
   prefixCollision: boolean
   // Plugin rows: every install of the plugin is switched off.
   pluginDisabled: boolean
+  // Lint findings by severity (docs/mcp-servers.md, Lint).
+  warnings: number
+  notices: number
+}
+
+export type McpLintSeverity = 'warning' | 'info'
+export type McpLintRuleId =
+  | 'mcp-inlined-credential'
+  | 'mcp-pending-approval'
+  | 'mcp-shadowed'
+  | 'mcp-prefix-collision'
+  | 'mcp-server-skipped'
+
+// Derived from the index each time a server is read, so never stale and never stored.
+export interface McpLintFinding {
+  ruleId: McpLintRuleId
+  severity: McpLintSeverity
+  message: string
+  // The Declaration it concerns; both null for a finding about the whole server.
+  scope: McpDeclarationScope | null
+  projectPath: string | null
 }
 
 export interface McpServerList {
@@ -561,6 +582,7 @@ export interface McpServerDetail {
   // Connector rows: where disableClaudeAiConnectors applies. '' means user settings, so everywhere.
   connectorsDisabledIn: string[]
   tools: McpToolUsage[]
+  findings: McpLintFinding[]
   // Tool-definition tokens from the last /context run this launch; null until one has run.
   definitionTokens: { tokens: number; measuredAt: string } | null
 }
