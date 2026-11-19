@@ -3,7 +3,12 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runClaude } from './claude-process'
-import { measureContextBaseline, parseContextMarkdown } from './context-usage'
+import {
+  latestContextBaseline,
+  mcpDefinitionTokens,
+  measureContextBaseline,
+  parseContextMarkdown
+} from './context-usage'
 
 vi.mock('./claude-process', () => ({ runClaude: vi.fn() }))
 
@@ -181,5 +186,69 @@ describe('measureContextBaseline', () => {
     await measureContextBaseline(userData)
     expect(mockedRunClaude).toHaveBeenCalledTimes(2)
     expect(existsSync(join(userData, 'context-baseline'))).toBe(true)
+  })
+})
+
+// Real layout (Claude Code 2.1.327, 2026-11-18): the Server column holds the same sanitized prefix
+// a tool call's name carries, and no row says whether its tool is deferred.
+const MCP_SECTION = [
+  '### MCP Tools',
+  '',
+  '| Tool | Server | Tokens |',
+  '|------|--------|--------|',
+  '| mcp__claude_ai_Gmail__search_threads | claude_ai_Gmail | 159 |',
+  '| mcp__claude_ai_Gmail__get_thread | claude_ai_Gmail | 1.2k |',
+  '| mcp__claude-in-chrome__navigate | claude-in-chrome | < 20 |',
+  '| mcp__broken__tool | broken | n/a |',
+  ''
+].join('\n')
+
+describe('mcpDefinitionTokens', () => {
+  it('sums each server prefix across its tool rows', () => {
+    const usage = parseContextMarkdown(CONTEXT_MARKDOWN + '\n' + MCP_SECTION)
+    expect(usage).not.toBeNull()
+    expect(Object.fromEntries(mcpDefinitionTokens(usage!))).toEqual({
+      claude_ai_Gmail: 1_359,
+      'claude-in-chrome': 20
+    })
+  })
+
+  it('reads nothing when the section is missing', () => {
+    expect(mcpDefinitionTokens(parseContextMarkdown(CONTEXT_MARKDOWN)!).size).toBe(0)
+  })
+
+  it('reads nothing when the Server column is gone, rather than guess from tool names', () => {
+    const renamed = MCP_SECTION.replace('| Tool | Server | Tokens |', '| Tool | Origin | Tokens |')
+    expect(mcpDefinitionTokens(parseContextMarkdown(CONTEXT_MARKDOWN + '\n' + renamed)!).size).toBe(
+      0
+    )
+  })
+})
+
+describe('latestContextBaseline', () => {
+  let userData: string
+
+  beforeEach(() => {
+    mockedRunClaude.mockReset()
+    userData = mkdtempSync(join(tmpdir(), 'megatron-context-latest-'))
+  })
+
+  afterEach(() => {
+    rmSync(userData, { recursive: true, force: true })
+  })
+
+  it('keeps the last successful measurement through a later failure', async () => {
+    mockedRunClaude.mockResolvedValueOnce({
+      ok: true,
+      stdout: envelope({ result: CONTEXT_MARKDOWN + '\n' + MCP_SECTION })
+    })
+    const success = await measureContextBaseline(userData)
+    mockedRunClaude.mockResolvedValueOnce({ ok: false, error: 'Claude Code CLI was not found.' })
+    await measureContextBaseline(userData)
+
+    const latest = latestContextBaseline()
+    expect(latest).not.toBeNull()
+    expect(success.ok && latest!.measuredAt).toBe(success.ok && success.measuredAt)
+    expect(mcpDefinitionTokens(latest!.usage).get('claude_ai_Gmail')).toBe(1_359)
   })
 })

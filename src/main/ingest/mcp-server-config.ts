@@ -1,11 +1,11 @@
+import type { McpConfigProblem, McpTransport } from '../../shared/ipc'
 import { isRecord } from './claude-settings'
 
 // One MCP server entry, reduced to what Megatron may store (docs/mcp-servers.md, Stored config):
 // configs in the wild inline credentials in args, env, headers, and URLs, so no value survives.
 
-export type McpTransport = 'stdio' | 'http' | 'sse' | 'ws'
-// Each makes Claude Code skip the server, so it never loads.
-export type McpConfigProblem = 'url_without_type' | 'unknown_type' | 'no_endpoint'
+// Each McpConfigProblem makes Claude Code skip the server, so it never loads.
+export type { McpConfigProblem, McpTransport }
 
 export interface McpKeyName {
   name: string

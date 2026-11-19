@@ -8,6 +8,8 @@ import type {
   GrantChangeResult,
   OpenSkillMetaResult,
   OpenSkillResult,
+  McpServerDetail,
+  McpServerList,
   PluginActionInput,
   PluginUpdateProgress,
   PluginActionResult,
@@ -49,6 +51,8 @@ export interface Api {
   openExternal: (url: string) => Promise<void>
   listPlugins: () => Promise<PluginRow[]>
   getPluginDetail: (name: string, marketplace: string) => Promise<PluginDetailResult | null>
+  listMcpServers: () => Promise<McpServerList>
+  getMcpServerDetail: (id: string) => Promise<McpServerDetail | null>
   enablePlugin: (input: PluginActionInput) => Promise<PluginActionResult>
   disablePlugin: (input: PluginActionInput) => Promise<PluginActionResult>
   updatePlugin: (input: PluginActionInput) => Promise<PluginActionResult>

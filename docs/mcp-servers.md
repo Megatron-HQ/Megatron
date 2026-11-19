@@ -74,6 +74,16 @@ A tool whose full name exceeds 128 characters is left out by Claude Code, so it 
 transcript. Observed servers get a readable label until a live check supplies the real name
 (`claude_ai_Google_Drive` reads "Google Drive").
 
+## Definition tokens
+
+Verified 2026-11-18 against Claude Code 2.1.327: `/context`'s `MCP Tools` table has one row per
+tool, columns `Tool | Server | Tokens`, and its `Server` column is the same sanitized prefix a
+call's name carries. No row says whether its tool is deferred; only the category table splits loaded
+(`MCP tools`) from deferred (`MCP tools (deferred)`) totals, 701 against 272.6k on the verifying
+machine. Resident tax measures from an empty folder, so local and project servers never appear.
+Megatron therefore shows a server's tool-definition tokens, never whether they sit in context, and
+reads them only from the last measurement this launch.
+
 ## Non-goals
 
 | Non-goal                                      | Revisit when                                                                      |
