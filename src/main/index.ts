@@ -95,7 +95,7 @@ import {
 import { createInventoryWatcher } from './inventory-watcher'
 import { findNewestRecordedRequest } from './ingest/recorded-request'
 import { latestContextBaseline, mcpDefinitionTokens, measureContextBaseline } from './context-usage'
-import { getMcpServerDetail, listMcpServers } from './db/mcp-queries'
+import { getMcpServerDetail, listMcpServers, revealableMcpSource } from './db/mcp-queries'
 import { findStaleSkillIds, usageDataTrusted } from './db/stale-skills'
 import { sanitizeProjectFolders } from './ingest/project-discovery'
 import { readSkillFiles, readSkillMd } from './skill-files'
@@ -674,6 +674,12 @@ app.whenReady().then(() => {
   )
 
   secureIpc.handle(IPC_CHANNELS.listMcpServers, () => listMcpServers(getDb()))
+
+  secureIpc.handle(IPC_CHANNELS.revealMcpSource, (_event, id: string, path: string) => {
+    const target = revealableMcpSource(getDb(), id, path)
+    if (target !== null) shell.showItemInFolder(target)
+    return target !== null
+  })
 
   // Reads the last /context run only; the MCP section never starts one (docs/mcp-servers.md).
   secureIpc.handle(IPC_CHANNELS.getMcpServerDetail, (_event, id: string) => {

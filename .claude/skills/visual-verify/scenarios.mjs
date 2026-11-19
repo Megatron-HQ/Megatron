@@ -12,7 +12,7 @@
 // Every scenario carries a `screen` — one of the names in SKILL.md's "Scope
 // the run" table (skill-inventory, skill-detail, skill-file-viewer, sidebar,
 // command-palette, context-budget-dialog, settings-dialog, plugin-inventory,
-// plugin-detail, usage, onboarding), tagged by what the screenshot is actually testing. It's what
+// plugin-detail, mcp-inventory, mcp-detail, usage, onboarding), tagged by what the screenshot is actually testing. It's what
 // `npm run verify:visual -- --only <screen>` filters on. The two interaction
 // guards (sidebar-filter-closes-open-detail, command-palette-skill-from-plugins-
 // section) list both screens they span. A new scenario MUST have one.
@@ -40,7 +40,8 @@ async function enableProjectHierarchy(window, app, mode = 'project-tree') {
       'projects:list',
       'plugins:list',
       'skills:list',
-      'plugins:detail'
+      'plugins:detail',
+      'mcp:list'
     ])
       globalThis.megatronVisualFixtures.set(channel, selectedMode)
   }, mode)
@@ -3205,8 +3206,85 @@ export const scenarios = [
         .waitFor()
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
-  }))
+  })),
+  // MCP section (#44). Rows are this machine's real servers, so these skip when it has none.
+  {
+    name: 'mcp-inventory',
+    screen: ['mcp-inventory', 'sidebar'],
+    shouldSkip: skipWithoutMcpServers,
+    async run(window) {
+      await openMcpSection(window)
+    }
+  },
+  {
+    name: 'mcp-inventory-loading',
+    screen: 'mcp-inventory',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('mcp:list', 'pending'))
+      await window.reload()
+      await window.getByRole('button', { name: 'MCP servers', exact: true }).click()
+      await window.getByRole('heading', { name: 'All MCP servers' }).waitFor()
+    }
+  },
+  {
+    name: 'mcp-load-error',
+    screen: 'mcp-inventory',
+    async run(window, app) {
+      await app.evaluate(() => globalThis.megatronVisualFixtures.set('mcp:list', 'error'))
+      await window.reload()
+      await window.getByRole('button', { name: 'MCP servers', exact: true }).click()
+      await window.getByText('Could not load MCP servers.', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'mcp-connectors-filter',
+    screen: ['mcp-inventory', 'sidebar'],
+    shouldSkip: skipWithoutMcpServers,
+    async run(window) {
+      await openMcpSection(window)
+      await window.getByRole('button', { name: /^claude\.ai\s*\d+$/ }).click()
+      await window.getByRole('heading', { name: /^claude\.ai connectors/ }).waitFor()
+    }
+  },
+  {
+    name: 'mcp-detail',
+    screen: 'mcp-detail',
+    shouldSkip: skipWithoutMcpServers,
+    async run(window) {
+      await openMcpSection(window)
+      await window.locator('tbody tr').first().click()
+      await window.getByRole('button', { name: 'Back to MCP servers' }).waitFor()
+      await window.getByText('Last used', { exact: true }).first().waitFor()
+    }
+  },
+  {
+    name: 'mcp-detail-plugin',
+    screen: 'mcp-detail',
+    async shouldSkip(window) {
+      const servers = await window.evaluate(() => window.api.listMcpServers())
+      return servers.servers.some((server) => server.kind === 'plugin')
+        ? null
+        : 'no plugin ships an MCP server here'
+    },
+    async run(window) {
+      await openMcpSection(window)
+      await window.getByRole('button', { name: /^Plugins\s*\d+$/ }).click()
+      await window.locator('tbody tr').first().click()
+      await window.getByRole('heading', { name: /^Declarations/ }).waitFor()
+    }
+  }
 ]
+
+// The heading's "· N" count renders only once the list has loaded; skeleton rows are rows too.
+async function openMcpSection(window) {
+  await window.getByRole('button', { name: 'MCP servers', exact: true }).click()
+  await window.getByRole('heading', { name: /^All MCP servers · \d+$/ }).waitFor()
+}
+
+async function skipWithoutMcpServers(window) {
+  const servers = await window.evaluate(() => window.api.listMcpServers())
+  return servers.servers.length > 0 ? null : 'no MCP servers in this Claude Code folder'
+}
 
 async function openOnboarding(window) {
   await window.getByRole('button', { name: 'Settings', exact: true }).click()

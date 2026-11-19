@@ -12,7 +12,9 @@ function populatedClient(): QueryClient {
     'skill-files',
     'usage',
     'skill-history',
-    'usage-skill-invocations'
+    'usage-skill-invocations',
+    'mcp-servers',
+    'mcp-detail'
   ]) {
     client.setQueryData([key], { available: true })
   }
@@ -58,5 +60,24 @@ describe('scan query refresh scope', () => {
       expect(client.getQueryState(['skill-history'])?.isInvalidated).toBe(true)
       client.clear()
     }
+  })
+
+  // The MCP pass joined inventory scans in #40; a scan of only inventory sources stays inventory.
+  it('treats an inventory scan with the MCP pass as inventory, and refreshes MCP views', async () => {
+    const client = populatedClient()
+    const summary: ScanSummary = {
+      outcome: 'complete',
+      completedAt: '2026-11-05T00:00:00.000Z',
+      sources: ['scanSkills', 'scanPluginRegistry', 'scanMcpDeclarations', 'runLinter'].map(
+        (name) => ({ name, status: 'complete' })
+      )
+    }
+
+    await refreshScanQueries(client, false, summary)
+
+    expect(client.getQueryState(['mcp-servers'])?.isInvalidated).toBe(true)
+    expect(client.getQueryState(['mcp-detail'])?.isInvalidated).toBe(true)
+    expect(client.getQueryState(['usage'])?.isInvalidated).toBe(false)
+    client.clear()
   })
 })

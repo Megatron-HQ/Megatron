@@ -1,4 +1,17 @@
 {
+  "next": {
+    "title": "MCP servers",
+    "highlights": [
+      {
+        "title": "See every MCP server in one place",
+        "body": "A new MCP section lists every server Claude Code can use, from your config, plugins, and claude.ai, with its tool calls, failures, and config problems.",
+        "action": {
+          "kind": "section",
+          "section": "mcp"
+        }
+      }
+    ]
+  },
   "0.3.0": {
     "title": "Token details",
     "highlights": [

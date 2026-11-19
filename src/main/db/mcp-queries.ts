@@ -22,6 +22,7 @@ import {
 } from './mcp-identity'
 import { lintMcpServer } from './mcp-lint'
 import { normalizeProjectPath } from '../../shared/project-path'
+import { isPathAllowed } from '../permissions'
 
 // One row per MCP server out of the Declarations, plugin components, /mcp switches, and tool calls
 // a Scan indexed (docs/mcp-servers.md, Server identity and Precedence).
@@ -277,6 +278,11 @@ function toRow(identity: ServerIdentity, findings: McpLintFinding[]): McpServerR
         ? identity.plugins.length > 0
         : identity.declarations.some((declaration) => declaration.scope === scope)
     ),
+    projectPaths: distinct(
+      [...identity.declarations, ...identity.plugins]
+        .map((entry) => entry.project_path)
+        .filter((path) => path !== '')
+    ).sort(),
     projectCount: distinct(
       identity.declarations
         .filter((declaration) => declaration.project_path !== '')
@@ -528,6 +534,22 @@ export function knownMcpPrefixes(db: Database.Database): KnownMcpPrefixes {
     }
   }
   return { everywhere, byProject }
+}
+
+// Only one of the server's own declaring files, and only one Megatron may read: the renderer names
+// a path, so main never opens a folder the index didn't put there.
+export function revealableMcpSource(
+  db: Database.Database,
+  id: string,
+  path: string
+): string | null {
+  const identity = readSnapshot(db).identities.get(id)
+  if (identity === undefined) return null
+  const sources = [
+    ...identity.declarations.map((declaration) => declaration.source_path),
+    ...identity.plugins.map((plugin) => plugin.source_path)
+  ]
+  return sources.includes(path) && isPathAllowed(path) ? path : null
 }
 
 export function getMcpServerDetail(

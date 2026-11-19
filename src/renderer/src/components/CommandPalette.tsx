@@ -13,7 +13,8 @@ import {
   CommandItem,
   CommandList
 } from '@/components/ui/command'
-import type { PluginRow, SkillRow } from '../../../shared/ipc'
+import { mcpSourceLabel } from '@/lib/mcp-filter'
+import type { McpServerRow, PluginRow, SkillRow } from '../../../shared/ipc'
 
 interface CommandPaletteProps {
   open: boolean
@@ -22,6 +23,8 @@ interface CommandPaletteProps {
   onSelect: (id: number) => void
   plugins: PluginRow[]
   onSelectPlugin: (name: string, marketplace: string) => void
+  mcpServers: McpServerRow[]
+  onSelectMcpServer: (id: string) => void
 }
 
 export function CommandPalette({
@@ -30,17 +33,19 @@ export function CommandPalette({
   skills,
   onSelect,
   plugins,
-  onSelectPlugin
+  onSelectPlugin,
+  mcpServers,
+  onSelectMcpServer
 }: CommandPaletteProps): React.JSX.Element {
   const resolveProjectLabel = useProjectLabel()
   return (
     <CommandDialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Jump to skill or plugin"
-      description="Search skills and plugins by name or description"
+      title="Jump to skill, plugin, or MCP server"
+      description="Search skills, plugins, and MCP servers by name or description"
     >
-      <CommandInput placeholder="Search skills, plugins, projects..." />
+      <CommandInput placeholder="Search skills, plugins, MCP servers, projects..." />
       <CommandList>
         <CommandEmpty>Nothing found.</CommandEmpty>
         <CommandGroup heading="Plugins">
@@ -65,6 +70,26 @@ export function CommandPalette({
                     · {plugin.marketplace}
                   </span>
                 </div>
+              </div>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+        <CommandGroup heading="MCP servers">
+          {mcpServers.map((server) => (
+            <CommandItem
+              key={server.id}
+              value={`${server.name} ${server.prefix} mcp ${mcpSourceLabel(server)}`}
+              onSelect={() => {
+                onSelectMcpServer(server.id)
+                onOpenChange(false)
+              }}
+            >
+              <EntityGlyph entity="mcp" disabled={server.pluginDisabled} />
+              <div className="flex flex-1 items-center gap-2 overflow-hidden">
+                <span className="truncate">{server.name}</span>
+                <span className="truncate text-[11px] text-muted-foreground">
+                  · {mcpSourceLabel(server)}
+                </span>
               </div>
             </CommandItem>
           ))}

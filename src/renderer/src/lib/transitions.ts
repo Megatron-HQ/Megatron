@@ -41,3 +41,7 @@ export function skillTitleGlideId(skillId: number): string {
 export function pluginTitleGlideId(rowKey: string): string {
   return `plugin-title:${rowKey}`
 }
+
+export function mcpTitleGlideId(serverId: string): string {
+  return `mcp-title:${serverId}`
+}

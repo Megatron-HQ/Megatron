@@ -148,6 +148,13 @@ export function projectTreeFixture(channel, args, original, mode) {
         : null,
       scanSummary: { outcome: 'complete', completedAt: '2026-10-15T12:00:00.000Z', sources: [] }
     }
+  // Like skills: real servers stay, but none with a real project, whose folder names would clash
+  // with this fixture's and add parent prefixes to every project label.
+  if (channel === 'mcp:list')
+    return {
+      ...original,
+      servers: original.servers.filter((server) => server.projectPaths.length === 0)
+    }
   // Mirrors getPluginDetail (src/main/db/queries.ts): null for an unknown plugin, and every field
   // PluginDetail reads, or its scoping throws and blanks the renderer.
   if (channel === 'plugins:detail') {

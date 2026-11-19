@@ -23,6 +23,7 @@ export const IPC_CHANNELS = {
   uninstallPlugin: 'plugins:uninstall',
   listMcpServers: 'mcp:list',
   getMcpServerDetail: 'mcp:detail',
+  revealMcpSource: 'mcp:revealSource',
   getInitialSection: 'app:getInitialSection',
   setLastSection: 'app:setLastSection',
   getInitialOnboarding: 'app:getInitialOnboarding',
@@ -495,6 +496,8 @@ export interface McpServerRow {
   location: string | null
   scopes: McpDeclarationScope[]
   projectCount: number
+  // Projects with a local or project Declaration, or a project-scoped plugin install.
+  projectPaths: string[]
   calls: number
   // Server errors only: refusals by the user's permission rules are counted in `denied`.
   errors: number
@@ -587,7 +590,7 @@ export interface McpServerDetail {
   definitionTokens: { tokens: number; measuredAt: string } | null
 }
 
-export const APP_SECTIONS = ['skills', 'plugins', 'usage'] as const
+export const APP_SECTIONS = ['skills', 'plugins', 'mcp', 'usage'] as const
 export type AppSection = (typeof APP_SECTIONS)[number]
 
 export interface ActivityProjectCount {
