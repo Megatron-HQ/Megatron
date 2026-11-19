@@ -4,8 +4,10 @@ import type {
   McpConfigProblem,
   McpDeclarationDetail,
   McpDeclarationScope,
+  McpConnectionCheck,
   McpKeyName,
   McpLintFinding,
+  McpLiveStatus,
   McpServerDetail,
   McpServerKind,
   McpServerList,
@@ -84,7 +86,17 @@ interface IndexSnapshot {
   identities: Map<string, ServerIdentity>
   allDeclarations: DeclarationRow[]
   disabledToggles: { project_path: string; server_name: string }[]
+  // From the general connection check, by tool prefix.
+  liveByPrefix: Map<string, { status: McpLiveStatus; checkedAt: string }>
 }
+
+// This session's connection checks (docs/mcp-servers.md, Live check), never stored in the index.
+export interface McpChecks {
+  general: McpConnectionCheck | null
+  projects: McpConnectionCheck[]
+}
+
+const NO_CHECKS: McpChecks = { general: null, projects: [] }
 
 export interface DefinitionTokenBaseline {
   byPrefix: ReadonlyMap<string, number>
@@ -192,7 +204,33 @@ function creditCalls(identities: Map<string, ServerIdentity>, groups: CallGroupR
     if (owners.length > 1) for (const owner of owners) owner.prefixCollision = true
 }
 
-function readSnapshot(db: Database.Database): IndexSnapshot {
+// The general check names servers the index can't see: a connector never called, or one managed
+// by an organization. Its exact names also replace a called connector's best-effort label.
+function addCheckedServers(
+  identities: Map<string, ServerIdentity>,
+  check: McpConnectionCheck | null
+): Map<string, { status: McpLiveStatus; checkedAt: string }> {
+  const liveByPrefix = new Map<string, { status: McpLiveStatus; checkedAt: string }>()
+  if (check === null) return liveByPrefix
+  for (const { name, status } of check.servers) {
+    const prefix = sanitizeMcpServerName(name)
+    liveByPrefix.set(prefix, { status, checkedAt: check.checkedAt })
+    const known = [...identities.values()].filter((identity) => identity.prefix === prefix)
+    if (known.length > 0) {
+      for (const identity of known) if (identity.kind === 'connector') identity.name = name
+      continue
+    }
+    if (name.startsWith(CONNECTOR_NAME_PREFIX))
+      addIdentity(identities, `connector:${prefix}`, name, 'connector', prefix)
+    else addIdentity(identities, `observed:${prefix}`, name, 'observed', prefix)
+  }
+  return liveByPrefix
+}
+
+function readSnapshot(
+  db: Database.Database,
+  general: McpConnectionCheck | null = null
+): IndexSnapshot {
   const identities = new Map<string, ServerIdentity>()
   const allDeclarations = db
     .prepare('SELECT * FROM mcp_declarations ORDER BY name, scope, project_path')
@@ -226,8 +264,10 @@ function readSnapshot(db: Database.Database): IndexSnapshot {
       addIdentity(identities, `connector:${prefix}`, name, 'connector', prefix)
     }
 
+  const liveByPrefix = addCheckedServers(identities, general)
   creditCalls(identities, readCallGroups(db))
   return {
+    liveByPrefix,
     identities,
     allDeclarations,
     disabledToggles: toggles.filter((toggle) => toggle.toggle === 'disabled')
@@ -252,7 +292,11 @@ function distinct<T>(values: T[]): T[] {
   return [...new Set(values)]
 }
 
-function toRow(identity: ServerIdentity, findings: McpLintFinding[]): McpServerRow {
+function toRow(
+  identity: ServerIdentity,
+  findings: McpLintFinding[],
+  snapshot: IndexSnapshot
+): McpServerRow {
   const plugins = identity.plugins.map((plugin) => parsePluginDetail(plugin.detail))
   const ranked = [
     ...SCOPE_ORDER.slice(0, 3).flatMap((scope) =>
@@ -305,7 +349,8 @@ function toRow(identity: ServerIdentity, findings: McpLintFinding[]): McpServerR
       identity.plugins.length > 0 &&
       identity.plugins.every((plugin) => plugin.disabled_reason !== null),
     warnings: findings.filter((finding) => finding.severity === 'warning').length,
-    notices: findings.filter((finding) => finding.severity === 'info').length
+    notices: findings.filter((finding) => finding.severity === 'info').length,
+    liveStatus: snapshot.liveByPrefix.get(identity.prefix) ?? null
   }
 }
 
@@ -313,8 +358,11 @@ function byName(first: { name: string }, second: { name: string }): number {
   return first.name.localeCompare(second.name, undefined, { sensitivity: 'base' })
 }
 
-export function listMcpServers(db: Database.Database): McpServerList {
-  const snapshot = readSnapshot(db)
+export function listMcpServers(
+  db: Database.Database,
+  general: McpConnectionCheck | null = null
+): McpServerList {
+  const snapshot = readSnapshot(db, general)
   const window = db
     .prepare('SELECT MIN(invoked_at) AS first, MAX(invoked_at) AS last FROM mcp_tool_calls')
     .get() as { first: string | null; last: string | null }
@@ -325,12 +373,13 @@ export function listMcpServers(db: Database.Database): McpServerList {
     servers: [...snapshot.identities.values()]
       .map((identity) => {
         const declarations = declarationDetails(db, identity, snapshot)
-        return toRow(identity, findingsFor(identity, declarations, snapshot))
+        return toRow(identity, findingsFor(identity, declarations, snapshot), snapshot)
       })
       .sort(byName),
     firstCallAt: window.first,
     lastCallAt: window.last,
-    ungrantedProjects: ungranted.count
+    ungrantedProjects: ungranted.count,
+    lastCheckedAt: general?.checkedAt ?? null
   }
 }
 
@@ -555,9 +604,10 @@ export function revealableMcpSource(
 export function getMcpServerDetail(
   db: Database.Database,
   id: string,
-  baseline: DefinitionTokenBaseline | null
+  baseline: DefinitionTokenBaseline | null,
+  checks: McpChecks = NO_CHECKS
 ): McpServerDetail | null {
-  const snapshot = readSnapshot(db)
+  const snapshot = readSnapshot(db, checks.general)
   const identity = snapshot.identities.get(id)
   if (identity === undefined) return null
 
@@ -581,12 +631,20 @@ export function getMcpServerDetail(
       : []
   const tokens = baseline?.byPrefix.get(identity.prefix)
   return {
-    server: toRow(identity, findings),
+    server: toRow(identity, findings, snapshot),
     declarations,
     disabledIn,
     connectorsDisabledIn,
     tools: toolUsage(identity),
     findings,
+    projectStatuses: checks.projects.flatMap((check) => {
+      const server = check.servers.find(
+        (candidate) => sanitizeMcpServerName(candidate.name) === identity.prefix
+      )
+      return server === undefined || check.projectPath === null
+        ? []
+        : [{ projectPath: check.projectPath, status: server.status, checkedAt: check.checkedAt }]
+    }),
     definitionTokens:
       baseline === null || tokens === undefined ? null : { tokens, measuredAt: baseline.measuredAt }
   }

@@ -17,6 +17,8 @@ export type ThemeStore = Store<{
   grantedFolders?: AllowedPathRow[]
   autoUpdateCheck?: boolean
   onboardingDone?: boolean
+  // The user read once what the MCP connection check starts (docs/mcp-servers.md, Live check).
+  mcpCheckConfirmed?: boolean
   whatsNewSeenVersion?: string
   whatsNewDots?: { anchors: string[]; expiresAt: string }
   // A path, or null for Claude Code's default (~/.claude); absent when never chosen.

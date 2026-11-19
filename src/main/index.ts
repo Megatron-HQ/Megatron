@@ -96,6 +96,7 @@ import { createInventoryWatcher } from './inventory-watcher'
 import { findNewestRecordedRequest } from './ingest/recorded-request'
 import { latestContextBaseline, mcpDefinitionTokens, measureContextBaseline } from './context-usage'
 import { getMcpServerDetail, listMcpServers, revealableMcpSource } from './db/mcp-queries'
+import { checkMcpConnections, latestMcpChecks } from './mcp-status'
 import { findStaleSkillIds, usageDataTrusted } from './db/stale-skills'
 import { sanitizeProjectFolders } from './ingest/project-discovery'
 import { readSkillFiles, readSkillMd } from './skill-files'
@@ -673,7 +674,22 @@ app.whenReady().then(() => {
     getPluginDetail(getDb(), projectIdentity.identity(), name, marketplace)
   )
 
-  secureIpc.handle(IPC_CHANNELS.listMcpServers, () => listMcpServers(getDb()))
+  secureIpc.handle(IPC_CHANNELS.listMcpServers, () =>
+    listMcpServers(getDb(), latestMcpChecks().general)
+  )
+
+  // Starts the user's MCP servers, so it runs only on request (docs/mcp-servers.md, Live check).
+  secureIpc.handle(IPC_CHANNELS.checkMcpConnections, (_event, projectPath?: string) =>
+    checkMcpConnections(projectPath ?? null, app.getPath('userData'))
+  )
+
+  secureIpc.on(IPC_CHANNELS.getInitialMcpCheckConfirmed, (event) => {
+    event.returnValue = themeStore.get('mcpCheckConfirmed') === true
+  })
+
+  secureIpc.handle(IPC_CHANNELS.confirmMcpCheck, () => {
+    themeStore.set('mcpCheckConfirmed', true)
+  })
 
   secureIpc.handle(IPC_CHANNELS.revealMcpSource, (_event, id: string, path: string) => {
     const target = revealableMcpSource(getDb(), id, path)
@@ -689,7 +705,8 @@ app.whenReady().then(() => {
       id,
       baseline === null
         ? null
-        : { byPrefix: mcpDefinitionTokens(baseline.usage), measuredAt: baseline.measuredAt }
+        : { byPrefix: mcpDefinitionTokens(baseline.usage), measuredAt: baseline.measuredAt },
+      latestMcpChecks()
     )
   })
 

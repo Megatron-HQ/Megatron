@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, FolderOpen, Info, TriangleAlert } from 'lucide-react'
+import { ArrowLeft, FolderOpen, Info, Loader2, RefreshCw, TriangleAlert } from 'lucide-react'
 import { motion } from 'motion/react'
 import { EntityGlyph } from '@/components/EntityGlyph'
 import { GlideTitle } from '@/components/GlideTitle'
-import { McpStatusBadge } from '@/components/McpBadges'
+import { McpConnectionBadge, McpStatusBadge } from '@/components/McpBadges'
 import { ProjectName } from '@/components/ProjectName'
 import { TextLink } from '@/components/TextLink'
 import { Badge } from '@/components/ui/badge'
@@ -42,9 +42,22 @@ interface McpDetailProps {
   // From the list row, so the header and its title glide render before the query returns.
   summary?: McpServerRow
   onBack: () => void
+  // Per-project connection checks (docs/mcp-servers.md, Live check), only from a granted folder.
+  canCheckProject: (path: string) => boolean
+  onCheckProject: (path: string) => void
+  checkingProject: string | null
+  projectCheckError: { projectPath: string | null; message: string } | null
 }
 
-export function McpDetail({ id, summary, onBack }: McpDetailProps): React.JSX.Element {
+export function McpDetail({
+  id,
+  summary,
+  onBack,
+  canCheckProject,
+  onCheckProject,
+  checkingProject,
+  projectCheckError
+}: McpDetailProps): React.JSX.Element {
   const { data, isPending, isError, refetch } = useQuery({
     queryKey: ['mcp-detail', id],
     queryFn: () => window.api.getMcpServerDetail(id)
@@ -99,6 +112,13 @@ export function McpDetail({ id, summary, onBack }: McpDetailProps): React.JSX.El
               prefix, which another server shares, so they count for neither.
             </p>
           )}
+          <Connection
+            detail={data}
+            canCheckProject={canCheckProject}
+            onCheckProject={onCheckProject}
+            checkingProject={checkingProject}
+            projectCheckError={projectCheckError}
+          />
           <Findings findings={data.findings} />
           <Declarations serverId={id} declarations={data.declarations} />
           <SwitchedOff detail={data} />
@@ -216,6 +236,85 @@ function McpStats({ detail }: { detail: McpServerDetail }): React.JSX.Element {
         />
       </CardContent>
     </Card>
+  )
+}
+
+// The general check covers user servers, connectors, and user plugins; a local or project server
+// only answers from its own project, checked one project at a time.
+function Connection({
+  detail,
+  canCheckProject,
+  onCheckProject,
+  checkingProject,
+  projectCheckError
+}: {
+  detail: McpServerDetail
+  canCheckProject: (path: string) => boolean
+  onCheckProject: (path: string) => void
+  checkingProject: string | null
+  projectCheckError: { projectPath: string | null; message: string } | null
+}): React.JSX.Element {
+  const resolveProjectLabel = useProjectLabel()
+  const projects = [
+    ...new Set(
+      detail.declarations
+        .filter((declaration) => declaration.scope === 'local' || declaration.scope === 'project')
+        .flatMap((declaration) => (declaration.projectPath ? [declaration.projectPath] : []))
+    )
+  ].sort()
+  const statusIn = (path: string): McpServerDetail['projectStatuses'][number] | undefined =>
+    detail.projectStatuses.find((entry) => entry.projectPath === path)
+  return (
+    <section className="flex flex-col gap-2">
+      <Caption label="Connection" />
+      <ul className="flex flex-col gap-1.5 text-[13px]">
+        {(detail.server.liveStatus !== null || projects.length === 0) && (
+          <li className="flex items-center gap-2">
+            <span className="text-muted-foreground">General check</span>
+            <McpConnectionBadge live={detail.server.liveStatus} />
+          </li>
+        )}
+        {projects.map((path) => {
+          const status = statusIn(path)
+          const checking = checkingProject === path
+          return (
+            <li key={path} className="flex min-w-0 items-center gap-2">
+              <span title={path} className="min-w-0 truncate">
+                <ProjectName label={resolveProjectLabel(path)} />
+              </span>
+              <McpConnectionBadge
+                live={status ? { status: status.status, checkedAt: status.checkedAt } : null}
+              />
+              {canCheckProject(path) ? (
+                <TextLink
+                  onClick={() => onCheckProject(path)}
+                  disabled={checkingProject !== null}
+                  className="flex shrink-0 items-center gap-1 text-[11px]"
+                >
+                  {checking ? (
+                    <Loader2 aria-hidden="true" className="size-3 animate-spin" />
+                  ) : (
+                    <RefreshCw aria-hidden="true" className="size-3" />
+                  )}
+                  {checking ? 'Checking…' : status ? 'Check again' : 'Check in this project'}
+                </TextLink>
+              ) : (
+                <span className="shrink-0 text-[11px] text-muted-foreground">
+                  Grant this folder to check it
+                </span>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+      {projectCheckError &&
+        projectCheckError.projectPath !== null &&
+        projects.includes(projectCheckError.projectPath) && (
+          <p role="alert" className="text-[11px] text-destructive">
+            {projectCheckError.message}
+          </p>
+        )}
+    </section>
   )
 }
 

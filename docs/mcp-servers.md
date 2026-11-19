@@ -84,6 +84,23 @@ machine. Resident tax measures from an empty folder, so local and project server
 Megatron therefore shows a server's tool-definition tokens, never whether they sit in context, and
 reads them only from the last measurement this launch.
 
+## Live check
+
+Verified 2026-11-18 against Claude Code 2.1.327, from its own status strings. `claude mcp list`
+prints `Checking MCP server health…`, then one line per server, `<name>: <URL or command line> -
+<status>`, the middle holding the server's credentials as configured. A failed server can add an
+indented issue line, an error that may quote a URL. The statuses: `✔ Connected`, `! Connected ·
+tools fetch failed`, `! Needs authentication`, `✗ Failed to connect`, `✗ Connection error`,
+`⏸ Pending approval`, `Rejected (see disabledMcpjsonServers in settings)`, `⊘ Disabled for this
+project`, and `- Not configured`. With no servers it prints `No MCP servers configured`.
+
+Megatron reads the name up to the first `: ` and the status from the last ` - ` segment that reads
+as one, by its words with the glyph stripped. Indented lines, unknown statuses, and everything in
+between are dropped inside the parser; output with no readable line is an error, not an empty
+list. The general check runs from an empty app-private folder, so only user servers, connectors,
+and user plugins appear; local and project servers answer only from their own project, checked one
+granted project at a time. A real run took about 10 seconds with seven connectors.
+
 ## Lint
 
 Findings are derived from the index each time a server is read, never stored: every input is already

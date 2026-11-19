@@ -8,6 +8,7 @@ import {
   revealableMcpSource
 } from './mcp-queries'
 import { grantPath, resetGrantedPaths } from '../permissions'
+import type { McpConnectionCheck, McpLiveStatus, McpServerRow } from '../../shared/ipc'
 
 let db: Database.Database
 
@@ -263,7 +264,8 @@ describe('listMcpServers', () => {
       servers: [],
       firstCallAt: null,
       lastCallAt: null,
-      ungrantedProjects: 0
+      ungrantedProjects: 0,
+      lastCheckedAt: null
     })
   })
 })
@@ -539,5 +541,93 @@ describe('revealableMcpSource', () => {
     installPlugin('p', '/cache/p', { s: 'stdio · x' })
 
     expect(revealableMcpSource(db, 'plugin:p:s', '/cache/p/.mcp.json')).toBe('/cache/p/.mcp.json')
+  })
+})
+
+describe('live connection checks', () => {
+  const checkedAt = '2026-11-18T12:00:00.000Z'
+  function general(servers: { name: string; status: McpLiveStatus }[]): McpConnectionCheck {
+    return { projectPath: null, checkedAt, servers }
+  }
+
+  function rowOf(check: McpConnectionCheck, id: string): McpServerRow {
+    const row = listMcpServers(db, check).servers.find((candidate) => candidate.id === id)
+    if (row === undefined) throw new Error(`no server ${id}`)
+    return row
+  }
+
+  it('attaches the status reported for a server, matched by its tool prefix', () => {
+    declare({ scope: 'user', name: 'github' })
+    installPlugin('playwright', '/cache/a', { playwright: 'stdio · npx' })
+    const check = general([
+      { name: 'github', status: 'failed' },
+      { name: 'plugin:playwright:playwright', status: 'connected' }
+    ])
+
+    expect(rowOf(check, 'configured:github').liveStatus).toEqual({ status: 'failed', checkedAt })
+    expect(rowOf(check, 'plugin:playwright:playwright').liveStatus).toEqual({
+      status: 'connected',
+      checkedAt
+    })
+    expect(listMcpServers(db, check).lastCheckedAt).toBe(checkedAt)
+  })
+
+  it('lists a connector the transcripts never mention, under its real name', () => {
+    const row = rowOf(
+      general([{ name: 'claude.ai Linear', status: 'needs_auth' }]),
+      'connector:claude_ai_Linear'
+    )
+
+    expect(row).toMatchObject({ name: 'claude.ai Linear', kind: 'connector', calls: 0 })
+    expect(row.liveStatus?.status).toBe('needs_auth')
+  })
+
+  it('names a called connector as the check printed it, and credits its calls', () => {
+    call('claude_ai_Notion__work___search')
+    const row = rowOf(
+      general([{ name: 'claude.ai Notion (work)', status: 'connected' }]),
+      'connector:claude_ai_Notion__work_'
+    )
+
+    expect(row).toMatchObject({ name: 'claude.ai Notion (work)', calls: 1 })
+  })
+
+  it('lists an unknown non-connector server as observed', () => {
+    expect(
+      rowOf(general([{ name: 'corp-tools', status: 'connected' }]), 'observed:corp-tools')
+    ).toMatchObject({
+      name: 'corp-tools',
+      kind: 'observed'
+    })
+  })
+
+  it('leaves rows unchecked without a general check', () => {
+    declare({ scope: 'user', name: 'github' })
+
+    expect(listMcpServers(db).lastCheckedAt).toBeNull()
+    expect(server('configured:github').liveStatus).toBeNull()
+  })
+
+  it('lists each per-project check that included the server on its detail', () => {
+    declare({ scope: 'project', project: '/repo', name: 'api' })
+    const checks = {
+      general: null,
+      projects: [
+        {
+          projectPath: '/repo',
+          checkedAt,
+          servers: [{ name: 'api', status: 'pending_approval' as const }]
+        },
+        {
+          projectPath: '/other',
+          checkedAt,
+          servers: [{ name: 'else', status: 'connected' as const }]
+        }
+      ]
+    }
+
+    expect(getMcpServerDetail(db, 'configured:api', null, checks)?.projectStatuses).toEqual([
+      { projectPath: '/repo', status: 'pending_approval', checkedAt }
+    ])
   })
 })

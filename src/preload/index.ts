@@ -11,6 +11,7 @@ import {
   type GrantChangeResult,
   type OpenSkillMetaResult,
   type OpenSkillResult,
+  type McpConnectionCheckResult,
   type McpServerDetail,
   type McpServerList,
   type PluginActionInput,
@@ -66,6 +67,13 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.getMcpServerDetail, id),
   revealMcpSource: (id: string, path: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC_CHANNELS.revealMcpSource, id, path),
+  checkMcpConnections: (projectPath?: string): Promise<McpConnectionCheckResult> =>
+    projectPath === undefined
+      ? ipcRenderer.invoke(IPC_CHANNELS.checkMcpConnections)
+      : ipcRenderer.invoke(IPC_CHANNELS.checkMcpConnections, projectPath),
+  getInitialMcpCheckConfirmed: (): boolean =>
+    ipcRenderer.sendSync(IPC_CHANNELS.getInitialMcpCheckConfirmed),
+  confirmMcpCheck: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.confirmMcpCheck),
   enablePlugin: (input: PluginActionInput): Promise<PluginActionResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.enablePlugin, input),
   disablePlugin: (input: PluginActionInput): Promise<PluginActionResult> =>

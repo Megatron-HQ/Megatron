@@ -9,10 +9,10 @@ import {
   useTable
 } from '@tanstack/react-table'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
-import { Plug, Search } from 'lucide-react'
+import { Loader2, Plug, RefreshCw, Search } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { GlideTitle } from '@/components/GlideTitle'
-import { McpStatusBadge } from '@/components/McpBadges'
+import { McpConnectionBadge, McpStatusBadge } from '@/components/McpBadges'
 import { ProjectAvailabilityNotice } from '@/components/ProjectAvailabilityNotice'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -26,9 +26,10 @@ import {
 import { mcpFilterTitle, mcpSourceLabel, type McpFilter } from '@/lib/mcp-filter'
 import { ENTER, mcpTitleGlideId, useSettle } from '@/lib/transitions'
 import { useGlideHighlight } from '@/lib/use-glide-highlight'
+import { formatRelativeTime } from '@/lib/relative-time'
 import { useProjectLabel } from '@/lib/use-project-label'
 import { cn } from '@/lib/utils'
-import type { McpServerRow, ProjectFolder } from '../../../shared/ipc'
+import type { McpLiveStatus, McpServerRow, ProjectFolder } from '../../../shared/ipc'
 
 const ROW_HEIGHT = 40
 const HEADER_HEIGHT = 40
@@ -43,14 +44,28 @@ const features = tableFeatures({
 const COLUMN_WIDTH: Record<string, string> = {
   // Percentages above 1000px share a wide window across columns, as PluginInventory explains;
   // below it, pixel widths keep the Status pill from forcing a horizontal scroll.
-  name: 'w-[42%] max-[1000px]:w-auto',
-  source: 'w-[18%] max-[1000px]:w-[110px]',
-  transport: 'w-[12%] max-[1000px]:hidden',
-  calls: 'w-[12%] max-[1000px]:w-[80px]',
-  status: 'w-[16%] max-[1000px]:w-[120px]'
+  name: 'w-[32%] max-[1000px]:w-auto',
+  source: 'w-[14%] max-[1000px]:w-[95px]',
+  transport: 'w-[10%] max-[1000px]:hidden',
+  calls: 'w-[10%] max-[1000px]:w-[70px]',
+  connection: 'w-[18%] max-[1000px]:w-[135px]',
+  status: 'w-[16%] max-[1000px]:w-[115px]'
 }
 
 const columnHelper = createColumnHelper<typeof features, McpServerRow>()
+
+// Sorting by connection puts servers in trouble first; unchecked ones sort last.
+const CONNECTION_RANK: Record<McpLiveStatus, number> = {
+  failed: 0,
+  needs_auth: 1,
+  degraded: 2,
+  not_configured: 3,
+  pending_approval: 4,
+  rejected: 5,
+  disabled: 6,
+  connected: 7
+}
+const UNCHECKED_RANK = 8
 
 const columns: ColumnDef<typeof features, McpServerRow, unknown>[] = columnHelper.columns([
   columnHelper.accessor('name', {
@@ -91,6 +106,15 @@ const columns: ColumnDef<typeof features, McpServerRow, unknown>[] = columnHelpe
       </span>
     )
   }),
+  columnHelper.accessor(
+    (row) => (row.liveStatus === null ? UNCHECKED_RANK : CONNECTION_RANK[row.liveStatus.status]),
+    {
+      id: 'connection',
+      header: 'Connection',
+      sortFn: 'number',
+      cell: (info) => <McpConnectionBadge live={info.row.original.liveStatus} />
+    }
+  ),
   columnHelper.accessor((row) => row.warnings * 1_000 + row.notices, {
     id: 'status',
     header: 'Status',
@@ -132,6 +156,11 @@ interface McpInventoryProps {
   loading: boolean
   filter: McpFilter
   firstCallAt: string | null
+  // The general connection check (docs/mcp-servers.md, Live check).
+  lastCheckedAt: string | null
+  checking: boolean
+  checkError: string | null
+  onCheckConnections: () => void
   availability?: ProjectFolder['status']
   onSelect: (server: McpServerRow) => void
   onOpenSearch: () => void
@@ -144,6 +173,10 @@ export function McpInventory({
   loading,
   filter,
   firstCallAt,
+  lastCheckedAt,
+  checking,
+  checkError,
+  onCheckConnections,
   availability,
   onSelect,
   onOpenSearch,
@@ -328,6 +361,14 @@ export function McpInventory({
           {!loading && <span className="font-normal text-muted-foreground"> · {rows.length}</span>}
         </h2>
         <div className="flex shrink-0 items-center gap-3">
+          {lastCheckedAt && (
+            <span
+              title="When Megatron last ran claude mcp list. Results last for this session."
+              className="text-[11px] text-muted-foreground max-[1000px]:hidden"
+            >
+              Checked {formatRelativeTime(lastCheckedAt)}
+            </span>
+          )}
           {firstCallAt && (
             <span
               title="Calls come from the transcripts Megatron still holds. Claude Code prunes them after about 30 days."
@@ -342,6 +383,19 @@ export function McpInventory({
           )}
           <button
             type="button"
+            onClick={onCheckConnections}
+            disabled={checking}
+            className="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-70"
+          >
+            {checking ? (
+              <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
+            ) : (
+              <RefreshCw aria-hidden="true" className="size-3.5" />
+            )}
+            {checking ? 'Checking…' : 'Check connections'}
+          </button>
+          <button
+            type="button"
             onClick={onOpenSearch}
             className="flex shrink-0 items-center gap-2 rounded-md border border-border bg-muted px-2.5 py-1 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
@@ -353,6 +407,14 @@ export function McpInventory({
           </button>
         </div>
       </div>
+      {checkError && (
+        <p
+          role="alert"
+          className="shrink-0 border-b border-border bg-destructive/10 px-4 py-1.5 text-[11px] text-destructive"
+        >
+          {checkError}
+        </p>
+      )}
       {body}
     </div>
   )

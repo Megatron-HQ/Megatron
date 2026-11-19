@@ -192,6 +192,29 @@ globalThis.megatronVisualFixtures = {
         if (channel === 'plugins:list') return result.map(transform)
       }
       if (mode.startsWith('project-tree')) return projectTreeFixture(channel, args, result, mode)
+      // A checked table without running claude mcp list, which would start this machine's servers:
+      // the real rows, each given one of the statuses in turn.
+      if (channel === 'mcp:list' && mode === 'mcp-checked') {
+        const statuses = [
+          'connected',
+          'needs_auth',
+          'failed',
+          'degraded',
+          'pending_approval',
+          'disabled',
+          'rejected',
+          'not_configured'
+        ]
+        const checkedAt = new Date(Date.now() - 2 * 60_000).toISOString()
+        return {
+          ...result,
+          lastCheckedAt: checkedAt,
+          servers: result.servers.map((server, index) => ({
+            ...server,
+            liveStatus: { status: statuses[index % statuses.length], checkedAt }
+          }))
+        }
+      }
       // Real staleness depends on this machine's history, so mark one row the rule could flag.
       if (channel === 'skills:list' && mode === 'skills-stale') {
         const target = result.skills.find(
