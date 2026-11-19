@@ -1,6 +1,6 @@
 # Megatron
 
-Local-first desktop app that inventories, lints, and tracks usage of every Claude Code skill a user has (global, project, and plugin-installed), and manages installed plugins (enable/disable/update/uninstall via the `claude` CLI). Skill inventory is read-only in v1; plugin management is the one scoped write capability, mediated entirely through the CLI's own commands.
+Local-first desktop app that inventories, lints, and tracks usage of every Claude Code skill a user has (global, project, and plugin-installed), and manages installed plugins (enable/disable/update/uninstall via the `claude` CLI) and MCP servers (remove, reset project choices, logout via `claude mcp`). Skill inventory is read-only in v1; plugin and MCP server management are the scoped write capabilities, mediated entirely through the CLI's own commands.
 
 **Real users.** Megatron has real users on macOS and Windows (no Linux build) and is built to scale to hundreds more, each with their own `~/.claude`: different plugin sets, Claude Code versions, project counts, and data volumes. This machine is one sample. Every fix, design choice, and grill-me recommendation targets that whole population: name the edge cases, handle each one, and choose the robust option over the one that only works here.
 

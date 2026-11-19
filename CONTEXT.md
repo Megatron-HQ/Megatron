@@ -1,6 +1,6 @@
 # Megatron
 
-A local-first desktop app that inventories, lints, and tracks usage of every Claude Code skill a user has, and manages their installed Plugins. Megatron never edits a Skill; Plugin management is its one write, and it goes only through Claude Code's own `claude plugin` commands.
+A local-first desktop app that inventories, lints, and tracks usage of every Claude Code skill a user has, and manages their installed Plugins and MCP servers. Megatron never edits a Skill; Plugin and MCP server management are its only writes, and they go only through Claude Code's own `claude plugin` and `claude mcp` commands.
 
 ## Language
 

@@ -19,6 +19,13 @@ Release and updates section here covers their security consequences.
   project-owned PATH candidates are excluded; Node startup injection variables are removed. Threat:
   plugin actions run with a repository as their working directory, and a cloned repository can
   ship its own `claude` executable or poison `PATH` to be run in its place.
+- MCP actions (`claude mcp remove`, `reset-project-choices`, `logout`) take the same CLI path. IPC
+  carries only a server id, an enumerated scope, and an absolute project path; main takes the
+  server's name from the index, refuses plugin, connector, and observed servers, and runs a local
+  or project action only from a granted project folder (a user-scope one from an empty app-private
+  folder). The name follows `--`, so a name starting with `-` can't become an option. One MCP
+  action runs at a time, since each can rewrite `.claude.json`. Threat: a renderer naming any
+  string, or a crafted name, steering the CLI at a server or file the index never listed.
 - Cost aggregation uses objects without prototypes, including inner model buckets.
 
 ### Config root
@@ -54,7 +61,7 @@ fixed for the process; the scan worker receives it in `workerData`. Elsewhere in
   pins its resolved directory for the process lifetime. A change to a different valid target
   suspends scans and uses the existing profile relaunch flow. An invalid target stays paused.
   The worker checks the pinned target at its scan and write boundaries, and the CLI gate refuses
-  the changed target while existing plugin actions settle.
+  the changed target while existing plugin and MCP actions settle.
 - A missing folder is held, never replaced: reading another profile in its place would be silently
   wrong. While it is missing, new scans and every CLI run are refused, so a missing drive can't
   empty the index and the CLI can't create folders at its path. Each scan request, and each spawn
@@ -75,10 +82,10 @@ fixed for the process; the scan worker receives it in `workerData`. Elsewhere in
   are read. Like CLI discovery, both are a separate capability from `isPathAllowed()`.
 - The renderer never names a folder: it chooses by an id from main's own list, or main opens the
   native picker. IPC carries one id of at most 300 characters.
-- Switching relaunches: wait for running plugin actions, refuse new CLI runs, stop scans, then
+- Switching relaunches: wait for running plugin and MCP actions, refuse new CLI runs, stop scans, then
   `app.relaunch()` and `app.exit(0)`. `exit` skips `before-quit`, so a staged macOS update is not
   swapped in mid-switch.
-- CLI runs (`/context`, plugin actions) get `CLAUDE_CONFIG_DIR` set exactly when the active folder
+- CLI runs (`/context`, plugin and MCP actions) get `CLAUDE_CONFIG_DIR` set exactly when the active folder
   is a named one (`.claude.json` inside it), and stripped in every casing otherwise, so a refused
   value or "Use default" leaves both Megatron and the CLI on `~/.claude`. Threat: the CLI changing
   one profile while Megatron shows another.

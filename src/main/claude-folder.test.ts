@@ -54,7 +54,7 @@ function controller(
       watched.push(path)
       onWatch = onChange
     },
-    pluginActionsIdle: () => idle,
+    cliActionsIdle: () => idle,
     stopScans: async () => {
       events.push('stopScans')
     },
@@ -383,7 +383,7 @@ describe('choosing a folder', () => {
       isPrimaryInstance: true,
       store,
       watch: () => {},
-      pluginActionsIdle: async () => {},
+      cliActionsIdle: async () => {},
       stopScans: async () => {
         throw new Error('worker would not stop')
       },

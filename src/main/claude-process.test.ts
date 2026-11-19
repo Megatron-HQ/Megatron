@@ -101,7 +101,7 @@ describe('runClaude', () => {
         isPrimaryInstance: true,
         store: new Store({ name: 'preferences', cwd: join(home, 'userData') }),
         watch: () => {},
-        pluginActionsIdle: async () => {},
+        cliActionsIdle: async () => {},
         stopScans: async () => {},
         suspendScans: async () => {},
         resumeScans: () => {},

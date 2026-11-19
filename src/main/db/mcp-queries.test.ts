@@ -5,7 +5,9 @@ import {
   getMcpServerDetail,
   knownMcpPrefixes,
   listMcpServers,
+  mcpActionTarget,
   mcpCallOwners,
+  mcpResetTarget,
   revealableMcpSource
 } from './mcp-queries'
 import { grantPath, resetGrantedPaths } from '../permissions'
@@ -510,6 +512,103 @@ describe('mcpCallOwners', () => {
     call('my_server__run')
 
     expect(mcpCallOwners(db).get('my_server__run')).toBe('ambiguous')
+  })
+})
+
+describe('mcpActionTarget', () => {
+  const user = { scope: 'user' as const, projectPath: null }
+
+  it("takes the server's name from the index, not the request", () => {
+    declare({ scope: 'local', project: '/repo', name: 'my server', transport: 'http' })
+
+    expect(
+      mcpActionTarget(
+        db,
+        { serverId: 'configured:my server', scope: 'local', projectPath: '/repo' },
+        'remove'
+      )
+    ).toEqual({ ok: true, name: 'my server', scope: 'local', projectPath: '/repo' })
+  })
+
+  it('matches the project across Windows path spellings', () => {
+    declare({ scope: 'project', project: 'C:/Work/Repo', name: 'api' })
+
+    expect(
+      mcpActionTarget(
+        db,
+        { serverId: 'configured:api', scope: 'project', projectPath: 'c:\\work\\repo' },
+        'remove'
+      )
+    ).toMatchObject({ ok: true, projectPath: 'C:/Work/Repo' })
+  })
+
+  it('refuses a declaration the index does not hold in that scope and project', () => {
+    declare({ scope: 'user', name: 'api' })
+    declare({ scope: 'local', project: '/a', name: 'api' })
+
+    for (const ref of [
+      { serverId: 'configured:api', scope: 'local' as const, projectPath: '/b' },
+      { serverId: 'configured:api', scope: 'project' as const, projectPath: '/a' },
+      { serverId: 'configured:gone', ...user }
+    ])
+      expect(mcpActionTarget(db, ref, 'remove')).toMatchObject({ ok: false })
+  })
+
+  it('refuses plugin, connector, and observed servers with where they are managed', () => {
+    installPlugin('playwright', '/plugins/pw', { playwright: 'stdio · npx' })
+    call('claude_ai_Gmail__search')
+    call('claude-in-chrome__navigate')
+
+    const refusal = (serverId: string): string => {
+      const target = mcpActionTarget(db, { serverId, ...user }, 'remove')
+      return target.ok ? '' : target.error
+    }
+    expect(refusal('plugin:playwright:playwright')).toMatch(/Managed by plugin playwright/)
+    expect(refusal('connector:claude_ai_Gmail')).toMatch(/Managed in claude\.ai/)
+    expect(refusal('observed:claude-in-chrome')).toMatch(
+      /only knows this server from its tool calls/
+    )
+  })
+
+  it('logs out only remote servers', () => {
+    declare({ scope: 'user', name: 'remote', transport: 'sse' })
+    declare({ scope: 'user', name: 'local-tool', transport: 'stdio' })
+    declare({ scope: 'user', name: 'broken', transport: null, problem: 'url_without_type' })
+
+    expect(mcpActionTarget(db, { serverId: 'configured:remote', ...user }, 'logout').ok).toBe(true)
+    for (const name of ['local-tool', 'broken'])
+      expect(mcpActionTarget(db, { serverId: `configured:${name}`, ...user }, 'logout')).toEqual({
+        ok: false,
+        error: expect.stringMatching(/nothing to log out/)
+      })
+    expect(mcpActionTarget(db, { serverId: 'configured:local-tool', ...user }, 'remove').ok).toBe(
+      true
+    )
+  })
+})
+
+describe('mcpResetTarget', () => {
+  it("counts a project's .mcp.json approvals by state", () => {
+    projectState('/repo', 'read')
+    declare({ scope: 'project', project: '/repo', name: 'a', approval: 'approved' })
+    declare({ scope: 'project', project: '/repo', name: 'b', approval: 'pending' })
+    declare({ scope: 'project', project: '/repo', name: 'c', approval: 'rejected' })
+    declare({ scope: 'project', project: '/other', name: 'd', approval: 'approved' })
+    declare({ scope: 'local', project: '/repo', name: 'e' })
+
+    expect(mcpResetTarget(db, '/repo')).toEqual({
+      ok: true,
+      projectPath: '/repo',
+      approvals: { approved: 1, pending: 1, rejected: 1 }
+    })
+  })
+
+  it('refuses a project whose .mcp.json Megatron has not read', () => {
+    projectState('/ungranted', 'ungranted')
+    projectState('/none', 'missing')
+
+    for (const path of ['/ungranted', '/none', '/unknown'])
+      expect(mcpResetTarget(db, path)).toMatchObject({ ok: false })
   })
 })
 

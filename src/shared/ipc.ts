@@ -27,6 +27,9 @@ export const IPC_CHANNELS = {
   checkMcpConnections: 'mcp:checkConnections',
   getInitialMcpCheckConfirmed: 'mcp:getInitialCheckConfirmed',
   confirmMcpCheck: 'mcp:confirmCheck',
+  removeMcpServer: 'mcp:remove',
+  logoutMcpServer: 'mcp:logout',
+  resetMcpProjectChoices: 'mcp:resetProjectChoices',
   getInitialSection: 'app:getInitialSection',
   setLastSection: 'app:setLastSection',
   getInitialOnboarding: 'app:getInitialOnboarding',
@@ -515,6 +518,29 @@ export interface McpKeyName {
 
 // Longest a server id may be over IPC: plugin ids join a plugin and server name.
 export const MAX_MCP_SERVER_ID_LENGTH = 1024
+
+// MCP actions (docs/mcp-servers.md, Writes). The renderer names a Declaration by its server id,
+// scope, and project; main takes the server's name from the index, never from the request.
+export type McpConfiguredScope = 'local' | 'project' | 'user'
+
+export interface McpDeclarationRef {
+  serverId: string
+  scope: McpConfiguredScope
+  projectPath: string | null // null exactly for user scope
+}
+
+export interface McpProjectApprovals {
+  approved: number
+  pending: number
+  rejected: number
+}
+
+// ok with message: the command ran and the index shows its effect. ok with verificationError: the
+// command ran but the result isn't what was asked for, or couldn't be confirmed.
+export type McpActionResult =
+  | { ok: true; message: string }
+  | { ok: true; verificationError: string }
+  | { ok: false; error: string }
 
 export interface McpServerRow {
   // configured:<name> | plugin:<plugin>:<server> | connector:<prefix> | observed:<prefix>

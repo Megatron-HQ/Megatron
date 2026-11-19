@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import * as security from './ipc-security'
 import { IPC_CHANNELS, type PluginActionInput, type PluginRow } from '../shared/ipc'
 
+const ABS = process.platform === 'win32' ? 'C:\\repo' : '/repo'
+
 describe('renderer trust boundary', () => {
   it('accepts project linking by IDs and rejects renderer-supplied paths or incomplete requests', () => {
     expect(() =>
@@ -97,7 +99,16 @@ describe('renderer trust boundary', () => {
     [IPC_CHANNELS.checkMcpConnections, ['/repo']],
     [IPC_CHANNELS.confirmMcpCheck, []],
     [IPC_CHANNELS.getInitialMcpCheckConfirmed, []],
-    [IPC_CHANNELS.usageMcp, []]
+    [IPC_CHANNELS.usageMcp, []],
+    [
+      IPC_CHANNELS.removeMcpServer,
+      [{ serverId: 'configured:a b', scope: 'user', projectPath: null }]
+    ],
+    [
+      IPC_CHANNELS.logoutMcpServer,
+      [{ serverId: 'configured:api', scope: 'local', projectPath: ABS }]
+    ],
+    [IPC_CHANNELS.resetMcpProjectChoices, [ABS]]
   ])('accepts MCP requests for %s', (channel, args) => {
     expect(() => security.validateIpcArguments(channel, args)).not.toThrow()
   })
@@ -118,7 +129,26 @@ describe('renderer trust boundary', () => {
     [IPC_CHANNELS.checkMcpConnections, [42]],
     [IPC_CHANNELS.checkMcpConnections, ['/repo', '/other']],
     [IPC_CHANNELS.confirmMcpCheck, [true]],
-    [IPC_CHANNELS.usageMcp, ['24h']]
+    [IPC_CHANNELS.usageMcp, ['24h']],
+    [IPC_CHANNELS.removeMcpServer, []],
+    [IPC_CHANNELS.removeMcpServer, ['configured:a']],
+    [IPC_CHANNELS.removeMcpServer, [{ serverId: 'configured:a', scope: 'user', projectPath: ABS }]],
+    [
+      IPC_CHANNELS.removeMcpServer,
+      [{ serverId: 'plugin:p:s', scope: 'plugin', projectPath: null }]
+    ],
+    [
+      IPC_CHANNELS.removeMcpServer,
+      [{ serverId: 'configured:a', scope: 'user', projectPath: null }, 'extra']
+    ],
+    [
+      IPC_CHANNELS.logoutMcpServer,
+      [{ serverId: 'configured:a', scope: 'local', projectPath: 'rel' }]
+    ],
+    [IPC_CHANNELS.resetMcpProjectChoices, []],
+    [IPC_CHANNELS.resetMcpProjectChoices, ['relative/repo']],
+    [IPC_CHANNELS.resetMcpProjectChoices, [`${ABS}\0`]],
+    [IPC_CHANNELS.resetMcpProjectChoices, [ABS, ABS]]
   ])('rejects malformed MCP requests for %s', (channel, args) => {
     expect(() => security.validateIpcArguments(channel, args)).toThrow()
   })
