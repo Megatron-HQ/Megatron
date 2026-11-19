@@ -4,6 +4,7 @@ import { dirname, join } from 'path'
 import { projectTreeFixture } from './project-tree-fixture.mjs'
 import { usageHistoryFixture } from './usage-history-fixture.mjs'
 import { contextBaselineFixture } from './context-baseline-fixture.mjs'
+import { MCP_ACTION_CHANNELS, mcpActionResult, mcpActionsFixture } from './mcp-actions-fixture.mjs'
 
 const registeredHandlers = new Map()
 const overriddenChannels = new Set()
@@ -168,6 +169,9 @@ globalThis.megatronVisualFixtures = {
       // Before `original`: the real handler would open the native folder picker.
       if (channel === 'folders:pickAndAdd' && mode.startsWith('project-tree'))
         return projectTreeFixture(channel, args, undefined, mode)
+      // Before `original`: the real handler would run `claude mcp` against the user's config.
+      if (MCP_ACTION_CHANNELS.has(channel) && mode.startsWith('mcp-action-'))
+        return mcpActionResult(channel, mode)
       const fixtureProjectRescan = channel === 'app:rescan' && PROJECT_SCAN_MODES.includes(mode)
       const result = fixtureProjectRescan ? undefined : await original(event, ...args)
       if (mode.startsWith('usage-history')) return usageHistoryFixture(channel, args, result, mode)
@@ -192,6 +196,7 @@ globalThis.megatronVisualFixtures = {
         if (channel === 'plugins:list') return result.map(transform)
       }
       if (mode.startsWith('project-tree')) return projectTreeFixture(channel, args, result, mode)
+      if (mode === 'mcp-actions') return mcpActionsFixture(channel, args, result)
       // A checked table without running claude mcp list, which would start this machine's servers:
       // the real rows, each given one of the statuses in turn.
       if (channel === 'mcp:list' && mode === 'mcp-checked') {

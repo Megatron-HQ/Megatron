@@ -786,6 +786,9 @@ function App(): React.JSX.Element {
           projectCheckError={
             mcpCheckError && mcpCheckError.projectPath !== null ? mcpCheckError : null
           }
+          onActionSuccess={showPluginActionToast}
+          onOpenPlugin={selectPluginFromPalette}
+          onServerGone={leaveMcpDetail}
         />
       ) : mcpError ? (
         <div

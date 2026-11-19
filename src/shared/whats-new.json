@@ -18,6 +18,14 @@
           "section": "usage",
           "anchor": "usage-mcp"
         }
+      },
+      {
+        "title": "Remove MCP servers and sign out",
+        "body": "From an MCP server's details, remove a declaration, log out of a remote server, or reset a project's .mcp.json approvals, all through Claude Code's CLI.",
+        "action": {
+          "kind": "section",
+          "section": "mcp"
+        }
       }
     ]
   },
