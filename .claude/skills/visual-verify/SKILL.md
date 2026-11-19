@@ -46,6 +46,8 @@ files to screens:
 | `views/PluginInventory.tsx`                                                           | `plugin-inventory`               |
 | `views/PluginDetail.tsx`                                                              | `plugin-detail`                  |
 | `components/PluginBadges.tsx`                                                         | `plugin-inventory,plugin-detail` |
+| `views/McpInventory.tsx`, `components/McpSidebar.tsx`, `components/McpBadges.tsx`     | `mcp-inventory`                  |
+| `views/McpDetail.tsx`                                                                 | `mcp-detail`                     |
 | `views/UsageView.tsx`, `components/usage/**`                                          | `usage`                          |
 | `components/onboarding/**`                                                            | `onboarding`                     |
 

@@ -8,10 +8,18 @@ const SCAN_QUERY_KEYS = [
   'skill-meta',
   'skill-files',
   'plugins',
-  'plugin-detail'
+  'plugin-detail',
+  // MCP rows hold call counts too, so they refresh after every scan, not only full ones.
+  'mcp-servers',
+  'mcp-detail'
 ]
 const USAGE_QUERY_KEYS = ['usage', 'skill-history', 'usage-skill-invocations']
-const INVENTORY_SOURCE_NAMES = new Set(['scanSkills', 'scanPluginRegistry', 'runLinter'])
+const INVENTORY_SOURCE_NAMES = new Set([
+  'scanSkills',
+  'scanPluginRegistry',
+  'scanMcpDeclarations',
+  'runLinter'
+])
 
 export async function refreshScanQueries(
   client: QueryClient,

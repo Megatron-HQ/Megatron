@@ -139,6 +139,12 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
     case IPC_CHANNELS.getMcpServerDetail:
       valid = args.length === 1 && text(value) && value.length <= MAX_MCP_SERVER_ID_LENGTH
       break
+    case IPC_CHANNELS.revealMcpSource:
+      valid =
+        args.length === 2 &&
+        args.every(text) &&
+        (value as string).length <= MAX_MCP_SERVER_ID_LENGTH
+      break
     case IPC_CHANNELS.enablePlugin:
     case IPC_CHANNELS.disablePlugin:
     case IPC_CHANNELS.updatePlugin:

@@ -1,4 +1,4 @@
-import { BarChart3, Blocks, BrainCircuit, Settings } from 'lucide-react'
+import { BarChart3, Blocks, BrainCircuit, Plug, Settings } from 'lucide-react'
 import { motion } from 'motion/react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useElementGlideHighlight } from '@/lib/use-glide-highlight'
@@ -9,6 +9,7 @@ import type { AppSection } from '../../../shared/ipc'
 const SECTIONS: { section: AppSection; label: string; Icon: typeof Blocks }[] = [
   { section: 'skills', label: 'Skills', Icon: BrainCircuit },
   { section: 'plugins', label: 'Plugins', Icon: Blocks },
+  { section: 'mcp', label: 'MCP servers', Icon: Plug },
   { section: 'usage', label: 'Usage', Icon: BarChart3 }
 ]
 

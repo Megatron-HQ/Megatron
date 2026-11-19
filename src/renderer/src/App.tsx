@@ -6,6 +6,7 @@ import { ManageFoldersDialog } from '@/components/ManageFoldersDialog'
 import { OnboardingDialog } from '@/components/onboarding/OnboardingDialog'
 import { PluginActionToasts, type PluginActionToast } from '@/components/PluginActionToasts'
 import { PluginSidebar } from '@/components/PluginSidebar'
+import { McpSidebar } from '@/components/McpSidebar'
 import { ScreenTransition } from '@/components/ScreenTransition'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { ScanStatusBanner, ScanUpdatingBanner } from '@/components/ScanStatus'
@@ -31,6 +32,7 @@ import {
   type PluginContext,
   type PluginFilter
 } from '@/lib/plugin-filter'
+import { matchesMcpFilter, type McpFilter } from '@/lib/mcp-filter'
 import { isWithinProjectPath, normalizeProjectPath } from '../../shared/project-path'
 import { matchesFilter, type SourceFilter } from '@/lib/source-filter'
 import {
@@ -44,6 +46,8 @@ import { SkillInventory } from './views/SkillInventory'
 import { SkillFileViewer } from './views/SkillFileViewer'
 import { PluginDetail } from './views/PluginDetail'
 import { PluginInventory } from './views/PluginInventory'
+import { McpDetail } from './views/McpDetail'
+import { McpInventory } from './views/McpInventory'
 import { UsageView, type ActivityWindowKey } from './views/UsageView'
 import type {
   AppSection,
@@ -64,6 +68,7 @@ type View =
 
 type PluginView =
   { kind: 'list' } | { kind: 'detail'; name: string; marketplace: string; context?: PluginContext }
+type McpView = { kind: 'list' } | { kind: 'detail'; id: string }
 type SkillBackTarget = 'inventory' | 'usage-skills' | 'usage-skills-dialog'
 
 // Real value always arrives from the listSkills IPC round-trip almost immediately; this only
@@ -94,6 +99,9 @@ function App(): React.JSX.Element {
   const [pluginFilter, setPluginFilter] = useState<PluginFilter>({ kind: 'all' })
   const [skillExpandedProjects, setSkillExpandedProjects] = useState(() => new Set(['$projects']))
   const [pluginExpandedProjects, setPluginExpandedProjects] = useState(() => new Set(['$projects']))
+  const [mcpView, setMcpView] = useState<McpView>({ kind: 'list' })
+  const [mcpFilter, setMcpFilter] = useState<McpFilter>({ kind: 'all' })
+  const [mcpExpandedProjects, setMcpExpandedProjects] = useState(() => new Set(['$projects']))
   const [usagePanel, setUsagePanel] = useState<UsagePanel>('activity')
   const [usageActivityWindow, setUsageActivityWindow] = useState<ActivityWindowKey>('30d')
   const [usageTokenWindow, setUsageTokenWindow] = useState<SkillStatsWindowKey>('30d')
@@ -110,6 +118,7 @@ function App(): React.JSX.Element {
   // starts at row 0.
   const [returnSkillId, setReturnSkillId] = useState<number | null>(null)
   const [returnPluginKey, setReturnPluginKey] = useState<string | null>(null)
+  const [returnMcpId, setReturnMcpId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [onboardingOpen, setOnboardingOpen] = useState(() => window.api.getInitialOnboarding())
@@ -160,6 +169,16 @@ function App(): React.JSX.Element {
   } = useQuery({
     queryKey: ['plugins'],
     queryFn: () => window.api.listPlugins()
+  })
+
+  const {
+    data: mcpData,
+    isPending: mcpPending,
+    isError: mcpError,
+    refetch: retryMcp
+  } = useQuery({
+    queryKey: ['mcp-servers'],
+    queryFn: () => window.api.listMcpServers()
   })
 
   const { data: claudeFolder } = useQuery({
@@ -295,6 +314,7 @@ function App(): React.JSX.Element {
     [projectCatalog, folders]
   )
   const plugins = useMemo(() => pluginsData ?? [], [pluginsData])
+  const mcpServers = useMemo(() => mcpData?.servers ?? [], [mcpData])
   const projectLabels = useMemo(
     () =>
       projectDisplayLabels([
@@ -304,9 +324,10 @@ function App(): React.JSX.Element {
         ...skills.flatMap((skill) => (skill.project_root ? [skill.project_root] : [])),
         ...plugins.flatMap((plugin) =>
           plugin.installs.flatMap((install) => (install.project_path ? [install.project_path] : []))
-        )
+        ),
+        ...mcpServers.flatMap((server) => server.projectPaths)
       ]),
-    [projectCatalog, skills, plugins]
+    [projectCatalog, skills, plugins, mcpServers]
   )
   const scanComplete = data?.scanComplete ?? false
   const resolveProjectLabel = useMemo(
@@ -343,6 +364,30 @@ function App(): React.JSX.Element {
     setReturnSkillId(null)
     setView({ kind: 'list' })
     setFilter(next)
+  }
+
+  const filteredMcpServers = useMemo(
+    () => mcpServers.filter((server) => matchesMcpFilter(server, mcpFilter)),
+    [mcpServers, mcpFilter]
+  )
+
+  function handleMcpFilterChange(next: McpFilter): void {
+    setReturnMcpId(null)
+    setMcpView({ kind: 'list' })
+    setMcpFilter(next)
+  }
+
+  function leaveMcpDetail(): void {
+    if (mcpView.kind === 'detail') setReturnMcpId(mcpView.id)
+    setMcpView({ kind: 'list' })
+  }
+
+  function selectMcpServerFromPalette(id: string): void {
+    handleSectionChange('mcp')
+    // As for plugins: a narrowed filter would make Back land on a list without this server.
+    setMcpFilter({ kind: 'all' })
+    setReturnMcpId(null)
+    setMcpView({ kind: 'detail', id })
   }
 
   function handlePluginFilterChange(next: PluginFilter): void {
@@ -414,6 +459,7 @@ function App(): React.JSX.Element {
   function handleSectionChange(next: AppSection): void {
     setReturnSkillId(null)
     setReturnPluginKey(null)
+    setReturnMcpId(null)
     setSection(next)
     void window.api.setLastSection(next)
   }
@@ -499,6 +545,7 @@ function App(): React.JSX.Element {
       handleSectionChange(action.section)
       if (action.section === 'skills') setView({ kind: 'list' })
       if (action.section === 'plugins') setPluginView({ kind: 'list' })
+      if (action.section === 'mcp') setMcpView({ kind: 'list' })
       const panel = anchor ? WHATS_NEW_ANCHOR_PANELS[anchor] : null
       if (panel) setUsagePanel(panel)
     } else if (action.kind === 'settings') setSettingsOpen(true)
@@ -551,6 +598,18 @@ function App(): React.JSX.Element {
         filter={pluginFilter}
         onFilterChange={handlePluginFilterChange}
         onFilterSnap={setPluginFilter}
+      />
+    ) : section === 'mcp' ? (
+      <McpSidebar
+        servers={mcpServers}
+        folders={folders}
+        projectCatalog={projectCatalog}
+        home={home}
+        expandedProjects={mcpExpandedProjects}
+        setExpandedProjects={setMcpExpandedProjects}
+        filter={mcpFilter}
+        onFilterChange={handleMcpFilterChange}
+        onFilterSnap={setMcpFilter}
       />
     ) : (
       <UsageSidebar panel={usagePanel} onPanelChange={setUsagePanel} />
@@ -649,6 +708,46 @@ function App(): React.JSX.Element {
           restoreFocusKey={returnPluginKey}
         />
       )
+    ) : section === 'mcp' ? (
+      mcpView.kind === 'detail' ? (
+        <McpDetail
+          id={mcpView.id}
+          summary={mcpServers.find((server) => server.id === mcpView.id)}
+          onBack={leaveMcpDetail}
+        />
+      ) : mcpError ? (
+        <div
+          role="alert"
+          className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-muted-foreground"
+        >
+          <p>Could not load MCP servers.</p>
+          <button
+            type="button"
+            className="underline underline-offset-2 hover:text-foreground"
+            onClick={() => void retryMcp()}
+          >
+            Retry
+          </button>
+        </div>
+      ) : (
+        <McpInventory
+          availability={
+            mcpFilter.kind === 'projects' && mcpFilter.projectPath
+              ? projectAvailability(mcpFilter.projectPath)
+              : undefined
+          }
+          servers={filteredMcpServers}
+          loading={mcpPending}
+          filter={mcpFilter}
+          firstCallAt={mcpData?.firstCallAt ?? null}
+          onSelect={(server) => {
+            setReturnMcpId(null)
+            setMcpView({ kind: 'detail', id: server.id })
+          }}
+          onOpenSearch={() => setPaletteOpen(true)}
+          restoreFocusId={returnMcpId}
+        />
+      )
     ) : (
       <UsageView
         panel={usagePanel}
@@ -683,7 +782,11 @@ function App(): React.JSX.Element {
               key: `plugins:detail:${pluginRowKey(pluginView.name, pluginView.marketplace, pluginView.context ?? { kind: 'all' })}`,
               depth: 1
             }
-        : { key: 'usage', depth: 0 }
+        : section === 'mcp'
+          ? mcpView.kind === 'list'
+            ? { key: 'mcp:list', depth: 0 }
+            : { key: `mcp:detail:${mcpView.id}`, depth: 1 }
+          : { key: 'usage', depth: 0 }
 
   const shell = (
     <TooltipProvider>
@@ -755,6 +858,8 @@ function App(): React.JSX.Element {
         onSelect={openDetailFromAnywhere}
         plugins={plugins}
         onSelectPlugin={selectPluginFromPalette}
+        mcpServers={mcpServers}
+        onSelectMcpServer={selectMcpServerFromPalette}
       />
       <SettingsDialog
         open={settingsOpen}

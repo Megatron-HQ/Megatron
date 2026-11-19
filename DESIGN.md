@@ -97,7 +97,7 @@ Rendered markdown in the file viewer has its own scale: h1 20px, h2 16px, h3 14p
 
 ## Layout
 
-A dense, Linear-style sidebar + list/detail shell, not a spacious admin dashboard. The window is a flat **frame** holding one raised **content sheet**. A persistent 48px icon rail switches sections (Skills, Plugins, Usage), with Settings at its foot and a project/filter sidebar inside each section. The wordmark sits above the sidebar filters. A full-width top strip provides the macOS `hiddenInset` drag region and space for its traffic lights; Windows keeps its native titlebar above a thin gutter. The sheet fills the rest with the `xl` radius, a rule-line border, and `--sheet-shadow`; its top edge is the visible content edge. The scan banner, when shown, is the sheet's first row. The file viewer replaces the table when a row opens rather than layering over it. Usage renders one panel at a time in the same shell.
+A dense, Linear-style sidebar + list/detail shell, not a spacious admin dashboard. The window is a flat **frame** holding one raised **content sheet**. A persistent 48px icon rail switches sections (Skills, Plugins, MCP servers, Usage), with Settings at its foot and a project/filter sidebar inside each section. The wordmark sits above the sidebar filters. A full-width top strip provides the macOS `hiddenInset` drag region and space for its traffic lights; Windows keeps its native titlebar above a thin gutter. The sheet fills the rest with the `xl` radius, a rule-line border, and `--sheet-shadow`; its top edge is the visible content edge. The scan banner, when shown, is the sheet's first row. The file viewer replaces the table when a row opens rather than layering over it. Usage renders one panel at a time in the same shell.
 
 Content is fluid width everywhere except rendered markdown prose (`72ch`). The command palette (`⌘K`) is a modal overlay, not primary navigation, and doesn't reopen the decision against a sidebar search box.
 
@@ -134,7 +134,7 @@ One radius scale rooted at `--radius: 0.625rem`, the same for every skill source
 ### Entity glyph
 
 - **`EntityGlyph`** is the entity mark outside Resident Tax: a `rounded-lg` tile tinted with the entity's hue at 10%, holding the glyph in the full hue. The tile is part of the mark, not a row background.
-- **Where:** the leading slot of ⌘K skill rows, the SkillDetail header, and PluginDetail's MCP server and agent rows. Memory renders once it has a surface of its own; plugins can't ship it. Plugins aren't an entity and get no tile; their ⌘K rows keep a muted `Blocks` in a slot of the same width so text lines up.
+- **Where:** the leading slot of ⌘K skill and MCP server rows, the SkillDetail and McpDetail headers, and PluginDetail's MCP server and agent rows. Memory renders once it has a surface of its own; plugins can't ship it. Plugins aren't an entity and get no tile; their ⌘K rows keep a muted `Blocks` in a slot of the same width so text lines up.
 - **PluginDetail components** sit between the stats card and Installs, each under an 11px uppercase caption with its count (`Agents · 3`). MCP servers and agents are two-line rows led by the tile; commands and LSP servers are dense one-line mono rows on a `--muted` panel; hooks are outline chips, one per event. Names read as the user types them, with the plugin prefix dimmed (`/vercel:deploy`, `vercel:ai-architect`). A list over five shows five and a caption-quiet "Show all N" that expands in place. Rows are static: no hover, selection, or focus stop.
 - Always beside text that names the entity, so the glyph is `aria-hidden` and identity is never color alone. Disabled skills, and the components of a plugin disabled in every scoped install, get a neutral tile (`--muted` fill, muted glyph); the header status pill names that state.
 - Never on the frame and never as a section icon: the rail, onboarding's overview cards, and the Usage panel list keep an ink `BrainCircuit`.
@@ -143,6 +143,14 @@ One radius scale rooted at `--radius: 0.625rem`, the same for every skill source
 
 - Fixed row height and `table-fixed` columns, with Description filling the remainder: no horizontal scroll, no variable row height.
 - Hover and selection share one absolutely-positioned highlight box that glides between rows on a spring instead of each row repainting; full-bleed and unrounded, matching the flat elevation.
+
+### MCP section
+
+- The rail's MCP entry is an ink `Plug`, like every section icon; the tinted tile stays on the server itself (McpDetail header, ⌘K rows).
+- **Sidebar:** All servers, User, the shared Projects tree, then Plugins, claude.ai, and Observed, each with a count pill. Project rows count servers with a local or project Declaration; plugin servers live under Plugins only.
+- **Table:** Name, Source (scopes in precedence order, `Local · User`), Transport, Calls, Status, on the ledger table's fixed rows and gliding highlight. The header names the transcript window the calls cover ("Calls since Oct 16").
+- **Status pill:** `TriangleAlert` in the warning tone with a warning count; notices use `Info` in muted ink, since the info tone is reserved for updates; a plugin off everywhere shows `Power` and "Disabled"; otherwise `CircleCheck` and "OK". Live connection status replaces none of this; it arrives as its own column.
+- **Detail:** a stats card (Calls, Errors, Refused, Last used, Definitions), then Findings, Declarations, Switched off, and Tools used. Declarations are outline cards: scope and project, transport and host in mono, env and header key chips with a warning-tone "literal" mark, and a "Reveal file" text link. Definition tokens read "Not measured" until Resident tax has run this launch.
 
 ### Usage project lists
 

@@ -1,7 +1,13 @@
 import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applySchema } from './schema'
-import { getMcpServerDetail, knownMcpPrefixes, listMcpServers } from './mcp-queries'
+import {
+  getMcpServerDetail,
+  knownMcpPrefixes,
+  listMcpServers,
+  revealableMcpSource
+} from './mcp-queries'
+import { grantPath, resetGrantedPaths } from '../permissions'
 
 let db: Database.Database
 
@@ -487,5 +493,51 @@ describe('knownMcpPrefixes', () => {
       'c:/work/app': ['db_local'],
       '/repo': ['api']
     })
+  })
+})
+
+describe('projectPaths', () => {
+  it('lists every project a server is declared or installed in, once', () => {
+    declare({ scope: 'user', name: 'github' })
+    declare({ scope: 'local', project: '/b', name: 'github' })
+    declare({ scope: 'project', project: '/a', name: 'github' })
+    declare({ scope: 'local', project: '/a', name: 'github' })
+    installPlugin('p', '/cache/p', { s: 'stdio · x' }, { scope: 'project', project: '/c' })
+    installPlugin('p', '/cache/p2', { s: 'stdio · x' })
+
+    expect(server('configured:github').projectPaths).toEqual(['/a', '/b'])
+    expect(server('plugin:p:s').projectPaths).toEqual(['/c'])
+  })
+})
+
+describe('revealableMcpSource', () => {
+  afterEach(() => resetGrantedPaths())
+
+  it('returns a declaring file of that server that Megatron may read', () => {
+    grantPath('/repo')
+    declare({ scope: 'project', project: '/repo', name: 'api' })
+
+    expect(revealableMcpSource(db, 'configured:api', '/repo/.mcp.json')).toBe('/repo/.mcp.json')
+  })
+
+  it('refuses a path that is not one of the server declaring files', () => {
+    grantPath('/repo')
+    declare({ scope: 'project', project: '/repo', name: 'api' })
+
+    expect(revealableMcpSource(db, 'configured:api', '/repo/other.json')).toBeNull()
+    expect(revealableMcpSource(db, 'configured:nope', '/repo/.mcp.json')).toBeNull()
+  })
+
+  it('refuses a declaring file outside every grant', () => {
+    declare({ scope: 'project', project: '/ungranted', name: 'api' })
+
+    expect(revealableMcpSource(db, 'configured:api', '/ungranted/.mcp.json')).toBeNull()
+  })
+
+  it("reveals a plugin server's declaring file", () => {
+    grantPath('/cache')
+    installPlugin('p', '/cache/p', { s: 'stdio · x' })
+
+    expect(revealableMcpSource(db, 'plugin:p:s', '/cache/p/.mcp.json')).toBe('/cache/p/.mcp.json')
   })
 })

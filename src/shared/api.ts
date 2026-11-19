@@ -53,6 +53,7 @@ export interface Api {
   getPluginDetail: (name: string, marketplace: string) => Promise<PluginDetailResult | null>
   listMcpServers: () => Promise<McpServerList>
   getMcpServerDetail: (id: string) => Promise<McpServerDetail | null>
+  revealMcpSource: (id: string, path: string) => Promise<boolean>
   enablePlugin: (input: PluginActionInput) => Promise<PluginActionResult>
   disablePlugin: (input: PluginActionInput) => Promise<PluginActionResult>
   updatePlugin: (input: PluginActionInput) => Promise<PluginActionResult>

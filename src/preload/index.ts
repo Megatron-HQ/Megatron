@@ -64,6 +64,8 @@ const api = {
   listMcpServers: (): Promise<McpServerList> => ipcRenderer.invoke(IPC_CHANNELS.listMcpServers),
   getMcpServerDetail: (id: string): Promise<McpServerDetail | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.getMcpServerDetail, id),
+  revealMcpSource: (id: string, path: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.revealMcpSource, id, path),
   enablePlugin: (input: PluginActionInput): Promise<PluginActionResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.enablePlugin, input),
   disablePlugin: (input: PluginActionInput): Promise<PluginActionResult> =>
