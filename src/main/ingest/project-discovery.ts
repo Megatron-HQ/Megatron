@@ -1,8 +1,7 @@
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
+import { isAbsolute, join, relative, resolve, sep } from 'path'
 import type { CanonicalCheckout, ProjectFolder, WorktreeLink } from '../../shared/ipc'
-import { isGitDirectoryPath, isWithinProjectPath } from '../../shared/project-path'
+import { isWithinProjectPath } from '../../shared/project-path'
 import {
-  allowedDirectoryIdentitySync,
   allowedPathLocationSync,
   allowedRealpathSync,
   allowedStatSync,
@@ -11,16 +10,7 @@ import {
   readAllowedDirectoryEntries
 } from '../permissions'
 import type { SkillRoot } from './skills-scanner'
-import {
-  chooseCanonical,
-  commonDirOf,
-  isNestedGitDirectory,
-  presenceOf,
-  readCheckoutGitdir,
-  readWorktreeIndex,
-  sameGitPath,
-  type WorktreeIndex
-} from './worktrees'
+import { createGitRepos, type GitRepos } from './git-repos'
 
 const SKIP_DIRECTORIES = new Set(
   [
@@ -122,21 +112,22 @@ interface WalkScope {
   unavailable: (path: string) => void
 }
 
-interface WorktreeCandidate {
+// Where the walk met a folder it held back, so it can enter it later.
+interface HeldBack {
   path: string
   directoryPath: string
-  commonDir: string
   depth: number
   owner?: string
   scope: WalkScope
   isGrant: boolean
 }
 
+// `repos` is this Scan's Git Repos; it answers every git question the walk asks.
 export function discoverProjects(
   grants: string[] = getGrantedPaths(),
   previous: ProjectFolder[] = [],
   limits = PROJECT_DISCOVERY_LIMITS,
-  savedLinks: readonly WorktreeLink[] = []
+  repos: GitRepos = createGitRepos({ locations: [], claudeCodeFolders: [] })
 ): ProjectDiscovery {
   const projects = new Map<string, ProjectFolder>()
   const roots = new Map<string, SkillRoot>()
@@ -144,13 +135,11 @@ export function discoverProjects(
   const gitRepositories = new Set<string>()
   const nestedGitRepositories = new Set<string>()
   const claudeContentOwners = new Set<string>()
-  const gitDirs = new Map<string, { commonDir: string; index: WorktreeIndex | null }>()
-  // A checkout whose `.git` file points at a git dir that isn't a worktree entry, keyed by that
-  // git dir: a submodule or a `--separate-git-dir` repository.
-  const mainCheckouts = new Map<string, string>()
-  const candidates = new Map<string, WorktreeCandidate>()
-  const orphans = new Map<string, WorktreeCandidate>()
-  const containers = new Map<string, { path: string; commonDir: string }>()
+  // A worktree waits until every grant is walked: whether it contributes skills depends on
+  // whether its Canonical Checkout turned up anywhere. An orphan waits for its repository.
+  const worktrees = new Map<string, HeldBack>()
+  const orphans = new Map<string, HeldBack>()
+  const containers = new Map<string, string>()
   const gitDirHolders = new Set<string>()
   let incomplete = false
   const uncertainPaths: string[] = []
@@ -169,18 +158,13 @@ export function discoverProjects(
     if (!roots.has(pathKey(dir)))
       roots.set(pathKey(dir), { dir, sourceType: 'project', projectRoot })
   }
-  const readGitDir = (commonDir: string): WorktreeIndex | null => {
-    const key = pathKey(commonDir)
-    if (!gitDirs.has(key)) gitDirs.set(key, { commonDir, index: readWorktreeIndex(commonDir) })
-    return gitDirs.get(key)!.index
-  }
-  // `force` walks a worktree that discovery already chose to keep (see below).
+  // `asCheckout` enters a held-back folder that discovery chose to keep (see below).
   function walk(
     directoryPath: string,
     depth: number,
     owner: string | undefined,
     scope: WalkScope,
-    force = false
+    asCheckout = false
   ): void {
     const { grant, unavailable } = scope
     if (depth > limits.maxDepth || visited.size >= limits.maxDirectories) {
@@ -210,68 +194,25 @@ export function discoverProjects(
         projects.set(key, { path: canonical, kind: 'folder', status: 'available' })
       return
     }
-    const gitEntry = directory.entries.find((entry) => entry.name === '.git')
-    // A worktree waits until every grant is walked: whether it contributes skills depends on
-    // whether its Canonical Checkout turned up anywhere.
-    const pointer = gitEntry?.type === 'file' && !force ? readCheckoutGitdir(canonical) : null
-    const gitFile = pointer === null ? null : (allowedRealpathSync(pointer) ?? pointer)
-    const commonDir = gitFile === null ? null : commonDirOf(gitFile)
-    if (commonDir === null && gitFile !== null && presenceOf(gitFile) === 'missing') {
-      // Its admin dir is gone; a repository that still lists it claims it after the walk.
-      if (!orphans.has(key) || isGrant)
-        orphans.set(key, {
-          path: canonical,
-          directoryPath,
-          commonDir: '',
-          depth,
-          owner,
-          scope,
-          isGrant
-        })
-      return
-    }
-    if (commonDir !== null) {
+    const kind = repos.meet({ path: canonical, entries: directory.entries, asCheckout })
+    if (kind === 'worktree' || kind === 'orphan') {
+      const held = kind === 'worktree' ? worktrees : orphans
       // Parent grants walk first; the worktree's own grant, met later, is what lets it stand in.
-      if (!candidates.has(key) || isGrant)
-        candidates.set(key, {
-          path: canonical,
-          directoryPath,
-          commonDir,
-          depth,
-          owner,
-          scope,
-          isGrant
-        })
+      if (!held.has(key) || isGrant)
+        held.set(key, { path: canonical, directoryPath, depth, owner, scope, isGrant })
       return
     }
-    const gitDir = gitFile ?? (gitEntry?.type === 'directory' ? join(canonical, '.git') : null)
-    const index = gitDir === null ? null : readGitDir(gitDir)
-    const bareContainer = gitFile !== null && index?.bare === true
-    if (bareContainer) containers.set(key, { path: canonical, commonDir: gitFile })
-    else if (gitFile !== null) mainCheckouts.set(pathKey(gitFile), canonical)
-
-    const redirected =
-      gitEntry?.type === 'directory' &&
-      index?.worktree != null &&
-      presenceOf(index.worktree) === 'present' &&
-      !sameGitPath(index.worktree, canonical)
-    if (redirected) gitDirHolders.add(canonical)
+    if (kind === 'bare-container') containers.set(key, canonical)
+    if (kind === 'git-dir-holder') gitDirHolders.add(canonical)
     visited.add(key)
-
-    const names = new Set(directory.entries.map((entry) => entry.name))
-    // A standalone git dir is plumbing, even when its checkout lives elsewhere.
-    if (
-      !names.has('.git') &&
-      names.has('HEAD') &&
-      names.has('objects') &&
-      names.has('refs') &&
-      readGitDir(canonical) !== null
-    ) {
+    if (kind === 'git-dir') {
       if (isGrant) projects.set(key, { path: canonical, kind: 'folder', status: 'available' })
       return
     }
+
+    const names = new Set(directory.entries.map((entry) => entry.name))
     const claude =
-      !bareContainer && !redirected && names.has('.claude')
+      kind !== 'bare-container' && kind !== 'git-dir-holder' && names.has('.claude')
         ? readAllowedDirectory(join(directoryPath, '.claude'))
         : { status: 'missing' as const, entries: [] }
     if (claude.status === 'unavailable') unavailable(join(directoryPath, '.claude'))
@@ -281,8 +222,7 @@ export function discoverProjects(
     const hasSettings = claude.entries.some(
       (name) => name === 'settings.json' || name === 'settings.local.json'
     )
-    // A folder holding a bare `.git` (`git clone --bare <url> app/.git`) only holds worktrees.
-    const hasGit = gitEntry !== undefined && index?.bare !== true && !redirected
+    const hasGit = kind === 'checkout'
     const isRepository = hasGit || (owner === undefined && (hasSkills || hasSettings))
     const owningProject = isRepository ? canonical : owner
     if (hasGit) gitRepositories.add(key)
@@ -335,33 +275,18 @@ export function discoverProjects(
     }
   }
 
-  // Candidates can be the only discoverable path into a separate git dir.
-  for (const candidate of candidates.values()) readGitDir(candidate.commonDir)
   // A checkout whose admin dir is gone belongs to the repository that still lists it (a main
   // checkout renamed without `git worktree repair`); with none, it's a checkout of its own.
   for (const [key, orphan] of orphans) {
-    const lister = [...gitDirs.values()].find(({ index }) =>
-      index?.worktrees.some((worktree) => pathKey(worktree.path) === key)
-    )
-    if (lister) candidates.set(key, { ...orphan, commonDir: lister.commonDir })
+    if (repos.claimOrphan(orphan.path)) worktrees.set(key, orphan)
     else walk(orphan.directoryPath, orphan.depth, orphan.owner, orphan.scope, true)
   }
-  for (const candidate of candidates.values()) readGitDir(candidate.commonDir)
+  const resolved = repos.resolve()
   const grantKeys = new Set(grants.map(pathKey))
-  const redirects: string[] = []
-  for (const { commonDir, index } of gitDirs.values()) {
-    if (index?.bare || isNestedGitDirectory(commonDir)) continue
-    const main = mainCheckouts.get(pathKey(commonDir))
-    const checkout = main ?? index?.worktree
-    if (!checkout || (!main && presenceOf(checkout) !== 'present')) continue
-    const location = allowedRealpathSync(checkout) ?? checkout
-    // Only a `.git` dir makes its folder a checkout; a standalone git dir (a dotfiles repo with
-    // core.worktree=$HOME) is reached through an alias, so git itself never treats that a checkout.
-    if (basename(commonDir) !== '.git' || sameGitPath(dirname(commonDir), location)) continue
-    gitDirHolders.add(dirname(commonDir))
-    if (!main && visited.has(pathKey(location)) && !gitRepositories.has(pathKey(location)))
-      redirects.push(location)
-  }
+  for (const holder of resolved.gitDirHolders) gitDirHolders.add(holder)
+  const redirects = resolved.redirects.filter(
+    (checkout) => visited.has(pathKey(checkout)) && !gitRepositories.has(pathKey(checkout))
+  )
   // A redirected checkout can sort after its packages or before the git dir that names it.
   for (const checkout of redirects.sort((a, b) => a.length - b.length)) {
     const key = pathKey(checkout)
@@ -397,67 +322,9 @@ export function discoverProjects(
 
   // Exactly one checkout per repository contributes skills. A worktree walked into from a grant
   // never does; a directly granted one stands in while its Canonical Checkout isn't inventoried.
-  const canonicals = new Map<string, string | null>()
-  const saved = new Map(savedLinks.map((link) => [pathKey(link.path), link.canonical]))
-  const containerPaths = new Map<string, string[]>()
-  for (const { path, commonDir } of containers.values()) {
-    const key = pathKey(commonDir)
-    const paths = containerPaths.get(key) ?? []
-    paths.push(path)
-    containerPaths.set(key, paths)
-  }
-  const canonicalOf = (commonDir: string, paths: string[] = []): string | null => {
-    const key = pathKey(commonDir)
-    if (!canonicals.has(key)) {
-      const index = readGitDir(commonDir)
-      const listed = index?.worktrees.map((entry) => entry.path) ?? []
-      const live = new Set(
-        index?.worktrees.filter((entry) => !entry.missing).map((entry) => pathKey(entry.path)) ??
-          paths.map(pathKey)
-      )
-      const previous = [...listed, ...paths, ...(containerPaths.get(key) ?? [])]
-        .map((path) => saved.get(pathKey(path)))
-        .find((path) => path !== undefined && live.has(pathKey(path)))
-      const choice = chooseCanonical(commonDir, index, paths, mainCheckouts.get(key), previous)
-      const checkout = choice === null ? null : (allowedRealpathSync(choice) ?? choice)
-      if (
-        checkout === null ||
-        isGitDirectoryPath(checkout) ||
-        isWithinProjectPath(checkout, commonDir)
-      ) {
-        canonicals.set(key, null)
-      } else {
-        const directory = readAllowedDirectoryEntries(checkout)
-        const checkoutKey = pathKey(checkout)
-        const listedLive = index?.worktrees.some(
-          (worktree) => !worktree.missing && pathKey(worktree.path) === checkoutKey
-        )
-        const redirect = index?.worktree
-        const hasGit = directory.entries.some((entry) => entry.name === '.git')
-        const valid =
-          directory.status === 'unavailable' ||
-          (directory.status === 'missing' && listedLive) ||
-          (directory.status === 'ok' &&
-            (hasGit ||
-              (redirect && pathKey(allowedRealpathSync(redirect) ?? redirect) === checkoutKey)))
-        canonicals.set(key, valid ? checkout : null)
-      }
-    }
-    return canonicals.get(key) ?? null
-  }
-  const groups = new Map<string, WorktreeCandidate[]>()
-  for (const candidate of candidates.values())
-    groups.set(pathKey(candidate.commonDir), [
-      ...(groups.get(pathKey(candidate.commonDir)) ?? []),
-      candidate
-    ])
-  const skippedWorktrees = [...containers.values()].map(({ path }) => path)
-  const links = new Map<string, WorktreeLink>()
-  for (const group of groups.values()) {
-    const canonical = canonicalOf(
-      group[0].commonDir,
-      group.map((candidate) => candidate.path)
-    )
+  const skippedWorktrees = [...containers.values()]
+  for (const { canonical, worktrees: paths } of resolved.repos) {
+    const group = paths.map((path) => worktrees.get(pathKey(path))!)
     const kept =
       canonical === null
         ? undefined
@@ -472,8 +339,6 @@ export function discoverProjects(
         : undefined
     if (standIn) walk(standIn.directoryPath, standIn.depth, standIn.owner, standIn.scope, true)
     for (const candidate of group) {
-      if (canonical !== null && candidate !== kept)
-        links.set(pathKey(candidate.path), { path: candidate.path, canonical })
       if (candidate === kept || candidate === standIn) continue
       skippedWorktrees.push(candidate.path)
       if (!candidate.isGrant) continue
@@ -485,19 +350,8 @@ export function discoverProjects(
       })
     }
   }
-  for (const { path, commonDir } of containers.values()) {
-    const canonical = canonicalOf(commonDir)
-    if (canonical !== null) links.set(pathKey(path), { path, canonical })
-  }
-  // The checkout's own pointer wins when both sides can be read.
-  for (const { commonDir, index } of gitDirs.values()) {
-    if (index === null || isNestedGitDirectory(commonDir)) continue
-    const canonical = canonicalOf(commonDir)
-    if (canonical === null) continue
-    for (const worktree of index.worktrees)
-      if (pathKey(worktree.path) !== pathKey(canonical) && !links.has(pathKey(worktree.path)))
-        links.set(pathKey(worktree.path), { path: worktree.path, canonical })
-  }
+  // After the walks above: the folders they entered can prove more.
+  const findings = repos.findings()
 
   // A Git repository inside another one with no Claude Code content of its own is a clone,
   // submodule, or vendored dependency, not a project. It still owns its subtree and keeps its
@@ -541,14 +395,11 @@ export function discoverProjects(
     projects: [...projects.values()],
     skillRoots: [...roots.values()],
     incomplete,
-    worktrees: [...links.values()],
-    canonicalCheckouts: [...gitDirs.values()].flatMap(({ commonDir, index }) => {
-      const canonical = canonicals.get(pathKey(commonDir))
-      if (!index?.complete || !canonical || projects.get(pathKey(canonical))?.kind !== 'repository')
-        return []
-      const repository = allowedDirectoryIdentitySync(commonDir)
-      return [{ path: canonical, ...(repository === undefined ? {} : { repository }) }]
-    }),
+    worktrees: findings.worktrees,
+    // Only a checkout listed as a repository; a stand-in or hidden folder proves nothing.
+    canonicalCheckouts: findings.canonicalCheckouts.filter(
+      (checkout) => projects.get(pathKey(checkout.path))?.kind === 'repository'
+    ),
     skippedWorktrees,
     gitDirHolders: [...gitDirHolders]
   }

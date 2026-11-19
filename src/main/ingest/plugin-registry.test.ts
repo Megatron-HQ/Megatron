@@ -7,6 +7,21 @@ import * as permissions from '../permissions'
 import { applySchema } from '../db/schema'
 import { grantPath, resetGrantedPaths, revokePath } from '../permissions'
 import { scanPluginRegistry } from './plugin-registry'
+import { createProjectIdentity } from '../project-identity'
+import { createGitRepos, type GitRepos } from './git-repos'
+import type { WorktreeLink } from '../../shared/ipc'
+
+// This Scan's Git Repos, given the links an earlier Scan saved through main's owner.
+function reposSaving(links: WorktreeLink[]): GitRepos {
+  const owner = createProjectIdentity({
+    store: { read: () => [], write: () => undefined },
+    claudeCodeFolders: [],
+    sessionPaths: () => [],
+    catalog: () => []
+  })
+  owner.recordScan({ worktrees: links, canonicalCheckouts: [] })
+  return createGitRepos(owner.snapshot())
+}
 
 let db: Database.Database
 let tmpDir: string
@@ -150,17 +165,23 @@ describe('removed project installs', () => {
 
     it('drops an install in a worktree its repository has pruned', () => {
       installAt(worktree('gone'))
-      scanPluginRegistry(db, pluginsDir, userSettingsPath, [
-        { path: worktree('gone'), canonical: app }
-      ])
+      scanPluginRegistry(
+        db,
+        pluginsDir,
+        userSettingsPath,
+        reposSaving([{ path: worktree('gone'), canonical: app }])
+      )
       expect(allRegistry()).toEqual([])
     })
 
     it('keeps an install in a live worktree', () => {
       installAt(worktree('live'))
-      scanPluginRegistry(db, pluginsDir, userSettingsPath, [
-        { path: worktree('live'), canonical: app }
-      ])
+      scanPluginRegistry(
+        db,
+        pluginsDir,
+        userSettingsPath,
+        reposSaving([{ path: worktree('live'), canonical: app }])
+      )
       expect(allRegistry()).toHaveLength(1)
     })
 
@@ -172,15 +193,23 @@ describe('removed project installs', () => {
       writeFileSync(join(entry, 'locked'), 'on a removable drive\n')
       installAt(locked)
 
-      scanPluginRegistry(db, pluginsDir, userSettingsPath, [{ path: locked, canonical: app }])
+      scanPluginRegistry(
+        db,
+        pluginsDir,
+        userSettingsPath,
+        reposSaving([{ path: locked, canonical: app }])
+      )
       expect(allRegistry()).toHaveLength(1)
     })
 
     it('keeps an install when the repository cannot be read', () => {
       installAt(worktree('gone'))
-      scanPluginRegistry(db, pluginsDir, userSettingsPath, [
-        { path: worktree('gone'), canonical: worktree('ungranted-app') }
-      ])
+      scanPluginRegistry(
+        db,
+        pluginsDir,
+        userSettingsPath,
+        reposSaving([{ path: worktree('gone'), canonical: worktree('ungranted-app') }])
+      )
       expect(allRegistry()).toHaveLength(1)
     })
   })

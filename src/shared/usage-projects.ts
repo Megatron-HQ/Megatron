@@ -5,7 +5,7 @@ import type {
   ProjectFolder,
   TokenBreakdown
 } from './ipc'
-import { isWithinProjectPath, normalizeProjectPath } from './project-path'
+import type { ProjectIdentity, ProjectIdentitySnapshot } from './project-identity'
 
 export interface UsageProjectLocation extends ProjectFolder {
   id: string
@@ -42,8 +42,7 @@ export function isClaudeAppScratchPath(path: string): boolean {
   return CLAUDE_APP_SCRATCH_PATH.test(path)
 }
 
-export interface UsageProjectCatalog {
-  locations: UsageProjectLocation[]
+export interface UsageProjectCatalog extends ProjectIdentitySnapshot {
   projects: UsageProject[]
 }
 
@@ -52,51 +51,15 @@ export function matchesUsageProjectSearch(query: string, values: Iterable<string
   return [...values].some((value) => value.replace(/\\/g, '/').toLowerCase().includes(needle))
 }
 
-export function usageProjectOwner(
-  path: string,
-  locations: UsageProjectLocation[]
-): UsageProjectLocation | undefined {
-  const key = normalizeProjectPath(path)
-  return locations
-    .filter(
-      (entry) =>
-        normalizeProjectPath(entry.path) === key ||
-        ((entry.kind === 'repository' || (entry.linkedTo && !entry.inferredOwner)) &&
-          isWithinProjectPath(path, entry.path))
-    )
-    .sort((first, second) => second.path.length - first.path.length)[0]
-}
-
-export function primaryUsageProject(
-  location: UsageProjectLocation,
-  locations: UsageProjectLocation[]
-): UsageProjectLocation {
-  const visited = new Set<string>()
-  let current = location
-  while (current.linkedTo) {
-    if (visited.has(current.id)) return location
-    visited.add(current.id)
-    const next = locations.find((entry) => entry.id === current.linkedTo)
-    if (!next) return location
-    current = next
-  }
-  return current
-}
-
-export function resolveUsageProjectPath(path: string, locations: UsageProjectLocation[]): string {
-  if (!path) return path
-  const owner = usageProjectOwner(path, locations)
-  return owner ? primaryUsageProject(owner, locations).path : path
-}
-
 function groupByProject<T>(
   rows: T[],
-  locations: UsageProjectLocation[],
+  identity: ProjectIdentity,
   pathOf: (row: T) => string
 ): Map<string, T[]> {
   const groups = new Map<string, T[]>()
   for (const row of rows) {
-    const project = resolveUsageProjectPath(pathOf(row), locations)
+    const path = pathOf(row)
+    const project = identity.usageProjectOf(path)?.path ?? path
     const group = groups.get(project) ?? []
     group.push(row)
     groups.set(project, group)
@@ -106,18 +69,18 @@ function groupByProject<T>(
 
 export function groupProjectCounts(
   rows: ActivityProjectCount[],
-  locations: UsageProjectLocation[]
+  identity: ProjectIdentity
 ): ActivityProjectCount[] {
-  return [...groupByProject(rows, locations, (row) => row.project)]
+  return [...groupByProject(rows, identity, (row) => row.project)]
     .map(([project, group]) => ({ project, count: group.reduce((sum, row) => sum + row.count, 0) }))
     .sort((a, b) => b.count - a.count || a.project.localeCompare(b.project))
 }
 
 export function groupProjectSpending(
   rows: CostProjectSpend[],
-  locations: UsageProjectLocation[]
+  identity: ProjectIdentity
 ): CostProjectSpend[] {
-  return [...groupByProject(rows, locations, (row) => row.project)]
+  return [...groupByProject(rows, identity, (row) => row.project)]
     .map(([project, group]) => ({
       project,
       costUsd: group.reduce((sum, row) => sum + row.costUsd, 0)
@@ -127,9 +90,9 @@ export function groupProjectSpending(
 
 export function groupProjectMonths(
   rows: HistoryProject[],
-  locations: UsageProjectLocation[]
+  identity: ProjectIdentity
 ): HistoryProject[] {
-  return [...groupByProject(rows, locations, (row) => row.project)]
+  return [...groupByProject(rows, identity, (row) => row.project)]
     .map(([project, group]) => ({
       project,
       total: group.reduce((sum, row) => sum + row.total, 0),
@@ -142,9 +105,9 @@ export function groupProjectMonths(
 
 export function groupProjectTokens(
   rows: TokenBreakdown[],
-  locations: UsageProjectLocation[]
+  identity: ProjectIdentity
 ): TokenBreakdown[] {
-  return [...groupByProject(rows, locations, (row) => row.key)]
+  return [...groupByProject(rows, identity, (row) => row.key)]
     .map(([key, group]) => ({
       key,
       tokens: group.reduce(

@@ -8,6 +8,7 @@ Local-first desktop app that inventories, lints, and tracks usage of every Claud
 
 - `npm test` is vitest only. Tests for the release and packaging scripts (`scripts/*.test.mjs`) run under `npm run test:package-security`; tests for the visual-verify harness and the Electron launch helpers run under `npm run test:visual-verify`, which CI does not run.
 - `npm run db:reset` deletes only the derived index (`megatron.db`). `usage-history.db` and the folder grants in `preferences.json` survive. A `schema.sql` change rebuilds the index without it.
+- `npm run dev` uses its own data folder (`megatron-dev`), not the installed app's `megatron`, so onboarding, folder grants and the usage archive start empty there.
 - `src/renderer/src/components/ui/` is shadcn-vendored — don't hand-edit.
 - Path alias `@/*` → `src/renderer/src/*` must be declared in **both** `tsconfig.json` (so the `shadcn` CLI resolves it) and `tsconfig.web.json` (so the renderer actually compiles).
 
@@ -28,10 +29,7 @@ Repo-wide. Subsystem decisions are locked in the owning doc — see the Docs tab
 
 ## Branches and releases
 
-- **Work on `staging`**, the default branch. Never push to `main`: it is production, and it receives staging only through a "Promote staging" PR once the changes are final. A person merges that PR.
-- **Releases come only from `main`.** `release-check.mjs` refuses a tag whose commit isn't contained in `origin/main`.
-- **A commit that ships a user-facing feature adds a highlight to the `next` entry** in `src/shared/whats-new.json`, creating the entry if it's absent (4 highlights at most). That entry becomes the What's new card users see after updating. Fixes, CI, docs and refactors leave it alone.
-- **The release PR bumps the version with `npm version <x.y.z> --no-git-tag-version`.** Its hook renames `next` to `<x.y.z>`. A release without `next` ships no card. `docs/releases.md` owns the details.
+Before any commit, push, PR, or release, invoke the `git-workflow` skill (`.claude/skills/git-workflow/`).
 
 ## Exploration budget
 
@@ -46,8 +44,6 @@ TDD is required for new code in `src/main/`, `src/preload/`, and `src/shared/` �
 Exceptions: pure type definitions, constants, thin IPC pass-through wiring. `src/renderer/` is excluded entirely — no `.tsx`/jsdom in `vitest.config.ts`, intentionally. Existing untested code isn't retroactively in scope.
 
 Renderer changes are verified by running the app (`npm run dev`) or the `visual-verify` skill — a rendering/regression smoke check, not an assertion suite. Behavioral E2E assertions are **not built**; don't claim an automated gate that doesn't exist.
-
-Before each push, complete applicable local verification. After every push, monitor GitHub Actions for the exact pushed commit SHA and wait for **both** `check (macos-latest)` and `check (windows-latest)` to finish successfully. Do not report the commit/push task complete while either job is queued, running, failed, cancelled, or unverified. Investigate failures, fix and revalidate locally, push the correction, and verify both jobs again. Include the final commit SHA and successful CI run link in the completion report. If CI cannot be checked, state that verification is incomplete.
 
 ## Lint hygiene
 
@@ -70,6 +66,7 @@ Each doc below is authoritative for the locked decisions it owns.
 | `docs/transcript-ingest.md` | Transcript on-disk shapes; `isSidechain`/`subagents/` double-count rule; scan cadence; `trigger_type`                                        | Touching `src/main/ingest/transcript-scanner.ts`                                                                                                                              |
 | `docs/data-model.md`        | `better-sqlite3`; index rebuild rule; no-FK join; plugin identity; Usage project identity; `usage-history.db` additive-only                  | Touching `src/main/db/` or plugin parsing                                                                                                                                     |
 | `docs/usage-analytics.md`   | Usage data sources; `cost-state` hazards and ingest; per-skill cost attribution; time placement; Resident tax                                | `src/main/ingest/` usage extraction, `src/main/db/` usage tables, or the Usage view                                                                                           |
+| `docs/mcp-servers.md`       | MCP sources and precedence; server identity; stored-config redaction; tool-call attribution; live check; MCP writes; non-goals               | Touching MCP scanning, MCP tool-call ingest, MCP queries or lint rules, or the MCP section                                                                                    |
 | `DESIGN.md`                 | Visual design system — colors, type, layout, elevation, shapes, components, app icon; the Usage chart rules and their departures             | Any `src/renderer/` UI work or app-icon change                                                                                                                                |
 | `docs/releases.md`          | Publishing on macOS/Windows: unsigned-by-default signing switch, Homebrew tap, `install.sh`, updater behavior, upgrade paths to paid signing | Touching `electron-builder.yml`, `scripts/release-*.mjs`, `scripts/install.sh`, the release/tap workflows, `src/main/updater.ts` or `mac-self-update.ts`; adding code signing |
 | `docs/environment-setup.md` | M0 install quirks (npm allowlist, silent `extract-zip` no-op)                                                                                | `npm run dev` failing with `Error: Electron uninstall`                                                                                                                        |

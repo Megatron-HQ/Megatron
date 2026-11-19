@@ -7,13 +7,17 @@ const database = {} as Database.Database
 
 describe('runAllScans', () => {
   it.each(['complete', 'partial'])(
-    'carries positive canonical evidence through %s and later failure',
+    'carries repo findings through %s and later failure',
     (status) => {
+      const findings = {
+        worktrees: [{ path: '/wt', canonical: '/a' }],
+        canonicalCheckouts: [{ path: '/a', repository: '1:2:3' }]
+      }
       const progress: ScanWorkerProgress[] = []
       const result = runAllScans(
         database,
         [
-          () => ({ status, canonicalCheckouts: [{ path: '/a', repository: '1:2:3' }] }),
+          () => ({ status, findings }),
           () => {
             throw new Error('later')
           }
@@ -21,11 +25,9 @@ describe('runAllScans', () => {
         undefined,
         (entry) => progress.push(entry)
       )
-      expect(result.canonicalCheckouts).toEqual([{ path: '/a', repository: '1:2:3' }])
-      expect(progress[1]).toMatchObject({
-        canonicalCheckouts: [{ path: '/a', repository: '1:2:3' }]
-      })
-      expect(runAllScans(database, [() => undefined]).canonicalCheckouts).toBeUndefined()
+      expect(result.findings).toEqual(findings)
+      expect(progress[1]).toMatchObject({ findings })
+      expect(runAllScans(database, [() => undefined]).findings).toBeUndefined()
     }
   )
   it('limits live inventory refreshes to inventory and linting sources', () => {
@@ -89,17 +91,6 @@ describe('runAllScans', () => {
     expect(runAllScans(database, [() => ({ status: 'complete', projects })])).toMatchObject({
       projects
     })
-  })
-
-  it('carries worktree links through progress and the worker summary', () => {
-    const worktrees = [{ path: '/HQ/app-feature', canonical: '/HQ/app' }]
-    const progress: ScanWorkerProgress[] = []
-    expect(
-      runAllScans(database, [() => ({ status: 'complete', worktrees })], undefined, (entry) =>
-        progress.push(entry)
-      )
-    ).toMatchObject({ worktrees })
-    expect(progress.at(-1)).toMatchObject({ worktrees })
   })
 
   it('passes source diagnostics through to the renderer summary', () => {

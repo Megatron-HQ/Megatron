@@ -8,6 +8,9 @@ import { applySchema } from '../db/schema'
 import { listSkills, getLintFindingsForSkill } from '../db/queries'
 import { grantPath, resetGrantedPaths } from '../permissions'
 import { runLinter } from './index'
+import { readProjectIdentity } from '../../shared/project-identity'
+
+const identity = readProjectIdentity({ locations: [], claudeCodeFolders: [] })
 
 describe('runLinter', () => {
   let db: Database.Database
@@ -33,7 +36,7 @@ describe('runLinter', () => {
     db.prepare(
       `INSERT INTO skills (name, source_type, source_path, last_scanned_at) VALUES ('demo', 'global', ?, '2026-10-01T00:00:00.000Z')`
     ).run(dir)
-    runLinter(db)
+    runLinter(db, identity)
     const before = db.prepare('SELECT * FROM lint_findings ORDER BY id').all()
     const read = permissions.readAllowedFile
     vi.spyOn(permissions, 'readAllowedFile').mockImplementation((file, limit) =>
@@ -41,7 +44,7 @@ describe('runLinter', () => {
         ? { status: 'unavailable', contents: null }
         : read(file, limit)
     )
-    expect(runLinter(db)).toMatchObject({ status: 'partial' })
+    expect(runLinter(db, identity)).toMatchObject({ status: 'partial' })
     expect(db.prepare('SELECT * FROM lint_findings ORDER BY id').all()).toEqual(before)
   })
 
@@ -70,13 +73,13 @@ describe('runLinter', () => {
        VALUES ('clean-skill', 'global', ?, NULL, 'Everything is good', ?)`
     ).run(skillDir2, new Date().toISOString())
 
-    const skills = listSkills(db)
+    const skills = listSkills(db, identity)
     expect(skills).toHaveLength(2)
 
     // Run linter
-    runLinter(db)
+    runLinter(db, identity)
 
-    const updatedSkills = listSkills(db)
+    const updatedSkills = listSkills(db, identity)
     const brokenSkill = updatedSkills.find((s) => s.name === 'broken-yaml')!
     const cleanSkill = updatedSkills.find((s) => s.name === 'clean-skill')!
 

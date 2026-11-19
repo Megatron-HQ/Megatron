@@ -36,6 +36,10 @@ _Avoid_: Config root, config folder, profile (a profile sounds like it survives 
 The read-only pass that walks every trusted or granted path across the three Skill Sources and reconciles the Index to match what's currently on disk — adding Skills that appeared, removing ones that vanished. Discovers what exists; does not judge it.
 _Avoid_: Sync (implies bidirectional — Megatron never writes back), Index (that's the destination of a Scan, not the act)
 
+**Repo**:
+One git repository, identified by the git dir its checkouts share. Has exactly one Canonical Checkout and any number of Worktrees; a separate clone is a separate Repo.
+_Avoid_: Project (a project folder need not hold git), clone
+
 **Canonical Checkout**:
 The one checkout of a repo that Megatron treats as that repo: the source of its Project Skills and the owner of its Usage. A normal repo's own folder; for a bare repo, the Worktree on the default branch (the branch the bare repo's `HEAD` names), else the one already chosen while it is still live, else the first live Worktree by path. Exactly one per repo.
 _Avoid_: Main checkout, main worktree (git's "main worktree" doesn't exist for a bare repo; ours always does), primary
@@ -57,6 +61,18 @@ _Avoid_: Conversation, chat
 **Transcript**:
 The on-disk record of a Session's turns, owned and formatted by Claude Code itself. Megatron reads it to derive Sessions and Skill Invocations; never edits it.
 _Avoid_: Log, history
+
+**Project Location**:
+One folder that Sessions ran in or that a Scan found, remembered under an identity that survives rediscovery at the same path.
+_Avoid_: Workspace, cwd, working directory (a Session's field, not the remembered folder)
+
+**Project Link**:
+One Project Location pointing at another: _proven_ when it joins a Worktree to its Canonical Checkout, _manual_ when the user made it. Project Skills follow only proven links; Usage follows both.
+_Avoid_: Link alone (also means a symlink, as under Claude Code Folder), alias
+
+**Usage Project**:
+A primary Project Location plus every Project Location linked to it, counted as one project in Usage and named after the primary.
+_Avoid_: Project alone (collides with the Project Skill Source), group
 
 **Prompt History**:
 Claude Code's `history.jsonl` in the Claude Code Folder — one line per prompt the user submitted, carrying the time, project, and Session id but **no Session turns and no Skill Invocations**. A separate data source from the Transcript. Claude Code prunes it to `cleanupPeriodDays` (~30 days by default), so Megatron's `prompt_history` mirror is capped by design — it is wiped and reloaded whole on every Scan, and stores no prompt text.
@@ -107,6 +123,32 @@ _Avoid_: Registry, repo — see Marketplace Repo, which is a different, resolved
 **Marketplace Repo**:
 The specific GitHub repository a Marketplace points to. Resolved independently of Plugin installation records; the deep-link target when a user wants to report a Plugin issue.
 _Avoid_: Marketplace (the Marketplace is the named registry; the Repo is one resolved fact about it, and can be absent even when the Marketplace isn't)
+
+### MCP
+
+**MCP Server**:
+One server Claude Code can connect to for tools, shown as one row however many places declare it: a configured name, a Plugin's `plugin:<plugin>:<server>`, a Connector, or an Observed Server. See `docs/mcp-servers.md`.
+_Avoid_: Connector (only the claude.ai kind), integration, tool (a server offers many tools)
+
+**Declaration**:
+One place that defines an MCP Server: an entry in local, project, or user scope, or in a Plugin. Several Declarations of the same server resolve by precedence, local > project > user > plugin > Connector, and the losers are Shadowed in that project.
+_Avoid_: Config, install, entry
+
+**Connector**:
+An MCP Server added to the user's claude.ai account and fetched by Claude Code at startup, named `claude.ai <Name>`. Never declared on disk, so Megatron knows one only from tool calls or a Live Check.
+_Avoid_: Integration, remote server (a configured server can be remote too)
+
+**Observed Server**:
+An MCP Server known only because a Transcript records calls to its tools, with no Declaration Megatron can read: a built-in, a Connector before any Live Check, a server from an ungranted repo, or one since removed.
+_Avoid_: Unknown server, orphan
+
+**MCP Tool Call**:
+One recorded call to an MCP Server's tool during a Session, kept as metadata only: which server and tool, when, whether it errored, and how large the result was. Never its input or result.
+_Avoid_: Invocation (that's a Skill's event), request
+
+**Live Check**:
+An on-demand run of `claude mcp list` the user asks for, reporting each MCP Server's connection status. It starts the user's approved servers, so it never runs on its own.
+_Avoid_: Health check (suggests a background poll), ping
 
 ### Linting
 

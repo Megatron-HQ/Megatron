@@ -21,6 +21,7 @@ describe('usage project labels', () => {
     }
     const catalog: UsageProjectCatalog = {
       locations: [root],
+      claudeCodeFolders: [],
       projects: [{ id: root.id, path: '/', label: '/', locations: [root], possibleMatches: [] }]
     }
     expect(createUsageProjectLabelResolver([], hierarchyResolver([]), catalog)('')).toBe(
@@ -43,6 +44,7 @@ describe('usage project labels', () => {
     }
     const catalog: UsageProjectCatalog = {
       locations: [old, current],
+      claudeCodeFolders: [],
       projects: [
         {
           id: 'current',

@@ -21,12 +21,7 @@ import {
   revokePath,
   setClaudeConfig
 } from '../permissions'
-import {
-  defaultSkillRoots,
-  findNestedSkillsDirs,
-  scanSkills,
-  type SkillRoot
-} from './skills-scanner'
+import { defaultSkillRoots, scanSkills, type SkillRoot } from './skills-scanner'
 import { scanPluginRegistry } from './plugin-registry'
 import { scanTranscripts } from './transcript-scanner'
 import { scanPromptHistory } from './prompt-history-scanner'
@@ -301,7 +296,7 @@ describe('live project reconciliation', () => {
     const after = scanSkills(db, undefined, userSettingsPath, before.projects)
 
     expect(projectRoots()).toEqual([])
-    expect(after.worktrees).toEqual([{ path: worktree, canonical: app }])
+    expect(after.findings?.worktrees).toEqual([{ path: worktree, canonical: app }])
   })
 
   it('retains cached skills for a missing individually granted project', () => {
@@ -1030,59 +1025,6 @@ describe('scanSkills model_invocable', () => {
 
     expect(allSkills()[0].model_invocable).toBe(1)
   })
-})
-
-describe('findNestedSkillsDirs', () => {
-  it('finds a nested .claude/skills directory below the repo root', () => {
-    const repoRoot = join(tmpDir, 'my-repo')
-    const nestedSkillsDir = join(repoRoot, 'apps', 'web', '.claude', 'skills')
-    mkdirSync(nestedSkillsDir, { recursive: true })
-
-    expect(findNestedSkillsDirs(repoRoot)).toEqual([nestedSkillsDir])
-  })
-
-  it('does not include the top-level .claude/skills directory itself', () => {
-    const repoRoot = join(tmpDir, 'my-repo')
-    mkdirSync(join(repoRoot, '.claude', 'skills'), { recursive: true })
-
-    expect(findNestedSkillsDirs(repoRoot)).toEqual([])
-  })
-
-  it('does not descend into a skip-listed directory such as node_modules', () => {
-    const repoRoot = join(tmpDir, 'my-repo')
-    mkdirSync(join(repoRoot, 'node_modules', 'some-pkg', '.claude', 'skills'), {
-      recursive: true
-    })
-
-    expect(findNestedSkillsDirs(repoRoot)).toEqual([])
-  })
-
-  it('does not treat a fixture buried inside a top-level skill as a nested root', () => {
-    const repoRoot = join(tmpDir, 'my-repo')
-    mkdirSync(
-      join(repoRoot, '.claude', 'skills', 'my-skill', 'references', '.claude', 'skills', 'fake'),
-      { recursive: true }
-    )
-
-    expect(findNestedSkillsDirs(repoRoot)).toEqual([])
-  })
-
-  it('returns an empty array without throwing when the repo root does not exist', () => {
-    const repoRoot = join(tmpDir, 'does-not-exist')
-    expect(() => findNestedSkillsDirs(repoRoot)).not.toThrow()
-    expect(findNestedSkillsDirs(repoRoot)).toEqual([])
-  })
-
-  it.skipIf(process.platform === 'win32')(
-    'terminates on a symlink cycle instead of hanging',
-    () => {
-      const repoRoot = join(tmpDir, 'my-repo')
-      mkdirSync(join(repoRoot, 'a'), { recursive: true })
-      symlinkSync(join(repoRoot, 'a'), join(repoRoot, 'a', 'loop'), 'dir')
-
-      expect(() => findNestedSkillsDirs(repoRoot)).not.toThrow()
-    }
-  )
 })
 
 describe('scanSkills under a CLAUDE_CONFIG_DIR folder', () => {

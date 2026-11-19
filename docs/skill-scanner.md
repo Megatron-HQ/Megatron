@@ -4,7 +4,7 @@ Owns which directories count as skill sources, how they are walked, and how a `S
 token-estimated, and linted. `CLAUDE.md` stays authoritative for repo-wide decisions; the decisions
 below are locked here.
 
-Implementation: `src/main/ingest/` (`skills-scanner.ts`, `project-discovery.ts`,
+Implementation: `src/main/ingest/` (`skills-scanner.ts`, `project-discovery.ts`, `git-repos.ts`,
 `plugin-registry.ts`, `plugin-components.ts`, `skill-parser.ts`) and `src/main/linter/`.
 
 ## Locked decisions

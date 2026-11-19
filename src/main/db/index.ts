@@ -5,6 +5,7 @@ import type Database from 'better-sqlite3'
 import { openIndex } from './schema'
 import { claudeConfig, securePrivateDataDirectory } from '../permissions'
 import { openUsageArchive, usageArchiveFilename } from './usage-archive'
+import { ownedDataFolder } from '../data-folder'
 
 let db: Database.Database | null = null
 let usageArchive: Database.Database | null = null
@@ -21,7 +22,7 @@ export function usageArchivePath(): string {
 export function getUsageArchive(): Database.Database {
   if (!usageArchive) {
     const directory = app.getPath('userData')
-    const ownedRoot = join(app.getPath('appData'), app.getName())
+    const ownedRoot = ownedDataFolder(app)
     securePrivateDataDirectory(directory, ownedRoot)
     usageArchive = openUsageArchive(usageArchivePath())
     securePrivateDataDirectory(directory, ownedRoot)
@@ -31,14 +32,14 @@ export function getUsageArchive(): Database.Database {
 
 export function getDb(): Database.Database {
   if (!db) {
-    securePrivateDataDirectory(app.getPath('userData'), join(app.getPath('appData'), app.getName()))
+    securePrivateDataDirectory(app.getPath('userData'), ownedDataFolder(app))
     const config = claudeConfig()
     const profile =
       config.canonicalDirectory === undefined
         ? config.directory
         : `${config.directory}\0${config.canonicalDirectory}`
     db = openIndex(join(app.getPath('userData'), 'megatron.db'), profile)
-    securePrivateDataDirectory(app.getPath('userData'), join(app.getPath('appData'), app.getName()))
+    securePrivateDataDirectory(app.getPath('userData'), ownedDataFolder(app))
   }
   return db
 }

@@ -59,7 +59,9 @@ universal build.
 - electron-builder is 26.x. Context7's default docs are v27, which renamed APIs; query the 26.x
   docs.
 - `package.json` has no `productName`, so `userData` is `~/Library/Application Support/megatron`
-  (lowercase); the cask's `zap` paths and `scripts/db.mjs` depend on it.
+  (lowercase); the cask's `zap` paths and `scripts/db.mjs` depend on it. Unpackaged runs use
+  `megatron-dev` (`src/main/data-folder.ts`), so a dev run of the bumped version on `staging` can't
+  mark that release's What's New seen for the installed app.
 - Homebrew 7 casks use `postflight_steps`; `brew style` rejects a legacy `postflight` block.
 - Unsigned builds strip `CSC_*` from the build environment, because electron-builder signs Windows
   whenever `CSC_LINK` is set.

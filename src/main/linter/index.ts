@@ -10,6 +10,7 @@ import { nameCollisionRule } from './rules/name-collision'
 import { readAllowedFile } from '../permissions'
 import { join } from 'path'
 import type { ScanTaskResult } from '../../shared/ipc'
+import type { ProjectIdentity } from '../../shared/project-identity'
 
 export const RULES: LintRule[] = [
   yamlFrontmatterRule,
@@ -19,10 +20,10 @@ export const RULES: LintRule[] = [
   nameCollisionRule
 ]
 
-export function runLinter(db: Database.Database): ScanTaskResult {
+export function runLinter(db: Database.Database, identity: ProjectIdentity): ScanTaskResult {
   const preservedSkillIds: number[] = []
   let partial = false
-  const rawSkills = listSkills(db)
+  const rawSkills = listSkills(db, identity)
   const skills: SkillLintTarget[] = rawSkills.map((s) => ({
     id: s.id,
     name: s.name,

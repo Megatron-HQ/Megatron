@@ -211,12 +211,13 @@ decisions live in `docs/` (see [Development documentation](#development-document
 
 ## Index location and recovery
 
-The database is `megatron.db` under Electron's user data directory. Default development locations:
+The database is `megatron.db` under Electron's user data directory. The installed app and
+`npm run dev` each have their own:
 
-| Platform | Directory                                 |
-| -------- | ----------------------------------------- |
-| macOS    | `~/Library/Application Support/megatron/` |
-| Windows  | `%APPDATA%\megatron\`                     |
+| Platform | Installed app                             | `npm run dev`                                 |
+| -------- | ----------------------------------------- | --------------------------------------------- |
+| macOS    | `~/Library/Application Support/megatron/` | `~/Library/Application Support/megatron-dev/` |
+| Windows  | `%APPDATA%\megatron\`                     | `%APPDATA%\megatron-dev\`                     |
 
 Use **Settings > Reveal data folder** to locate the active profile. Preferences are stored
 separately in that folder.

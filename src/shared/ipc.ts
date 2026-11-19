@@ -140,6 +140,14 @@ export interface CanonicalCheckout {
   repository?: string
 }
 
+// What one Scan proved about Repos; main's Project Identity owner records it.
+export interface RepoFindings {
+  // Every Worktree link seen this pass, from either side; see CONTEXT.md "Worktree".
+  worktrees: WorktreeLink[]
+  // Positive discovery evidence; unlike catalog repositories, these are never stand-ins.
+  canonicalCheckouts: CanonicalCheckout[]
+}
+
 export type SourceType = 'global' | 'project' | 'plugin'
 export type LintSeverity = 'error' | 'warning'
 export type LintStatus = 'error' | 'warning' | 'clean'
@@ -241,8 +249,7 @@ export type ScanWorkerProgress =
       type: 'source-complete'
       source: ScanSourceSummary
       projects?: ProjectFolder[]
-      worktrees?: WorktreeLink[]
-      canonicalCheckouts?: CanonicalCheckout[]
+      findings?: RepoFindings
     }
 
 export interface ScanProgress {
@@ -276,9 +283,7 @@ export interface ScanTaskResult {
   status: 'complete' | 'partial'
   issues?: ScanIssue[]
   projects?: ProjectFolder[]
-  worktrees?: WorktreeLink[]
-  // Positive discovery evidence; unlike catalog repositories, these are never stand-ins.
-  canonicalCheckouts?: CanonicalCheckout[]
+  findings?: RepoFindings
 }
 
 export interface ScanSummary {
@@ -287,10 +292,11 @@ export interface ScanSummary {
   sources: ScanSourceSummary[]
   isStartup?: boolean
   lastSuccessfulAt?: string | null
-  projects?: ProjectFolder[]
-  worktrees?: WorktreeLink[]
-  canonicalCheckouts?: CanonicalCheckout[]
 }
+
+// What the worker hands main; main records `projects` and `findings`, then sends only the summary
+// to the renderer.
+export type ScanResult = ScanSummary & { projects?: ProjectFolder[]; findings?: RepoFindings }
 
 export type FileStatus = 'ok' | 'too_large' | 'unreadable' | 'preview_limit'
 

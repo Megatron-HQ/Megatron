@@ -94,13 +94,28 @@ result is `NULL`.
 
 ## Usage project identity
 
-Usage keeps a persistent location registry in private `preferences.json` (`usageProjects`),
-independent of the index and the live folder catalog. Each location has a stable ID that survives
-rediscovery at the same path.
+Usage keeps a persistent registry of Project Locations in private `preferences.json`
+(`usageProjects`), independent of the index and the live folder catalog. Each Project Location has
+a stable ID that survives rediscovery at the same path. Terms (Repo, Project Location, Project
+Link, Usage Project) are in `CONTEXT.md`.
+
+- **One writer.** Main's owner (`src/main/project-identity.ts`) is the only code that reads or
+  writes `usageProjects`, and it holds the list in memory. Every other reader (the scan worker via
+  `workerData`, the renderer via the Usage catalog, main's queries) gets a plain snapshot and asks
+  it two questions through `readProjectIdentity` (`src/shared/project-identity.ts`):
+  `checkoutOf` for Project Skills (proven Project Links and Claude Code's worktree layout, never
+  manual links) and `usageProjectOf` for Usage (every link up to the primary).
+- **Reconcile at four moments only:** at startup once grants are restored, when the transcript or
+  prompt usage sources finish, when main records a Scan (reconcile, apply the Scan's repo findings,
+  reconcile again), and on link/unlink. Reads never write; availability status is computed live on
+  read. A reconcile that changes nothing writes nothing.
+- **Persist first.** A write reaches `preferences.json` before memory and the snapshot change, so
+  a failed write leaves both as they were. Scan-driven writes log the failure; link and unlink
+  errors go back to the renderer.
 
 - A working directory belongs to the deepest retained repository root. Parent-folder activity with
-  no owning repository is its own workspace. Separate clones stay independent: a matching name
-  never proves identity.
+  no owning repository is its own Usage Project. Separate clones are separate Repos: a matching
+  name never proves identity.
 - **Worktrees belong to their repository's Canonical Checkout** (terms in `CONTEXT.md`). A
   checkout's `.git` file identifies its administrative directory, whose `commondir` identifies
   the shared Git directory. If the admin directory is ungranted, `worktrees/<name>` in the
@@ -133,20 +148,21 @@ rediscovery at the same path.
   Claude Code Folder and `~/.claude`. Saved links inferred from the excluded layout are
   cleared. Git evidence takes precedence. Jujutsu workspaces and `git-new-workdir` supply
   no Git worktree evidence. Revisit Jujutsu if users report split Usage for one repository.
-- Usage stores `linkedTo` and `worktree: true` in preferences. Git evidence also records
-  `worktreeEvidence: "git"` so a proven link survives the layout cleanup. Project-skill scoping
-  follows Git links to the Canonical Checkout. Usage grouping can also follow the checkout's
-  manual link to another project. Source working directories remain intact. A worktree created
-  and pruned between scans can leave no evidence.
-- A confirmed link merges Usage identity only, applied at query time. It never rewrites source
+- Usage stores `linkedTo` in preferences; `worktree: true` marks a proven Project Link, any other
+  `linkedTo` is manual. Git evidence also records `worktreeEvidence: "git"` so a proven link
+  survives the layout cleanup. Project-skill scoping follows proven links to the Canonical
+  Checkout. Usage grouping can also follow the checkout's manual link to another Usage Project.
+  Source working directories remain intact. A worktree created and pruned between scans can leave
+  no evidence.
+- A manual Project Link merges Usage identity only, applied at query time. It never rewrites source
   records, changes skill or plugin ownership, or grants filesystem access, and unlinking restores
   separate totals without deleting anything. Linking has no UI yet; existing links stay intact.
 - A changed path or a matching name never proves a move. Missing folders and revoked grants keep
-  their identity and links; ungranted locations are never probed.
+  their identity and links; ungranted Project Locations are never probed.
 - Nothing is written into user repositories.
 - **Claude app chats.** A Claude desktop chat started without a folder runs in
   `<Claude app data>/scratch-workspaces/<id>/<id>/scratch-YYYY-MM-DD-<hex>`
-  (`isClaudeAppScratchPath`). It stays an ordinary location, but the catalog marks it as a chat at
+  (`isClaudeAppScratchPath`). It stays an ordinary Project Location, but the catalog marks it as a chat at
   read time with its title and earliest known start, and grant suggestions skip it: Megatron never
   asks to read Claude's app data. Titles (`sessions_meta.title`: last custom title, else last AI
   title) live in the index only. They are never written to `preferences.json` or the archive,

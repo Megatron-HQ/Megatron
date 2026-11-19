@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { normalizeProjectPath } from '../../../shared/project-path'
-import { resolveUsageProjectPath } from '../../../shared/usage-projects'
+import { readProjectIdentity } from '../../../shared/project-identity'
 import type { UsageProjectCatalog } from '../../../shared/usage-projects'
 import type { ProjectLabelResolver } from './project-tree'
 import { createUsageProjectLabelResolver } from './usage-project-label'
@@ -23,9 +23,10 @@ export function useUsageProjects(): UseQueryResult<UsageProjectCatalog> & {
     () => createUsageProjectLabelResolver([], hierarchy, query.data),
     [hierarchy, query.data]
   )
+  const identity = useMemo(() => query.data && readProjectIdentity(query.data), [query.data])
   const projectTooltip = (path: string): string => {
-    if (!query.data) return path
-    const root = normalizeProjectPath(resolveUsageProjectPath(path, query.data.locations))
+    if (!query.data || !identity) return path
+    const root = normalizeProjectPath(identity.usageProjectOf(path)?.path ?? path)
     const project = query.data.projects.find((entry) => normalizeProjectPath(entry.path) === root)
     if (!project) return path
     if (project.chat)

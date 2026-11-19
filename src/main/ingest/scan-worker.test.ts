@@ -265,11 +265,11 @@ describe('isolated scans', () => {
     expect(await replacement).toEqual(summary)
   })
 
-  it('keeps worktree links from a finished source when a later source times out', async () => {
+  it('keeps repo findings from a finished source when a later source times out', async () => {
     const task = api.startScanWorker(
       workerUrl(`
       import { parentPort } from 'node:worker_threads';
-      parentPort.postMessage({ type: 'source-complete', source: { name: 'scanSkills', status: 'complete' }, worktrees: [{ path: '/wt', canonical: '/app' }], canonicalCheckouts: [{ path: '/app', repository: '1:2:3' }] });
+      parentPort.postMessage({ type: 'source-complete', source: { name: 'scanSkills', status: 'complete' }, findings: { worktrees: [{ path: '/wt', canonical: '/app' }], canonicalCheckouts: [{ path: '/app', repository: '1:2:3' }] } });
       parentPort.postMessage({ type: 'source-started', name: 'runLinter' });
       while (true) {}
     `),
@@ -278,8 +278,10 @@ describe('isolated scans', () => {
     )
     await expect(task.result).rejects.toMatchObject({
       summary: {
-        worktrees: [{ path: '/wt', canonical: '/app' }],
-        canonicalCheckouts: [{ path: '/app', repository: '1:2:3' }]
+        findings: {
+          worktrees: [{ path: '/wt', canonical: '/app' }],
+          canonicalCheckouts: [{ path: '/app', repository: '1:2:3' }]
+        }
       }
     })
   })

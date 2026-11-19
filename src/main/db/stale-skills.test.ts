@@ -1,7 +1,8 @@
 import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ScanSourceSummary, WorktreeLink } from '../../shared/ipc'
-import { listSkills, setWorktreeLinkSource } from './queries'
+import { listSkills } from './queries'
+import { readProjectIdentity } from '../../shared/project-identity'
 import { applySchema } from './schema'
 import { findStaleSkillIds, recordPluginSkillSightings, usageDataTrusted } from './stale-skills'
 import { openUsageArchive } from './usage-archive'
@@ -133,9 +134,9 @@ function seen(plugin: string, skill: string, at: string): void {
 // Both sides read the same links, as in the app: listSkills for invocations, findStaleSkillIds for
 // opportunity.
 function staleSkills(links: WorktreeLink[] = []): string[] {
-  setWorktreeLinkSource(() => links)
-  const skills = listSkills(index)
-  const ids = findStaleSkillIds(index, archive, skills, links)
+  const identity = readProjectIdentity({ locations: [], claudeCodeFolders: [] }, links)
+  const skills = listSkills(index, identity)
+  const ids = findStaleSkillIds(index, archive, skills, identity)
   return skills
     .filter((skill) => ids.has(skill.id))
     .map((skill) => `${skill.source_type}/${skill.name}`)
