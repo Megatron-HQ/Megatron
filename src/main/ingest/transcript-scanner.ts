@@ -42,6 +42,20 @@ export interface TranscriptInvocation {
   preceding_user_text: string | null
 }
 
+export interface McpToolCall {
+  tool_use_id: string
+  session_id: string
+  cwd: string | null
+  qualified_name: string
+  invoked_at: string
+  agent_id: string | null
+  is_error: 0 | 1 | null
+  // The user's permission rules or auto mode refused the call: an error that isn't the server's.
+  is_denied: 0 | 1 | null
+  result_chars: number | null
+  result_images: number | null
+}
+
 interface InvocationCandidate {
   invocation: TranscriptInvocation
   source: 'structured' | 'attribution'
@@ -58,8 +72,8 @@ const TITLE_MAX_CHARS = 200
 // 7→8: reject incomplete reads and reconcile replayed turns after owner changes;
 // 8→9: normalize timestamps, reject invalid counters, keep sidechain users out of main-chain
 // attribution; 9→10: filename session identity, cost-state startTime, per-session turn
-// membership (fork lineage), session titles.
-const TRANSCRIPT_PARSER_VERSION = 10
+// membership (fork lineage), session titles; 10→11: MCP tool calls.
+const TRANSCRIPT_PARSER_VERSION = 11
 
 function truncatePrecedingText(text: string | null): string | null {
   return text === null ? null : text.slice(0, PRECEDING_TEXT_MAX_CHARS)
@@ -69,6 +83,7 @@ export interface TranscriptParse {
   session: TranscriptSession | null
   invocations: TranscriptInvocation[]
   turns: TurnUsageRow[]
+  mcpCalls: McpToolCall[]
   // The last cost-state line's parsed shape, or null when the transcript has none (pre-v2.1.241
   // history). Main transcripts only — subagent cost is already inside the parent's total.
   cost: SessionCost | null
@@ -78,6 +93,39 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+const MCP_TOOL_PREFIX = 'mcp__'
+const MCP_NAME_SEPARATOR = '__'
+
+// `mcp__<server prefix>__<tool>` with both parts present. Where the prefix ends is left to the MCP
+// queries: a sanitized prefix can itself hold `__` (docs/mcp-servers.md, Tool-call attribution).
+function isMcpToolName(name: unknown): name is string {
+  if (typeof name !== 'string' || !name.startsWith(MCP_TOOL_PREFIX)) return false
+  const qualified = name.slice(MCP_TOOL_PREFIX.length)
+  const separator = qualified.indexOf(MCP_NAME_SEPARATOR)
+  return separator > 0 && qualified.length > separator + MCP_NAME_SEPARATOR.length
+}
+
+// A result is reduced to its size the moment its line is read, so no output is ever retained.
+function compactToolResult(block: Record<string, unknown>): Record<string, unknown> {
+  const parts = typeof block.content === 'string' ? [block.content] : block.content
+  let resultChars = 0
+  let resultImages = 0
+  if (Array.isArray(parts))
+    for (const part of parts) {
+      if (typeof part === 'string') resultChars += part.length
+      else if (isRecord(part) && part.type === 'text' && typeof part.text === 'string')
+        resultChars += part.text.length
+      else if (isRecord(part) && part.type === 'image') resultImages += 1
+    }
+  return {
+    type: 'tool_result',
+    tool_use_id: block.tool_use_id,
+    is_error: block.is_error === true,
+    result_chars: resultChars,
+    result_images: resultImages
+  }
+}
+
 function compactRecord(record: Record<string, unknown>): Record<string, unknown> {
   if (record.type !== 'user' && record.type !== 'assistant') return record
   const message = record.message
@@ -85,8 +133,11 @@ function compactRecord(record: Record<string, unknown>): Record<string, unknown>
 
   const content = message.content.flatMap((block): Record<string, unknown>[] => {
     if (!isRecord(block)) return []
-    if (block.type === 'tool_result') return [{ type: 'tool_result' }]
+    if (block.type === 'tool_result') return [compactToolResult(block)]
     if (block.type === 'tool_use' && block.name === 'Skill') return [block]
+    // An MCP call's input can hold SQL, mail, or file contents: only its id and name are kept.
+    if (block.type === 'tool_use' && isMcpToolName(block.name))
+      return [{ type: 'tool_use', id: block.id, name: block.name }]
     if (block.type === 'text' && typeof block.text === 'string') {
       return [
         block.text.includes(BASE_DIRECTORY_MARKER)
@@ -429,29 +480,83 @@ function extractInvocations(
     .map((candidate) => candidate.invocation)
 }
 
+// Same double-count rule as Skill invocations (docs/transcript-ingest.md): a main transcript's
+// interleaved sidechain records duplicate its subagent files, which are read in full.
+function extractMcpCalls(
+  records: Record<string, unknown>[],
+  agentId: string | null = null
+): McpToolCall[] {
+  const results = new Map<string, { block: Record<string, unknown>; denied: boolean }>()
+  for (const record of records) {
+    // Only the user record holds the real result: an `api-request-blob` (the recorded request)
+    // repeats earlier results without the record's toolDenialKind.
+    if (record.type !== 'user') continue
+    const content = isRecord(record.message) ? record.message.content : null
+    if (!Array.isArray(content)) continue
+    for (const block of content)
+      if (isRecord(block) && block.type === 'tool_result' && typeof block.tool_use_id === 'string')
+        results.set(block.tool_use_id, { block, denied: record.toolDenialKind !== undefined })
+  }
+
+  const calls: McpToolCall[] = []
+  for (const record of records) {
+    if (agentId === null && record.isSidechain !== false) continue
+    if (record.type !== 'assistant' || !isRecord(record.message)) continue
+    const content = record.message.content
+    const sessionId = record.sessionId
+    const invokedAt = normalizeTranscriptTimestamp(record.timestamp)
+    if (!Array.isArray(content) || typeof sessionId !== 'string' || typeof invokedAt !== 'string')
+      continue
+    for (const block of content) {
+      if (!isRecord(block) || block.type !== 'tool_use' || !isMcpToolName(block.name)) continue
+      if (typeof block.id !== 'string' || block.id === '') continue
+      const paired = results.get(block.id)
+      const result = paired?.block
+      calls.push({
+        tool_use_id: block.id,
+        session_id: sessionId,
+        cwd: typeof record.cwd === 'string' ? record.cwd : null,
+        qualified_name: block.name.slice(MCP_TOOL_PREFIX.length),
+        invoked_at: invokedAt,
+        agent_id: agentId,
+        is_error: result === undefined ? null : result.is_error === true ? 1 : 0,
+        is_denied: paired === undefined ? null : paired.denied ? 1 : 0,
+        result_chars: result === undefined ? null : (result.result_chars as number),
+        result_images: result === undefined ? null : (result.result_images as number)
+      })
+    }
+  }
+  return calls
+}
+
 export function parseTranscript(
   filePath: string,
   limits = DEFAULT_TRANSCRIPT_LIMITS
 ): TranscriptParse {
   if (!isPathAllowed(filePath)) {
-    return { session: null, invocations: [], turns: [], cost: null }
+    return { session: null, invocations: [], turns: [], mcpCalls: [], cost: null }
   }
 
   const records = parseLines(filePath, limits)
   if (records === null) {
-    return { session: null, invocations: [], turns: [], cost: null }
+    return { session: null, invocations: [], turns: [], mcpCalls: [], cost: null }
   }
   let cost: SessionCost | null
   try {
     cost = extractCostState(records)
   } catch (error) {
     if (!(error instanceof InvalidCostStateError)) throw error
-    return { session: null, invocations: [], turns: [], cost: null }
+    return { session: null, invocations: [], turns: [], mcpCalls: [], cost: null }
   }
   const session = extractSession(records, basename(filePath, '.jsonl'))
   return {
     session,
-    ...keyedTo(session?.session_id ?? null, extractInvocations(records), extractTurnUsage(records)),
+    ...keyedTo(
+      session?.session_id ?? null,
+      extractInvocations(records),
+      extractTurnUsage(records),
+      extractMcpCalls(records)
+    ),
     cost
   }
 }
@@ -462,18 +567,21 @@ export function parseTranscript(
 function keyedTo(
   sessionId: string | null,
   invocations: TranscriptInvocation[],
-  turns: TurnUsageRow[]
-): { invocations: TranscriptInvocation[]; turns: TurnUsageRow[] } {
-  if (sessionId === null) return { invocations, turns }
+  turns: TurnUsageRow[],
+  mcpCalls: McpToolCall[]
+): SubagentParse {
+  if (sessionId === null) return { invocations, turns, mcpCalls }
   return {
     invocations: invocations.map((row) => ({ ...row, session_id: sessionId })),
-    turns: turns.map((row) => ({ ...row, session_id: sessionId }))
+    turns: turns.map((row) => ({ ...row, session_id: sessionId })),
+    mcpCalls: mcpCalls.map((row) => ({ ...row, session_id: sessionId }))
   }
 }
 
 interface SubagentParse {
   invocations: TranscriptInvocation[]
   turns: TurnUsageRow[]
+  mcpCalls: McpToolCall[]
 }
 
 function parseSubagent(filePath: string): SubagentParse | null {
@@ -485,7 +593,8 @@ function parseSubagent(filePath: string): SubagentParse | null {
   return keyedTo(
     basename(dirname(dirname(filePath))),
     extractInvocations(records, agentId),
-    extractTurnUsage(records, agentId)
+    extractTurnUsage(records, agentId),
+    extractMcpCalls(records, agentId)
   )
 }
 
@@ -501,22 +610,26 @@ interface TranscriptSource {
   subagent: boolean
 }
 
-function reconcileReplayedInvocations(
-  db: Database.Database,
-  previous: TranscriptInvocation[],
-  parsed: TranscriptInvocation[],
+// A globally keyed row (skill invocation, MCP call) deleted with its first owner's rescan is
+// re-inserted from another session that also holds it: one parsed this Scan, else an unchanged one.
+interface ReplayedRows<Row> {
+  label: string
+  keyOf: (row: Row) => string
+  isIndexed: (key: string) => boolean
+  insert: (row: Row) => void
+  rowsOf: (parse: SubagentParse) => Row[]
+}
+
+function reconcileReplayedRows<Row>(
+  previous: Row[],
+  parsed: Row[],
   unchanged: TranscriptSource[],
-  insert: Database.Statement
+  rows: ReplayedRows<Row>
 ): void {
-  const indexed = db.prepare('SELECT 1 FROM skill_invocations WHERE source_uuid = ?')
-  let missing = new Set(
-    previous
-      .filter((row) => indexed.get(row.source_uuid) === undefined)
-      .map((row) => row.source_uuid)
-  )
-  const restore = (rows: TranscriptInvocation[]): void => {
-    for (const row of rows) if (missing.has(row.source_uuid)) insert.run(row)
-    missing = new Set([...missing].filter((uuid) => indexed.get(uuid) === undefined))
+  let missing = new Set(previous.map(rows.keyOf).filter((key) => !rows.isIndexed(key)))
+  const restore = (candidates: Row[]): void => {
+    for (const row of candidates) if (missing.has(rows.keyOf(row))) rows.insert(row)
+    missing = new Set([...missing].filter((key) => !rows.isIndexed(key)))
   }
   restore(parsed)
   for (const source of unchanged) {
@@ -525,9 +638,9 @@ function reconcileReplayedInvocations(
       ? parseSubagent(source.filePath)
       : parseTranscript(source.filePath)
     if (replay === null || ('session' in replay && replay.session === null)) {
-      throw new Error(`Unable to reconcile replayed invocations from ${source.filePath}`)
+      throw new Error(`Unable to reconcile replayed ${rows.label} from ${source.filePath}`)
     }
-    restore(replay.invocations)
+    restore(rows.rowsOf(replay))
   }
 }
 
@@ -604,6 +717,30 @@ export function scanTranscripts(
   `)
 
   const deleteSessionInvocations = db.prepare('DELETE FROM skill_invocations WHERE session_id = ?')
+  const insertMcpCall = db.prepare(`
+    INSERT OR IGNORE INTO mcp_tool_calls
+      (tool_use_id, session_id, cwd, qualified_name, invoked_at, agent_id, is_error, is_denied,
+       result_chars, result_images)
+    VALUES (@tool_use_id, @session_id, @cwd, @qualified_name, @invoked_at, @agent_id, @is_error,
+      @is_denied, @result_chars, @result_images)
+  `)
+  const deleteSessionMcpCalls = db.prepare('DELETE FROM mcp_tool_calls WHERE session_id = ?')
+  const indexedInvocation = db.prepare('SELECT 1 FROM skill_invocations WHERE source_uuid = ?')
+  const indexedMcpCall = db.prepare('SELECT 1 FROM mcp_tool_calls WHERE tool_use_id = ?')
+  const replayedInvocations: ReplayedRows<TranscriptInvocation> = {
+    label: 'invocations',
+    keyOf: (row) => row.source_uuid,
+    isIndexed: (key) => indexedInvocation.get(key) !== undefined,
+    insert: (row) => insertInvocation.run(row),
+    rowsOf: (parse) => parse.invocations
+  }
+  const replayedMcpCalls: ReplayedRows<McpToolCall> = {
+    label: 'MCP calls',
+    keyOf: (row) => row.tool_use_id,
+    isIndexed: (key) => indexedMcpCall.get(key) !== undefined,
+    insert: (row) => insertMcpCall.run(row),
+    rowsOf: (parse) => parse.mcpCalls
+  }
   const deleteSessionTurns = db.prepare('DELETE FROM turn_usage WHERE session_id = ?')
   const getSessionTurns = db.prepare('SELECT * FROM turn_usage WHERE session_id = ?')
 
@@ -660,6 +797,8 @@ export function scanTranscripts(
     const parsedTurns: TurnUsageRow[] = []
     const previousInvocations: TranscriptInvocation[] = []
     const parsedInvocations: TranscriptInvocation[] = []
+    const previousMcpCalls: McpToolCall[] = []
+    const parsedMcpCalls: McpToolCall[] = []
     const unchangedSources: TranscriptSource[] = []
 
     const projectsDirectory = readAllowedDirectory(projectsDir)
@@ -761,6 +900,11 @@ export function scanTranscripts(
             .prepare('SELECT * FROM skill_invocations WHERE session_id = ?')
             .all(parsed.session.session_id) as TranscriptInvocation[])
         )
+        previousMcpCalls.push(
+          ...(db
+            .prepare('SELECT * FROM mcp_tool_calls WHERE session_id = ?')
+            .all(parsed.session.session_id) as McpToolCall[])
+        )
         upsertSession.run({
           ...parsed.session,
           source_mtime_ms: mtimeMs,
@@ -768,6 +912,7 @@ export function scanTranscripts(
           transcript_parser_version: TRANSCRIPT_PARSER_VERSION
         })
         deleteSessionInvocations.run(parsed.session.session_id)
+        deleteSessionMcpCalls.run(parsed.session.session_id)
         deleteSessionTurns.run(parsed.session.session_id)
         deleteSessionTurnKeys.run(parsed.session.session_id)
         deleteSessionCost.run(parsed.session.session_id)
@@ -792,8 +937,16 @@ export function scanTranscripts(
           insertSessionTurnKey.run(turn.session_id, turn.logical_turn_key)
           parsedTurns.push(turn)
         }
+        for (const call of parsed.mcpCalls) {
+          insertMcpCall.run(call)
+          parsedMcpCalls.push(call)
+        }
         for (const subagent of subagents) {
           if (subagent === null) continue
+          for (const call of subagent.mcpCalls) {
+            insertMcpCall.run(call)
+            parsedMcpCalls.push(call)
+          }
           for (const invocation of subagent.invocations) {
             insertInvocation.run(invocation)
             parsedInvocations.push(invocation)
@@ -809,13 +962,13 @@ export function scanTranscripts(
 
     assertConfigRootAvailable()
     if (!scanIsAuthoritative) {
-      reconcileReplayedInvocations(
-        db,
+      reconcileReplayedRows(
         previousInvocations,
         parsedInvocations,
         unchangedSources,
-        insertInvocation
+        replayedInvocations
       )
+      reconcileReplayedRows(previousMcpCalls, parsedMcpCalls, unchangedSources, replayedMcpCalls)
       reconcileReplayedTurns(db, previousTurns, parsedTurns, unchangedSources, insertTurn)
       rebuildCostLineages(db)
       rebuildSessionSkillCosts(db)
@@ -826,6 +979,7 @@ export function scanTranscripts(
     // parent row can't go first. session_model_cost follows session_cost via cascade.
     if (seenSessionIds.size === 0) {
       db.prepare('DELETE FROM skill_invocations').run()
+      db.prepare('DELETE FROM mcp_tool_calls').run()
       db.prepare('DELETE FROM turn_usage').run()
       db.prepare('DELETE FROM session_cost').run()
       db.prepare('DELETE FROM sessions_meta').run()
@@ -836,12 +990,20 @@ export function scanTranscripts(
           .prepare(`SELECT * FROM skill_invocations WHERE session_id NOT IN (${placeholders})`)
           .all(...seenSessionIds) as TranscriptInvocation[])
       )
+      previousMcpCalls.push(
+        ...(db
+          .prepare(`SELECT * FROM mcp_tool_calls WHERE session_id NOT IN (${placeholders})`)
+          .all(...seenSessionIds) as McpToolCall[])
+      )
       previousTurns.push(
         ...(db
           .prepare(`SELECT * FROM turn_usage WHERE session_id NOT IN (${placeholders})`)
           .all(...seenSessionIds) as TurnUsageRow[])
       )
       db.prepare(`DELETE FROM skill_invocations WHERE session_id NOT IN (${placeholders})`).run(
+        ...seenSessionIds
+      )
+      db.prepare(`DELETE FROM mcp_tool_calls WHERE session_id NOT IN (${placeholders})`).run(
         ...seenSessionIds
       )
       db.prepare(`DELETE FROM turn_usage WHERE session_id NOT IN (${placeholders})`).run(
@@ -854,13 +1016,13 @@ export function scanTranscripts(
         ...seenSessionIds
       )
     }
-    reconcileReplayedInvocations(
-      db,
+    reconcileReplayedRows(
       previousInvocations,
       parsedInvocations,
       unchangedSources,
-      insertInvocation
+      replayedInvocations
     )
+    reconcileReplayedRows(previousMcpCalls, parsedMcpCalls, unchangedSources, replayedMcpCalls)
     reconcileReplayedTurns(db, previousTurns, parsedTurns, unchangedSources, insertTurn)
     rebuildCostLineages(db)
     rebuildSessionSkillCosts(db)
