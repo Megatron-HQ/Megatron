@@ -7,6 +7,7 @@ import * as permissions from '../permissions'
 import { applySchema } from '../db/schema'
 import { grantPath, resetGrantedPaths, revokePath } from '../permissions'
 import { scanPluginRegistry } from './plugin-registry'
+import { mcpEndpointKey } from './mcp-server-config'
 import { createProjectIdentity } from '../project-identity'
 import { createGitRepos, type GitRepos } from './git-repos'
 import type { WorktreeLink } from '../../shared/ipc'
@@ -901,6 +902,31 @@ describe('scanPluginRegistry', () => {
         source_path: join(installPath, '.mcp.json')
       }
     ])
+  })
+
+  // docs/mcp-servers.md, Endpoint comparison: the MCP scan compares these in the same Scan.
+  it('hands each MCP server endpoint to the collector without storing it', () => {
+    const installPath = join(tmpDir, 'install-a')
+    mkdirSync(installPath)
+    writeFileSync(
+      join(installPath, '.mcp.json'),
+      JSON.stringify({
+        api: { type: 'http', url: 'https://API.dev/x/?token=secret' },
+        broken: { url: 'https://skipped.dev' }
+      })
+    )
+    writeInstalledPlugins({
+      plugins: { 'plugin-a@market-1': [{ scope: 'user', installPath, version: '1.0.0' }] }
+    })
+    const endpoints = new Map<string, string>()
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath, undefined, endpoints)
+
+    expect([...endpoints.keys()]).toEqual([`${installPath}\0api`])
+    expect(endpoints.get(`${installPath}\0api`)).toBe(
+      mcpEndpointKey({ type: 'http', url: 'https://api.dev/x?token=secret' })
+    )
+    expect(JSON.stringify(allComponents())).not.toContain('secret')
   })
 
   it('keeps cached components and hook events when the install becomes unreadable', () => {

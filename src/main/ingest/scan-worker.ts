@@ -6,6 +6,7 @@ import { scanSkills as runSkillScan } from './skills-scanner'
 import type { ProjectFolder } from '../../shared/ipc'
 import { readProjectIdentity, type ProjectIdentitySnapshot } from '../../shared/project-identity'
 import { scanPluginRegistry } from './plugin-registry'
+import { scanMcpDeclarations } from './mcp-declarations'
 import { createGitRepos } from './git-repos'
 import { scanTranscripts as runTranscriptScan } from './transcript-scanner'
 import { scanPromptHistory as runPromptScan } from './prompt-history-scanner'
@@ -46,6 +47,8 @@ const usageScans = createUsageScanTasks({
 })
 // One per Scan: the skills and plugin tasks share its git reads and this Scan's links.
 const repos = createGitRepos(projectIdentity)
+// Filled by the plugin pass and read by the MCP pass; holds credentials, so it never leaves here.
+const pluginMcpEndpoints = new Map<string, string>()
 let sourceStartedAt = 0
 try {
   const summary = runAllScans(
@@ -59,7 +62,16 @@ try {
       },
       {
         name: 'scanPluginRegistry',
-        run: (db: Database.Database) => scanPluginRegistry(db, undefined, undefined, repos)
+        run: (db: Database.Database) =>
+          scanPluginRegistry(db, undefined, undefined, repos, pluginMcpEndpoints)
+      },
+      {
+        name: 'scanMcpDeclarations',
+        run: (db: Database.Database) =>
+          scanMcpDeclarations(db, {
+            candidateProjects: previousProjects.map((project) => project.path),
+            pluginEndpoints: pluginMcpEndpoints
+          })
       },
       // Not gated on the registry scan's status: leftover index rows are still real sightings,
       // and recording one late only delays a 30-day signal. Full scans only (selectScanTasks).

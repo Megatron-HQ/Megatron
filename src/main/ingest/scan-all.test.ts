@@ -38,15 +38,19 @@ describe('runAllScans', () => {
       'archivePrompts',
       'scanSkills',
       'scanPluginRegistry',
+      'scanMcpDeclarations',
       'runLinter'
     ].map((name) => ({ name, run: () => undefined }))
     expect(selectScanTasks('inventory', tasks).map((task) => task.name)).toEqual([
       'scanSkills',
       'scanPluginRegistry',
+      'scanMcpDeclarations',
       'runLinter'
     ])
+    // A plugin change moves which plugin MCP servers duplicate a Declaration.
     expect(selectScanTasks('plugins', tasks).map((task) => task.name)).toEqual([
-      'scanPluginRegistry'
+      'scanPluginRegistry',
+      'scanMcpDeclarations'
     ])
     expect(selectScanTasks('all', tasks)).toEqual(tasks)
   })

@@ -9,6 +9,7 @@ import {
   readAllowedFile
 } from '../permissions'
 import { isRecord, readJson } from './claude-settings'
+import { mcpEndpointKey, summarizeMcpServer, type McpConfigProblem } from './mcp-server-config'
 import { parseFrontmatter } from './skill-parser'
 
 export type ResolvedComponent = Omit<PluginComponent, 'install_path'>
@@ -23,6 +24,9 @@ export interface PluginComponentsRead {
   // cached rows rather than replacing them with a partial set (docs/skill-scanner.md).
   status: 'ok' | 'unavailable'
   components: ResolvedComponent[]
+  // MCP server name -> endpoint key, for comparison during this Scan only: it holds the full URL
+  // or command line, credentials included, so it stays out of `components`, which get stored.
+  mcpEndpoints?: ReadonlyMap<string, string>
 }
 
 interface Declaration {
@@ -152,31 +156,16 @@ function resolveCommands(root: string, declarations: Declaration[]): ResolvedCom
   })
 }
 
-function urlHost(url: string): string | null {
-  try {
-    const { host } = new URL(url)
-    // An unexpanded `${VAR}` can parse into a host; show nothing rather than a fragment of it.
-    return /^[\w.-]+(:\d+)?$/.test(host) ? host : null
-  } catch {
-    return null
-  }
-}
-
-// ponytail: cut at the first space so inline args never leak; a command path with a space in it
-// shows only its first word. Parse the path properly if a real plugin ships one.
-function commandName(command: string): string | null {
-  const program = command.trim().split(/\s+/)[0]
-  return program.split(/[\\/]/).pop() || null
+const PROBLEM_LABEL: Partial<Record<McpConfigProblem, string>> = {
+  url_without_type: 'missing type',
+  unknown_type: 'unknown type'
 }
 
 // Configs in the wild inline credentials, so only the transport and the host or program are kept.
 function mcpDetail(config: Record<string, unknown>): string | null {
-  const command = typeof config.command === 'string' ? config.command : null
-  const url = typeof config.url === 'string' ? config.url : null
-  const transport =
-    typeof config.type === 'string' ? config.type : command ? 'stdio' : url ? 'http' : null
-  const where = url ? urlHost(url) : command ? commandName(command) : null
-  return [transport, where].filter(Boolean).join(' · ') || null
+  const { transport, problem, location } = summarizeMcpServer(config)
+  const kind = transport ?? (problem === null ? null : (PROBLEM_LABEL[problem] ?? null))
+  return [kind, location].filter(Boolean).join(' · ') || null
 }
 
 function isBundle(declared: string): boolean {
@@ -197,15 +186,23 @@ function extractedBundleName(root: string, declared: string): string | null {
     : null
 }
 
-function resolveMcp(root: string, declarations: Declaration[]): ResolvedComponent[] {
+function resolveMcp(
+  root: string,
+  declarations: Declaration[]
+): { components: ResolvedComponent[]; endpoints: Map<string, string> } {
   const servers = new Map<string, ResolvedComponent>()
+  const endpoints = new Map<string, string>()
   const addMap = (map: unknown, origin: string): void => {
     // `.mcp.json` and a referenced file may wrap the map in `mcpServers` or not.
     const flat = isRecord(map) && isRecord(map.mcpServers) ? map.mcpServers : map
     if (!isRecord(flat)) return
-    for (const [name, config] of Object.entries(flat))
-      if (isRecord(config))
-        servers.set(name, { kind: 'mcp', name, detail: mcpDetail(config), source_path: origin })
+    for (const [name, config] of Object.entries(flat)) {
+      if (!isRecord(config)) continue
+      servers.set(name, { kind: 'mcp', name, detail: mcpDetail(config), source_path: origin })
+      const endpoint = mcpEndpointKey(config)
+      if (endpoint === null) endpoints.delete(name)
+      else endpoints.set(name, endpoint)
+    }
   }
 
   const defaultPath = join(root, '.mcp.json')
@@ -225,12 +222,13 @@ function resolveMcp(root: string, declarations: Declaration[]): ResolvedComponen
           extractedBundleName(root, item) ??
           basename(remote ? new URL(item).pathname : item).replace(/\.(mcpb|dxt)$/, '')
         servers.set(name, { kind: 'mcp', name, detail: 'bundle', source_path: path ?? origin })
+        endpoints.delete(name)
         continue
       }
       const path = insideRoot(root, item)
       if (path !== null) addMap(readJsonValue(path), path)
     }
-  return [...servers.values()]
+  return { components: [...servers.values()], endpoints }
 }
 
 function resolveHooks(root: string, declarations: Declaration[]): ResolvedComponent[] {
@@ -311,12 +309,14 @@ export function resolvePluginComponents(
       ...(appends ? fromEntry(key) : [])
     ]
 
+    const mcp = resolveMcp(root, [...own('mcpServers'), ...fromEntry('mcpServers')])
     return {
       status: 'ok',
+      mcpEndpoints: mcp.endpoints,
       components: [
         ...resolveAgents(root, appended('agents')),
         ...resolveCommands(root, appended('commands')),
-        ...resolveMcp(root, [...own('mcpServers'), ...fromEntry('mcpServers')]),
+        ...mcp.components,
         // An entry's hooks load only in the inline object form.
         ...resolveHooks(root, [
           ...own('hooks'),

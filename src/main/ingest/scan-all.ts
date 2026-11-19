@@ -255,12 +255,19 @@ export type ScanTask =
       run: (db: Database.Database) => unknown
     }
 
-const INVENTORY_SOURCES = new Set(['scanSkills', 'scanPluginRegistry', 'runLinter'])
+const INVENTORY_SOURCES = new Set([
+  'scanSkills',
+  'scanPluginRegistry',
+  'scanMcpDeclarations',
+  'runLinter'
+])
+// The MCP pass follows a plugin change: it decides which plugin servers duplicate a Declaration.
+const PLUGIN_SOURCES = new Set(['scanPluginRegistry', 'scanMcpDeclarations'])
 
 export function selectScanTasks(scope: ScanScope, tasks: ScanTask[]): ScanTask[] {
   if (scope === 'all') return tasks
   return tasks.filter((task) =>
-    scope === 'plugins' ? task.name === 'scanPluginRegistry' : INVENTORY_SOURCES.has(task.name)
+    (scope === 'plugins' ? PLUGIN_SOURCES : INVENTORY_SOURCES).has(task.name)
   )
 }
 export type ScanErrorReporter = (error: unknown) => void
