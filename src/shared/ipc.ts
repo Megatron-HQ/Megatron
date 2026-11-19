@@ -21,6 +21,8 @@ export const IPC_CHANNELS = {
   updatePlugin: 'plugins:update',
   pluginUpdateProgress: 'plugins:updateProgress',
   uninstallPlugin: 'plugins:uninstall',
+  listMcpServers: 'mcp:list',
+  getMcpServerDetail: 'mcp:detail',
   getInitialSection: 'app:getInitialSection',
   setLastSection: 'app:setLastSection',
   getInitialOnboarding: 'app:getInitialOnboarding',
@@ -465,6 +467,104 @@ export interface PluginActionInput {
 
 // The runtime list resolveInitialSection validates a stored value against, plus the derived
 // union — one source so the two can't drift.
+// docs/mcp-servers.md. One row per server however many places declare it; see CONTEXT.md, MCP.
+export type McpServerKind = 'configured' | 'plugin' | 'connector' | 'observed'
+export type McpTransport = 'stdio' | 'http' | 'sse' | 'ws'
+export type McpDeclarationScope = 'local' | 'project' | 'user' | 'plugin'
+export type McpConfigProblem = 'url_without_type' | 'unknown_type' | 'no_endpoint'
+export type McpApproval = 'approved' | 'rejected' | 'pending'
+
+// A key Claude Code passes to the server; its value never leaves the main process.
+export interface McpKeyName {
+  name: string
+  literal: boolean
+}
+
+// Longest a server id may be over IPC: plugin ids join a plugin and server name.
+export const MAX_MCP_SERVER_ID_LENGTH = 1024
+
+export interface McpServerRow {
+  // configured:<name> | plugin:<plugin>:<server> | connector:<prefix> | observed:<prefix>
+  id: string
+  // As Claude Code names it: the configured name, plugin:<p>:<s>, or 'claude.ai <Name>'.
+  name: string
+  kind: McpServerKind
+  // The sanitized part of its tools' names, mcp__<prefix>__<tool>.
+  prefix: string
+  transports: McpTransport[]
+  location: string | null
+  scopes: McpDeclarationScope[]
+  projectCount: number
+  calls: number
+  // Server errors only: refusals by the user's permission rules are counted in `denied`.
+  errors: number
+  denied: number
+  // Calls whose prefix another server shares; credited to neither (docs/mcp-servers.md).
+  ambiguousCalls: number
+  lastUsedAt: string | null
+  hasProblem: boolean
+  hasLiteralCredential: boolean
+  hasPendingApproval: boolean
+  prefixCollision: boolean
+  // Plugin rows: every install of the plugin is switched off.
+  pluginDisabled: boolean
+}
+
+export interface McpServerList {
+  servers: McpServerRow[]
+  // Bounds of the calls the index still holds; transcripts age out after ~30 days.
+  firstCallAt: string | null
+  lastCallAt: string | null
+  // Projects Claude Code knows whose .mcp.json Megatron may not read.
+  ungrantedProjects: number
+}
+
+// Where a declaration loses to a higher-precedence one. projectPath null: in every project.
+export interface McpShadow {
+  projectPath: string | null
+  byScope: McpDeclarationScope
+  byProjectPath: string | null
+}
+
+export interface McpDeclarationDetail {
+  scope: McpDeclarationScope
+  projectPath: string | null
+  plugin: { name: string; marketplace: string } | null
+  transport: McpTransport | null
+  problem: McpConfigProblem | null
+  location: string | null
+  env: McpKeyName[]
+  headers: McpKeyName[]
+  argCount: number | null
+  hasLiteralCredential: boolean
+  approval: McpApproval | null
+  sourcePath: string | null
+  shadowedIn: McpShadow[]
+}
+
+export interface McpToolUsage {
+  tool: string
+  calls: number
+  errors: number
+  denied: number
+  // Estimated from returned characters, like a Skill's token estimate.
+  resultTokens: number
+  resultImages: number
+  lastUsedAt: string | null
+}
+
+export interface McpServerDetail {
+  server: McpServerRow
+  declarations: McpDeclarationDetail[]
+  // Projects whose /mcp switch turned this server off; '' is never listed.
+  disabledIn: string[]
+  // Connector rows: where disableClaudeAiConnectors applies. '' means user settings, so everywhere.
+  connectorsDisabledIn: string[]
+  tools: McpToolUsage[]
+  // Tool-definition tokens from the last /context run this launch; null until one has run.
+  definitionTokens: { tokens: number; measuredAt: string } | null
+}
+
 export const APP_SECTIONS = ['skills', 'plugins', 'usage'] as const
 export type AppSection = (typeof APP_SECTIONS)[number]
 

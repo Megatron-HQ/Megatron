@@ -11,6 +11,8 @@ import {
   type GrantChangeResult,
   type OpenSkillMetaResult,
   type OpenSkillResult,
+  type McpServerDetail,
+  type McpServerList,
   type PluginActionInput,
   type PluginUpdateProgress,
   type PluginActionResult,
@@ -59,6 +61,9 @@ const api = {
   listPlugins: (): Promise<PluginRow[]> => ipcRenderer.invoke(IPC_CHANNELS.listPlugins),
   getPluginDetail: (name: string, marketplace: string): Promise<PluginDetailResult | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.getPluginDetail, name, marketplace),
+  listMcpServers: (): Promise<McpServerList> => ipcRenderer.invoke(IPC_CHANNELS.listMcpServers),
+  getMcpServerDetail: (id: string): Promise<McpServerDetail | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.getMcpServerDetail, id),
   enablePlugin: (input: PluginActionInput): Promise<PluginActionResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.enablePlugin, input),
   disablePlugin: (input: PluginActionInput): Promise<PluginActionResult> =>

@@ -88,6 +88,24 @@ describe('renderer trust boundary', () => {
     expect(() => security.validateIpcArguments(channel, args)).not.toThrow()
   })
   it.each([
+    [IPC_CHANNELS.listMcpServers, []],
+    [IPC_CHANNELS.getMcpServerDetail, ['configured:github']],
+    [IPC_CHANNELS.getMcpServerDetail, ['plugin:p:s'.padEnd(1024, 'x')]]
+  ])('accepts MCP requests for %s', (channel, args) => {
+    expect(() => security.validateIpcArguments(channel, args)).not.toThrow()
+  })
+  it.each([
+    [IPC_CHANNELS.listMcpServers, ['configured:github']],
+    [IPC_CHANNELS.getMcpServerDetail, []],
+    [IPC_CHANNELS.getMcpServerDetail, ['']],
+    [IPC_CHANNELS.getMcpServerDetail, [42]],
+    [IPC_CHANNELS.getMcpServerDetail, ['configured:a', 'configured:b']],
+    [IPC_CHANNELS.getMcpServerDetail, ['plugin:p:s'.padEnd(1025, 'x')]],
+    [IPC_CHANNELS.getMcpServerDetail, ['configured:a\0b']]
+  ])('rejects malformed MCP requests for %s', (channel, args) => {
+    expect(() => security.validateIpcArguments(channel, args)).toThrow()
+  })
+  it.each([
     [IPC_CHANNELS.getInitialOnboarding, []],
     [IPC_CHANNELS.setOnboardingDone, []]
   ])('accepts onboarding requests for %s', (channel, args) => {

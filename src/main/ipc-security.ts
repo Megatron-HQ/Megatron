@@ -136,6 +136,9 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
     case IPC_CHANNELS.getPluginDetail:
       valid = args.length === 2 && args.every(text)
       break
+    case IPC_CHANNELS.getMcpServerDetail:
+      valid = args.length === 1 && text(value) && value.length <= MAX_MCP_SERVER_ID_LENGTH
+      break
     case IPC_CHANNELS.enablePlugin:
     case IPC_CHANNELS.disablePlugin:
     case IPC_CHANNELS.updatePlugin:
@@ -171,6 +174,7 @@ import {
   APP_SECTIONS,
   MAX_CLAUDE_FOLDER_ID_LENGTH,
   MAX_INVOCATION_OFFSET,
+  MAX_MCP_SERVER_ID_LENGTH,
   type PluginActionInput,
   type PluginRow
 } from '../shared/ipc'

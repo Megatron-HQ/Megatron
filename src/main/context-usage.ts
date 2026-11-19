@@ -148,12 +148,44 @@ async function measure(userDataDir: string): Promise<ContextBaselineResult> {
 }
 
 let inFlight: Promise<ContextBaselineResult> | null = null
+let latestSuccess: { usage: ContextUsage; measuredAt: string } | null = null
 
 // The panel's first open and a Refresh can overlap; one CLI run (≈4 s, starts MCP servers and
 // SessionStart hooks) serves both.
 export function measureContextBaseline(userDataDir: string): Promise<ContextBaselineResult> {
-  inFlight ??= measure(userDataDir).finally(() => {
-    inFlight = null
-  })
+  inFlight ??= measure(userDataDir)
+    .then((result) => {
+      if (result.ok) latestSuccess = { usage: result.usage, measuredAt: result.measuredAt }
+      return result
+    })
+    .finally(() => {
+      inFlight = null
+    })
   return inFlight
+}
+
+// Read by the MCP section, which never starts a run of its own (docs/mcp-servers.md, Cost).
+export function latestContextBaseline(): { usage: ContextUsage; measuredAt: string } | null {
+  return latestSuccess
+}
+
+const MCP_TOOLS_SECTION = 'mcp tools'
+const SERVER_COLUMN = 'server'
+
+// Tool-definition tokens per server prefix. The Server column holds the prefix a call's name
+// carries; without it Megatron reads nothing rather than guess from tool names.
+export function mcpDefinitionTokens(usage: ContextUsage): Map<string, number> {
+  const tokens = new Map<string, number>()
+  const section = usage.sections.find(
+    (candidate) => candidate.title.toLowerCase() === MCP_TOOLS_SECTION
+  )
+  const serverIndex =
+    section?.columns.findIndex((column) => column.toLowerCase() === SERVER_COLUMN) ?? -1
+  if (section === undefined || serverIndex === -1) return tokens
+  for (const row of section.rows) {
+    const server = row.cells[serverIndex]
+    if (!server || row.tokens === null) continue
+    tokens.set(server, (tokens.get(server) ?? 0) + row.tokens)
+  }
+  return tokens
 }

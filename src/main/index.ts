@@ -94,7 +94,8 @@ import {
 } from './ingest/scan-all'
 import { createInventoryWatcher } from './inventory-watcher'
 import { findNewestRecordedRequest } from './ingest/recorded-request'
-import { measureContextBaseline } from './context-usage'
+import { latestContextBaseline, mcpDefinitionTokens, measureContextBaseline } from './context-usage'
+import { getMcpServerDetail, listMcpServers } from './db/mcp-queries'
 import { findStaleSkillIds, usageDataTrusted } from './db/stale-skills'
 import { sanitizeProjectFolders } from './ingest/project-discovery'
 import { readSkillFiles, readSkillMd } from './skill-files'
@@ -671,6 +672,20 @@ app.whenReady().then(() => {
   secureIpc.handle(IPC_CHANNELS.getPluginDetail, (_event, name: string, marketplace: string) =>
     getPluginDetail(getDb(), projectIdentity.identity(), name, marketplace)
   )
+
+  secureIpc.handle(IPC_CHANNELS.listMcpServers, () => listMcpServers(getDb()))
+
+  // Reads the last /context run only; the MCP section never starts one (docs/mcp-servers.md).
+  secureIpc.handle(IPC_CHANNELS.getMcpServerDetail, (_event, id: string) => {
+    const baseline = latestContextBaseline()
+    return getMcpServerDetail(
+      getDb(),
+      id,
+      baseline === null
+        ? null
+        : { byPrefix: mcpDefinitionTokens(baseline.usage), measuredAt: baseline.measuredAt }
+    )
+  })
 
   const pluginActions = createPluginActionService({
     execute: {
