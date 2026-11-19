@@ -96,7 +96,8 @@ describe('renderer trust boundary', () => {
     [IPC_CHANNELS.checkMcpConnections, []],
     [IPC_CHANNELS.checkMcpConnections, ['/repo']],
     [IPC_CHANNELS.confirmMcpCheck, []],
-    [IPC_CHANNELS.getInitialMcpCheckConfirmed, []]
+    [IPC_CHANNELS.getInitialMcpCheckConfirmed, []],
+    [IPC_CHANNELS.usageMcp, []]
   ])('accepts MCP requests for %s', (channel, args) => {
     expect(() => security.validateIpcArguments(channel, args)).not.toThrow()
   })
@@ -116,7 +117,8 @@ describe('renderer trust boundary', () => {
     [IPC_CHANNELS.checkMcpConnections, ['']],
     [IPC_CHANNELS.checkMcpConnections, [42]],
     [IPC_CHANNELS.checkMcpConnections, ['/repo', '/other']],
-    [IPC_CHANNELS.confirmMcpCheck, [true]]
+    [IPC_CHANNELS.confirmMcpCheck, [true]],
+    [IPC_CHANNELS.usageMcp, ['24h']]
   ])('rejects malformed MCP requests for %s', (channel, args) => {
     expect(() => security.validateIpcArguments(channel, args)).toThrow()
   })

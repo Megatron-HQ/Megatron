@@ -215,6 +215,42 @@ globalThis.megatronVisualFixtures = {
           }))
         }
       }
+      // Usage → MCP servers: no calls at all, or this machine's calls with both captions forced
+      // (transcripts newer than the 30-day window, calls on a shared prefix), which real data
+      // rarely shows.
+      if (channel === 'usage:mcp' && mode === 'mcp-usage-empty') {
+        const empty = (window) => ({
+          ...window,
+          calls: 0,
+          errors: 0,
+          denied: 0,
+          resultTokens: 0,
+          serverCount: 0,
+          sessionCount: 0,
+          ambiguousCalls: 0,
+          trend: window.trend.map((bucket) => ({ ...bucket, count: 0 })),
+          byServer: [],
+          byProject: []
+        })
+        return {
+          firstCallAt: null,
+          last24h: empty(result.last24h),
+          last7d: empty(result.last7d),
+          last30d: empty(result.last30d)
+        }
+      }
+      if (channel === 'usage:mcp' && mode === 'mcp-usage-captions') {
+        const ambiguousCalls = 3
+        return {
+          ...result,
+          firstCallAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+          last30d: {
+            ...result.last30d,
+            calls: result.last30d.calls + ambiguousCalls,
+            ambiguousCalls
+          }
+        }
+      }
       // Real staleness depends on this machine's history, so mark one row the rule could flag.
       if (channel === 'skills:list' && mode === 'skills-stale') {
         const target = result.skills.find(

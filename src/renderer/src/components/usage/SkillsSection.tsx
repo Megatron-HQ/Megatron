@@ -71,7 +71,8 @@ export function SkillWindowToggle({
   )
 }
 
-function SkillStat({
+// A stat numeral that rolls to its new value on a window switch (DESIGN.md, Charts).
+export function WindowStat({
   label,
   value,
   window,
@@ -124,21 +125,21 @@ export function SkillsSection({
   return (
     <section className="flex flex-col gap-6 py-8">
       <div className="flex flex-wrap items-start gap-x-10 gap-y-4">
-        <SkillStat
+        <WindowStat
           label="Invocations"
           value={window.invocationCount}
           window={windowKey}
           reduceMotion={reduceMotion}
         />
         <span aria-hidden className="mt-1 hidden h-9 w-px bg-border sm:block" />
-        <SkillStat
+        <WindowStat
           label="Skills used"
           value={window.skillCount}
           window={windowKey}
           reduceMotion={reduceMotion}
         />
         <span aria-hidden className="mt-1 hidden h-9 w-px bg-border sm:block" />
-        <SkillStat
+        <WindowStat
           label="Sessions"
           value={window.sessionCount}
           window={windowKey}

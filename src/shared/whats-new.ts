@@ -11,7 +11,7 @@ export const WHATS_NEW_PREVIEW_IDS = ['usage-skill-cost'] as const
 export type WhatsNewPreviewId = (typeof WHATS_NEW_PREVIEW_IDS)[number]
 
 // Each id marks one control with data-whats-new, where "Show me" rings it and a dot waits.
-export const WHATS_NEW_ANCHOR_IDS = ['usage-skill-cost'] as const
+export const WHATS_NEW_ANCHOR_IDS = ['usage-skill-cost', 'usage-mcp'] as const
 export type WhatsNewAnchorId = (typeof WHATS_NEW_ANCHOR_IDS)[number]
 
 export const WHATS_NEW_MAX_HIGHLIGHTS = 4

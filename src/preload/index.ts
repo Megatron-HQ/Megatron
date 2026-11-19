@@ -14,6 +14,7 @@ import {
   type McpConnectionCheckResult,
   type McpServerDetail,
   type McpServerList,
+  type McpUsageStats,
   type PluginActionInput,
   type PluginUpdateProgress,
   type PluginActionResult,
@@ -97,6 +98,7 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.usageDay, date),
   getUsageSkillInvocations: (input: SkillInvocationSliceInput): Promise<SkillInvocationRecord[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.usageSkillInvocations, input),
+  getUsageMcp: (): Promise<McpUsageStats> => ipcRenderer.invoke(IPC_CHANNELS.usageMcp),
   getContextBaseline: (): Promise<ContextBaselineResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.usageContextBaseline),
   getRecordedRequest: (): Promise<RecordedRequest | null> =>

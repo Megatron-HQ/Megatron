@@ -45,6 +45,7 @@ export const IPC_CHANNELS = {
   usageLinkProjects: 'usage:projects:link',
   usageUnlinkProject: 'usage:projects:unlink',
   usageSkillInvocations: 'usage:skillInvocations',
+  usageMcp: 'usage:mcp',
   usageContextBaseline: 'usage:contextBaseline',
   usageRecordedRequest: 'usage:recordedRequest',
   getUpdateState: 'updates:getState',
@@ -633,6 +634,43 @@ export type AppSection = (typeof APP_SECTIONS)[number]
 export interface ActivityProjectCount {
   project: string // raw cwd in reducers; primary project location in Usage IPC
   count: number
+}
+
+// Usage → MCP servers: one server's calls in a window (docs/mcp-servers.md, Usage panel).
+export interface McpUsageServerRow {
+  id: string // McpServerRow.id, the detail's key
+  name: string
+  kind: McpServerKind
+  calls: number
+  errors: number // refusals excluded
+  denied: number
+  // errors / calls that weren't refused; null when every call was refused.
+  errorRate: number | null
+  resultTokens: number // estimated from returned characters
+}
+
+export interface McpUsageWindow {
+  window: SkillStatsWindowKey
+  startAt: string
+  endAt: string
+  calls: number // includes calls on a shared prefix, which no server is credited with
+  errors: number
+  denied: number
+  resultTokens: number
+  serverCount: number
+  sessionCount: number
+  ambiguousCalls: number
+  trend: SkillTrendBucket[]
+  byServer: McpUsageServerRow[]
+  byProject: ActivityProjectCount[] // grouped by Usage project
+}
+
+export interface McpUsageStats {
+  // The oldest call the index holds, for the label naming how far back transcripts reach.
+  firstCallAt: string | null
+  last24h: McpUsageWindow
+  last7d: McpUsageWindow
+  last30d: McpUsageWindow
 }
 
 // One bar's drill-down, precomputed in the overview payload like CostDay/CostHour.

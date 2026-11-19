@@ -6,7 +6,8 @@ export const WHATS_NEW_ANCHOR_ATTRIBUTE = 'data-whats-new'
 
 // Where an anchor lives below its section, for anchors a section switch alone doesn't reveal.
 export const WHATS_NEW_ANCHOR_PANELS: Record<WhatsNewAnchorId, UsagePanel | null> = {
-  'usage-skill-cost': 'skills'
+  'usage-skill-cost': 'skills',
+  'usage-mcp': 'mcp'
 }
 
 export function anchorProps(anchor: WhatsNewAnchorId): Record<string, string> {

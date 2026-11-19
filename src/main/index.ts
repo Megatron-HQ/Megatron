@@ -96,6 +96,7 @@ import { createInventoryWatcher } from './inventory-watcher'
 import { findNewestRecordedRequest } from './ingest/recorded-request'
 import { latestContextBaseline, mcpDefinitionTokens, measureContextBaseline } from './context-usage'
 import { getMcpServerDetail, listMcpServers, revealableMcpSource } from './db/mcp-queries'
+import { getMcpUsageStats } from './db/mcp-usage'
 import { checkMcpConnections, latestMcpChecks } from './mcp-status'
 import { findStaleSkillIds, usageDataTrusted } from './db/stale-skills'
 import { sanitizeProjectFolders } from './ingest/project-discovery'
@@ -787,6 +788,11 @@ app.whenReady().then(() => {
     IPC_CHANNELS.usageSkillInvocations,
     (_event, input: SkillInvocationSliceInput): SkillInvocationRecord[] =>
       getSkillInvocationSlice(getDb(), projectIdentity.identity(), input)
+  )
+
+  // Apart from usage:overview, which polls during a scan and needn't build the MCP snapshot.
+  secureIpc.handle(IPC_CHANNELS.usageMcp, () =>
+    getMcpUsageStats(getDb(), projectIdentity.identity())
   )
 
   secureIpc.on(IPC_CHANNELS.getInitialSection, (event) => {

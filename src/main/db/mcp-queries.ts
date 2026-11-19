@@ -84,6 +84,8 @@ interface ServerIdentity {
 
 interface IndexSnapshot {
   identities: Map<string, ServerIdentity>
+  // Recorded tool names on a prefix two servers share, credited to neither.
+  ambiguousNames: Set<string>
   allDeclarations: DeclarationRow[]
   disabledToggles: { project_path: string; server_name: string }[]
   // From the general connection check, by tool prefix.
@@ -163,8 +165,9 @@ function readCallGroups(db: Database.Database): CallGroupRow[] {
 }
 
 // Calls are credited by the prefix their tool names carry. A prefix two servers share credits
-// neither: the transcript alone cannot tell them apart.
-function creditCalls(identities: Map<string, ServerIdentity>, groups: CallGroupRow[]): void {
+// neither: the transcript alone cannot tell them apart. Returns those uncredited tool names.
+function creditCalls(identities: Map<string, ServerIdentity>, groups: CallGroupRow[]): Set<string> {
+  const ambiguousNames = new Set<string>()
   const byPrefix = new Map<string, ServerIdentity[]>()
   const indexByPrefix = (identity: ServerIdentity): void => {
     byPrefix.set(identity.prefix, [...(byPrefix.get(identity.prefix) ?? []), identity])
@@ -198,10 +201,14 @@ function creditCalls(identities: Map<string, ServerIdentity>, groups: CallGroupR
       owners = [observed]
     }
     if (owners.length === 1) owners[0].tools.push({ tool: resolved.tool, group })
-    else for (const owner of owners) owner.ambiguousCalls += group.calls
+    else {
+      ambiguousNames.add(group.qualified_name)
+      for (const owner of owners) owner.ambiguousCalls += group.calls
+    }
   }
   for (const owners of byPrefix.values())
     if (owners.length > 1) for (const owner of owners) owner.prefixCollision = true
+  return ambiguousNames
 }
 
 // The general check names servers the index can't see: a connector never called, or one managed
@@ -265,10 +272,11 @@ function readSnapshot(
     }
 
   const liveByPrefix = addCheckedServers(identities, general)
-  creditCalls(identities, readCallGroups(db))
+  const ambiguousNames = creditCalls(identities, readCallGroups(db))
   return {
     liveByPrefix,
     identities,
+    ambiguousNames,
     allDeclarations,
     disabledToggles: toggles.filter((toggle) => toggle.toggle === 'disabled')
   }
@@ -556,6 +564,28 @@ function findingsFor(
     .map((other) => other.name)
     .sort()
   return lintMcpServer({ name: identity.name, prefix: identity.prefix, declarations, sharedWith })
+}
+
+export interface McpCallOwner {
+  id: string
+  name: string
+  kind: McpServerKind
+}
+
+// Each recorded tool name's server, by the same crediting the MCP section uses, so a window of
+// calls read elsewhere (Usage) credits exactly as the server list does.
+export function mcpCallOwners(db: Database.Database): Map<string, McpCallOwner | 'ambiguous'> {
+  const snapshot = readSnapshot(db)
+  const owners = new Map<string, McpCallOwner | 'ambiguous'>()
+  for (const identity of snapshot.identities.values())
+    for (const { group } of identity.tools)
+      owners.set(group.qualified_name, {
+        id: identity.id,
+        name: identity.name,
+        kind: identity.kind
+      })
+  for (const name of snapshot.ambiguousNames) owners.set(name, 'ambiguous')
+  return owners
 }
 
 export interface KnownMcpPrefixes {

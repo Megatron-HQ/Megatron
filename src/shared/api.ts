@@ -11,6 +11,7 @@ import type {
   McpConnectionCheckResult,
   McpServerDetail,
   McpServerList,
+  McpUsageStats,
   PluginActionInput,
   PluginUpdateProgress,
   PluginActionResult,
@@ -69,6 +70,7 @@ export interface Api {
   getUsageCalendar: (year: number) => Promise<UsageCalendar>
   getUsageDay: (date: string) => Promise<UsageDayDetails>
   getUsageSkillInvocations: (input: SkillInvocationSliceInput) => Promise<SkillInvocationRecord[]>
+  getUsageMcp: () => Promise<McpUsageStats>
   getContextBaseline: () => Promise<ContextBaselineResult>
   getRecordedRequest: () => Promise<RecordedRequest | null>
   getInitialSection: () => AppSection

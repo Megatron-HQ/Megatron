@@ -80,4 +80,22 @@ describe('scan query refresh scope', () => {
     expect(client.getQueryState(['usage'])?.isInvalidated).toBe(false)
     client.clear()
   })
+
+  // A changed Declaration can move calls to another server, so Usage's MCP panel follows the MCP
+  // views; the rest of Usage stays put.
+  it("refreshes Usage's MCP panel after an inventory scan without refreshing the overview", async () => {
+    const client = populatedClient()
+    client.setQueryData(['usage', 'mcp'], { available: true })
+    const summary: ScanSummary = {
+      outcome: 'complete',
+      completedAt: '2026-11-05T00:00:00.000Z',
+      sources: [{ name: 'scanMcpDeclarations', status: 'complete' }]
+    }
+
+    await refreshScanQueries(client, false, summary)
+
+    expect(client.getQueryState(['usage', 'mcp'])?.isInvalidated).toBe(true)
+    expect(client.getQueryState(['usage'])?.isInvalidated).toBe(false)
+    client.clear()
+  })
 })

@@ -48,7 +48,7 @@ files to screens:
 | `components/PluginBadges.tsx`                                                         | `plugin-inventory,plugin-detail` |
 | `views/McpInventory.tsx`, `components/McpSidebar.tsx`, `components/McpBadges.tsx`     | `mcp-inventory`                  |
 | `views/McpDetail.tsx`                                                                 | `mcp-detail`                     |
-| `views/UsageView.tsx`, `components/usage/**`                                          | `usage`                          |
+| `views/UsageView.tsx`, `components/usage/**`, `components/UsageSidebar.tsx`           | `usage`                          |
 | `components/onboarding/**`                                                            | `onboarding`                     |
 
 A changed file **not in this table → run the full sweep.** (`ManageFoldersDialog.tsx` and
