@@ -217,6 +217,17 @@ describe('MCP servers', () => {
     expect(resolve()[0].detail).toBe('sse')
   })
 
+  // Claude Code reads a missing type as stdio and skips an entry with a url, so "http" was wrong.
+  it.each([
+    [{ url: 'https://mcp.linear.app/mcp' }, 'missing type · mcp.linear.app'],
+    [{ type: 'pigeon', url: 'https://a.dev' }, 'unknown type · a.dev'],
+    [{ type: 'streamable-http', url: 'https://a.dev/mcp' }, 'http · a.dev']
+  ])('labels %j as %s', (config, detail) => {
+    write({ '.mcp.json': { api: config } })
+
+    expect(resolve()[0].detail).toBe(detail)
+  })
+
   it('merges the manifest key after .mcp.json, a later name replacing an earlier one', () => {
     write({
       '.mcp.json': { mcpServers: { shared: { command: 'old' }, kept: { command: 'kept' } } },

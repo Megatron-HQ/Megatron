@@ -123,6 +123,52 @@ CREATE TABLE IF NOT EXISTS plugin_components (
   PRIMARY KEY (install_path, kind, name)
 );
 
+-- One MCP server Declaration in local, project, or user scope (docs/mcp-servers.md, Sources).
+-- Plugin Declarations stay in plugin_components. Never a config value: see Stored config there.
+CREATE TABLE IF NOT EXISTS mcp_declarations (
+  scope TEXT NOT NULL CHECK (scope IN ('local', 'project', 'user')),
+  project_path TEXT NOT NULL,         -- '' for user scope, for the reason plugin_registry gives
+  name TEXT NOT NULL,
+  transport TEXT CHECK (transport IN ('stdio', 'http', 'sse', 'ws')),
+  problem TEXT CHECK (problem IN ('url_without_type', 'unknown_type', 'no_endpoint')),
+  location TEXT,                      -- URL host or command basename
+  env_keys TEXT NOT NULL,             -- JSON [{name, literal}]; never a value
+  header_keys TEXT NOT NULL,          -- JSON [{name, literal}]; never a value
+  arg_count INTEGER NOT NULL,
+  has_literal_credential INTEGER NOT NULL,
+  approval TEXT CHECK (approval IN ('approved', 'rejected', 'pending')), -- project scope only
+  source_path TEXT NOT NULL,          -- the declaring file
+  PRIMARY KEY (scope, project_path, name)
+);
+
+-- Per-project MCP facts outside any Declaration. project_path '' holds the user-level values.
+CREATE TABLE IF NOT EXISTS mcp_project_state (
+  project_path TEXT PRIMARY KEY,
+  mcp_json TEXT CHECK (mcp_json IN ('read', 'missing', 'ungranted', 'unavailable', 'invalid')),
+  connectors_disabled INTEGER NOT NULL -- disableClaudeAiConnectors, any settings source true
+);
+
+-- The /mcp per-project switches, by the name Claude Code wrote: a configured name,
+-- plugin:<plugin>:<server>, or a Connector's display name ('claude.ai Slack').
+CREATE TABLE IF NOT EXISTS mcp_server_toggles (
+  project_path TEXT NOT NULL,
+  server_name TEXT NOT NULL,
+  toggle TEXT NOT NULL CHECK (toggle IN ('disabled', 'enabled')),
+  PRIMARY KEY (project_path, server_name, toggle)
+);
+
+-- A plugin MCP server whose endpoint equals a Declaration's (docs/mcp-servers.md, Precedence).
+-- Only the outcome of comparing the two: the endpoint itself carries credentials. Whether the
+-- Declaration is enabled, and so wins, is decided per project when read.
+CREATE TABLE IF NOT EXISTS mcp_endpoint_duplicates (
+  install_path TEXT NOT NULL,
+  server_name TEXT NOT NULL,          -- the plugin's server key, as in plugin_components.name
+  scope TEXT NOT NULL,
+  project_path TEXT NOT NULL,
+  name TEXT NOT NULL,                 -- with scope and project_path, the mcp_declarations row
+  PRIMARY KEY (install_path, server_name, scope, project_path, name)
+);
+
 CREATE TABLE IF NOT EXISTS prompt_history (
   session_id TEXT NOT NULL,          -- history.jsonl sessionId; NO FK — spans pruned sessions
   project TEXT NOT NULL,             -- raw cwd string, matches sessions_meta.cwd

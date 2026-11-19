@@ -222,7 +222,9 @@ export function scanPluginRegistry(
   db: Database.Database,
   pluginsDir: string = claudeConfig().plugins,
   userSettingsPath?: string,
-  repos: GitRepos = createGitRepos({ locations: [], claudeCodeFolders: [] })
+  repos: GitRepos = createGitRepos({ locations: [], claudeCodeFolders: [] }),
+  // Filled with `${installPath}\0${server}` -> endpoint key for the MCP scan later in this Scan.
+  mcpEndpoints: Map<string, string> = new Map()
 ): ScanTaskResult {
   assertConfigRootAvailable()
   const pluginsDirectory = readAllowedDirectory(pluginsDir)
@@ -353,6 +355,8 @@ export function scanPluginRegistry(
       deleteComponents.run(installPath)
       for (const component of read.components)
         insertComponent.run({ install_path: installPath, ...component })
+      for (const [server, endpoint] of read.mcpEndpoints ?? [])
+        mcpEndpoints.set(`${installPath}\0${server}`, endpoint)
       events = read.components.filter((c) => c.kind === 'hook').map((c) => c.name)
     } else {
       componentsComplete = false
