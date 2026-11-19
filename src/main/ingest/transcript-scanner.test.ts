@@ -2092,3 +2092,316 @@ function countRows(database: Database.Database, table: string): number {
   return (database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number })
     .count
 }
+
+// docs/mcp-servers.md, Call data: metadata only, never a tool's input or result.
+describe('MCP tool calls', () => {
+  function mcpCallLine(
+    id: string,
+    name: string,
+    overrides: Record<string, unknown> = {}
+  ): Record<string, unknown> {
+    return {
+      type: 'assistant',
+      sessionId: 'sess-1',
+      cwd: '/repo/pkg',
+      timestamp: '2024-01-01T00:03:00.000Z',
+      uuid: `uuid-${id}`,
+      isSidechain: false,
+      message: {
+        content: [{ type: 'tool_use', id, name, input: { query: 'SELECT secret_input' } }]
+      },
+      ...overrides
+    }
+  }
+
+  function resultLine(
+    id: string,
+    content: unknown,
+    overrides: Record<string, unknown> = {}
+  ): Record<string, unknown> {
+    return {
+      type: 'user',
+      sessionId: 'sess-1',
+      timestamp: '2024-01-01T00:03:05.000Z',
+      uuid: `uuid-result-${id}`,
+      isSidechain: false,
+      message: { content: [{ type: 'tool_result', tool_use_id: id, content, ...overrides }] }
+    }
+  }
+
+  describe('parseTranscript', () => {
+    it('reads each call with its paired result size, never its input or output', () => {
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [
+        metaLine(),
+        mcpCallLine('toolu_1', 'mcp__claude_ai_Gmail__search_threads'),
+        resultLine('toolu_1', 'secret result text'),
+        mcpCallLine('toolu_2', 'mcp__plugin_playwright_playwright__browser_take_screenshot', {
+          timestamp: '2024-01-01T00:04:00.000Z'
+        }),
+        resultLine('toolu_2', [
+          { type: 'text', text: 'abc' },
+          { type: 'image', source: { type: 'base64', data: 'iVBORw0KGgo' } },
+          { type: 'text', text: 'de' }
+        ])
+      ])
+
+      const { mcpCalls } = parseTranscript(filePath)
+
+      expect(mcpCalls).toEqual([
+        {
+          tool_use_id: 'toolu_1',
+          session_id: 'sess-1',
+          cwd: '/repo/pkg',
+          qualified_name: 'claude_ai_Gmail__search_threads',
+          invoked_at: '2024-01-01T00:03:00.000Z',
+          agent_id: null,
+          is_error: 0,
+          is_denied: 0,
+          result_chars: 18,
+          result_images: 0
+        },
+        {
+          tool_use_id: 'toolu_2',
+          session_id: 'sess-1',
+          cwd: '/repo/pkg',
+          qualified_name: 'plugin_playwright_playwright__browser_take_screenshot',
+          invoked_at: '2024-01-01T00:04:00.000Z',
+          agent_id: null,
+          is_error: 0,
+          is_denied: 0,
+          result_chars: 5,
+          result_images: 1
+        }
+      ])
+      expect(JSON.stringify(mcpCalls)).not.toMatch(/secret|iVBOR/)
+    })
+
+    it('records an error result', () => {
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [
+        metaLine(),
+        mcpCallLine('toolu_1', 'mcp__github__create_issue'),
+        resultLine('toolu_1', 'Error: 401', { is_error: true })
+      ])
+
+      expect(parseTranscript(filePath).mcpCalls[0]).toMatchObject({
+        is_error: 1,
+        result_chars: 10
+      })
+    })
+
+    // 31 of 110 MCP errors in real transcripts (2026-11-18) were the user's own permission rules.
+    it('tells a permission refusal apart from a server error', () => {
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [
+        metaLine(),
+        mcpCallLine('toolu_1', 'mcp__github__create_issue'),
+        {
+          ...resultLine('toolu_1', 'Permission denied', { is_error: true }),
+          toolDenialKind: 'permission-rule'
+        },
+        // The recorded API request repeats earlier results without the refusal marker.
+        {
+          type: 'api-request-blob',
+          sessionId: 'sess-1',
+          hash: 'h',
+          message: resultLine('toolu_1', 'Permission denied', { is_error: true }).message
+        },
+        mcpCallLine('toolu_2', 'mcp__github__create_issue'),
+        resultLine('toolu_2', 'Error: 500', { is_error: true })
+      ])
+
+      expect(
+        parseTranscript(filePath).mcpCalls.map(({ is_error, is_denied }) => [is_error, is_denied])
+      ).toEqual([
+        [1, 1],
+        [1, 0]
+      ])
+    })
+
+    it('leaves result fields empty when no result was recorded', () => {
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [
+        metaLine(),
+        mcpCallLine('toolu_1', 'mcp__github__create_issue')
+      ])
+
+      expect(parseTranscript(filePath).mcpCalls[0]).toMatchObject({
+        is_error: null,
+        is_denied: null,
+        result_chars: null,
+        result_images: null
+      })
+    })
+
+    it.each([
+      ['a built-in tool', 'Bash'],
+      ['a Skill call', 'Skill'],
+      ['a bare prefix', 'mcp__'],
+      ['a server with no tool', 'mcp__github'],
+      ['an empty server', 'mcp____tool'],
+      ['an empty tool', 'mcp__github__']
+    ])('ignores %s', (_label, name) => {
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [
+        metaLine(),
+        mcpCallLine('toolu_1', name)
+      ])
+
+      expect(parseTranscript(filePath).mcpCalls).toEqual([])
+    })
+
+    it('keeps double underscores inside the qualified name for later resolution', () => {
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [
+        metaLine(),
+        mcpCallLine('toolu_1', 'mcp__my__server__do_thing')
+      ])
+
+      expect(parseTranscript(filePath).mcpCalls[0].qualified_name).toBe('my__server__do_thing')
+    })
+
+    it('skips a call without an id', () => {
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [
+        metaLine(),
+        {
+          ...mcpCallLine('x', 'mcp__github__list'),
+          message: { content: [{ type: 'tool_use', name: 'mcp__github__list', input: {} }] }
+        }
+      ])
+
+      expect(parseTranscript(filePath).mcpCalls).toEqual([])
+    })
+
+    it('skips sidechain records interleaved in a main transcript', () => {
+      const filePath = writeTranscriptFile(tmpDir, 'sess-1', [
+        metaLine(),
+        mcpCallLine('toolu_1', 'mcp__github__list', { isSidechain: true })
+      ])
+
+      expect(parseTranscript(filePath).mcpCalls).toEqual([])
+    })
+
+    it('files every call under the transcript file name, not a copied sessionId', () => {
+      const filePath = writeTranscriptFile(tmpDir, 'fork', [
+        metaLine({ sessionId: 'parent' }),
+        mcpCallLine('toolu_1', 'mcp__github__list', { sessionId: 'parent' })
+      ])
+
+      expect(parseTranscript(filePath).mcpCalls[0].session_id).toBe('fork')
+    })
+  })
+
+  describe('scanTranscripts', () => {
+    let db: Database.Database
+    let projectsDir: string
+    let projectDir: string
+
+    beforeEach(() => {
+      db = new Database(':memory:')
+      applySchema(db)
+      projectsDir = join(tmpDir, 'projects')
+      projectDir = join(projectsDir, 'project-a')
+      mkdirSync(projectDir, { recursive: true })
+    })
+
+    afterEach(() => db.close())
+
+    interface CallRow {
+      tool_use_id: string
+      session_id: string
+      agent_id: string | null
+    }
+
+    function calls(): CallRow[] {
+      return db
+        .prepare(
+          'SELECT tool_use_id, session_id, agent_id FROM mcp_tool_calls ORDER BY tool_use_id'
+        )
+        .all() as CallRow[]
+    }
+
+    it('stores a call replayed into a resumed session once', () => {
+      writeTranscriptFile(projectDir, 'a-original', [
+        metaLine({ sessionId: 'a-original' }),
+        mcpCallLine('toolu_1', 'mcp__github__list', { sessionId: 'a-original' })
+      ])
+      writeTranscriptFile(projectDir, 'b-resumed', [
+        metaLine({ sessionId: 'b-resumed' }),
+        mcpCallLine('toolu_1', 'mcp__github__list', { sessionId: 'b-resumed' }),
+        mcpCallLine('toolu_2', 'mcp__github__get', { sessionId: 'b-resumed' })
+      ])
+
+      scanTranscripts(db, projectsDir)
+
+      expect(calls().map((row) => row.tool_use_id)).toEqual(['toolu_1', 'toolu_2'])
+    })
+
+    it('stores a subagent call under the parent session with its agent id', () => {
+      writeTranscriptFile(projectDir, 'sess-1', [metaLine()])
+      writeSubagentTranscriptFile(projectDir, 'sess-1', 'agent-abc', [
+        mcpCallLine('toolu_9', 'mcp__github__list', { isSidechain: true })
+      ])
+
+      scanTranscripts(db, projectsDir)
+
+      expect(calls()).toEqual([
+        { tool_use_id: 'toolu_9', session_id: 'sess-1', agent_id: 'agent-abc' }
+      ])
+    })
+
+    it('removes the calls of a deleted transcript', () => {
+      const filePath = writeTranscriptFile(projectDir, 'sess-1', [
+        metaLine(),
+        mcpCallLine('toolu_1', 'mcp__github__list')
+      ])
+      scanTranscripts(db, projectsDir)
+      rmSync(filePath)
+
+      scanTranscripts(db, projectsDir)
+
+      expect(calls()).toEqual([])
+    })
+
+    it('drops a call removed from a rewritten transcript', () => {
+      const filePath = writeTranscriptFile(projectDir, 'sess-1', [
+        metaLine(),
+        mcpCallLine('toolu_1', 'mcp__github__list'),
+        mcpCallLine('toolu_2', 'mcp__github__get')
+      ])
+      scanTranscripts(db, projectsDir)
+      writeFileSync(
+        filePath,
+        linesToJsonl([metaLine(), mcpCallLine('toolu_2', 'mcp__github__get')])
+      )
+
+      scanTranscripts(db, projectsDir)
+
+      expect(calls().map((row) => row.tool_use_id)).toEqual(['toolu_2'])
+    })
+
+    it('recovers a replayed call when its first owner no longer holds it', () => {
+      const originalFile = writeTranscriptFile(projectDir, 'z-original', [
+        metaLine({ sessionId: 'z-original' }),
+        mcpCallLine('toolu_1', 'mcp__github__list', { sessionId: 'z-original' })
+      ])
+      writeTranscriptFile(projectDir, 'a-replay', [
+        metaLine({ sessionId: 'a-replay' }),
+        mcpCallLine('toolu_1', 'mcp__github__list', { sessionId: 'a-replay' })
+      ])
+      const readDirectory = permissions.readAllowedDirectory
+      const directoryOrder = vi
+        .spyOn(permissions, 'readAllowedDirectory')
+        .mockImplementation((path) =>
+          path === projectDir
+            ? { status: 'ok', entries: ['z-original.jsonl', 'a-replay.jsonl'] }
+            : readDirectory(path)
+        )
+      scanTranscripts(db, projectsDir)
+      expect(calls()).toEqual([
+        { tool_use_id: 'toolu_1', session_id: 'z-original', agent_id: null }
+      ])
+      directoryOrder.mockRestore()
+      writeFileSync(originalFile, linesToJsonl([metaLine({ sessionId: 'z-original' })]))
+
+      scanTranscripts(db, projectsDir)
+
+      expect(calls()).toEqual([{ tool_use_id: 'toolu_1', session_id: 'a-replay', agent_id: null }])
+    })
+  })
+})

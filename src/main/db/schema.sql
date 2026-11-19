@@ -123,6 +123,25 @@ CREATE TABLE IF NOT EXISTS plugin_components (
   PRIMARY KEY (install_path, kind, name)
 );
 
+-- One call to an MCP server's tool, read from a transcript (docs/mcp-servers.md, Call data).
+-- Metadata only: never the tool's input or its result.
+CREATE TABLE IF NOT EXISTS mcp_tool_calls (
+  tool_use_id TEXT PRIMARY KEY,       -- global, like turn_usage: a resume replays the same block
+  session_id TEXT NOT NULL REFERENCES sessions_meta(session_id),
+  cwd TEXT,                           -- the record's own cwd; a session can move folders
+  qualified_name TEXT NOT NULL,       -- after `mcp__`: `<server prefix>__<tool>`. Split by the
+                                       -- MCP queries against known servers, since a sanitized
+                                       -- prefix can itself hold `__`
+  invoked_at TEXT NOT NULL,
+  agent_id TEXT,                      -- subagent filename stem; NULL in the main session
+  is_error INTEGER,                   -- NULL when no tool_result was recorded
+  is_denied INTEGER,                  -- refused by the user's permission rules or auto mode, which
+                                       -- Claude Code also reports as is_error; NULL with no result
+  result_chars INTEGER,               -- text characters returned; NULL with no tool_result
+  result_images INTEGER               -- image blocks returned; NULL with no tool_result
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_tool_calls_session_id ON mcp_tool_calls(session_id);
+
 -- One MCP server Declaration in local, project, or user scope (docs/mcp-servers.md, Sources).
 -- Plugin Declarations stay in plugin_components. Never a config value: see Stored config there.
 CREATE TABLE IF NOT EXISTS mcp_declarations (
