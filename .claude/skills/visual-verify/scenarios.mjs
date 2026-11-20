@@ -43,6 +43,25 @@ const NO_DATA_CHANNELS = [
   'usage:overview'
 ]
 
+const HOVER_ATTEMPTS = 3
+const HOVER_TOOLTIP_WAIT_MS = 3_000
+
+// A hover that lands while a table row is still settling can miss its target, and a tooltip
+// only opens on a fresh pointer entry, so each retry first moves the pointer off to a corner.
+async function hoverUntilVisible(window, target, tooltip) {
+  for (let attempt = 1; ; attempt += 1) {
+    await target.hover()
+    try {
+      await tooltip.waitFor({ timeout: HOVER_TOOLTIP_WAIT_MS })
+      return
+    } catch (error) {
+      if (attempt >= HOVER_ATTEMPTS) throw error
+      await window.mouse.move(0, 0)
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  }
+}
+
 async function enableProjectHierarchy(window, app, mode = 'project-tree') {
   await app.evaluate((_, selectedMode) => {
     for (const channel of [
@@ -1692,15 +1711,15 @@ export const scenarios = [
       // The table focuses its first row and starts the glide highlight on mount; hovering into
       // that still-moving layout intermittently lands outside the icon and no tooltip opens.
       await window.waitForTimeout(MOTION_SETTLE_MS)
-      await window.locator('tbody tr:has(svg.lucide-power) svg.lucide-power').first().hover()
       // Matches both tooltip variants — the icon carries "Plugin is disabled" for a
       // disabled plugin's skill and "Disabled via /skills" for a skillOverrides "off".
       // Waiting on the latter alone breaks on a machine whose only disabled skills are
       // plugin-disabled, which skipWithoutDisabledSkills above still counts as present.
-      await window
-        .getByText(/not loaded into context/)
-        .first()
-        .waitFor()
+      await hoverUntilVisible(
+        window,
+        window.locator('tbody tr:has(svg.lucide-power) svg.lucide-power').first(),
+        window.getByText(/not loaded into context/).first()
+      )
     }
   },
   // The table Name column's stale indicator: a Clock in the dormant tone (DESIGN.md's Status
