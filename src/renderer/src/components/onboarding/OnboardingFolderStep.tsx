@@ -82,8 +82,8 @@ export function OnboardingFolderStep({
           )
         }
       >
-        Project skills and project plugins live inside your repos. Megatron only reads the folders
-        you choose.
+        Project skills, plugins and .mcp.json servers live inside your repos. Megatron only reads
+        the folders you choose.
       </StepHeading>
 
       {rows.length > 0 && (

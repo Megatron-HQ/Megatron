@@ -33,6 +33,35 @@
 // capturing, so the screenshot shows the resolved state, not a stuck frame.
 const MOTION_SETTLE_MS = 300
 
+// What a machine where Claude Code never ran reports; passed into app.evaluate, which runs in
+// Electron's main process and can't see this module.
+const NO_DATA_CHANNELS = [
+  'skills:list',
+  'plugins:list',
+  'mcp:list',
+  'usage:projects',
+  'usage:overview'
+]
+
+const HOVER_ATTEMPTS = 3
+const HOVER_TOOLTIP_WAIT_MS = 3_000
+
+// A hover that lands while a table row is still settling can miss its target, and a tooltip
+// only opens on a fresh pointer entry, so each retry first moves the pointer off to a corner.
+async function hoverUntilVisible(window, target, tooltip) {
+  for (let attempt = 1; ; attempt += 1) {
+    await target.hover()
+    try {
+      await tooltip.waitFor({ timeout: HOVER_TOOLTIP_WAIT_MS })
+      return
+    } catch (error) {
+      if (attempt >= HOVER_ATTEMPTS) throw error
+      await window.mouse.move(0, 0)
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  }
+}
+
 async function enableProjectHierarchy(window, app, mode = 'project-tree') {
   await app.evaluate((_, selectedMode) => {
     for (const channel of [
@@ -1682,15 +1711,15 @@ export const scenarios = [
       // The table focuses its first row and starts the glide highlight on mount; hovering into
       // that still-moving layout intermittently lands outside the icon and no tooltip opens.
       await window.waitForTimeout(MOTION_SETTLE_MS)
-      await window.locator('tbody tr:has(svg.lucide-power) svg.lucide-power').first().hover()
       // Matches both tooltip variants — the icon carries "Plugin is disabled" for a
       // disabled plugin's skill and "Disabled via /skills" for a skillOverrides "off".
       // Waiting on the latter alone breaks on a machine whose only disabled skills are
       // plugin-disabled, which skipWithoutDisabledSkills above still counts as present.
-      await window
-        .getByText(/not loaded into context/)
-        .first()
-        .waitFor()
+      await hoverUntilVisible(
+        window,
+        window.locator('tbody tr:has(svg.lucide-power) svg.lucide-power').first(),
+        window.getByText(/not loaded into context/).first()
+      )
     }
   },
   // The table Name column's stale indicator: a Clock in the dormant tone (DESIGN.md's Status
@@ -3249,11 +3278,10 @@ export const scenarios = [
     name: 'onboarding-no-data',
     screen: 'onboarding',
     async run(window, app) {
-      await app.evaluate(() => {
-        for (const channel of ['skills:list', 'plugins:list', 'usage:projects', 'usage:overview'])
-          globalThis.megatronVisualFixtures.set(channel, 'no-data')
+      await app.evaluate((_, channels) => {
+        for (const channel of channels) globalThis.megatronVisualFixtures.set(channel, 'no-data')
         globalThis.megatronVisualFixtures.set('claudeFolder:get', 'claude-folder-options')
-      })
+      }, NO_DATA_CHANNELS)
       await window.reload()
       await openOnboarding(window)
       await window.getByRole('button', { name: 'Next', exact: true }).click()
@@ -3267,16 +3295,14 @@ export const scenarios = [
         name: `onboarding-no-data-${mode}-${theme}`,
         screen: 'onboarding',
         async run(window, app) {
-          await app.evaluate((_, fixture) => {
-            for (const channel of [
-              'skills:list',
-              'plugins:list',
-              'usage:projects',
-              'usage:overview'
-            ])
-              globalThis.megatronVisualFixtures.set(channel, 'no-data')
-            globalThis.megatronVisualFixtures.set('claudeFolder:get', fixture)
-          }, mode)
+          await app.evaluate(
+            (_, { fixture, channels }) => {
+              for (const channel of channels)
+                globalThis.megatronVisualFixtures.set(channel, 'no-data')
+              globalThis.megatronVisualFixtures.set('claudeFolder:get', fixture)
+            },
+            { fixture: mode, channels: NO_DATA_CHANNELS }
+          )
           await window.evaluate((value) => window.api.setTheme(value), theme)
           await window.reload()
           await openOnboarding(window)
@@ -3302,6 +3328,20 @@ export const scenarios = [
       await window.waitForTimeout(MOTION_SETTLE_MS)
     }
   })),
+  {
+    // The two-by-two overview (#68) in dark: four counted cards, MCP servers among them.
+    name: 'onboarding-overview-dark',
+    screen: 'onboarding',
+    async run(window) {
+      await window.evaluate(() => window.api.setTheme('dark'))
+      await window.reload()
+      await window.waitForFunction(() => document.documentElement.classList.contains('dark'))
+      await openOnboarding(window)
+      await window.getByRole('button', { name: 'Next', exact: true }).click()
+      await window.getByText('MCP servers', { exact: true }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
   // MCP section (#44). Rows are this machine's real servers, so these skip when it has none.
   {
     name: 'mcp-inventory',

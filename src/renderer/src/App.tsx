@@ -977,6 +977,8 @@ function App(): React.JSX.Element {
         onFinish={finishOnboarding}
         skills={skills}
         plugins={plugins}
+        mcpServers={mcpServers}
+        mcpLoaded={mcpData !== undefined}
         folders={folders}
         scanComplete={scanComplete}
         home={home}
