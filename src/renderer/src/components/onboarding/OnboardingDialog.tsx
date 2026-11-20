@@ -11,6 +11,7 @@ import {
   HardDrive,
   LoaderCircle,
   Lock,
+  Plug,
   RotateCw,
   ScanSearch,
   TriangleAlert,
@@ -27,6 +28,7 @@ import { usageOverviewQuery } from '@/lib/usage-overview-query'
 import type {
   AllowedPathRow,
   ClaudeFolderStatus,
+  McpServerRow,
   PluginRow,
   SkillRow,
   SkippedGrant
@@ -44,6 +46,9 @@ interface OnboardingDialogProps {
   onFinish: () => void
   skills: SkillRow[]
   plugins: PluginRow[]
+  mcpServers: McpServerRow[]
+  // The MCP list has answered at least once; before that its count isn't known.
+  mcpLoaded: boolean
   folders: AllowedPathRow[]
   scanComplete: boolean
   home: string
@@ -56,6 +61,8 @@ export function OnboardingDialog({
   onFinish,
   skills,
   plugins,
+  mcpServers,
+  mcpLoaded,
   folders,
   scanComplete,
   home,
@@ -159,6 +166,8 @@ export function OnboardingDialog({
                   <OverviewStep
                     skills={skills}
                     plugins={plugins}
+                    mcpServers={mcpServers}
+                    mcpLoaded={mcpLoaded}
                     scanComplete={scanComplete}
                     folder={folder}
                     claudeFolder={claudeFolder}
@@ -252,12 +261,12 @@ const FACTS = (folder: string): { icon: LucideIcon; title: string; body: string 
   {
     icon: Lock,
     title: 'Never touches your skills',
-    body: "Plugin changes go through Claude Code's own CLI, and only when you click."
+    body: "Plugin and MCP server changes go through Claude Code's own CLI, and only when you click."
   },
   {
     icon: ScanSearch,
     title: 'Catches broken skills before Claude does',
-    body: 'Local checks flag bad frontmatter, broken paths and missing MCP servers.'
+    body: 'Local checks flag bad frontmatter, broken paths, missing MCP servers, and MCP configs Claude Code would skip.'
   }
 ]
 
@@ -265,7 +274,8 @@ function BriefStep({ folder }: { folder: string }): React.JSX.Element {
   return (
     <div className="flex flex-col gap-6">
       <StepHeading title="Everything Claude Code knows, in one place.">
-        A local map of your skills, plugins and usage. Here&apos;s what you&apos;re signing up for.
+        A local map of your skills, plugins, MCP servers and usage. Here&apos;s what you&apos;re
+        signing up for.
       </StepHeading>
       <ul className="flex flex-col gap-4">
         {FACTS(folder).map((fact, index) => (
@@ -304,6 +314,8 @@ function Fact({
 function OverviewStep({
   skills,
   plugins,
+  mcpServers,
+  mcpLoaded,
   scanComplete,
   folder,
   claudeFolder,
@@ -311,6 +323,8 @@ function OverviewStep({
 }: {
   skills: SkillRow[]
   plugins: PluginRow[]
+  mcpServers: McpServerRow[]
+  mcpLoaded: boolean
   scanComplete: boolean
   folder: string
   claudeFolder?: ClaudeFolderStatus
@@ -321,13 +335,16 @@ function OverviewStep({
   const usageComplete = usage?.scanComplete === true
 
   // Nothing at all, after both scans finished: most likely Claude Code has never run here, or
-  // its data lives somewhere Megatron can't read yet (#16, #17). Say so instead of three zeros.
+  // its data lives somewhere Megatron can't read yet (#16, #17). Say so instead of four zeros.
+  // MCP servers count too: a user may have only configured one so far.
   if (
     scanComplete &&
     usageComplete &&
+    mcpLoaded &&
     usageProjects !== undefined &&
     skills.length === 0 &&
     plugins.length === 0 &&
+    mcpServers.length === 0 &&
     usageProjects.locations.length === 0
   )
     return <NoDataStep folder={folder} claudeFolder={claudeFolder} home={home} />
@@ -339,14 +356,17 @@ function OverviewStep({
     ? { icon: CircleX, className: 'text-destructive' }
     : { icon: TriangleAlert, className: 'text-warning' }
   const updates = plugins.filter((plugin) => pluginUpdateDetails(plugin).hasUpdate).length
+  // A server's warnings are its lint findings, the same signal as the MCP table's Status pill.
+  const mcpAttention = mcpServers.filter((server) => server.warnings > 0).length
   const prompts = usage?.activity.last30d.prompts
 
   return (
     <div className="flex flex-col gap-6">
       <StepHeading title={scanComplete ? 'Here’s what Megatron found' : 'Scanning your setup…'}>
-        Three places to look once you&apos;re in.
+        Four places to look once you&apos;re in.
       </StepHeading>
-      <ul className="grid grid-cols-3 gap-3">
+      {/* Two by two: four cards don't fit across the 560px dialog. */}
+      <ul className="grid grid-cols-2 gap-3">
         <OverviewCard
           index={0}
           icon={BrainCircuit}
@@ -369,12 +389,22 @@ function OverviewStep({
         />
         <OverviewCard
           index={2}
+          icon={Plug}
+          label="MCP servers"
+          value={mcpLoaded ? mcpServers.length : undefined}
+          settled={scanComplete && mcpLoaded}
+          detail={mcpAttention > 0 ? `${mcpAttention} need attention` : null}
+          detailTone={{ icon: TriangleAlert, className: 'text-warning' }}
+          line="Every server from your config, plugins and claude.ai, with its calls and failures."
+        />
+        <OverviewCard
+          index={3}
           icon={BarChart3}
           label="Usage"
           value={prompts}
           settled={usageComplete}
           detail={prompts ? 'prompts in 30 days' : null}
-          line="Tokens, estimated cost, models, and which skills actually fire."
+          line="Tokens, cost, models, and which skills and MCP servers get used."
         />
       </ul>
     </div>
@@ -481,7 +511,7 @@ function NoDataStep({
   return (
     <div className="flex flex-col gap-5">
       <StepHeading title="No Claude Code data found">
-        Megatron looked in {folder} and found no skills, plugins or sessions.
+        Megatron looked in {folder} and found no skills, plugins, MCP servers or sessions.
       </StepHeading>
       <ul className="flex list-disc flex-col gap-2 pl-5 text-[13px] text-muted-foreground">
         {causes.map((cause) => (

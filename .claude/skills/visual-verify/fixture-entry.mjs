@@ -183,6 +183,7 @@ globalThis.megatronVisualFixtures = {
         if (channel === 'plugins:list') return []
         if (channel === 'usage:projects') return { locations: [], projects: [] }
         if (channel === 'usage:overview') return { ...result, scanComplete: true }
+        if (channel === 'mcp:list') return { ...result, servers: [] }
       }
       if (mode === 'plugin-disabled' || mode === 'plugin-enabled') {
         const disabled = mode === 'plugin-disabled' ? 'plugin' : null

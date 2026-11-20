@@ -170,7 +170,7 @@ Claude app chats (folderless Claude desktop chats) fold into one "Claude app cha
 
 ### Onboarding (dialog)
 
-- A three-step modal over the live app (`components/onboarding/`): what Megatron does and doesn't do, an overview of Skills / Plugins / Usage with the user's own counts, and folder access. It shows when no folder is granted and the `preferences.json` flag is unset; every exit sets the flag; Settings › About › "Show welcome" replays it.
+- A three-step modal over the live app (`components/onboarding/`): what Megatron does and doesn't do, an overview of Skills / Plugins / MCP servers / Usage with the user's own counts (a two-by-two grid of cards, in the rail's order), and folder access. It shows when no folder is granted and the `preferences.json` flag is unset; every exit sets the flag; Settings › About › "Show welcome" replays it.
 - **Departs from the ledger, user-authorised and scoped to this dialog:** 24px/600 step headlines, and motion-led steps: direction-aware spring slides, the dialog's height animating to each step, staggered entries, counts ticking up as the scan reports, a check popping on granted rows, progress dots stretching into a pill.
 - **Everything else holds:** lime on exactly one CTA at a time (Next, then "Choose folders…" until something is granted, then "Open Megatron"); tones per the Tones-Aren't-The-Stamp Rule; overview card icons stay ink like the rail's; no gradients, glows, or animated backgrounds. With reduced motion, steps are opacity-only and counts show their final value.
 
