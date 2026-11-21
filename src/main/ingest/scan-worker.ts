@@ -1,7 +1,9 @@
+import { homedir } from 'os'
 import { parentPort, workerData } from 'worker_threads'
 import { assertConfigRootAvailable } from '../config-root'
 import Database from 'better-sqlite3'
-import { restoreGrantedPath, setClaudeConfig, type ConfigRoot } from '../permissions'
+import { goneRecordedFolders } from '../folder-existence'
+import { isPathAllowed, restoreGrantedPath, setClaudeConfig, type ConfigRoot } from '../permissions'
 import { scanSkills as runSkillScan } from './skills-scanner'
 import type { ProjectFolder } from '../../shared/ipc'
 import { readProjectIdentity, type ProjectIdentitySnapshot } from '../../shared/project-identity'
@@ -105,7 +107,13 @@ try {
       parentPort?.postMessage(progress)
     }
   )
-  parentPort?.postMessage(summary)
+  // Here rather than in main: a stat on an unreachable network share blocks until the OS gives up.
+  const goneFolders = goneRecordedFolders(
+    projectIdentity.locations.map((location) => location.path),
+    homedir(),
+    isPathAllowed
+  )
+  parentPort?.postMessage({ ...summary, goneFolders })
 } finally {
   archive?.close()
   database.close()

@@ -140,9 +140,16 @@ it exactly matches one of its own records of where Claude Code ran (Usage locati
 `plugin_registry.project_path`, `mcp_project_state.project_path`, granted catalog folders) and
 passes the same home-and-above rule (`matchRecordedFolder`). Main then uses its own spelling of the
 path, so the renderer still never names a folder of its choosing. The picker is aimed only when no
-grant covers the folder and a plain `statSync` finds a directory. That existence check sits outside
-`isPathAllowed` on purpose: it reads nothing inside the folder, and its answer never leaves main.
-It matters because Electron 43.8.7 handles a missing `defaultPath` differently by platform
+grant covers the folder and a plain `statSync` finds a directory. That existence check, the one
+capability outside `isPathAllowed`, lives in `src/main/folder-existence.ts`: it reads nothing
+inside the folder. The scan worker runs it too, over recorded folders no grant covers (home and
+above, and Claude app chat folders, excluded), so a folder proven gone (`ENOENT`, `ENOTDIR`, or now
+a file) leaves the folder suggestions. Only that one bit reaches the renderer, as a `missing`
+status on a path it already has from Claude Code's records; any other error counts as not gone.
+It runs in the worker because a stat on an unreachable network share blocks until the OS gives
+up. macOS TCC does not prompt for it: a fresh, consentless app `stat`ed folders inside
+`~/Documents`, `~/Desktop` and `~/Downloads` with no prompt, while listing `~/Documents` prompted
+(verified on macOS 27.2.1, 2026-11-21). The picker check matters because Electron 43.8.7 handles a missing `defaultPath` differently by platform
 (`shell/browser/ui/file_dialog_{mac.mm,win.cc}` at tag `v43.8.7`): macOS opens the parent, while
 Windows types the basename into the Folder box and confirming fails. A target that fails any check
 falls back to the suggested start. Every grant still comes from the dialog's own result, and

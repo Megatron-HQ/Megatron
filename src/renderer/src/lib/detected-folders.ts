@@ -15,13 +15,17 @@ export interface DetectedFolder {
 // The folders Claude Code has run in that a grant could cover, shared by onboarding and Settings
 // so the two lists never disagree. A folder nested inside another listed one (Claude Code run
 // from a repo's subfolder) folds into its parent. A worktree's row is its repository's, so it is
-// dropped only after folding, which keeps folders recorded inside it from surfacing as rows.
+// dropped only after folding, which keeps folders recorded inside it from surfacing as rows. A
+// folder known to be gone can't be granted, so it leaves before folding.
 export function detectedFolders(
-  locations: Pick<UsageProjectLocation, 'path' | 'worktree'>[],
+  locations: (Pick<UsageProjectLocation, 'path' | 'worktree'> &
+    Partial<Pick<UsageProjectLocation, 'status'>>)[],
   home: string,
   label: (path: string) => string
 ): DetectedFolder[] {
-  const candidates = locations.filter((location) => isSuggestableFolder(location.path, home))
+  const candidates = locations.filter(
+    (location) => location.status !== 'missing' && isSuggestableFolder(location.path, home)
+  )
   return candidates
     .filter(
       (location) =>

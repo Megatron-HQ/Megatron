@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, dialog, ipcMain, net, protocol, session } from 'electron'
-import { statSync, watchFile } from 'fs'
+import { watchFile } from 'fs'
 import { basename, join, resolve } from 'path'
 import { homedir } from 'os'
 import { pathToFileURL } from 'url'
@@ -36,6 +36,7 @@ import { createProjectIdentity } from './project-identity'
 import { createScanSession, type ScanUrgency } from './scan-session'
 import { disableChromiumHttpCache } from './chromium-cache'
 import { changeAllowedPaths, listAllowedPaths, normalizeAllowedPaths } from './folder-grants'
+import { isExistingDirectory } from './folder-existence'
 import { hideProject, readHiddenProjects, showProject, unhideForPicks } from './hidden-projects'
 import { createUpdater, type Updates } from './updater'
 import { readSwapResult, scheduleSwap, selfUpdateBlocker, stageUpdate } from './mac-self-update'
@@ -377,8 +378,8 @@ async function scanAndNotify(
             }
     }
     const paused = claudeFolder.paused()
-    // The renderer gets the summary only; the catalog and findings stay in main.
-    const { projects, findings, ...summary } = result
+    // The renderer gets the summary only; the catalog, findings and gone folders stay in main.
+    const { projects, findings, goneFolders, ...summary } = result
     scanSummary = {
       ...summary,
       ...(paused
@@ -408,7 +409,7 @@ async function scanAndNotify(
       }
       // After the catalog, which the owner reads while it reconciles.
       try {
-        projectIdentity.recordScan(findings)
+        projectIdentity.recordScan(findings, goneFolders)
       } catch (error) {
         console.error('[ingest] could not save Usage project identity', error)
       }
@@ -648,23 +649,14 @@ app.whenReady().then(() => {
     )
   }
 
-  // Outside isPathAllowed on purpose: a recorded, ungranted folder is never read, only checked to
-  // exist, and the answer never leaves main. A missing one must not be handed to the picker:
-  // Windows would type its name into the Folder box, and confirming would fail.
-  function isExistingDirectory(path: string): boolean {
-    try {
-      return statSync(path).isDirectory()
-    } catch {
-      return false
-    }
-  }
-
   secureIpc.handle(IPC_CHANNELS.pickAndAddFolders, async (event, target?: string) => {
     const grants = listAllowedPaths(themeStore).map((row) => row.path)
     const recorded = target === undefined ? undefined : recordedFolder(target)
     const aimed =
       recorded !== undefined &&
       !grants.some((grant) => isWithinGrant(recorded, grant)) &&
+      // A missing folder must not reach the picker: Windows would type its name into the Folder
+      // box, and confirming would fail.
       isExistingDirectory(recorded)
         ? recorded
         : undefined

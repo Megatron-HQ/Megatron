@@ -36,6 +36,19 @@ describe('detectedFolders', () => {
     expect(rows.map((row) => row.path)).toEqual(['/Users/me/acme'])
   })
 
+  it('leaves out a folder known to be gone, without folding a live one into it', () => {
+    const rows = detectedFolders(
+      [
+        { path: '/Users/me/old', status: 'missing' },
+        { path: '/Users/me/acme', status: 'missing' },
+        { path: '/Users/me/acme/web', status: 'needs_access' }
+      ],
+      home,
+      label
+    )
+    expect(rows.map((row) => row.path)).toEqual(['/Users/me/acme/web'])
+  })
+
   it('sorts by label, numbers in numeric order', () => {
     const rows = detectedFolders(
       [{ path: '/Users/me/app10' }, { path: '/Users/me/Beta' }, { path: '/Users/me/app2' }],

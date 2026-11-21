@@ -109,7 +109,8 @@ Link, Usage Project) are in `CONTEXT.md`.
 - **Reconcile at four moments only:** at startup once grants are restored, when the transcript or
   prompt usage sources finish, when main records a Scan (reconcile, apply the Scan's repo findings,
   reconcile again), and on link/unlink. Reads never write; availability status is computed live on
-  read. A reconcile that changes nothing writes nothing.
+  read, except that an ungranted folder's `missing` comes from the last Scan's existence check,
+  held in memory and never persisted. A reconcile that changes nothing writes nothing.
 - **Persist first.** A write reaches `preferences.json` before memory and the snapshot change, so
   a failed write leaves both as they were. Scan-driven writes log the failure; link and unlink
   errors go back to the renderer.

@@ -309,7 +309,11 @@ export interface ScanSummary {
 
 // What the worker hands main; main records `projects` and `findings`, then sends only the summary
 // to the renderer.
-export type ScanResult = ScanSummary & { projects?: ProjectFolder[]; findings?: RepoFindings }
+export type ScanResult = ScanSummary & {
+  projects?: ProjectFolder[]
+  findings?: RepoFindings
+  goneFolders?: string[]
+}
 
 export type FileStatus = 'ok' | 'too_large' | 'unreadable' | 'preview_limit'
 
