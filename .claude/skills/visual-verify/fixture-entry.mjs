@@ -166,8 +166,12 @@ globalThis.megatronVisualFixtures = {
       }
       // Before `original`: the real handler would spawn the Claude Code CLI.
       if (mode.startsWith('context-baseline')) return contextBaselineFixture(mode)
-      // Before `original`: the real handler would open the native folder picker.
-      if (channel === 'folders:pickAndAdd' && mode.startsWith('project-tree'))
+      // Before `original`: the real handlers would open the native folder picker, or match the
+      // fixture's folder against main's own records, refuse it, and start a scan.
+      if (
+        (channel === 'folders:pickAndAdd' || channel === 'folders:hide') &&
+        mode.startsWith('project-tree')
+      )
         return projectTreeFixture(channel, args, undefined, mode)
       // Before `original`: the real handler would run `claude mcp` against the user's config.
       if (MCP_ACTION_CHANNELS.has(channel) && mode.startsWith('mcp-action-'))

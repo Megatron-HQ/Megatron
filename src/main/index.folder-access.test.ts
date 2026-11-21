@@ -1,7 +1,8 @@
 import Database from 'better-sqlite3'
-import { join, resolve } from 'path'
-import { tmpdir } from 'os'
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'fs'
+import { basename, join, resolve } from 'path'
+import { homedir, tmpdir } from 'os'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { applySchema } from './db/schema'
 import { openUsageArchive } from './db/usage-archive'
 import { changeAllowedPaths, listAllowedPaths } from './folder-grants'
@@ -134,6 +135,11 @@ const summary: ScanSummary = {
 }
 const folder = resolve(tmpdir(), 'megatron-folder-access-test')
 const child = join(folder, 'repo')
+// Two folders Claude Code ran in that no grant covers; their only shared ancestor is
+// suggestRoot, so the picker's suggested start moves when one of them is hidden.
+const suggestRoot = resolve(tmpdir(), 'megatron-suggest-test')
+const hiddenRepo = join(suggestRoot, 'a', 'hidden-repo')
+const shownRepo = join(suggestRoot, 'b', 'shown-repo')
 const preferences = (): ThemeStore => runtime.stores[0] as ThemeStore
 const event = { sender: runtime.contents, senderFrame: runtime.contents.mainFrame }
 
@@ -183,6 +189,13 @@ beforeAll(async () => {
   })
   runtime.initialPreferences = [
     [
+      'usageProjects',
+      [
+        { id: 'hidden-repo', path: hiddenRepo, kind: 'repository', status: 'needs_access' },
+        { id: 'shown-repo', path: shownRepo, kind: 'repository', status: 'needs_access' }
+      ]
+    ],
+    [
       'grantedFolders',
       [
         { path: child, granted_at: '2026-01-01T00:00:00.000Z' },
@@ -217,8 +230,11 @@ beforeEach(() => {
     cancel: async () => undefined
   }))
   preferences().set('grantedFolders', [])
+  preferences().set('hiddenProjects', [])
   resetGrantedPaths()
   runtime.database!.prepare('DELETE FROM skills').run()
+  runtime.database!.prepare('DELETE FROM plugin_registry').run()
+  runtime.database!.prepare('DELETE FROM mcp_project_state').run()
   runtime.contents.send.mockClear()
   runtime.pickFolders.mockReset()
 })
@@ -525,6 +541,135 @@ describe('folder access IPC', () => {
     } finally {
       reportError.mockRestore()
     }
+  })
+})
+
+describe('hidden folders and the aimed picker', () => {
+  let recorded: string
+  beforeEach(() => {
+    recorded = realpathSync(mkdtempSync(join(tmpdir(), 'megatron-recorded-')))
+    runtime.pickFolders.mockResolvedValue({ canceled: true, filePaths: [] })
+  })
+  afterEach(() => {
+    rmSync(recorded, { recursive: true, force: true })
+  })
+
+  function recordPluginInstall(projectPath: string): void {
+    runtime
+      .database!.prepare(
+        `INSERT INTO plugin_registry
+           (name, marketplace, installed_version, scope, install_path, last_scanned_at, project_path)
+         VALUES ('demo', 'market', '1.0.0', 'project', '/cache/demo', '2026-11-21', ?)`
+      )
+      .run(projectPath)
+  }
+
+  function recordMcpProject(projectPath: string): void {
+    runtime
+      .database!.prepare(
+        "INSERT INTO mcp_project_state (project_path, mcp_json, connectors_disabled) VALUES (?, 'ungranted', 0)"
+      )
+      .run(projectPath)
+  }
+
+  async function pickerOptions(...args: unknown[]): Promise<Electron.OpenDialogOptions> {
+    await invoke(IPC_CHANNELS.pickAndAddFolders, ...args)
+    return runtime.pickFolders.mock.calls.at(-1)![1]
+  }
+
+  it("hides a recorded folder under main's spelling and rescans without it", async () => {
+    recordPluginInstall(recorded)
+    expect(await invoke(IPC_CHANNELS.hideProject, `${recorded}/`)).toEqual([recorded])
+    expect(await invoke(IPC_CHANNELS.listHiddenProjects)).toEqual([recorded])
+    await vi.waitFor(() =>
+      expect(runtime.startWorker.mock.calls.at(-1)?.[1]).toMatchObject({
+        hiddenProjects: [recorded]
+      })
+    )
+  })
+
+  it('hides a folder recorded only as a Usage location', async () => {
+    expect(await invoke(IPC_CHANNELS.hideProject, hiddenRepo)).toEqual([hiddenRepo])
+  })
+
+  it('refuses to hide a folder main has no record of', async () => {
+    recordMcpProject(recorded)
+    await expect(invoke(IPC_CHANNELS.hideProject, join(recorded, 'other'))).rejects.toThrow()
+    expect(await invoke(IPC_CHANNELS.listHiddenProjects)).toEqual([])
+  })
+
+  it('refuses to hide the home folder even when Claude Code ran there', async () => {
+    recordMcpProject(homedir())
+    await expect(invoke(IPC_CHANNELS.hideProject, homedir())).rejects.toThrow()
+    expect(await invoke(IPC_CHANNELS.listHiddenProjects)).toEqual([])
+  })
+
+  it('shows a hidden folder again, and refuses one that is not hidden', async () => {
+    preferences().set('hiddenProjects', [recorded])
+    await expect(invoke(IPC_CHANNELS.showProject, join(recorded, 'x'))).rejects.toThrow(
+      'not hidden'
+    )
+    expect(await invoke(IPC_CHANNELS.showProject, recorded)).toEqual([])
+  })
+
+  it('opens the picker inside a recorded folder no grant covers', async () => {
+    recordMcpProject(recorded)
+    expect(await pickerOptions(recorded)).toMatchObject({
+      defaultPath: recorded,
+      title: `Add ${basename(recorded)}`,
+      buttonLabel: 'Add'
+    })
+  })
+
+  it.each([
+    ['no longer exists', (path: string) => join(path, 'staghorn'), true],
+    ['is not recorded', (path: string) => path, false]
+  ])('falls back to the suggested start when the folder %s', async (_case, target, record) => {
+    const path = target(recorded)
+    if (record) recordPluginInstall(path)
+    const options = await pickerOptions(path)
+    expect(options.defaultPath).toBe(suggestRoot)
+    expect(options.buttonLabel).toBeUndefined()
+  })
+
+  it('falls back to the suggested start when a grant already covers the folder', async () => {
+    recordMcpProject(recorded)
+    grant(recorded)
+    expect((await pickerOptions(recorded)).defaultPath).toBe(suggestRoot)
+  })
+
+  it('leaves hidden folders out of the suggested start', async () => {
+    preferences().set('hiddenProjects', [hiddenRepo])
+    expect((await pickerOptions()).defaultPath).toBe(join(suggestRoot, 'b'))
+  })
+
+  it('shows a hidden folder when the user picks it or a folder inside it', async () => {
+    const inner = join(recorded, 'web')
+    mkdirSync(inner)
+    preferences().set('hiddenProjects', [recorded, hiddenRepo])
+    runtime.pickFolders.mockResolvedValueOnce({ canceled: false, filePaths: [inner] })
+    await invoke(IPC_CHANNELS.pickAndAddFolders)
+    expect(await invoke(IPC_CHANNELS.listHiddenProjects)).toEqual([hiddenRepo])
+  })
+
+  it('shows a hidden folder even when its pick is skipped as already covered', async () => {
+    const inner = join(recorded, 'web')
+    mkdirSync(inner)
+    grant(recorded)
+    preferences().set('hiddenProjects', [inner])
+    runtime.pickFolders.mockResolvedValueOnce({ canceled: false, filePaths: [inner] })
+    expect(await invoke(IPC_CHANNELS.pickAndAddFolders)).toMatchObject({
+      skipped: [{ path: inner, coveredBy: recorded }]
+    })
+    expect(await invoke(IPC_CHANNELS.listHiddenProjects)).toEqual([])
+  })
+
+  it('keeps a hidden folder hidden when the user picks a folder around it', async () => {
+    const inner = join(recorded, 'web')
+    preferences().set('hiddenProjects', [inner])
+    runtime.pickFolders.mockResolvedValueOnce({ canceled: false, filePaths: [recorded] })
+    await invoke(IPC_CHANNELS.pickAndAddFolders)
+    expect(await invoke(IPC_CHANNELS.listHiddenProjects)).toEqual([inner])
   })
 })
 

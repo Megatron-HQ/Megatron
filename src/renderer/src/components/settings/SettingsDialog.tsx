@@ -57,9 +57,12 @@ interface SettingsDialogProps {
   home: string
   folders: AllowedPathRow[]
   projectCatalog: ProjectFolder[]
-  onAddFolders: () => Promise<SkippedGrant[]>
+  onAddFolders: (target?: string) => Promise<SkippedGrant[]>
   onNarrowFolder: (path: string) => Promise<SkippedGrant[]>
   onRevokeFolder: (path: string) => Promise<void>
+  hiddenProjects: string[]
+  onHideFolder: (path: string) => Promise<void>
+  onShowFolder: (path: string) => Promise<void>
 }
 
 const PANES: { pane: SettingsPane; label: string; Icon: typeof Sun }[] = [
@@ -125,7 +128,10 @@ export function SettingsDialog({
   projectCatalog,
   onAddFolders,
   onNarrowFolder,
-  onRevokeFolder
+  onRevokeFolder,
+  hiddenProjects,
+  onHideFolder,
+  onShowFolder
 }: SettingsDialogProps): React.JSX.Element {
   const queryClient = useQueryClient()
   const [rescanPhase, setRescanPhase] = useState<'idle' | 'scanning' | 'refreshing'>('idle')
@@ -295,6 +301,9 @@ export function SettingsDialog({
                 onAddFolders={onAddFolders}
                 onNarrowFolder={onNarrowFolder}
                 onRevokeFolder={onRevokeFolder}
+                hiddenProjects={hiddenProjects}
+                onHideFolder={onHideFolder}
+                onShowFolder={onShowFolder}
                 scanSummary={latestSummary}
                 scanStatus={
                   busy

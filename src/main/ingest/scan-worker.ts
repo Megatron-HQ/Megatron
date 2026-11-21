@@ -21,6 +21,7 @@ const {
   archivePath,
   configRoot,
   grantedPaths,
+  hiddenProjects = [],
   previousProjects = [],
   projectIdentity,
   scope = 'all'
@@ -29,6 +30,8 @@ const {
   archivePath: string
   configRoot: ConfigRoot
   grantedPaths: string[]
+  // Display-only (hidden-projects.ts): left out of the index, never out of access.
+  hiddenProjects?: string[]
   previousProjects?: ProjectFolder[]
   projectIdentity: ProjectIdentitySnapshot
   scope?: ScanScope
@@ -58,19 +61,20 @@ try {
       {
         name: 'scanSkills',
         run: (db: Database.Database) =>
-          runSkillScan(db, undefined, undefined, previousProjects, repos)
+          runSkillScan(db, undefined, undefined, previousProjects, repos, hiddenProjects)
       },
       {
         name: 'scanPluginRegistry',
         run: (db: Database.Database) =>
-          scanPluginRegistry(db, undefined, undefined, repos, pluginMcpEndpoints)
+          scanPluginRegistry(db, undefined, undefined, repos, pluginMcpEndpoints, hiddenProjects)
       },
       {
         name: 'scanMcpDeclarations',
         run: (db: Database.Database) =>
           scanMcpDeclarations(db, {
             candidateProjects: previousProjects.map((project) => project.path),
-            pluginEndpoints: pluginMcpEndpoints
+            pluginEndpoints: pluginMcpEndpoints,
+            hiddenProjects
           })
       },
       // Not gated on the registry scan's status: leftover index rows are still real sightings,

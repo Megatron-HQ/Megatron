@@ -1,4 +1,4 @@
-import { useCallback, useEffectEvent, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   createColumnHelper,
   createSortedRowModel,
@@ -23,6 +23,7 @@ import { useProjectLabel } from '@/lib/use-project-label'
 import { ProjectName } from '@/components/ProjectName'
 import {
   getPluginFilterHeaderTitle,
+  pluginGrantGap,
   shouldShowScopeColumn,
   showsMissingProjectStatus,
   type PluginRepositoryRow as PluginRow,
@@ -41,9 +42,9 @@ import {
 import { ENTER, pluginTitleGlideId, useSettle } from '@/lib/transitions'
 import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
+import { ManageFoldersButton } from '@/components/ManageFoldersButton'
 import { ProjectAvailabilityNotice } from '@/components/ProjectAvailabilityNotice'
-import type { ProjectFolder } from '../../../shared/ipc'
-import type { PluginScope } from '../../../shared/ipc'
+import type { AllowedPathRow, PluginScope, ProjectFolder, SkippedGrant } from '../../../shared/ipc'
 
 const ROW_HEIGHT = 40
 const HEADER_HEIGHT = 40
@@ -365,7 +366,7 @@ function emptyDetail(filter: PluginFilter): string {
     case 'project':
       return 'Project-scope plugins are installed by a repo, in its .claude/settings.json.'
     case 'projects':
-      return "Project and local plugins are discovered from each repository's Claude settings."
+      return "Project and local plugins are listed from Claude Code's installed plugin records."
     case 'unknown':
       return 'These plugin records have no project location. Their actions are unavailable.'
     case 'local':
@@ -373,13 +374,30 @@ function emptyDetail(filter: PluginFilter): string {
   }
 }
 
+// Rows come from installed_plugins.json with or without a grant, so the wording speaks only of
+// what the grant unlocks: enablement, and the actions that run from the project folder.
+function grantGapMessage(
+  gap: { plugins: number; projects: string[] },
+  label: (path: string) => string
+): string {
+  const where =
+    gap.projects.length === 1 ? label(gap.projects[0]) : `${gap.projects.length} projects`
+  return gap.plugins === 1
+    ? `1 plugin in ${where} needs folder access to show whether it's enabled and to change it.`
+    : `${gap.plugins} plugins in ${where} need folder access to show whether they're enabled and to change them.`
+}
+
 interface PluginInventoryProps {
   availability?: ProjectFolder['status']
   plugins: PluginRow[]
   loading: boolean
   filter: PluginFilter
+  folders: AllowedPathRow[]
   onSelect: (plugin: PluginRow) => void
   onOpenSearch: () => void
+  onAddFolders: (target?: string) => Promise<SkippedGrant[]>
+  onHideFolder: (path: string) => Promise<void>
+  onManageFolders: () => void
   // The row Back left from: focused (and so scrolled into view) when the list mounts, so Back
   // returns to where the user was instead of row 0 at the top.
   restoreFocusKey?: string | null
@@ -390,11 +408,16 @@ export function PluginInventory({
   loading,
   filter,
   availability,
+  folders,
   onSelect,
   onOpenSearch,
+  onAddFolders,
+  onHideFolder,
+  onManageFolders,
   restoreFocusKey = null
 }: PluginInventoryProps): React.JSX.Element {
   const resolveProjectLabel = useProjectLabel()
+  const grantGap = useMemo(() => pluginGrantGap(plugins, folders), [plugins, folders])
   const [sorting, setSorting] = useState<SortingState>([])
   const [focusedIndex, setFocusedIndex] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -638,23 +661,40 @@ export function PluginInventory({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <ProjectAvailabilityNotice status={availability} />
-      <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-4">
+      {/* Above the header bar, outside the scroll container: the row highlight's arithmetic
+          offset stays HEADER_HEIGHT. */}
+      <ProjectAvailabilityNotice
+        status={grantGap.plugins > 0 ? 'needs_access' : availability}
+        message={grantGap.plugins > 0 ? grantGapMessage(grantGap, resolveProjectLabel) : undefined}
+        projects={
+          grantGap.plugins > 0
+            ? grantGap.projects
+            : filter.kind === 'projects' && filter.projectPath
+              ? [filter.projectPath]
+              : undefined
+        }
+        onAddFolders={onAddFolders}
+        onHideFolder={onHideFolder}
+      />
+      <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border px-4">
         <h2 title={headerTitle} className="truncate text-[13px] font-semibold">
           {headerTitle}
           {!loading && <span className="font-normal text-muted-foreground"> · {rows.length}</span>}
         </h2>
-        <button
-          type="button"
-          onClick={onOpenSearch}
-          className="flex shrink-0 items-center gap-2 rounded-md border border-border bg-muted px-2.5 py-1 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <Search className="size-3.5" />
-          Search
-          <kbd className="rounded border border-border bg-background px-1 font-mono text-[11px]">
-            {window.api?.platform === 'darwin' ? '⌘K' : 'Ctrl+K'}
-          </kbd>
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {filter.kind === 'projects' && <ManageFoldersButton onClick={onManageFolders} />}
+          <button
+            type="button"
+            onClick={onOpenSearch}
+            className="flex shrink-0 items-center gap-2 rounded-md border border-border bg-muted px-2.5 py-1 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Search className="size-3.5" />
+            Search
+            <kbd className="rounded border border-border bg-background px-1 font-mono text-[11px]">
+              {window.api?.platform === 'darwin' ? '⌘K' : 'Ctrl+K'}
+            </kbd>
+          </button>
+        </div>
       </div>
       {body}
     </div>

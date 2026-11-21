@@ -377,9 +377,6 @@ export function listMcpServers(
   const window = db
     .prepare('SELECT MIN(invoked_at) AS first, MAX(invoked_at) AS last FROM mcp_tool_calls')
     .get() as { first: string | null; last: string | null }
-  const ungranted = db
-    .prepare("SELECT COUNT(*) AS count FROM mcp_project_state WHERE mcp_json = 'ungranted'")
-    .get() as { count: number }
   return {
     servers: [...snapshot.identities.values()]
       .map((identity) => {
@@ -389,7 +386,6 @@ export function listMcpServers(
       .sort(byName),
     firstCallAt: window.first,
     lastCallAt: window.last,
-    ungrantedProjects: ungranted.count,
     lastCheckedAt: general?.checkedAt ?? null
   }
 }

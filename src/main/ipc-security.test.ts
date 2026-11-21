@@ -177,7 +177,13 @@ describe('renderer trust boundary', () => {
   })
   it.each([
     [IPC_CHANNELS.narrowAllowedPath, ['/Users/me/Desktop']],
-    [IPC_CHANNELS.getHomePath, []]
+    [IPC_CHANNELS.getHomePath, []],
+    [IPC_CHANNELS.pickAndAddFolders, []],
+    // A folder main listed, to aim the picker at; main matches it against its own records.
+    [IPC_CHANNELS.pickAndAddFolders, [ABS]],
+    [IPC_CHANNELS.listHiddenProjects, []],
+    [IPC_CHANNELS.hideProject, [ABS]],
+    [IPC_CHANNELS.showProject, [ABS]]
   ])('accepts valid folder requests for %s', (channel, args) => {
     expect(() => security.validateIpcArguments(channel, args)).not.toThrow()
   })
@@ -188,8 +194,16 @@ describe('renderer trust boundary', () => {
     [IPC_CHANNELS.narrowAllowedPath, ['/Users/me/Desktop\0']],
     // Narrowing replaces the grant with dialog picks; the renderer never names folders to add.
     [IPC_CHANNELS.narrowAllowedPath, ['/Users/me/Desktop', ['/Users/me/Desktop/api']]],
-    // The picker's starting folder is computed in main; the renderer never names one.
-    [IPC_CHANNELS.pickAndAddFolders, ['/Users/me/code']],
+    [IPC_CHANNELS.pickAndAddFolders, ['relative/code']],
+    [IPC_CHANNELS.pickAndAddFolders, [`${ABS}\0`]],
+    [IPC_CHANNELS.pickAndAddFolders, [ABS, ABS]],
+    [IPC_CHANNELS.listHiddenProjects, [ABS]],
+    [IPC_CHANNELS.hideProject, []],
+    [IPC_CHANNELS.hideProject, ['relative/code']],
+    [IPC_CHANNELS.hideProject, [42]],
+    [IPC_CHANNELS.hideProject, [ABS, ABS]],
+    [IPC_CHANNELS.showProject, ['']],
+    [IPC_CHANNELS.showProject, [`${ABS}\0`]],
     [IPC_CHANNELS.setOnboardingDone, [true]],
     [IPC_CHANNELS.getHomePath, ['/Users/me']]
   ])('rejects malformed folder requests for %s', (channel, args) => {

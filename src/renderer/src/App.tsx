@@ -176,6 +176,10 @@ function App(): React.JSX.Element {
     queryKey: ['projects'],
     queryFn: () => window.api.listProjects()
   })
+  const { data: hiddenProjects = [] } = useQuery({
+    queryKey: ['hiddenProjects'],
+    queryFn: () => window.api.listHiddenProjects()
+  })
 
   const {
     data: pluginsData,
@@ -567,6 +571,10 @@ function App(): React.JSX.Element {
     setSettingsOpen(true)
   }
 
+  function manageFolders(): void {
+    openSettings('claude-code', 'project-folders')
+  }
+
   function handleThemeChange(next: ThemePreference): void {
     setThemePreference(next)
     void window.api.setTheme(next)
@@ -578,11 +586,38 @@ function App(): React.JSX.Element {
     queryClient.setQueryData(['folders'], result.folders)
     void queryClient.invalidateQueries({ queryKey: ['skills'] })
     void queryClient.invalidateQueries({ queryKey: ['projects'] })
+    // Picking a hidden folder, or one inside it, shows it again.
+    void queryClient.invalidateQueries({ queryKey: ['hiddenProjects'] })
     return result.skipped
   }
 
-  function handleAddFolders(): Promise<SkippedGrant[]> {
-    return applyGrantChange(window.api.pickAndAddFolders())
+  // A target aims the picker at a folder main listed; main falls back when it can't.
+  function handleAddFolders(target?: string): Promise<SkippedGrant[]> {
+    return applyGrantChange(window.api.pickAndAddFolders(target))
+  }
+
+  // The rows go when the rescan main starts reports back; the toast says where to undo it.
+  async function handleHideFolder(path: string): Promise<void> {
+    queryClient.setQueryData(['hiddenProjects'], await window.api.hideProject(path))
+    if (pluginView.kind === 'detail') {
+      const plugin = plugins.find(
+        (row) => row.name === pluginView.name && row.marketplace === pluginView.marketplace
+      )
+      const hidden = (projectPath: string | null): boolean =>
+        projectPath !== null && isWithinProjectPath(projectPath, path)
+      if (
+        (pluginView.context?.kind === 'project' && hidden(pluginView.context.path)) ||
+        (plugin !== undefined && plugin.installs.every((install) => hidden(install.project_path)))
+      )
+        leavePluginDetail()
+    }
+    showPluginActionToast(
+      `Hid ${resolveProjectLabel(path)}. Show it again from Settings › Project folders.`
+    )
+  }
+
+  async function handleShowFolder(path: string): Promise<void> {
+    queryClient.setQueryData(['hiddenProjects'], await window.api.showProject(path))
   }
 
   function handleNarrowFolder(path: string): Promise<SkippedGrant[]> {
@@ -733,8 +768,9 @@ function App(): React.JSX.Element {
           filter={filter}
           onSelect={openDetail}
           onOpenSearch={() => setPaletteOpen(true)}
-          onManageFolders={() => openSettings('claude-code', 'project-folders')}
+          onManageFolders={manageFolders}
           onGrantFolder={handleAddFolders}
+          onHideFolder={handleHideFolder}
           restoreFocusId={returnSkillId}
         />
       )
@@ -752,8 +788,11 @@ function App(): React.JSX.Element {
           }
           onBack={leavePluginDetail}
           onViewSkills={handleViewSkillsForPlugin}
+          folders={folders}
           onActionSuccess={showPluginActionToast}
-          onManageFolders={() => openSettings('claude-code', 'project-folders')}
+          onAddFolders={handleAddFolders}
+          onHideFolder={handleHideFolder}
+          onManageFolders={manageFolders}
         />
       ) : pluginsError ? (
         <div
@@ -779,8 +818,12 @@ function App(): React.JSX.Element {
           plugins={filteredPlugins}
           loading={pluginsPending}
           filter={pluginFilter}
+          folders={folders}
           onSelect={(plugin) => openPluginDetail(plugin.name, plugin.marketplace, plugin.context)}
           onOpenSearch={() => setPaletteOpen(true)}
+          onAddFolders={handleAddFolders}
+          onHideFolder={handleHideFolder}
+          onManageFolders={manageFolders}
           restoreFocusKey={returnPluginKey}
         />
       )
@@ -790,7 +833,7 @@ function App(): React.JSX.Element {
           id={mcpView.id}
           summary={mcpServers.find((server) => server.id === mcpView.id)}
           onBack={leaveMcpDetail}
-          canCheckProject={(path) => projectAvailability(path) === 'available'}
+          projectAvailability={projectAvailability}
           onCheckProject={requestMcpCheck}
           checkingProject={typeof mcpCheckingPath === 'string' ? mcpCheckingPath : null}
           projectCheckError={
@@ -799,6 +842,9 @@ function App(): React.JSX.Element {
           onActionSuccess={showPluginActionToast}
           onOpenPlugin={selectPluginFromPalette}
           onServerGone={leaveMcpDetail}
+          onAddFolders={handleAddFolders}
+          onHideFolder={handleHideFolder}
+          onManageFolders={manageFolders}
         />
       ) : mcpError ? (
         <div
@@ -831,6 +877,9 @@ function App(): React.JSX.Element {
           onCheckConnections={() => requestMcpCheck(null)}
           onSelect={(server) => openMcpDetail(server.id, 'inventory')}
           onOpenSearch={() => setPaletteOpen(true)}
+          onAddFolders={handleAddFolders}
+          onHideFolder={handleHideFolder}
+          onManageFolders={manageFolders}
           restoreFocusId={returnMcpId}
         />
       )
@@ -986,6 +1035,9 @@ function App(): React.JSX.Element {
         onAddFolders={handleAddFolders}
         onNarrowFolder={handleNarrowFolder}
         onRevokeFolder={handleRevokeFolder}
+        hiddenProjects={hiddenProjects}
+        onHideFolder={handleHideFolder}
+        onShowFolder={handleShowFolder}
       />
       <OnboardingDialog
         open={onboardingOpen}
@@ -997,6 +1049,7 @@ function App(): React.JSX.Element {
         folders={folders}
         scanComplete={scanComplete}
         home={home}
+        hiddenProjects={hiddenProjects}
         onAddFolders={handleAddFolders}
         claudeFolder={claudeFolder}
       />

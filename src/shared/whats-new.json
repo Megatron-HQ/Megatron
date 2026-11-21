@@ -1,6 +1,6 @@
 {
   "next": {
-    "title": "Settings",
+    "title": "Settings and folder access",
     "highlights": [
       {
         "title": "Settings, reorganized",
@@ -8,6 +8,14 @@
         "action": {
           "kind": "settings",
           "pane": "claude-code"
+        }
+      },
+      {
+        "title": "Add project folders where you need them",
+        "body": "Plugins and MCP servers that need a project folder offer Add folder…, which opens inside it. Hide a folder Megatron can't use, such as one you deleted.",
+        "action": {
+          "kind": "section",
+          "section": "plugins"
         }
       }
     ]

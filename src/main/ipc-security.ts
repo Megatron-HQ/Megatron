@@ -149,7 +149,14 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
       valid = args.length === 1 && isMcpDeclarationRef(value)
       break
     case IPC_CHANNELS.resetMcpProjectChoices:
+    case IPC_CHANNELS.hideProject:
+    case IPC_CHANNELS.showProject:
       valid = args.length === 1 && text(value) && isAbsolute(value)
+      break
+    // No path: main suggests where to start. A path: a folder main listed, matched in main
+    // against its own records before the picker opens there.
+    case IPC_CHANNELS.pickAndAddFolders:
+      valid = args.length === 0 || (args.length === 1 && text(value) && isAbsolute(value))
       break
     case IPC_CHANNELS.revealMcpSource:
       valid =

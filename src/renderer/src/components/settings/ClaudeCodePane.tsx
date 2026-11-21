@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CircleAlert,
+  Eye,
+  EyeOff,
   Folder,
   FolderPlus,
   Info,
@@ -9,13 +11,18 @@ import {
   Trash2
 } from 'lucide-react'
 import { ClaudeFolderSettings } from '@/components/ClaudeFolder'
+import { FolderAccessRow } from '@/components/FolderAccessRow'
 import { ScanIssueDetails } from '@/components/ScanStatus'
 import { SettingRow, SettingsGroup } from '@/components/settings/SettingsGroup'
+import { TextLink } from '@/components/TextLink'
 import { Button } from '@/components/ui/button'
 import { Item, ItemActions, ItemContent, ItemGroup, ItemMedia } from '@/components/ui/item'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { detectedFolders, ungrantedDetectedFolders } from '@/lib/detected-folders'
+import { skippedGrantMessage, useFolderAction } from '@/lib/folder-grant'
 import { getFolderBasename } from '@/lib/source-name'
 import { settingsTargetId } from '@/lib/settings-target'
+import { useUsageProjects } from '@/lib/use-usage-projects'
 import { cn } from '@/lib/utils'
 import { isWithinProjectPath, normalizeProjectPath } from '../../../../shared/project-path'
 import {
@@ -32,9 +39,12 @@ interface ClaudeCodePaneProps {
   home: string
   folders: AllowedPathRow[]
   projectCatalog: ProjectFolder[]
-  onAddFolders: () => Promise<SkippedGrant[]>
+  onAddFolders: (target?: string) => Promise<SkippedGrant[]>
   onNarrowFolder: (path: string) => Promise<SkippedGrant[]>
   onRevokeFolder: (path: string) => Promise<void>
+  hiddenProjects: string[]
+  onHideFolder: (path: string) => Promise<void>
+  onShowFolder: (path: string) => Promise<void>
   // The Index group's state lives in SettingsDialog, whose nav mark reads the same summary.
   scanSummary?: ScanSummary
   scanStatus: string | null
@@ -69,6 +79,9 @@ export function ClaudeCodePane({
   onAddFolders,
   onNarrowFolder,
   onRevokeFolder,
+  hiddenProjects,
+  onHideFolder,
+  onShowFolder,
   scanSummary,
   scanStatus,
   busy,
@@ -268,9 +281,7 @@ export function ClaudeCodePane({
                 <ul className="min-w-0 space-y-0.5">
                   {skipped.map((entry) => (
                     <li key={entry.path} className="break-words">
-                      {normalizeProjectPath(entry.path) === normalizeProjectPath(entry.coveredBy)
-                        ? `${getFolderBasename(entry.path)} is already in the list.`
-                        : `${getFolderBasename(entry.path)} is already included in ${getFolderBasename(entry.coveredBy)}.`}
+                      {skippedGrantMessage(entry)}
                     </li>
                   ))}
                 </ul>
@@ -289,6 +300,14 @@ export function ClaudeCodePane({
             )}
           </div>
         )}
+        <NotReadableYet
+          home={home}
+          folders={folders}
+          hidden={hiddenProjects}
+          onAddFolders={onAddFolders}
+          onHideFolder={onHideFolder}
+        />
+        <HiddenFolders hidden={hiddenProjects} onShowFolder={onShowFolder} />
       </SettingsGroup>
 
       <SettingsGroup id={settingsTargetId('index')} title="Index">
@@ -326,5 +345,177 @@ export function ClaudeCodePane({
         )}
       </SettingsGroup>
     </>
+  )
+}
+
+const NOT_READABLE_PREVIEW = 5
+
+// Onboarding's own rows, minus every one a grant covers or the user hid, so the two never
+// disagree. Main can't look inside an ungranted folder, so a folder deleted since Claude Code ran
+// there stays listed until the user hides it: that is why this is a list and never a count that
+// asks to reach zero.
+function NotReadableYet({
+  home,
+  folders,
+  hidden,
+  onAddFolders,
+  onHideFolder
+}: {
+  home: string
+  folders: AllowedPathRow[]
+  hidden: string[]
+  onAddFolders: (target?: string) => Promise<SkippedGrant[]>
+  onHideFolder: (path: string) => Promise<void>
+}): React.JSX.Element | null {
+  const { data: catalog, resolveProjectLabel } = useUsageProjects()
+  const [showAll, setShowAll] = useState(false)
+  const rows = useMemo(
+    () =>
+      ungrantedDetectedFolders(
+        detectedFolders(catalog?.locations ?? [], home, resolveProjectLabel),
+        folders,
+        hidden
+      ),
+    [catalog, home, resolveProjectLabel, folders, hidden]
+  )
+  if (rows.length === 0) return null
+  return (
+    <FolderListSection
+      title="Not readable yet"
+      count={rows.length}
+      description="Claude Code has run in these folders. Add one, or a folder above it, to see its project skills and .mcp.json servers and to manage its plugins. Hide one Megatron can't use, such as a folder that no longer exists."
+      showAll={showAll}
+      onToggle={() => setShowAll((value) => !value)}
+    >
+      <ul aria-label="Folders not readable yet" className="flex flex-col">
+        {(showAll ? rows : rows.slice(0, NOT_READABLE_PREVIEW)).map((row) => (
+          <FolderAccessRow
+            key={normalizeProjectPath(row.path)}
+            path={row.path}
+            label={row.label}
+            onAddFolders={onAddFolders}
+            onHideFolder={onHideFolder}
+          />
+        ))}
+      </ul>
+    </FolderListSection>
+  )
+}
+
+// The undo for Hide. Hiding is display-only, so Show only brings the folder back into Megatron's
+// lists after the rescan it starts; nothing on disk or in Claude Code's files changed either way.
+function HiddenFolders({
+  hidden,
+  onShowFolder
+}: {
+  hidden: string[]
+  onShowFolder: (path: string) => Promise<void>
+}): React.JSX.Element | null {
+  const { resolveProjectLabel } = useUsageProjects()
+  const [showAll, setShowAll] = useState(false)
+  if (hidden.length === 0) return null
+  return (
+    <FolderListSection
+      title="Hidden"
+      count={hidden.length}
+      description="Megatron leaves these folders and everything inside them out of Skills, Plugins, MCP and the folder lists. Usage still counts their sessions."
+      showAll={showAll}
+      onToggle={() => setShowAll((value) => !value)}
+    >
+      <ul aria-label="Hidden folders" className="flex flex-col">
+        {(showAll ? hidden : hidden.slice(0, NOT_READABLE_PREVIEW)).map((path) => (
+          <HiddenFolderRow
+            key={normalizeProjectPath(path)}
+            path={path}
+            label={resolveProjectLabel(path)}
+            onShowFolder={onShowFolder}
+          />
+        ))}
+      </ul>
+    </FolderListSection>
+  )
+}
+
+function HiddenFolderRow({
+  path,
+  label,
+  onShowFolder
+}: {
+  path: string
+  label: string
+  onShowFolder: (path: string) => Promise<void>
+}): React.JSX.Element {
+  const show = useFolderAction(() => onShowFolder(path))
+  return (
+    <li className="flex min-w-0 flex-col gap-1 py-0.5">
+      <div className="flex min-h-7 min-w-0 items-center gap-2 text-sm">
+        <EyeOff className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden="true" />
+        <span title={path} className="min-w-0 flex-1 truncate text-muted-foreground">
+          {label}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          disabled={show.pending}
+          aria-busy={show.pending}
+          aria-label={`Show ${label}`}
+          onClick={() => void show.run()}
+          className="shrink-0"
+        >
+          {show.pending ? (
+            <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+          ) : (
+            <Eye />
+          )}
+          Show
+        </Button>
+      </div>
+      {show.error && (
+        <p role="alert" className="flex items-center gap-2 pl-5.5 text-xs text-destructive">
+          <CircleAlert className="size-3 shrink-0" aria-hidden="true" />
+          Could not show this folder. Please try again.
+        </p>
+      )}
+    </li>
+  )
+}
+
+// The first NOT_READABLE_PREVIEW rows, then "Show all N", so a long list never pushes the Index
+// group out of reach.
+function FolderListSection({
+  title,
+  count,
+  description,
+  showAll,
+  onToggle,
+  children
+}: {
+  title: string
+  count: number
+  description: string
+  showAll: boolean
+  onToggle: () => void
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <div className="flex flex-col gap-2 px-4 py-3">
+      <div className="flex flex-col gap-0.5">
+        <p className="text-sm font-medium">
+          {title} <span className="font-normal text-muted-foreground">· {count}</span>
+        </p>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+      {children}
+      {count > NOT_READABLE_PREVIEW && (
+        <TextLink
+          aria-expanded={showAll}
+          onClick={onToggle}
+          className="self-start text-xs text-muted-foreground hover:text-foreground"
+        >
+          {showAll ? 'Show fewer' : `Show all ${count}`}
+        </TextLink>
+      )}
+    </div>
   )
 }

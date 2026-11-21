@@ -49,7 +49,12 @@ export interface Api {
   setTheme: (theme: ThemePreference) => Promise<void>
   listAllowedPaths: () => Promise<AllowedPathRow[]>
   listProjects: () => Promise<ProjectFolder[]>
-  pickAndAddFolders: () => Promise<GrantChangeResult>
+  // With a target: a folder main listed, which main aims the picker at when it can.
+  pickAndAddFolders: (target?: string) => Promise<GrantChangeResult>
+  listHiddenProjects: () => Promise<string[]>
+  // Display only; see hidden-projects.ts. Both resolve with the hidden list.
+  hideProject: (path: string) => Promise<string[]>
+  showProject: (path: string) => Promise<string[]>
   narrowAllowedPath: (path: string) => Promise<GrantChangeResult>
   revokeAllowedPath: (path: string) => Promise<AllowedPathRow[]>
   openExternal: (url: string) => Promise<void>

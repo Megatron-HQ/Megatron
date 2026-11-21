@@ -241,6 +241,29 @@ describe('project scope', () => {
   })
 })
 
+describe('hidden projects', () => {
+  it('leaves out every declaration and project state recorded in or below a hidden folder', () => {
+    write(claudeJson, {
+      mcpServers: { github: { command: 'gh' } },
+      projects: {
+        [granted]: { mcpServers: { db: { command: 'db' } } },
+        [ungranted]: { mcpServers: { notes: { command: 'notes-mcp' } } }
+      }
+    })
+
+    scanMcpDeclarations(db, {
+      candidateProjects: [join(ungranted, 'pkg')],
+      hiddenProjects: [ungranted]
+    })
+
+    expect(brief()).toEqual([
+      ['local', granted, 'db', null],
+      ['user', '', 'github', null]
+    ])
+    expect(projectState().map((row) => row.project_path)).toEqual(['', granted])
+  })
+})
+
 describe('project approval', () => {
   function approvalWith(
     projectEntry: Record<string, unknown>,

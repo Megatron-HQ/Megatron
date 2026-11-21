@@ -13,6 +13,9 @@ export const IPC_CHANNELS = {
   pickAndAddFolders: 'folders:pickAndAdd',
   revokeAllowedPath: 'folders:revoke',
   narrowAllowedPath: 'folders:narrow',
+  listHiddenProjects: 'folders:listHidden',
+  hideProject: 'folders:hide',
+  showProject: 'folders:show',
   openExternal: 'shell:openExternal',
   listPlugins: 'plugins:list',
   getPluginDetail: 'plugins:detail',
@@ -599,8 +602,6 @@ export interface McpServerList {
   // Bounds of the calls the index still holds; transcripts age out after ~30 days.
   firstCallAt: string | null
   lastCallAt: string | null
-  // Projects Claude Code knows whose .mcp.json Megatron may not read.
-  ungrantedProjects: number
   // When the general connection check last ran this session.
   lastCheckedAt: string | null
 }

@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, dialog, ipcMain, net, protocol, session } from 'electron'
-import { watchFile } from 'fs'
+import { statSync, watchFile } from 'fs'
 import { basename, join, resolve } from 'path'
 import { homedir } from 'os'
 import { pathToFileURL } from 'url'
@@ -36,6 +36,7 @@ import { createProjectIdentity } from './project-identity'
 import { createScanSession, type ScanUrgency } from './scan-session'
 import { disableChromiumHttpCache } from './chromium-cache'
 import { changeAllowedPaths, listAllowedPaths, normalizeAllowedPaths } from './folder-grants'
+import { hideProject, readHiddenProjects, showProject, unhideForPicks } from './hidden-projects'
 import { createUpdater, type Updates } from './updater'
 import { readSwapResult, scheduleSwap, selfUpdateBlocker, stageUpdate } from './mac-self-update'
 import { claimSingleInstance } from './single-instance'
@@ -50,7 +51,8 @@ import {
   getSkillInvocationSlice,
   getSkillUsageDetail,
   listPlugins,
-  listSkills
+  listSkills,
+  recordedProjectPaths
 } from './db/queries'
 import {
   allowedLinkTargetSync,
@@ -58,6 +60,7 @@ import {
   claudeConfig,
   getGrantedPaths,
   isPathAllowed,
+  isWithinGrant,
   grantPath,
   restoreGrantedPath,
   revokePath,
@@ -84,7 +87,8 @@ import {
 } from './whats-new-state'
 import { parseWhatsNewCatalog, type WhatsNewAnchorId } from '../shared/whats-new'
 import whatsNewJson from '../shared/whats-new.json'
-import { suggestGrantStart } from '../shared/grant-suggestions'
+import { matchRecordedFolder, suggestGrantStart } from '../shared/grant-suggestions'
+import { isHiddenProject } from '../shared/project-path'
 import { WINDOW_SIZE } from '../shared/window-size'
 import {
   createScanController,
@@ -317,6 +321,7 @@ const scans = createScanController((scope) =>
       archivePath: usageArchivePath(),
       configRoot: claudeConfig(),
       grantedPaths: getGrantedPaths(),
+      hiddenProjects: readHiddenProjects(themeStore),
       previousProjects: sanitizeProjectFolders(themeStore.get('projectFolders')),
       projectIdentity: projectIdentity.snapshot()
     },
@@ -614,6 +619,14 @@ app.whenReady().then(() => {
       for (const path of [...remove, ...change.absorbed]) revokePath(path)
       for (const path of change.added) grantPath(selected.get(path)!)
       for (const path of remove) deleteSkillsForProjectRoot(getDb(), path, isPathAllowed)
+      // Every pick, skipped ones too: picking a hidden folder is asking to see it. Both spellings,
+      // since Claude Code may have recorded the folder through a link. Display only, so a failed
+      // write must not fail a grant that already happened.
+      try {
+        unhideForPicks(themeStore, [...selected.keys(), ...selected.values()])
+      } catch (error) {
+        console.error('[folders] could not show picked folders again', error)
+      }
       return { folders: change.next, skipped: change.skipped }
     } finally {
       inventoryWatcher?.update()
@@ -621,15 +634,66 @@ app.whenReady().then(() => {
     }
   }
 
-  secureIpc.handle(IPC_CHANNELS.pickAndAddFolders, async (event) => {
+  // A folder the renderer names is only ever one main showed it: it must match main's own record
+  // of where Claude Code ran, and main acts on that record's spelling, never the renderer's.
+  function recordedFolder(candidate: string): string | undefined {
+    return matchRecordedFolder(
+      candidate,
+      [
+        ...projectIdentity.locations().map((location) => location.path),
+        ...recordedProjectPaths(getDb()),
+        ...grantedProjectFolders().map((project) => project.path)
+      ],
+      homedir()
+    )
+  }
+
+  // Outside isPathAllowed on purpose: a recorded, ungranted folder is never read, only checked to
+  // exist, and the answer never leaves main. A missing one must not be handed to the picker:
+  // Windows would type its name into the Folder box, and confirming would fail.
+  function isExistingDirectory(path: string): boolean {
+    try {
+      return statSync(path).isDirectory()
+    } catch {
+      return false
+    }
+  }
+
+  secureIpc.handle(IPC_CHANNELS.pickAndAddFolders, async (event, target?: string) => {
+    const grants = listAllowedPaths(themeStore).map((row) => row.path)
+    const recorded = target === undefined ? undefined : recordedFolder(target)
+    const aimed =
+      recorded !== undefined &&
+      !grants.some((grant) => isWithinGrant(recorded, grant)) &&
+      isExistingDirectory(recorded)
+        ? recorded
+        : undefined
+    if (aimed) {
+      const name = basename(aimed)
+      const picks = await pickFolders(event.sender, {
+        title: `Add ${name}`,
+        buttonLabel: 'Add',
+        message: `Click Add to let Megatron read ${name}, or go up to choose a parent folder.`,
+        defaultPath: aimed
+      })
+      return picks.length === 0
+        ? { folders: listAllowedPaths(themeStore), skipped: [] }
+        : changeGrants(picks, [])
+    }
     // The starting folder comes from main's own record of where Claude Code ran, so the renderer
     // still never names a path; it only saves the user navigating there.
+    const hidden = readHiddenProjects(themeStore)
     const defaultPath = suggestGrantStart(
       projectIdentity
         .locations()
-        .filter((location) => location.status === 'needs_access' && !location.worktree)
+        .filter(
+          (location) =>
+            location.status === 'needs_access' &&
+            !location.worktree &&
+            !isHiddenProject(location.path, hidden)
+        )
         .map((location) => location.path),
-      listAllowedPaths(themeStore).map((row) => row.path),
+      grants,
       homedir()
     )
     const picks = await pickFolders(event.sender, {
@@ -640,6 +704,23 @@ app.whenReady().then(() => {
     return picks.length === 0
       ? { folders: listAllowedPaths(themeStore), skipped: [] }
       : changeGrants(picks, [])
+  })
+
+  // Display only: Claude Code's files and the folder are untouched, and access is unchanged.
+  // A fresh scan rebuilds the index with or without the folder's plugin installs, MCP state and
+  // skills, so every rollup computed from them agrees.
+  secureIpc.handle(IPC_CHANNELS.listHiddenProjects, () => readHiddenProjects(themeStore))
+  secureIpc.handle(IPC_CHANNELS.hideProject, (_event, path: string) => {
+    const target = recordedFolder(path)
+    if (target === undefined) throw new Error('Folder is not one Claude Code recorded')
+    const hidden = hideProject(themeStore, target)
+    void scanAndNotify('announce', true)
+    return hidden
+  })
+  secureIpc.handle(IPC_CHANNELS.showProject, (_event, path: string) => {
+    const hidden = showProject(themeStore, path)
+    void scanAndNotify('announce', true)
+    return hidden
   })
 
   secureIpc.handle(IPC_CHANNELS.narrowAllowedPath, async (event, path: string) => {

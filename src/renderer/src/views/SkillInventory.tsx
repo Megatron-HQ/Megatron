@@ -1,3 +1,4 @@
+import { ManageFoldersButton } from '@/components/ManageFoldersButton'
 import { ProjectAvailabilityNotice } from '@/components/ProjectAvailabilityNotice'
 import { useCallback, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -10,7 +11,17 @@ import {
   useTable
 } from '@tanstack/react-table'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
-import { AlertTriangle, BotOff, Clock, FolderOpen, Power, Search, Webhook } from 'lucide-react'
+import {
+  AlertTriangle,
+  BotOff,
+  CircleAlert,
+  Clock,
+  FolderOpen,
+  Info,
+  Power,
+  Search,
+  Webhook
+} from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { ClaudeIcon } from '@/components/ClaudeIcon'
 import { GlideTitle } from '@/components/GlideTitle'
@@ -29,6 +40,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { ENTER, skillTitleGlideId, useSettle } from '@/lib/transitions'
 import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { cn } from '@/lib/utils'
+import { skippedGrantMessage, useFolderGrant } from '@/lib/folder-grant'
 import { parseHookEvents } from '@/lib/hook-events'
 import {
   getFilterHeaderTitle,
@@ -46,7 +58,7 @@ import {
   getSourceSortKey,
   getSourceTooltip
 } from '@/lib/source-name'
-import type { InventorySkillRow } from '../../../shared/ipc'
+import type { InventorySkillRow, SkippedGrant } from '../../../shared/ipc'
 
 const ROW_HEIGHT = 40
 const HEADER_HEIGHT = 40
@@ -287,7 +299,8 @@ interface SkillInventoryProps {
   onSelect: (id: number) => void
   onOpenSearch: () => void
   onManageFolders?: () => void
-  onGrantFolder?: () => void
+  onGrantFolder?: (target?: string) => Promise<SkippedGrant[]>
+  onHideFolder?: (path: string) => Promise<void>
   // The row Back left from: focused (and so scrolled into view) when the list mounts, so Back
   // returns to where the user was instead of row 0 at the top.
   restoreFocusId?: number | null
@@ -302,6 +315,7 @@ export function SkillInventory({
   onOpenSearch,
   onManageFolders,
   onGrantFolder,
+  onHideFolder,
   restoreFocusId = null
 }: SkillInventoryProps): React.JSX.Element {
   const resolveProjectLabel = useProjectLabel()
@@ -529,7 +543,19 @@ export function SkillInventory({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <ProjectAvailabilityNotice status={availability} />
+      <ProjectAvailabilityNotice
+        status={availability}
+        message={
+          filter.kind === 'project' && filter.projectRoot
+            ? `${resolveProjectLabel(filter.projectRoot)} needs folder access to show its project skills.`
+            : undefined
+        }
+        projects={
+          filter.kind === 'project' && filter.projectRoot ? [filter.projectRoot] : undefined
+        }
+        onAddFolders={onGrantFolder}
+        onHideFolder={onHideFolder}
+      />
       <TableHeader
         title={
           filter.kind === 'project' && filter.projectRoot
@@ -587,16 +613,7 @@ function TableHeader({
           </span>
         )}
         {filter.kind === 'project' && onManageFolders && (
-          <button
-            type="button"
-            onClick={onManageFolders}
-            aria-label="Manage Folders"
-            title="Manage Folders"
-            className="flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-muted px-2.5 py-1 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <FolderOpen className="size-3.5" />
-            <span className="max-[1000px]:sr-only">Manage Folders</span>
-          </button>
+          <ManageFoldersButton onClick={onManageFolders} />
         )}
         <button
           type="button"
@@ -619,7 +636,7 @@ function EmptyState({
   onGrantFolder
 }: {
   filter: SourceFilter
-  onGrantFolder?: () => void
+  onGrantFolder?: () => Promise<SkippedGrant[]>
 }): React.JSX.Element {
   const resolveProjectLabel = useProjectLabel()
   const isProject = filter.kind === 'project'
@@ -655,15 +672,51 @@ function EmptyState({
       <FolderOpen className="size-8 text-muted-foreground" />
       <p className="text-sm font-medium">{title}</p>
       <p className="max-w-[360px] text-sm text-muted-foreground">{message}</p>
-      {isProject && !filter.projectRoot && (
-        <button
-          type="button"
-          onClick={onGrantFolder}
-          className="mt-2 rounded-md bg-accent-lime px-3 py-1.5 text-sm font-medium text-accent-lime-foreground transition-opacity hover:opacity-90 active:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          Grant a folder to scan for skills
-        </button>
+      {isProject && !filter.projectRoot && onGrantFolder && (
+        <GrantFolderButton onGrantFolder={onGrantFolder} />
       )}
     </div>
+  )
+}
+
+function GrantFolderButton({
+  onGrantFolder
+}: {
+  onGrantFolder: () => Promise<SkippedGrant[]>
+}): React.JSX.Element {
+  const { grant, pending, skipped, error } = useFolderGrant(onGrantFolder)
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => void grant()}
+        disabled={pending}
+        aria-busy={pending}
+        className="mt-2 rounded-md bg-accent-lime px-3 py-1.5 text-sm font-medium text-accent-lime-foreground transition-opacity hover:opacity-90 active:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-70"
+      >
+        Grant a folder to scan for skills
+      </button>
+      {skipped.length > 0 && (
+        <div
+          role="status"
+          className="flex max-w-[360px] gap-2 text-left text-xs text-muted-foreground"
+        >
+          <Info className="mt-px size-4 shrink-0" aria-hidden="true" />
+          <ul className="min-w-0 space-y-0.5">
+            {skipped.map((entry) => (
+              <li key={entry.path} className="break-words">
+                {skippedGrantMessage(entry)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {error && (
+        <p role="alert" className="flex items-center gap-2 text-xs text-destructive">
+          <CircleAlert className="size-4 shrink-0" aria-hidden="true" />
+          Could not add folders. Please try again.
+        </p>
+      )}
+    </>
   )
 }

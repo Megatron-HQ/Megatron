@@ -102,6 +102,65 @@ describe('missing project paths through aliases', () => {
   })
 })
 
+describe('hidden projects', () => {
+  let shown: string
+  let hidden: string
+  let nested: string
+  beforeEach(() => {
+    shown = join(root, 'shown')
+    hidden = join(root, 'staghorn')
+    nested = join(hidden, 'packages', 'nested')
+    for (const repository of [shown, hidden, nested]) {
+      mkdirSync(join(repository, '.git'), { recursive: true })
+      const skill = join(repository, '.claude', 'skills', 'deploy')
+      mkdirSync(skill, { recursive: true })
+      writeFileSync(join(skill, 'SKILL.md'), '---\nname: deploy\ndescription: Deploy\n---\nBody')
+    }
+  })
+
+  it('leaves out a hidden folder, the projects inside it, and their skill roots', () => {
+    const result = discoverProjects([root], [], undefined, undefined, [hidden])
+
+    expect(result.projects.map((entry) => entry.path).sort()).toEqual([root, shown].sort())
+    expect(result.skillRoots.map((entry) => entry.projectRoot).sort()).toEqual([root, shown].sort())
+  })
+
+  it('does not restore a hidden project from the cached catalog when it turns unreadable', () => {
+    const before = discoverProjects([root])
+    const read = permissions.readAllowedDirectoryEntries
+    vi.spyOn(permissions, 'readAllowedDirectoryEntries').mockImplementation((path, limit) =>
+      path === hidden ? { status: 'unavailable', entries: [] } : read(path, limit)
+    )
+
+    const after = discoverProjects([root], before.projects, undefined, undefined, [hidden])
+
+    expect(after.projects.some((entry) => entry.path === hidden)).toBe(false)
+  })
+
+  it('drops skills already indexed for a project once it is hidden', () => {
+    const db = new Database(':memory:')
+    applySchema(db)
+    try {
+      const first = scanSkills(db)
+      const roots = (): string[] =>
+        (
+          db
+            .prepare(
+              "SELECT DISTINCT project_root FROM skills WHERE source_type = 'project' ORDER BY 1"
+            )
+            .all() as { project_root: string }[]
+        ).map((row) => row.project_root)
+      expect(roots()).toEqual([hidden, nested, shown].sort())
+
+      scanSkills(db, undefined, undefined, first.projects, undefined, [hidden])
+
+      expect(roots()).toEqual([shown])
+    } finally {
+      db.close()
+    }
+  })
+})
+
 describe('project discovery continuity', () => {
   it('does not retain an unrelated obsolete repository because another child is unreadable', () => {
     const blocked = join(root, 'blocked')

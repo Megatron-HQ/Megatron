@@ -11,6 +11,8 @@ import {
   isPluginFilterEqual,
   listFilterProjects,
   matchesPluginFilter,
+  needsFolderGrant,
+  pluginGrantGap,
   pluginInstallBlock,
   shouldShowScopeColumn,
   showsMissingProjectStatus
@@ -388,5 +390,54 @@ describe('isPluginFilterEqual', () => {
         { kind: 'project', projectPath: '/repo' }
       )
     ).toBe(true)
+  })
+})
+
+describe('folder grant gap', () => {
+  const unknown = (scope: PluginScope, path: string): PluginInstall => ({
+    ...install(scope, path),
+    enablement_known: false
+  })
+  const grant = (path: string): { path: string; granted_at: string } => ({
+    path,
+    granted_at: '2026-11-21T00:00:00.000Z'
+  })
+
+  it('asks for a grant only when no granted folder covers the project', () => {
+    expect(needsFolderGrant(unknown('project', '/work/acme-web'), [])).toBe(true)
+    expect(needsFolderGrant(unknown('project', '/work/acme-web'), [grant('/work')])).toBe(false)
+    expect(needsFolderGrant(unknown('local', '/work-other/app'), [grant('/work')])).toBe(true)
+  })
+
+  it('never asks for a grant for a readable, missing, unrecorded or user install', () => {
+    expect(needsFolderGrant(install('project', '/repo'), [])).toBe(false)
+    expect(needsFolderGrant({ ...unknown('project', '/moved'), project_missing: true }, [])).toBe(
+      false
+    )
+    expect(needsFolderGrant({ ...install('project', null), enablement_known: false }, [])).toBe(
+      false
+    )
+    expect(needsFolderGrant({ ...install('user'), enablement_known: false }, [])).toBe(false)
+  })
+
+  it('counts rows that need a grant and the distinct projects they need', () => {
+    const rows = [
+      plugin('a', [unknown('project', '/work/acme-web')]),
+      plugin('b', [unknown('local', '/work/acme-web/')]),
+      plugin('c', [install('user'), unknown('project', '/work/acme-api')]),
+      plugin('d', [install('project', '/work/readable')]),
+      plugin('e', [unknown('project', '/granted/repo')])
+    ]
+
+    expect(pluginGrantGap(rows, [grant('/granted')])).toEqual({
+      plugins: 3,
+      projects: ['/work/acme-web', '/work/acme-api']
+    })
+  })
+
+  it('reports no gap once every project is covered', () => {
+    expect(
+      pluginGrantGap([plugin('a', [unknown('project', '/work/a')])], [grant('/work')])
+    ).toEqual({ plugins: 0, projects: [] })
   })
 })

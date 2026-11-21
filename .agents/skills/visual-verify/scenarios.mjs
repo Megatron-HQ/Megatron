@@ -79,6 +79,19 @@ async function enableProjectHierarchy(window, app, mode = 'project-tree') {
   await window.getByRole('button', { name: 'Projects', exact: true }).waitFor()
 }
 
+// Megatron's installs are listed but ungranted, and Megatron-site is granted
+// (project-tree-fixture.mjs). Add folder… returns a pick already covered, so its notice stays up.
+async function enableUngrantedProjects(window, app) {
+  await app.evaluate(() => {
+    for (const channel of ['folders:pickAndAdd', 'usage:projects'])
+      globalThis.megatronVisualFixtures.set(channel, 'project-tree-ungranted')
+  })
+  await enableProjectHierarchy(window, app, 'project-tree-ungranted')
+}
+
+const UNGRANTED_PLUGINS_NOTICE = /^3 plugins in Megatron need folder access/
+const SKIPPED_PICK = 'web is already included in Megatron-site.'
+
 // Settings remembers its pane only for the session, and every scenario starts from a reload, so
 // the gear lands on General unless an update notice sends it to Updates. Inactive panes stay
 // mounted but hidden, so a control on another pane can't be clicked until its tab is.
@@ -525,6 +538,174 @@ export const scenarios = [
       await window.getByRole('button', { name: /Megatron HQ.*6/ }).click()
       await window.getByRole('button', { name: /^Megatron(?:\s|Unavailable)*3$/ }).click()
       await window.getByText(/This project folder is missing/).waitFor()
+    }
+  },
+  // Folder access where it's needed (#5): the notice counts the rows that need a grant, and its
+  // Add folder… opens the picker and reports the result in place.
+  {
+    name: 'plugins-grant-notice',
+    screen: 'plugin-inventory',
+    async run(window, app) {
+      await enableUngrantedProjects(window, app)
+      await openPluginsSection(window)
+      await window.getByText(UNGRANTED_PLUGINS_NOTICE).waitFor()
+    }
+  },
+  {
+    name: 'plugins-grant-notice-skipped',
+    screen: 'plugin-inventory',
+    async run(window, app) {
+      await enableUngrantedProjects(window, app)
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'Add folder…', exact: true }).click()
+      await window.getByText(SKIPPED_PICK, { exact: true }).waitFor()
+    }
+  },
+  {
+    // The Projects filter's Manage Folders lands on Settings' Project folders, Not readable yet
+    // collapsed to its first five.
+    name: 'plugins-manage-folders',
+    screen: ['plugin-inventory', 'settings-dialog'],
+    async run(window, app) {
+      await enableUngrantedProjects(window, app)
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'Projects', exact: true }).click()
+      await window.getByText('Project Plugins').waitFor()
+      await window.getByRole('button', { name: 'Manage Folders', exact: true }).click()
+      await window.waitForFunction(() => document.activeElement?.id === 'settings-project-folders')
+      await window.getByRole('list', { name: 'Folders not readable yet' }).waitFor()
+    }
+  },
+  {
+    name: 'plugin-detail-grant-notice',
+    screen: 'plugin-detail',
+    async run(window, app) {
+      await enableUngrantedProjects(window, app)
+      await openPluginsSection(window)
+      await window
+        .locator('tbody tr')
+        .filter({ hasText: 'build-tools' })
+        .filter({ hasNotText: 'Megatron-site' })
+        .click()
+      await window
+        .getByText('Megatron needs folder access to show whether this plugin is enabled', {
+          exact: false
+        })
+        .waitFor()
+    }
+  },
+  {
+    name: 'mcp-inventory-grant-notice',
+    screen: ['mcp-inventory', 'sidebar'],
+    async run(window, app) {
+      await enableUngrantedProjects(window, app)
+      await openMcpSection(window)
+      await window.getByRole('button', { name: 'Projects', exact: true }).click()
+      await window.getByRole('button', { name: /^Megatron(?:\s|Needs folder access)*1$/ }).click()
+      await window
+        .getByText('Megatron needs folder access to read its .mcp.json', { exact: false })
+        .waitFor()
+    }
+  },
+  {
+    name: 'settings-not-readable-list',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await enableUngrantedProjects(window, app)
+      await openManageFolders(window)
+      await window.getByRole('button', { name: 'Show all 7', exact: true }).click()
+      await window
+        .getByRole('list', { name: 'Folders not readable yet' })
+        .getByText('Megatron', { exact: true })
+        .waitFor()
+    }
+  },
+  // Hide and the aimed Add… (#5 follow-up): every place that names a folder can open the picker
+  // inside it or hide it from Megatron. The fixture's pick is already covered and its hide is
+  // stateless, so each action's inline result or toast stays up to be captured.
+  {
+    name: 'settings-not-readable-actions',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await enableUngrantedProjects(window, app)
+      await openManageFolders(window)
+      await window.getByRole('button', { name: 'Add Atlas…', exact: true }).click()
+      await window.getByText(SKIPPED_PICK, { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'settings-hidden-list',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('folders:listHidden', 'project-tree-ungranted')
+      )
+      await enableUngrantedProjects(window, app)
+      await openManageFolders(window)
+      const hidden = window.getByRole('list', { name: 'Hidden folders' })
+      await hidden.scrollIntoViewIfNeeded()
+      await hidden.getByText('Staghorn', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'plugins-grant-dialog',
+    screen: 'plugin-inventory',
+    async run(window, app) {
+      await app.evaluate(() => {
+        for (const channel of ['folders:pickAndAdd', 'usage:projects'])
+          globalThis.megatronVisualFixtures.set(channel, 'project-tree-ungranted-multi')
+      })
+      await enableProjectHierarchy(window, app, 'project-tree-ungranted-multi')
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'Review…', exact: true }).click()
+      await window
+        .getByRole('list', { name: 'Folders that need access' })
+        .getByText('Atlas', { exact: true })
+        .waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'plugins-hide-notice',
+    screen: ['plugin-inventory', 'sidebar'],
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('folders:hide', 'project-tree-ungranted')
+      )
+      await enableUngrantedProjects(window, app)
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'Projects', exact: true }).click()
+      await window.getByRole('button', { name: /^Megatron(?:\s|Needs folder access)*\d+$/ }).click()
+      await window.getByRole('button', { name: 'Hide', exact: true }).click()
+      await window.getByText(/^Hid Megatron\. Show it again from Settings/).waitFor()
+    }
+  },
+  {
+    name: 'plugin-detail-hide-row',
+    screen: 'plugin-detail',
+    async run(window, app) {
+      await enableUngrantedProjects(window, app)
+      await openPluginsSection(window)
+      await window
+        .locator('tbody tr')
+        .filter({ hasText: 'build-tools' })
+        .filter({ hasNotText: 'Megatron-site' })
+        .click()
+      await window.getByRole('button', { name: 'Hide this folder' }).first().waitFor()
+    }
+  },
+  {
+    name: 'skills-empty-grant-skipped',
+    screen: 'skill-inventory',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('folders:pickAndAdd', 'project-tree-ungranted')
+      )
+      await window.getByRole('button', { name: 'Projects', exact: true }).click()
+      await window
+        .getByRole('button', { name: 'Grant a folder to scan for skills', exact: true })
+        .click()
+      await window.getByText(SKIPPED_PICK, { exact: true }).waitFor()
     }
   },
   ...['Skills', 'Plugins'].flatMap((section) =>
@@ -3486,7 +3667,34 @@ export const scenarios = [
     screen: 'mcp-detail',
     async run(window, app) {
       await openFixtureMcpServer(window, app)
-      await window.getByText('Grant this folder to change it', { exact: true }).waitFor()
+      await window
+        .getByRole('button', { name: 'Grant this folder to change it', exact: true })
+        .waitFor()
+    }
+  },
+  {
+    // other-app is ungranted, so the page opens with a grant notice; its pick is already covered.
+    name: 'mcp-detail-grant-notice',
+    screen: 'mcp-detail',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('folders:pickAndAdd', 'project-tree-ungranted')
+      )
+      await openFixtureMcpServer(window, app)
+      await window.getByRole('button', { name: 'Add folder…', exact: true }).click()
+      await window.getByText(SKIPPED_PICK, { exact: true }).waitFor()
+    }
+  },
+  {
+    // other-app is ungranted, so its row in Connection offers Hide beside the grant link.
+    name: 'mcp-detail-hide-row',
+    screen: 'mcp-detail',
+    async run(window, app) {
+      await openFixtureMcpServer(window, app)
+      await window
+        .getByRole('button', { name: 'Grant this folder to check it', exact: true })
+        .waitFor()
+      await window.getByRole('button', { name: 'Hide', exact: true }).last().waitFor()
     }
   },
   {

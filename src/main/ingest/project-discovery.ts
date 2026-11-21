@@ -1,6 +1,6 @@
 import { isAbsolute, join, relative, resolve, sep } from 'path'
 import type { CanonicalCheckout, ProjectFolder, WorktreeLink } from '../../shared/ipc'
-import { isWithinProjectPath } from '../../shared/project-path'
+import { isHiddenProject, isWithinProjectPath } from '../../shared/project-path'
 import {
   allowedPathLocationSync,
   allowedRealpathSync,
@@ -127,7 +127,8 @@ export function discoverProjects(
   grants: string[] = getGrantedPaths(),
   previous: ProjectFolder[] = [],
   limits = PROJECT_DISCOVERY_LIMITS,
-  repos: GitRepos = createGitRepos({ locations: [], claudeCodeFolders: [] })
+  repos: GitRepos = createGitRepos({ locations: [], claudeCodeFolders: [] }),
+  hidden: readonly string[] = []
 ): ProjectDiscovery {
   const projects = new Map<string, ProjectFolder>()
   const roots = new Map<string, SkillRoot>()
@@ -315,9 +316,13 @@ export function discoverProjects(
     addRoot(join(checkout, '.claude', 'skills'), checkout)
   }
   const excluded = new Set([...containers.keys(), ...[...gitDirHolders].map(pathKey)])
-  for (const key of excluded) projects.delete(key)
+  // A folder the user hid (hidden-projects.ts) goes with everything inside it. The walk still
+  // enters it, so ownership of the folders around it comes out the same as when it is shown.
+  const isExcluded = (path: string): boolean =>
+    excluded.has(pathKey(path)) || isHiddenProject(path, hidden)
+  for (const [key, project] of projects) if (isExcluded(project.path)) projects.delete(key)
   for (const [key, root] of roots) {
-    if (root.projectRoot && excluded.has(pathKey(root.projectRoot))) roots.delete(key)
+    if (root.projectRoot && isExcluded(root.projectRoot)) roots.delete(key)
   }
 
   // Exactly one checkout per repository contributes skills. A worktree walked into from a grant
@@ -369,7 +374,7 @@ export function discoverProjects(
     const covered = grants.some((grant) => isDiscoverableFromGrant(entry.path, grant))
     if (
       !covered ||
-      excluded.has(key) ||
+      isExcluded(entry.path) ||
       isMissingProject(entry.path) ||
       (entry.kind === 'folder' && !grants.some((grant) => key === pathKey(grant)))
     )

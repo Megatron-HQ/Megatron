@@ -379,6 +379,19 @@ export function writeSkillScan(
   )
 }
 
+// Every project folder Claude Code recorded a plugin install or MCP state for, so main can match a
+// folder the renderer echoes back against its own records.
+export function recordedProjectPaths(db: Database.Database): string[] {
+  return (
+    db
+      .prepare(
+        `SELECT project_path AS path FROM plugin_registry WHERE project_path != ''
+         UNION SELECT project_path FROM mcp_project_state WHERE project_path != ''`
+      )
+      .all() as { path: string }[]
+  ).map((row) => row.path)
+}
+
 export function deleteSkillsForProjectRoot(
   db: Database.Database,
   projectRoot: string,

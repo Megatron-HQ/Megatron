@@ -55,8 +55,15 @@ const api = {
   listAllowedPaths: (): Promise<AllowedPathRow[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.listAllowedPaths),
   listProjects: () => ipcRenderer.invoke(IPC_CHANNELS.listProjects),
-  pickAndAddFolders: (): Promise<GrantChangeResult> =>
-    ipcRenderer.invoke(IPC_CHANNELS.pickAndAddFolders),
+  pickAndAddFolders: (target?: string): Promise<GrantChangeResult> =>
+    target === undefined
+      ? ipcRenderer.invoke(IPC_CHANNELS.pickAndAddFolders)
+      : ipcRenderer.invoke(IPC_CHANNELS.pickAndAddFolders, target),
+  listHiddenProjects: (): Promise<string[]> => ipcRenderer.invoke(IPC_CHANNELS.listHiddenProjects),
+  hideProject: (path: string): Promise<string[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.hideProject, path),
+  showProject: (path: string): Promise<string[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.showProject, path),
   narrowAllowedPath: (path: string): Promise<GrantChangeResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.narrowAllowedPath, path),
   revokeAllowedPath: (path: string): Promise<AllowedPathRow[]> =>
