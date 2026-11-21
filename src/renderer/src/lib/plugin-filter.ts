@@ -1,4 +1,5 @@
 import type {
+  AllowedPathRow,
   PluginDetailResult,
   PluginInstall,
   PluginRow,
@@ -35,6 +36,33 @@ export function pluginInstallBlock(install: PluginInstall): PluginInstallBlock |
   if (install.project_missing) return 'missing-folder'
   if (!install.enablement_known) return 'needs-grant'
   return null
+}
+
+// A covered project whose enablement is still unknown is unavailable, not ungranted: another
+// grant can't help it, so it never asks for one.
+export function needsFolderGrant(install: PluginInstall, folders: AllowedPathRow[]): boolean {
+  return (
+    pluginInstallBlock(install) === 'needs-grant' &&
+    !folders.some((folder) => isWithinProjectPath(install.project_path!, folder.path))
+  )
+}
+
+// Projects keep their first spelling; one root recorded two ways counts once.
+export function pluginGrantGap(
+  rows: Pick<PluginRow, 'installs'>[],
+  folders: AllowedPathRow[]
+): { plugins: number; projects: string[] } {
+  const projects = new Map<string, string>()
+  let plugins = 0
+  for (const row of rows) {
+    const blocked = row.installs.filter((install) => needsFolderGrant(install, folders))
+    if (blocked.length > 0) plugins += 1
+    for (const install of blocked) {
+      const key = normalizeProjectPath(install.project_path!)
+      if (!projects.has(key)) projects.set(key, install.project_path!)
+    }
+  }
+  return { plugins, projects: [...projects.values()] }
 }
 
 export function showsMissingProjectStatus(installs: PluginInstall[]): boolean {

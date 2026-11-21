@@ -235,18 +235,13 @@ describe('listMcpServers', () => {
     })
   })
 
-  it('reports the call window and how many projects were not readable', () => {
+  it('reports the call window', () => {
     call('github__a', { at: '2026-11-03T00:00:00.000Z' })
     call('github__b', { at: '2026-11-09T00:00:00.000Z' })
-    projectState('', null)
-    projectState('/a', 'ungranted')
-    projectState('/b', 'ungranted')
-    projectState('/c', 'read')
 
     expect(listMcpServers(db)).toMatchObject({
       firstCallAt: '2026-11-03T00:00:00.000Z',
-      lastCallAt: '2026-11-09T00:00:00.000Z',
-      ungrantedProjects: 2
+      lastCallAt: '2026-11-09T00:00:00.000Z'
     })
   })
 
@@ -267,7 +262,6 @@ describe('listMcpServers', () => {
       servers: [],
       firstCallAt: null,
       lastCallAt: null,
-      ungrantedProjects: 0,
       lastCheckedAt: null
     })
   })

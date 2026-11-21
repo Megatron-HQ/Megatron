@@ -13,6 +13,7 @@ import { Loader2, Plug, RefreshCw, Search } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { GlideTitle } from '@/components/GlideTitle'
 import { McpConnectionBadge, McpStatusBadge } from '@/components/McpBadges'
+import { ManageFoldersButton } from '@/components/ManageFoldersButton'
 import { ProjectAvailabilityNotice } from '@/components/ProjectAvailabilityNotice'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -29,7 +30,7 @@ import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { formatRelativeTime } from '@/lib/relative-time'
 import { useProjectLabel } from '@/lib/use-project-label'
 import { cn } from '@/lib/utils'
-import type { McpLiveStatus, McpServerRow, ProjectFolder } from '../../../shared/ipc'
+import type { McpLiveStatus, McpServerRow, ProjectFolder, SkippedGrant } from '../../../shared/ipc'
 
 const ROW_HEIGHT = 40
 const HEADER_HEIGHT = 40
@@ -164,6 +165,9 @@ interface McpInventoryProps {
   availability?: ProjectFolder['status']
   onSelect: (server: McpServerRow) => void
   onOpenSearch: () => void
+  onAddFolders: (target?: string) => Promise<SkippedGrant[]>
+  onHideFolder: (path: string) => Promise<void>
+  onManageFolders: () => void
   // The row Back left from, focused when the list mounts so Back returns to where the user was.
   restoreFocusId?: string | null
 }
@@ -180,6 +184,9 @@ export function McpInventory({
   availability,
   onSelect,
   onOpenSearch,
+  onAddFolders,
+  onHideFolder,
+  onManageFolders,
   restoreFocusId = null
 }: McpInventoryProps): React.JSX.Element {
   const resolveProjectLabel = useProjectLabel()
@@ -354,7 +361,19 @@ export function McpInventory({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <ProjectAvailabilityNotice status={availability} />
+      <ProjectAvailabilityNotice
+        status={availability}
+        message={
+          filter.kind === 'projects' && filter.projectPath
+            ? `${resolveProjectLabel(filter.projectPath)} needs folder access to read its .mcp.json and change its servers.`
+            : undefined
+        }
+        projects={
+          filter.kind === 'projects' && filter.projectPath ? [filter.projectPath] : undefined
+        }
+        onAddFolders={onAddFolders}
+        onHideFolder={onHideFolder}
+      />
       <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border px-4">
         <h2 title={headerTitle} className="truncate text-[13px] font-semibold">
           {headerTitle}
@@ -394,6 +413,7 @@ export function McpInventory({
             )}
             {checking ? 'Checking…' : 'Check connections'}
           </button>
+          {filter.kind === 'projects' && <ManageFoldersButton onClick={onManageFolders} />}
           <button
             type="button"
             onClick={onOpenSearch}

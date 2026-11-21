@@ -20,6 +20,7 @@ import {
 import { pluginTitleGlideId, useSettle } from '@/lib/transitions'
 import { isUpdateAvailable } from '../../../shared/version'
 import { TextLink } from '@/components/TextLink'
+import { useFolderAction } from '@/lib/folder-grant'
 import { useProjectLabel } from '@/lib/use-project-label'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -33,6 +34,8 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import {
+  needsFolderGrant,
+  pluginGrantGap,
   pluginInstallBlock,
   pluginRowKey,
   scopePluginDetail,
@@ -44,12 +47,14 @@ import { missingProjectInstallMessage } from '../../../shared/missing-project'
 import { EntityGlyph, type Entity } from '@/components/EntityGlyph'
 import { Badge } from '@/components/ui/badge'
 import type {
+  AllowedPathRow,
   PluginComponent,
   PluginComponentKind,
   PluginInstall,
   ProjectFolder,
   PluginUpdateProgress,
-  PluginUpdatePhase
+  PluginUpdatePhase,
+  SkippedGrant
 } from '../../../shared/ipc'
 
 // Identifies one install within a plugin. Scope alone isn't enough — two projects can each hold
@@ -65,10 +70,13 @@ interface PluginDetailProps {
   marketplace: string
   context?: PluginContext
   availability?: ProjectFolder['status']
+  folders: AllowedPathRow[]
   updateProgress?: PluginUpdateProgress
   onBack: () => void
   onViewSkills: (pluginName: string) => void
   onActionSuccess: (message: string) => void
+  onAddFolders: (target?: string) => Promise<SkippedGrant[]>
+  onHideFolder: (path: string) => Promise<void>
   onManageFolders: () => void
 }
 
@@ -89,10 +97,13 @@ export function PluginDetail({
   marketplace,
   context = { kind: 'all' },
   availability,
+  folders,
   updateProgress,
   onBack,
   onViewSkills,
   onActionSuccess,
+  onAddFolders,
+  onHideFolder,
   onManageFolders
 }: PluginDetailProps): React.JSX.Element {
   const resolveProjectLabel = useProjectLabel()
@@ -218,12 +229,30 @@ export function PluginDetail({
   // install's enablement could be resolved at all.
   const enablementKnown =
     plugin.installs.length === 0 || plugin.installs.some((install) => install.enablement_known)
+  // From the installs, not the context's availability, so a detail opened from ⌘K (context
+  // all) still says which projects need a grant.
+  const grantGap = pluginGrantGap([plugin], folders)
   const noticeStatus =
-    availability === undefined || availability === 'available'
-      ? undefined
-      : availability === 'missing' || plugin.installs.some((install) => install.project_missing)
-        ? 'missing'
-        : availability
+    grantGap.plugins > 0
+      ? 'needs_access'
+      : availability === undefined || availability === 'available'
+        ? undefined
+        : availability === 'missing' || plugin.installs.some((install) => install.project_missing)
+          ? 'missing'
+          : availability
+  // What the notice offers to aim at or hide: the projects needing a grant, else the missing ones.
+  const noticeProjects =
+    grantGap.plugins > 0
+      ? grantGap.projects
+      : context.kind === 'project'
+        ? [context.path]
+        : plugin.installs.flatMap((install) =>
+            install.project_missing && install.project_path ? [install.project_path] : []
+          )
+  const grantWhere =
+    grantGap.projects.length === 1
+      ? `${resolveProjectLabel(grantGap.projects[0])} needs`
+      : `${grantGap.projects.length} projects need`
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -271,7 +300,19 @@ export function PluginDetail({
             Repository: {resolveProjectLabel(context.path)}
           </p>
         )}
-        {noticeStatus && <ProjectAvailabilityNotice status={noticeStatus} />}
+        {noticeStatus && (
+          <ProjectAvailabilityNotice
+            status={noticeStatus}
+            message={
+              grantGap.plugins > 0
+                ? `${grantWhere} folder access to show whether this plugin is enabled and to change it.`
+                : undefined
+            }
+            projects={noticeProjects}
+            onAddFolders={onAddFolders}
+            onHideFolder={onHideFolder}
+          />
+        )}
         <div className="flex-1 overflow-y-auto">
           <div className="flex flex-col gap-4 px-4 py-4">
             <Card className="shadow-none py-4">
@@ -324,7 +365,9 @@ export function PluginDetail({
                       ? updateProgress.phase
                       : undefined
                   }
+                  needsGrant={needsFolderGrant(install, folders)}
                   onManageFolders={onManageFolders}
+                  onHideFolder={onHideFolder}
                   errorMessage={
                     actionError?.install === installKey(install) ? actionError.message : undefined
                   }
@@ -430,7 +473,9 @@ function InstallRow({
   onDisable,
   onUpdate,
   onUninstallRequest,
-  onManageFolders
+  needsGrant,
+  onManageFolders,
+  onHideFolder
 }: {
   install: PluginInstall
   fallbackAvailableVersion: string | null
@@ -441,7 +486,9 @@ function InstallRow({
   onDisable: () => void
   onUpdate: () => void
   onUninstallRequest: () => void
+  needsGrant: boolean
   onManageFolders: () => void
+  onHideFolder: (path: string) => Promise<void>
 }): React.JSX.Element {
   const isPending = (verb: ActionVerb): boolean => pendingKey === `${installKey(install)}:${verb}`
   const anyPending = pendingKey !== null
@@ -562,7 +609,7 @@ function InstallRow({
           </Button>
         </div>
       </div>
-      {block === 'needs-grant' ? (
+      {needsGrant ? (
         <p className="text-[11px] text-muted-foreground">
           Grant{' '}
           <button
@@ -572,10 +619,16 @@ function InstallRow({
           >
             {install.project_path}
           </button>{' '}
-          to see whether this install is enabled and to change it.
+          to see whether this install is enabled and to change it.{' '}
+          <HideFolderLink path={install.project_path!} onHideFolder={onHideFolder} />
+        </p>
+      ) : block === 'needs-grant' ? (
+        // Already granted: another grant can't help, so this waits on the next read instead.
+        <p className="text-[11px] text-muted-foreground">
+          Can&apos;t read this project&apos;s settings right now. Megatron will retry automatically.
         </p>
       ) : block === 'missing-folder' && install.project_path !== null ? (
-        <MissingProjectNote path={install.project_path} />
+        <MissingProjectNote path={install.project_path} onHideFolder={onHideFolder} />
       ) : (
         <p className="text-[11px] text-muted-foreground">
           {actionable
@@ -785,15 +838,51 @@ function DenseRow({
   )
 }
 
-function MissingProjectNote({ path }: { path: string }): React.JSX.Element {
+function MissingProjectNote({
+  path,
+  onHideFolder
+}: {
+  path: string
+  onHideFolder: (path: string) => Promise<void>
+}): React.JSX.Element {
   const message = missingProjectInstallMessage(path)
   const pathAt = message.indexOf(path)
   return (
     <p className="text-[11px] text-muted-foreground">
       {message.slice(0, pathAt)}
       <span className="break-all font-mono">{path}</span>
-      {message.slice(pathAt + path.length)}
+      {message.slice(pathAt + path.length)}{' '}
+      <HideFolderLink path={path} onHideFolder={onHideFolder} />
     </p>
+  )
+}
+
+// Display only: Claude Code keeps the install, and the CLI can't remove one from a folder that is
+// gone, so hiding is how the user stops seeing it here.
+function HideFolderLink({
+  path,
+  onHideFolder
+}: {
+  path: string
+  onHideFolder: (path: string) => Promise<void>
+}): React.JSX.Element {
+  const { run: hide, pending, error } = useFolderAction(() => onHideFolder(path))
+  return (
+    <>
+      <TextLink
+        onClick={() => void hide()}
+        disabled={pending}
+        aria-busy={pending}
+        className="text-[11px] text-muted-foreground hover:text-foreground"
+      >
+        {pending ? 'Hiding…' : 'Hide this folder'}
+      </TextLink>
+      {error && (
+        <span role="alert" className="ml-1 text-destructive">
+          Could not hide it. Try again.
+        </span>
+      )}
+    </>
   )
 }
 

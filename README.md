@@ -187,8 +187,8 @@ npm run dev
 On first launch, Megatron scans its allowed Claude Code locations and opens a short welcome. It
 covers what Megatron reads, what it found, and which folders Claude Code has run in, so you can
 grant the repositories that hold project skills or project/local plugin settings. Replay it from
-**Settings > About > Show welcome**. Grants can be changed later in **Settings > Project folders >
-Manage**. If startup reports `Error: Electron uninstall`, see
+**Settings > About > Show welcome**. Grants can be changed later in **Settings > Claude Code >
+Project folders**. If startup reports `Error: Electron uninstall`, see
 [Environment setup](docs/environment-setup.md).
 
 Scripts live in `package.json`; `CLAUDE.md` notes the ones with a gotcha. Design and architecture
@@ -219,7 +219,7 @@ The database is `megatron.db` under Electron's user data directory. The installe
 | macOS    | `~/Library/Application Support/megatron/` | `~/Library/Application Support/megatron-dev/` |
 | Windows  | `%APPDATA%\megatron\`                     | `%APPDATA%\megatron-dev\`                     |
 
-Use **Settings > Reveal data folder** to locate the active profile. Preferences are stored
+Use **Settings > About > Data folder** to locate the active profile. Preferences are stored
 separately in that folder.
 
 The index rebuilds itself whenever a new version changes its schema, so updates never need a

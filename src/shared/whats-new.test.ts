@@ -61,6 +61,7 @@ describe('parseWhatsNewCatalog', () => {
             action: { kind: 'section', section: 'usage', anchor: 'usage-skill-cost' }
           },
           { ...highlight, action: { kind: 'settings' } },
+          { ...highlight, action: { kind: 'settings', pane: 'claude-code' } },
           { ...highlight, action: { kind: 'palette' } }
         ]
       }
@@ -72,6 +73,7 @@ describe('parseWhatsNewCatalog', () => {
         action: { kind: 'section', section: 'usage', anchor: 'usage-skill-cost' }
       },
       { ...highlight, action: { kind: 'settings' } },
+      { ...highlight, action: { kind: 'settings', pane: 'claude-code' } },
       { ...highlight, action: { kind: 'palette' } }
     ])
   })
@@ -113,6 +115,15 @@ describe('parseWhatsNewCatalog', () => {
         '0.3.0': {
           title: 'x',
           highlights: [{ ...highlight, action: { kind: 'section', section: 'settings' } }]
+        }
+      }
+    ],
+    [
+      'an unknown settings pane',
+      {
+        '0.3.0': {
+          title: 'x',
+          highlights: [{ ...highlight, action: { kind: 'settings', pane: 'data' } }]
         }
       }
     ],

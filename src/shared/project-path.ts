@@ -12,3 +12,8 @@ export function isWithinProjectPath(path: string, parent: string): boolean {
 export function isGitDirectoryPath(path: string): boolean {
   return normalizeProjectPath(path).split('/').includes('.git')
 }
+
+// Hiding covers a folder's descendants, so a project recorded from a subfolder hides with it.
+export function isHiddenProject(path: string, hidden: readonly string[]): boolean {
+  return hidden.some((folder) => isWithinProjectPath(path, folder))
+}

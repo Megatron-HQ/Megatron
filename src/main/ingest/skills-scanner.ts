@@ -18,6 +18,7 @@ import {
   isProjectDiscoveryExcluded
 } from './project-discovery'
 import { createGitRepos, type GitRepos } from './git-repos'
+import { isHiddenProject } from '../../shared/project-path'
 
 export interface SkillRoot {
   dir: string
@@ -147,12 +148,13 @@ export function scanSkills(
   roots: SkillRoot[] | undefined = undefined,
   userSettingsPath?: string,
   previousProjects: ProjectFolder[] = [],
-  repos: GitRepos = createGitRepos({ locations: [], claudeCodeFolders: [] })
+  repos: GitRepos = createGitRepos({ locations: [], claudeCodeFolders: [] }),
+  hiddenProjects: readonly string[] = []
 ): ScanTaskResult {
   assertConfigRootAvailable()
   const discovery =
     roots === undefined
-      ? discoverProjects(getGrantedPaths(), previousProjects, undefined, repos)
+      ? discoverProjects(getGrantedPaths(), previousProjects, undefined, repos, hiddenProjects)
       : undefined
   roots ??= defaultSkillRoots(discovery)
   let partial = roots.some((root) => root.discoveryIncomplete === true)
@@ -183,7 +185,10 @@ export function scanSkills(
       let missing = missingProjects.get(path)
       if (missing === undefined) {
         missing =
-          skippedProjects.has(path) || isProjectDiscoveryExcluded(path) || isMissingProject(path)
+          skippedProjects.has(path) ||
+          isHiddenProject(path, hiddenProjects) ||
+          isProjectDiscoveryExcluded(path) ||
+          isMissingProject(path)
         missingProjects.set(path, missing)
       }
       return missing

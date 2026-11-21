@@ -21,7 +21,8 @@ export interface ProjectIdentityOwner {
   // With live availability; the saved status is only a fallback.
   locations(): UsageProjectLocation[]
   reconcile(): void
-  recordScan(findings: RepoFindings | undefined): void
+  // `goneFolders`: ungranted folders the Scan proved deleted; undefined is no new evidence.
+  recordScan(findings: RepoFindings | undefined, goneFolders?: readonly string[]): void
   link(sourceId: string, targetId: string): void
   unlink(locationId: string): void
 }
@@ -43,6 +44,8 @@ export function createProjectIdentity(options: {
   let locations = savedLocations(options.store.read())
   let snapshot: ProjectIdentitySnapshot = { locations, claudeCodeFolders }
   let identity = readProjectIdentity(snapshot)
+  // Memory only: a gone folder can come back, and only the next Scan can tell.
+  let gone = new Set<string>()
   const reconciled = (from: UsageProjectLocation[]): UsageProjectLocation[] =>
     reconcileUsageProjects(from, options.catalog(), options.sessionPaths(), claudeCodeFolders)
   const commit = (next: UsageProjectLocation[]): void => {
@@ -55,9 +58,10 @@ export function createProjectIdentity(options: {
   return {
     snapshot: () => snapshot,
     identity: () => identity,
-    locations: () => refreshUsageProjectAvailability(locations),
+    locations: () => refreshUsageProjectAvailability(locations, gone),
     reconcile: () => commit(reconciled(locations)),
-    recordScan(findings) {
+    recordScan(findings, goneFolders) {
+      if (goneFolders) gone = new Set(goneFolders.map(normalizeProjectPath))
       const current = reconciled(locations)
       // Again after the evidence, as every read used to: a folder under a newly linked Worktree
       // only joins that Worktree's repo once ownership is inferred anew.
@@ -80,10 +84,15 @@ const LOCATION_STATUSES = ['available', 'missing', 'unavailable', 'needs_access'
 const REPOSITORY_IDENTITY = /^\d{1,20}:\d{1,20}:-?\d{1,25}$/
 
 function refreshUsageProjectAvailability(
-  locations: UsageProjectLocation[]
+  locations: UsageProjectLocation[],
+  gone: ReadonlySet<string>
 ): UsageProjectLocation[] {
   return locations.map((entry) => {
-    if (!isPathAllowed(entry.path)) return { ...entry, status: 'needs_access' }
+    if (!isPathAllowed(entry.path))
+      return {
+        ...entry,
+        status: gone.has(normalizeProjectPath(entry.path)) ? 'missing' : 'needs_access'
+      }
     if (allowedStatSync(entry.path)?.isDirectory()) return { ...entry, status: 'available' }
     const { status } = readAllowedDirectory(entry.path, 1)
     return {

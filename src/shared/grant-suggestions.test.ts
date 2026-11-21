@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isSuggestableFolder, suggestGrantStart } from './grant-suggestions'
+import { isSuggestableFolder, matchRecordedFolder, suggestGrantStart } from './grant-suggestions'
 
 describe('isSuggestableFolder', () => {
   it.each([
@@ -115,5 +115,29 @@ describe('suggestGrantStart', () => {
     expect(suggestGrantStart(['/Users/sai/code/app'], ['/Users/sai/code/ap'], home)).toBe(
       '/Users/sai/code'
     )
+  })
+})
+
+describe('matchRecordedFolder', () => {
+  const home = '/Users/sai'
+
+  it("answers with main's own spelling of a recorded folder", () => {
+    const recorded = ['/Users/sai/orca/staghorn', 'C:\\Code\\App']
+    expect(matchRecordedFolder('/Users/sai/orca/staghorn/', recorded, home)).toBe(
+      '/Users/sai/orca/staghorn'
+    )
+    expect(matchRecordedFolder('c:/code/app', recorded, 'C:\\Users\\Sai')).toBe('C:\\Code\\App')
+  })
+
+  it('refuses a folder that is only near a recorded one', () => {
+    const recorded = ['/Users/sai/orca/staghorn']
+    expect(matchRecordedFolder('/Users/sai/orca', recorded, home)).toBeUndefined()
+    expect(matchRecordedFolder('/Users/sai/orca/staghorn/web', recorded, home)).toBeUndefined()
+  })
+
+  it('refuses home, its ancestors and a root even when Claude Code recorded them', () => {
+    const recorded = ['/Users/sai', '/Users', '/']
+    for (const candidate of recorded)
+      expect(matchRecordedFolder(candidate, recorded, home)).toBeUndefined()
   })
 })

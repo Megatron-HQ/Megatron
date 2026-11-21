@@ -13,6 +13,9 @@ export const IPC_CHANNELS = {
   pickAndAddFolders: 'folders:pickAndAdd',
   revokeAllowedPath: 'folders:revoke',
   narrowAllowedPath: 'folders:narrow',
+  listHiddenProjects: 'folders:listHidden',
+  hideProject: 'folders:hide',
+  showProject: 'folders:show',
   openExternal: 'shell:openExternal',
   listPlugins: 'plugins:list',
   getPluginDetail: 'plugins:detail',
@@ -306,7 +309,11 @@ export interface ScanSummary {
 
 // What the worker hands main; main records `projects` and `findings`, then sends only the summary
 // to the renderer.
-export type ScanResult = ScanSummary & { projects?: ProjectFolder[]; findings?: RepoFindings }
+export type ScanResult = ScanSummary & {
+  projects?: ProjectFolder[]
+  findings?: RepoFindings
+  goneFolders?: string[]
+}
 
 export type FileStatus = 'ok' | 'too_large' | 'unreadable' | 'preview_limit'
 
@@ -599,8 +606,6 @@ export interface McpServerList {
   // Bounds of the calls the index still holds; transcripts age out after ~30 days.
   firstCallAt: string | null
   lastCallAt: string | null
-  // Projects Claude Code knows whose .mcp.json Megatron may not read.
-  ungrantedProjects: number
   // When the general connection check last ran this session.
   lastCheckedAt: string | null
 }
@@ -656,6 +661,9 @@ export interface McpServerDetail {
 
 export const APP_SECTIONS = ['skills', 'plugins', 'mcp', 'usage'] as const
 export type AppSection = (typeof APP_SECTIONS)[number]
+
+export const SETTINGS_PANES = ['general', 'claude-code', 'updates', 'about'] as const
+export type SettingsPane = (typeof SETTINGS_PANES)[number]
 
 export interface ActivityProjectCount {
   project: string // raw cwd in reducers; primary project location in Usage IPC

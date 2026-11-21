@@ -114,9 +114,9 @@ and never by path (the file viewer resolves `source_path` in main), and links ne
 target stay strict.
 
 A blocked repo link is reported as a `link_unapproved` scan issue that names its target, and the
-user grants through the normal folders dialog. The picker is deliberately not pre-pointed at the
-target: the target is the repo author's choice, and a one-click grant would let a repository ship
-`.claude/skills/x -> ~/.ssh` as a prompt to approve `~/.ssh`.
+user grants through Settings > Claude Code > Project folders. The picker is deliberately not
+pre-pointed at the target: the target is the repo author's choice, and a one-click grant would let
+a repository ship `.claude/skills/x -> ~/.ssh` as a prompt to approve `~/.ssh`.
 
 Repository discovery metadata in the private preferences cache is descriptive, not an access
 capability. Discovery and catalog restoration retain current grants and canonical target checks.
@@ -131,8 +131,30 @@ older versions collapse the same way at startup, before access is restored. Over
 (`folders:narrow`) accepts only a path equal to an existing grant and replaces it with folders
 picked in the native dialog, so grants still come only from that dialog. The add dialog may open
 in a suggested starting folder, which main computes from Claude Code's recorded project locations
-(`suggestGrantStart`). It never suggests the home folder, anything above it, or a drive/share
-root, and the renderer never supplies it. Every grant change drops
+(`suggestGrantStart`), leaving out hidden folders. It never suggests the home folder, anything
+above it, or a drive/share root.
+
+The add dialog can also open inside one folder the user clicked: a needs-access notice, a "Not
+readable yet" row or a Review… row. The renderer sends that path back, and main accepts it only if
+it exactly matches one of its own records of where Claude Code ran (Usage locations,
+`plugin_registry.project_path`, `mcp_project_state.project_path`, granted catalog folders) and
+passes the same home-and-above rule (`matchRecordedFolder`). Main then uses its own spelling of the
+path, so the renderer still never names a folder of its choosing. The picker is aimed only when no
+grant covers the folder and a plain `statSync` finds a directory. That existence check, the one
+capability outside `isPathAllowed`, lives in `src/main/folder-existence.ts`: it reads nothing
+inside the folder. The scan worker runs it too, over recorded folders no grant covers (home and
+above, and Claude app chat folders, excluded), so a folder proven gone (`ENOENT`, `ENOTDIR`, or now
+a file) leaves the folder suggestions. Only that one bit reaches the renderer, as a `missing`
+status on a path it already has from Claude Code's records; any other error counts as not gone.
+It runs in the worker because a stat on an unreachable network share blocks until the OS gives
+up. macOS TCC does not prompt for it: a fresh, consentless app `stat`ed folders inside
+`~/Documents`, `~/Desktop` and `~/Downloads` with no prompt, while listing `~/Documents` prompted
+(verified on macOS 27.2.1, 2026-11-21). The picker check matters because Electron 43.8.7 handles a missing `defaultPath` differently by platform
+(`shell/browser/ui/file_dialog_{mac.mm,win.cc}` at tag `v43.8.7`): macOS opens the parent, while
+Windows types the basename into the Folder box and confirming fails. A target that fails any check
+falls back to the suggested start. Every grant still comes from the dialog's own result, and
+`link_unapproved` targets are never aimed at, because aim targets come only from Claude Code's
+recorded project paths. Every grant change drops
 cached skills only where no remaining grant covers them. Threat: a child grant the user believes
 went away with its parent would keep that folder readable, invisibly to anyone reading the list.
 
@@ -140,6 +162,12 @@ Rejected: per-folder exclusions, a deny rule inside `isPathAllowed`, to keep a p
 children. A second rule kind in the chokepoint widens what every read evaluates and what a bug
 there can expose; narrowing covers the need with grants alone. Revisit if users need to exclude a
 few folders from a parent holding hundreds of projects, where re-picking the rest is impractical.
+
+Hiding a folder (`folders:hide`, stored as `hiddenProjects` in preferences) is display-only and is
+never an access rule: `isPathAllowed` never reads it, and a hidden folder inside a grant stays
+readable. The scan worker leaves hidden folders out of the index instead. A folder to hide must
+pass the same record match as an aimed picker. Show (`folders:show`) accepts only an exact match
+with an entry already hidden.
 
 User-data reads remain centralized in `permissions.ts`. Separate capabilities serve fixed CLI
 discovery, preparation of Electron's private cache, compiled app assets, and the macOS self-update

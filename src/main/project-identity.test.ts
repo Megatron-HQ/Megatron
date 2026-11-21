@@ -236,6 +236,35 @@ describe('Usage Projects', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
+
+  it('reports an ungranted folder as missing while the last Scan proved it gone', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'usage-project-gone-'))
+    try {
+      grantPath(directory)
+      const { owner, state } = harness()
+      state.projects = [repository(directory)]
+      state.paths = ['/deleted', '/kept']
+      const status = (path: string): string | undefined =>
+        owner.locations().find((entry) => entry.path === path)?.status
+      const findings = { worktrees: [], canonicalCheckouts: [] }
+
+      owner.recordScan(findings, ['/deleted', directory])
+      expect([status('/deleted'), status('/kept'), status(directory)]).toEqual([
+        'missing',
+        'needs_access',
+        'available'
+      ])
+
+      owner.recordScan(undefined)
+      expect(status('/deleted')).toBe('missing')
+
+      owner.recordScan(findings, [])
+      expect(status('/deleted')).toBe('needs_access')
+    } finally {
+      resetGrantedPaths()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('writes', () => {

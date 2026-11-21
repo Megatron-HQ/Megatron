@@ -12,15 +12,22 @@ Tracking: epic #54. Implementation lands in `src/main/ingest/` (declarations, to
 Verified against [Claude Code's MCP docs](https://code.claude.com/docs/en/mcp.md) and a real
 `~/.claude.json` (Claude Code 2.1.327), 2026-11-18.
 
-| Source        | Where it is declared                                                                | How Megatron reads it                                                              |
-| ------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Local         | `.claude.json` → `projects[<path>].mcpServers`                                      | Tier 1 file, for every project, granted or not                                     |
-| Project       | `<repo>/.mcp.json`                                                                  | Tier 2: granted repos only. Ungranted repos are counted for a grant suggestion     |
-| User          | `.claude.json` → top-level `mcpServers`                                             | Tier 1 file                                                                        |
-| Plugin        | The plugin's `.mcp.json`, manifest, or marketplace entry (`docs/skill-scanner.md`)  | Already resolved into `plugin_components` (kind `mcp`); never rescanned            |
-| claude.ai     | Not on disk. Claude Code fetches the account's connectors from claude.ai at startup | `mcp__claude_ai_*` tool calls in transcripts, and the on-demand live check         |
-| Built-in      | Not on disk (e.g. `claude-in-chrome`, `computer-use`)                               | Tool calls in transcripts only                                                     |
-| Managed (org) | `managedMcpServers` managed setting, `managed-mcp.json` in a system folder          | Not read (non-goal below). Such servers appear only as Observed or live-check rows |
+| Source    | Where it is declared                                                                | How Megatron reads it                                                       |
+| --------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Local     | `.claude.json` → `projects[<path>].mcpServers`                                      | Tier 1 file, for every project, granted or not                              |
+| Project   | `<repo>/.mcp.json`                                                                  | Tier 2: granted repos only. Settings lists used folders no grant covers yet |
+| User      | `.claude.json` → top-level `mcpServers`                                             | Tier 1 file                                                                 |
+| Plugin    | The plugin's `.mcp.json`, manifest, or marketplace entry (`docs/skill-scanner.md`)  | Already resolved into `plugin_components` (kind `mcp`); never rescanned     |
+| claude.ai | Not on disk. Claude Code fetches the account's connectors from claude.ai at startup | `mcp__claude_ai_*` tool calls in transcripts, and the on-demand live check  |
+| Built-in  | Not on disk (e.g. `claude-in-chrome`, `computer-use`)                               | Tool calls in transcripts only                                              |
+
+A project folder the user hid in Megatron (`hiddenProjects`, `docs/data-model.md`) contributes no
+local or project Declarations and no project state: the scan skips its group, and every folder
+inside it. Trust is still read from every `projects` entry, since that is how Claude Code decides
+it. Consequence, accepted: calls to a server declared only in a hidden project stay in Usage but are
+credited to an Observed prefix, because `mcpCallOwners` reads the inventory, which no longer holds
+that Declaration.
+| Managed (org) | `managedMcpServers` managed setting, `managed-mcp.json` in a system folder | Not read (non-goal below). Such servers appear only as Observed or live-check rows |
 
 `.claude.json` sits in `$HOME` by default and inside the Claude Code Folder when `CLAUDE_CONFIG_DIR`
 names it (`docs/security-hardening.md`); Megatron reads whichever `claudeConfig().claudeJson` names.

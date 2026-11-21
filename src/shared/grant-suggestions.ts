@@ -66,3 +66,17 @@ export function suggestGrantStart(
   }
   return best?.path
 }
+
+// The renderer may only echo a folder main showed it: the path it sends is looked up among main's
+// own records, and main acts on its own spelling. Home and above are never a target, because
+// hiding covers descendants and an aimed picker there invites the widest grant.
+export function matchRecordedFolder(
+  candidate: string,
+  recorded: Iterable<string>,
+  home: string
+): string | undefined {
+  if (!isSuggestableFolder(candidate, home)) return undefined
+  const key = normalizeProjectPath(candidate)
+  for (const path of recorded) if (normalizeProjectPath(path) === key) return path
+  return undefined
+}

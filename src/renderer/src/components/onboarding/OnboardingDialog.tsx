@@ -52,6 +52,7 @@ interface OnboardingDialogProps {
   folders: AllowedPathRow[]
   scanComplete: boolean
   home: string
+  hiddenProjects: string[]
   onAddFolders: () => Promise<SkippedGrant[]>
   claudeFolder?: ClaudeFolderStatus
 }
@@ -66,6 +67,7 @@ export function OnboardingDialog({
   folders,
   scanComplete,
   home,
+  hiddenProjects,
   onAddFolders,
   claudeFolder
 }: OnboardingDialogProps): React.JSX.Element {
@@ -179,6 +181,7 @@ export function OnboardingDialog({
                     folders={folders}
                     skills={skills}
                     home={home}
+                    hidden={hiddenProjects}
                     onAddFolders={onAddFolders}
                   />
                 )}

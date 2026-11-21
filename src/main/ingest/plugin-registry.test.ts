@@ -242,6 +242,45 @@ describe('removed project installs', () => {
   })
 })
 
+describe('hidden project installs', () => {
+  function writeInstalls(): { hidden: string; installPath: string } {
+    const hidden = join(tmpDir, 'staghorn')
+    const installPath = join(tmpDir, 'cache', 'plugin-a')
+    mkdirSync(join(hidden, 'web'), { recursive: true })
+    writePluginSkill(installPath, 'example', '---\nname: example\n---\nBody')
+    writeInstalledPlugins({
+      version: 2,
+      plugins: {
+        'plugin-a@market-1': [
+          { scope: 'project', projectPath: join(hidden, 'web'), installPath, version: '1.0.0' }
+        ],
+        'plugin-b@market-1': [
+          { scope: 'local', projectPath: hidden, installPath, version: '1.0.0' },
+          { scope: 'user', installPath, version: '1.0.0' }
+        ]
+      }
+    })
+    return { hidden, installPath }
+  }
+
+  it('leaves out installs in a hidden folder, and a plugin with no other install', () => {
+    const { hidden } = writeInstalls()
+    const registryFile = join(pluginsDir, 'installed_plugins.json')
+    const original = readFileSync(registryFile, 'utf8')
+
+    scanPluginRegistry(db, pluginsDir, userSettingsPath, undefined, undefined, [hidden])
+
+    expect(allRegistry().map((row) => [row.name, row.scope])).toEqual([['plugin-b', 'user']])
+    expect(readFileSync(registryFile, 'utf8')).toBe(original)
+  })
+
+  it('keeps every install when nothing is hidden', () => {
+    writeInstalls()
+    scanPluginRegistry(db, pluginsDir, userSettingsPath)
+    expect(allRegistry()).toHaveLength(3)
+  })
+})
+
 function writeMarketplaces(content: unknown): void {
   writeFileSync(join(pluginsDir, 'known_marketplaces.json'), JSON.stringify(content))
 }

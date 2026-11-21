@@ -1,6 +1,6 @@
 {
   "name": "megatron",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Inventories, lints, and tracks usage of Claude Code skills.",
   "main": "./out/main/index.js",
   "type": "module",
@@ -46,6 +46,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "cn": "^0.5.2",
     "electron-store": "^11.0.2",
     "electron-updater": "^6.8.11",
     "lucide-react": "^1.30.0",

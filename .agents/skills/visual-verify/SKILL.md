@@ -42,7 +42,7 @@ files to screens:
 | `components/Sidebar.tsx`                                                              | `sidebar`                        |
 | `components/ContextBudgetDialog.tsx`                                                  | `context-budget-dialog`          |
 | `components/CommandPalette.tsx`                                                       | `command-palette`                |
-| `components/SettingsDialog.tsx`                                                       | `settings-dialog`                |
+| `components/settings/**`                                                              | `settings-dialog`                |
 | `views/PluginInventory.tsx`                                                           | `plugin-inventory`               |
 | `views/PluginDetail.tsx`                                                              | `plugin-detail`                  |
 | `components/PluginBadges.tsx`                                                         | `plugin-inventory,plugin-detail` |
@@ -50,10 +50,15 @@ files to screens:
 | `views/McpDetail.tsx`                                                                 | `mcp-detail`                     |
 | `views/UsageView.tsx`, `components/usage/**`, `components/UsageSidebar.tsx`           | `usage`                          |
 | `components/onboarding/**`                                                            | `onboarding`                     |
+| `components/ManageFoldersButton.tsx`                                                  | `plugin-inventory,mcp-inventory` |
+| `lib/detected-folders.ts`                                                             | `settings-dialog,onboarding`     |
 
-A changed file **not in this table → run the full sweep.** (`ManageFoldersDialog.tsx` and
-`PluginActionToasts.tsx` have no scenario at all — a pre-existing coverage gap, not something
-scoping introduced.) A scenario you added this change runs even if you don't name its screen (it
+The folder-access pieces (`components/ProjectAvailabilityNotice.tsx`, `components/FolderAccess*.tsx`,
+`lib/folder-grant.ts`) render on seven screens:
+`--only skill-inventory,plugin-inventory,plugin-detail,mcp-inventory,mcp-detail,settings-dialog,onboarding`.
+
+A changed file **not in this table → run the full sweep.** (`PluginActionToasts.tsx` has no
+scenario at all — a pre-existing coverage gap, not something scoping introduced.) A scenario you added this change runs even if you don't name its screen (it
 has no baseline yet), but name its screen in `--only` anyway.
 
 The runner validates `--only` before it builds: an unknown screen name exits immediately with the

@@ -58,6 +58,69 @@ function fixtureSkill(name, repository, id) {
   }
 }
 
+// Folders Claude Code ran in that no grant covers, for Settings' Not readable yet: more than its
+// five-row preview, so Show all has something to open.
+const UNGRANTED_ELSEWHERE = [
+  'C:\\Clients\\Atlas',
+  'C:\\Clients\\Borealis',
+  'C:\\Clients\\Cobalt',
+  'C:\\Clients\\Dune',
+  'C:\\Clients\\Ember',
+  'C:\\Clients\\Fjord'
+]
+
+// Hidden from Megatron (Settings › Project folders › Hidden): one Claude Code ran in, so Not
+// readable yet counts one fewer, and one deleted folder only Claude Code's records still name.
+const HIDDEN = ['C:\\Clients\\Fjord', 'C:\\Clients\\Staghorn']
+
+// A local server in the ungranted repository, so the MCP Projects tree selects it with a row.
+function fixtureMcpServer(projectPath) {
+  return {
+    id: 'configured:fixture-local',
+    name: 'fixture-local',
+    kind: 'configured',
+    prefix: 'fixture-local',
+    transports: ['stdio'],
+    location: 'npx',
+    scopes: ['local'],
+    projectPaths: [projectPath],
+    projectCount: 1,
+    calls: 0,
+    errors: 0,
+    denied: 0,
+    ambiguousCalls: 0,
+    lastUsedAt: null,
+    hasProblem: false,
+    hasLiteralCredential: false,
+    hasPendingApproval: false,
+    prefixCollision: false,
+    pluginDisabled: false,
+    warnings: 0,
+    notices: 0,
+    liveStatus: null
+  }
+}
+
+function ungrantedUsageProjects(granted, ungranted) {
+  const locations = [granted, ungranted, ...UNGRANTED_ELSEWHERE].map((path, index) => ({
+    id: `visual-ungranted:${index}`,
+    path,
+    kind: 'repository',
+    status: path === granted ? 'available' : 'needs_access'
+  }))
+  return {
+    locations,
+    claudeCodeFolders: [],
+    projects: locations.map((location) => ({
+      id: location.id,
+      path: location.path,
+      label: location.path.split('\\').pop(),
+      locations: [location],
+      possibleMatches: []
+    }))
+  }
+}
+
 export function projectTreeFixture(channel, args, original, mode) {
   const pending = mode === 'project-tree-pending'
   const unavailable = mode === 'project-tree-unavailable'
@@ -69,22 +132,31 @@ export function projectTreeFixture(channel, args, original, mode) {
   const nested = mode === 'project-tree-nested'
   // Three sibling grants and no parent grant: the parent becomes a generated group row.
   const grouped = mode === 'project-tree-grouped'
+  // Only Megatron-site is granted: Megatron's installs are listed but can't be read or changed.
+  const ungranted = mode.startsWith('project-tree-ungranted')
+  // A second ungranted project, so the Plugins notice offers Review… instead of one aimed picker.
+  const multi = mode === 'project-tree-ungranted-multi'
   const first = duplicate ? `${PARENT}\\apps\\Megatron` : FIRST
   const second = duplicate ? `${PARENT}\\clients\\Megatron` : SECOND
-  const projects = [
-    {
-      path: PARENT,
-      kind: own ? 'repository' : 'folder',
-      status: unavailable ? 'unavailable' : 'available'
-    },
-    {
-      path: first,
-      kind: 'repository',
-      status: unavailable ? 'missing' : childUnavailable ? 'unavailable' : 'available'
-    },
-    { path: second, kind: 'repository', status: 'available' },
-    { path: `${PARENT}\\Empty-repo`, kind: 'repository', status: 'available' }
-  ]
+  const projects = ungranted
+    ? [
+        { path: first, kind: 'repository', status: 'needs_access' },
+        { path: second, kind: 'repository', status: 'available' }
+      ]
+    : [
+        {
+          path: PARENT,
+          kind: own ? 'repository' : 'folder',
+          status: unavailable ? 'unavailable' : 'available'
+        },
+        {
+          path: first,
+          kind: 'repository',
+          status: unavailable ? 'missing' : childUnavailable ? 'unavailable' : 'available'
+        },
+        { path: second, kind: 'repository', status: 'available' },
+        { path: `${PARENT}\\Empty-repo`, kind: 'repository', status: 'available' }
+      ]
   const plugins = ['build-tools', 'review-tools', 'test-tools'].map((name, index) =>
     fixturePlugin(name, [
       fixtureInstall('project', first, '1.0.0', unavailable),
@@ -92,6 +164,15 @@ export function projectTreeFixture(channel, args, original, mode) {
       ...(index === 0 ? [fixtureInstall('local', first, '2.0.0', unavailable)] : [])
     ])
   )
+  if (ungranted)
+    for (const plugin of plugins)
+      for (const install of plugin.installs)
+        if (install.project_path === first) install.enablement_known = false
+  if (multi) plugins[1].installs.push(fixtureInstall('project', UNGRANTED_ELSEWHERE[0]))
+  if (ungranted)
+    for (const plugin of plugins)
+      for (const install of plugin.installs)
+        if (install.project_path === UNGRANTED_ELSEWHERE[0]) install.enablement_known = false
   plugins.push(fixturePlugin('user-tool', [fixtureInstall('user', null)]))
   plugins.push(fixturePlugin('unassigned-tool', [fixtureInstall('local', null)]))
   if (own) plugins.push(fixturePlugin('folder-tool', [fixtureInstall('local', PARENT)]))
@@ -115,6 +196,17 @@ export function projectTreeFixture(channel, args, original, mode) {
       )
     )
   }
+  if (channel === 'folders:list' && ungranted) return [{ path: second, granted_at: '' }]
+  // A pick that changes nothing, so the notice it came from stays up to show the result.
+  if (channel === 'folders:pickAndAdd' && ungranted)
+    return {
+      folders: [{ path: second, granted_at: '' }],
+      skipped: [{ path: `${second}\\web`, coveredBy: second }]
+    }
+  if (channel === 'usage:projects' && ungranted) return ungrantedUsageProjects(second, first)
+  if (channel === 'folders:listHidden' && ungranted) return HIDDEN
+  // Stateless, like the pick above: the notice and rows stay, so the toast is what changes.
+  if (channel === 'folders:hide' && ungranted) return [...HIDDEN, args[0]]
   if (channel === 'folders:list')
     return grouped
       ? [first, second, `${PARENT}\\Empty-repo`].map((path) => ({ path, granted_at: '' }))
@@ -140,7 +232,7 @@ export function projectTreeFixture(channel, args, original, mode) {
       ...original,
       skills: [
         ...original.skills.filter((skill) => skill.source_type !== 'project'),
-        ...skills.filter((skill) => !removed || skill.project_root !== first)
+        ...skills.filter((skill) => !(removed || ungranted) || skill.project_root !== first)
       ],
       scanComplete: true,
       scanActivity: pending
@@ -153,7 +245,10 @@ export function projectTreeFixture(channel, args, original, mode) {
   if (channel === 'mcp:list')
     return {
       ...original,
-      servers: original.servers.filter((server) => server.projectPaths.length === 0)
+      servers: [
+        ...original.servers.filter((server) => server.projectPaths.length === 0),
+        ...(ungranted ? [fixtureMcpServer(first)] : [])
+      ]
     }
   // Mirrors getPluginDetail (src/main/db/queries.ts): null for an unknown plugin, and every field
   // PluginDetail reads, or its scoping throws and blanks the renderer.

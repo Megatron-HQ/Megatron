@@ -79,10 +79,30 @@ async function enableProjectHierarchy(window, app, mode = 'project-tree') {
   await window.getByRole('button', { name: 'Projects', exact: true }).waitFor()
 }
 
-async function openManageFolders(window) {
+// Megatron's installs are listed but ungranted, and Megatron-site is granted
+// (project-tree-fixture.mjs). Add folder… returns a pick already covered, so its notice stays up.
+async function enableUngrantedProjects(window, app) {
+  await app.evaluate(() => {
+    for (const channel of ['folders:pickAndAdd', 'usage:projects'])
+      globalThis.megatronVisualFixtures.set(channel, 'project-tree-ungranted')
+  })
+  await enableProjectHierarchy(window, app, 'project-tree-ungranted')
+}
+
+const UNGRANTED_PLUGINS_NOTICE = /^3 plugins in Megatron need folder access/
+const SKIPPED_PICK = 'web is already included in Megatron-site.'
+
+// Settings remembers its pane only for the session, and every scenario starts from a reload, so
+// the gear lands on General unless an update notice sends it to Updates. Inactive panes stay
+// mounted but hidden, so a control on another pane can't be clicked until its tab is.
+async function openSettingsPane(window, pane) {
   await window.getByRole('button', { name: 'Settings', exact: true }).click()
-  await window.getByRole('button', { name: 'Manage…', exact: true }).click()
-  await window.getByRole('dialog', { name: 'Project Folders', exact: true }).waitFor()
+  await window.getByRole('tab', { name: pane }).click()
+}
+
+async function openManageFolders(window) {
+  await openSettingsPane(window, 'Claude Code')
+  await window.getByRole('heading', { name: 'Project folders', exact: true }).waitFor()
 }
 
 // Revoking is two-step: the trash button opens an inline confirm in that row.
@@ -250,7 +270,7 @@ async function openTokenDetails(window, app, { hourly = false, theme = 'light' }
   await app.evaluate(() =>
     globalThis.megatronVisualFixtures.set('usage:overview', 'usage-history-token-details')
   )
-  await window.getByRole('button', { name: 'Settings', exact: true }).click()
+  await openSettingsPane(window, 'General')
   await window
     .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
     .click()
@@ -364,7 +384,7 @@ async function openResidentTax(window, app, mode = 'context-baseline') {
 async function setDarkTheme(window) {
   const isDark = await window.evaluate(() => document.documentElement.classList.contains('dark'))
   if (isDark) return
-  await window.getByRole('button', { name: 'Settings' }).click()
+  await openSettingsPane(window, 'General')
   await window.getByRole('radio', { name: 'Dark' }).click()
   await window.keyboard.press('Escape')
   await window.getByRole('dialog').waitFor({ state: 'detached' })
@@ -518,6 +538,174 @@ export const scenarios = [
       await window.getByRole('button', { name: /Megatron HQ.*6/ }).click()
       await window.getByRole('button', { name: /^Megatron(?:\s|Unavailable)*3$/ }).click()
       await window.getByText(/This project folder is missing/).waitFor()
+    }
+  },
+  // Folder access where it's needed (#5): the notice counts the rows that need a grant, and its
+  // Add folder… opens the picker and reports the result in place.
+  {
+    name: 'plugins-grant-notice',
+    screen: 'plugin-inventory',
+    async run(window, app) {
+      await enableUngrantedProjects(window, app)
+      await openPluginsSection(window)
+      await window.getByText(UNGRANTED_PLUGINS_NOTICE).waitFor()
+    }
+  },
+  {
+    name: 'plugins-grant-notice-skipped',
+    screen: 'plugin-inventory',
+    async run(window, app) {
+      await enableUngrantedProjects(window, app)
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'Add folder…', exact: true }).click()
+      await window.getByText(SKIPPED_PICK, { exact: true }).waitFor()
+    }
+  },
+  {
+    // The Projects filter's Manage Folders lands on Settings' Project folders, Not readable yet
+    // collapsed to its first five.
+    name: 'plugins-manage-folders',
+    screen: ['plugin-inventory', 'settings-dialog'],
+    async run(window, app) {
+      await enableUngrantedProjects(window, app)
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'Projects', exact: true }).click()
+      await window.getByText('Project Plugins').waitFor()
+      await window.getByRole('button', { name: 'Manage Folders', exact: true }).click()
+      await window.waitForFunction(() => document.activeElement?.id === 'settings-project-folders')
+      await window.getByRole('list', { name: 'Folders not readable yet' }).waitFor()
+    }
+  },
+  {
+    name: 'plugin-detail-grant-notice',
+    screen: 'plugin-detail',
+    async run(window, app) {
+      await enableUngrantedProjects(window, app)
+      await openPluginsSection(window)
+      await window
+        .locator('tbody tr')
+        .filter({ hasText: 'build-tools' })
+        .filter({ hasNotText: 'Megatron-site' })
+        .click()
+      await window
+        .getByText('Megatron needs folder access to show whether this plugin is enabled', {
+          exact: false
+        })
+        .waitFor()
+    }
+  },
+  {
+    name: 'mcp-inventory-grant-notice',
+    screen: ['mcp-inventory', 'sidebar'],
+    async run(window, app) {
+      await enableUngrantedProjects(window, app)
+      await openMcpSection(window)
+      await window.getByRole('button', { name: 'Projects', exact: true }).click()
+      await window.getByRole('button', { name: /^Megatron(?:\s|Needs folder access)*1$/ }).click()
+      await window
+        .getByText('Megatron needs folder access to read its .mcp.json', { exact: false })
+        .waitFor()
+    }
+  },
+  {
+    name: 'settings-not-readable-list',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await enableUngrantedProjects(window, app)
+      await openManageFolders(window)
+      await window.getByRole('button', { name: 'Show all 7', exact: true }).click()
+      await window
+        .getByRole('list', { name: 'Folders not readable yet' })
+        .getByText('Megatron', { exact: true })
+        .waitFor()
+    }
+  },
+  // Hide and the aimed Add… (#5 follow-up): every place that names a folder can open the picker
+  // inside it or hide it from Megatron. The fixture's pick is already covered and its hide is
+  // stateless, so each action's inline result or toast stays up to be captured.
+  {
+    name: 'settings-not-readable-actions',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await enableUngrantedProjects(window, app)
+      await openManageFolders(window)
+      await window.getByRole('button', { name: 'Add Atlas…', exact: true }).click()
+      await window.getByText(SKIPPED_PICK, { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'settings-hidden-list',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('folders:listHidden', 'project-tree-ungranted')
+      )
+      await enableUngrantedProjects(window, app)
+      await openManageFolders(window)
+      const hidden = window.getByRole('list', { name: 'Hidden folders' })
+      await hidden.scrollIntoViewIfNeeded()
+      await hidden.getByText('Staghorn', { exact: true }).waitFor()
+    }
+  },
+  {
+    name: 'plugins-grant-dialog',
+    screen: 'plugin-inventory',
+    async run(window, app) {
+      await app.evaluate(() => {
+        for (const channel of ['folders:pickAndAdd', 'usage:projects'])
+          globalThis.megatronVisualFixtures.set(channel, 'project-tree-ungranted-multi')
+      })
+      await enableProjectHierarchy(window, app, 'project-tree-ungranted-multi')
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'Review…', exact: true }).click()
+      await window
+        .getByRole('list', { name: 'Folders that need access' })
+        .getByText('Atlas', { exact: true })
+        .waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'plugins-hide-notice',
+    screen: ['plugin-inventory', 'sidebar'],
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('folders:hide', 'project-tree-ungranted')
+      )
+      await enableUngrantedProjects(window, app)
+      await openPluginsSection(window)
+      await window.getByRole('button', { name: 'Projects', exact: true }).click()
+      await window.getByRole('button', { name: /^Megatron(?:\s|Needs folder access)*\d+$/ }).click()
+      await window.getByRole('button', { name: 'Hide', exact: true }).click()
+      await window.getByText(/^Hid Megatron\. Show it again from Settings/).waitFor()
+    }
+  },
+  {
+    name: 'plugin-detail-hide-row',
+    screen: 'plugin-detail',
+    async run(window, app) {
+      await enableUngrantedProjects(window, app)
+      await openPluginsSection(window)
+      await window
+        .locator('tbody tr')
+        .filter({ hasText: 'build-tools' })
+        .filter({ hasNotText: 'Megatron-site' })
+        .click()
+      await window.getByRole('button', { name: 'Hide this folder' }).first().waitFor()
+    }
+  },
+  {
+    name: 'skills-empty-grant-skipped',
+    screen: 'skill-inventory',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('folders:pickAndAdd', 'project-tree-ungranted')
+      )
+      await window.getByRole('button', { name: 'Projects', exact: true }).click()
+      await window
+        .getByRole('button', { name: 'Grant a folder to scan for skills', exact: true })
+        .click()
+      await window.getByText(SKIPPED_PICK, { exact: true }).waitFor()
     }
   },
   ...['Skills', 'Plugins'].flatMap((section) =>
@@ -727,7 +915,7 @@ export const scenarios = [
     name: 'settings-rescan-outcome',
     screen: 'settings-dialog',
     async run(window) {
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'Claude Code')
       await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
       await window
         .getByRole('status')
@@ -755,7 +943,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('app:rescan', 'scan-missing')
       })
       await window.reload()
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'Claude Code')
       await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
       await window.getByText('Scan complete.', { exact: true }).waitFor()
       for (const [index, full] of [false, true].entries()) {
@@ -823,7 +1011,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('skills:list', 'scan-manual-partial')
       )
       await window.reload()
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'Claude Code')
       await window.getByRole('button', { name: 'Manage folder access', exact: true }).waitFor()
     }
   },
@@ -833,7 +1021,7 @@ export const scenarios = [
     async run(window, app) {
       await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'scan-manual'))
       await window.reload()
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'Claude Code')
       await window.getByText('Scanning Claude Code data…', { exact: true }).waitFor()
       await app.evaluate(({ BrowserWindow }) => {
         const contents = BrowserWindow.getAllWindows()[0].webContents
@@ -867,7 +1055,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('app:rescan', 'scan-timeout')
       })
       await window.reload()
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'Claude Code')
       await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
       await window.getByText('This stage exceeded its time limit. Try rescanning.').waitFor()
     }
@@ -896,7 +1084,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('app:rescan', 'pending')
       })
       await window.reload()
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'Claude Code')
       await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
       await window.getByRole('button', { name: 'Rescanning…', exact: true }).waitFor()
     }
@@ -942,7 +1130,7 @@ export const scenarios = [
     async run(window, app) {
       await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'scan-missing'))
       await window.reload()
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'Claude Code')
       await window.getByText('Missing project folders', { exact: true }).waitFor()
       await window.getByText('C:\\Old Projects\\Megatron', { exact: true }).waitFor()
     }
@@ -956,7 +1144,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('app:rescan', 'scan-missing')
       })
       await window.reload()
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'Claude Code')
       await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
       await window.getByText('Scan complete.', { exact: true }).waitFor()
       await window.getByText('Missing project folders', { exact: true }).waitFor()
@@ -971,8 +1159,9 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('app:rescan', 'scan-missing')
       })
       await window.reload()
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'General')
       await window.getByRole('radio', { name: 'Dark', exact: true }).click()
+      await window.getByRole('tab', { name: 'Claude Code' }).click()
       await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
       await window.getByText('Scan complete.', { exact: true }).waitFor()
       await window.getByText('Missing project folders', { exact: true }).waitFor()
@@ -1001,7 +1190,7 @@ export const scenarios = [
       await window.reload()
       await window.getByRole('button', { name: 'Scan details', exact: true }).click()
       await window.getByRole('button', { name: 'Manage folder access', exact: true }).click()
-      await window.getByRole('button', { name: 'Add Folder...', exact: true }).waitFor()
+      await window.getByRole('button', { name: 'Add folder…', exact: true }).waitFor()
     }
   },
   {
@@ -1064,7 +1253,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('folders:pickAndAdd', 'project-tree')
       )
       await openManageFolders(window)
-      await window.getByRole('button', { name: 'Add Folder...', exact: true }).click()
+      await window.getByRole('button', { name: 'Add folder…', exact: true }).click()
       await window.getByText('Megatron-site is already included in Megatron HQ.').waitFor()
     }
   },
@@ -1077,7 +1266,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('folders:pickAndAdd', 'pending')
       )
       await openManageFolders(window)
-      await window.getByRole('button', { name: 'Add Folder...', exact: true }).click()
+      await window.getByRole('button', { name: 'Add folder…', exact: true }).click()
       await window.getByRole('status').filter({ hasText: 'Adding folders' }).waitFor()
     }
   },
@@ -1088,7 +1277,7 @@ export const scenarios = [
       await enableProjectHierarchy(window, app)
       await app.evaluate(() => globalThis.megatronVisualFixtures.set('folders:pickAndAdd', 'error'))
       await openManageFolders(window)
-      await window.getByRole('button', { name: 'Add Folder...', exact: true }).click()
+      await window.getByRole('button', { name: 'Add folder…', exact: true }).click()
       await window.getByRole('alert').filter({ hasText: 'Could not add folders' }).waitFor()
     }
   },
@@ -1249,13 +1438,54 @@ export const scenarios = [
     }
   },
   {
-    // The Cmd+, / rail-gear Settings dialog, which now owns the three-way appearance choice
-    // (segmented control, ink-fill active) plus rescan / folders / about.
+    // The Cmd+, / rail-gear Settings dialog on its General pane: the three-way appearance choice
+    // (segmented control, ink-fill active) beside the frame-toned pane nav.
     name: 'settings-dialog-open',
     screen: 'settings-dialog',
     async run(window) {
       await window.getByRole('button', { name: 'Settings' }).click()
       await window.getByRole('radio', { name: 'System' }).waitFor()
+    }
+  },
+  // Each Settings pane through its nav tab; Claude Code's folder rows are this machine's grants.
+  ...[
+    ['general', 'General', 'Theme'],
+    ['claude-code', 'Claude Code', 'Project folders'],
+    ['updates', 'Updates', 'Check for updates automatically'],
+    ['about', 'About', 'Data folder']
+  ].map(([slug, tab, landmark]) => ({
+    name: `settings-pane-${slug}`,
+    screen: 'settings-dialog',
+    async run(window) {
+      await openSettingsPane(window, tab)
+      await window.getByText(landmark, { exact: true }).waitFor()
+    }
+  })),
+  {
+    // Claude Code's tab carries a warning mark while its pane shows a scan needing attention.
+    name: 'settings-nav-warning-mark',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-permission')
+      )
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window
+        .getByRole('tab', { name: 'Claude Code · Needs attention', exact: true })
+        .waitFor()
+    }
+  },
+  {
+    // A project filter's Manage Folders opens Settings on Claude Code, Project folders focused.
+    name: 'skills-manage-folders-deep-link',
+    screen: ['skill-inventory', 'settings-dialog'],
+    async run(window, app) {
+      await enableProjectHierarchy(window, app)
+      await window.getByRole('button', { name: /Megatron HQ.*6/ }).click()
+      await window.getByText('Project / Megatron HQ Skills').waitFor()
+      await window.getByRole('button', { name: 'Manage Folders', exact: true }).click()
+      await window.waitForFunction(() => document.activeElement?.id === 'settings-project-folders')
     }
   },
   {
@@ -1314,7 +1544,7 @@ export const scenarios = [
         `claude-folder-${state}`
       )
       await window.reload()
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'Claude Code')
       await window.getByRole('list', { name: 'Claude Code folders' }).waitFor()
       await window.getByText('Switching restarts Megatron.', { exact: true }).waitFor()
     }
@@ -3437,7 +3667,34 @@ export const scenarios = [
     screen: 'mcp-detail',
     async run(window, app) {
       await openFixtureMcpServer(window, app)
-      await window.getByText('Grant this folder to change it', { exact: true }).waitFor()
+      await window
+        .getByRole('button', { name: 'Grant this folder to change it', exact: true })
+        .waitFor()
+    }
+  },
+  {
+    // other-app is ungranted, so the page opens with a grant notice; its pick is already covered.
+    name: 'mcp-detail-grant-notice',
+    screen: 'mcp-detail',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('folders:pickAndAdd', 'project-tree-ungranted')
+      )
+      await openFixtureMcpServer(window, app)
+      await window.getByRole('button', { name: 'Add folder…', exact: true }).click()
+      await window.getByText(SKIPPED_PICK, { exact: true }).waitFor()
+    }
+  },
+  {
+    // other-app is ungranted, so its row in Connection offers Hide beside the grant link.
+    name: 'mcp-detail-hide-row',
+    screen: 'mcp-detail',
+    async run(window, app) {
+      await openFixtureMcpServer(window, app)
+      await window
+        .getByRole('button', { name: 'Grant this folder to check it', exact: true })
+        .waitFor()
+      await window.getByRole('button', { name: 'Hide', exact: true }).last().waitFor()
     }
   },
   {
@@ -3577,7 +3834,7 @@ async function skipWithoutMcpServers(window) {
 }
 
 async function openOnboarding(window) {
-  await window.getByRole('button', { name: 'Settings', exact: true }).click()
+  await openSettingsPane(window, 'About')
   await window.getByRole('button', { name: 'Show welcome', exact: true }).click()
   await window.getByRole('dialog', { name: 'Welcome to Megatron', exact: true }).waitFor()
 }

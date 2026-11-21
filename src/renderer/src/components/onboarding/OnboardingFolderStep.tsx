@@ -1,13 +1,17 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { Check, Circle, CircleAlert, FolderPlus, Info, LoaderCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { getFolderBasename } from '@/lib/source-name'
+import { detectedFolders } from '@/lib/detected-folders'
+import { skippedGrantMessage, useFolderGrant } from '@/lib/folder-grant'
 import { useUsageProjects } from '@/lib/use-usage-projects'
 import { LIME_BUTTON } from '@/lib/lime-button'
 import { cn } from '@/lib/utils'
-import { isSuggestableFolder } from '../../../../shared/grant-suggestions'
-import { isWithinProjectPath, normalizeProjectPath } from '../../../../shared/project-path'
+import {
+  isHiddenProject,
+  isWithinProjectPath,
+  normalizeProjectPath
+} from '../../../../shared/project-path'
 import type { AllowedPathRow, SkillRow, SkippedGrant } from '../../../../shared/ipc'
 import { CountUp } from './CountUp'
 import { StepHeading } from './StepHeading'
@@ -16,6 +20,7 @@ interface OnboardingFolderStepProps {
   folders: AllowedPathRow[]
   skills: SkillRow[]
   home: string
+  hidden: string[]
   onAddFolders: () => Promise<SkippedGrant[]>
 }
 
@@ -23,50 +28,23 @@ export function OnboardingFolderStep({
   folders,
   skills,
   home,
+  hidden,
   onAddFolders
 }: OnboardingFolderStepProps): React.JSX.Element {
   const reduceMotion = useReducedMotion() === true
   const { data: catalog, resolveProjectLabel } = useUsageProjects()
-  const [pending, setPending] = useState(false)
-  const [error, setError] = useState(false)
-  const [skipped, setSkipped] = useState<SkippedGrant[]>([])
+  const { grant: choose, pending, skipped, error } = useFolderGrant(onAddFolders)
   const granted = folders.length > 0
 
   // Every recorded location, not only ungranted ones, so a row stays put and ticks over when a
-  // grant covers it. A folder nested inside another listed one (Claude Code run from a repo's
-  // subfolder) folds into its parent. A worktree's row is its repository's, so it is dropped only
-  // after folding, which keeps folders recorded inside it from surfacing as rows of their own.
-  const rows = useMemo(() => {
-    const candidates = (catalog?.locations ?? []).filter((location) =>
-      isSuggestableFolder(location.path, home)
-    )
-    return candidates
-      .filter(
-        (location) =>
-          !candidates.some(
-            (other) =>
-              normalizeProjectPath(other.path) !== normalizeProjectPath(location.path) &&
-              isWithinProjectPath(location.path, other.path)
-          )
-      )
-      .filter((location) => !location.worktree)
-      .map((location) => ({ path: location.path, label: resolveProjectLabel(location.path) }))
-      .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))
-  }, [catalog, home, resolveProjectLabel])
-
-  async function choose(): Promise<void> {
-    if (pending) return
-    setPending(true)
-    setError(false)
-    setSkipped([])
-    try {
-      setSkipped(await onAddFolders())
-    } catch {
-      setError(true)
-    } finally {
-      setPending(false)
-    }
-  }
+  // grant covers it. Hidden folders stay out, as they do everywhere but Usage.
+  const rows = useMemo(
+    () =>
+      detectedFolders(catalog?.locations ?? [], home, resolveProjectLabel).filter(
+        (row) => !isHiddenProject(row.path, hidden)
+      ),
+    [catalog, home, resolveProjectLabel, hidden]
+  )
 
   return (
     <div className="flex flex-col gap-5">
@@ -168,9 +146,7 @@ export function OnboardingFolderStep({
             <ul className="min-w-0 space-y-0.5">
               {skipped.map((entry) => (
                 <li key={entry.path} className="break-words">
-                  {normalizeProjectPath(entry.path) === normalizeProjectPath(entry.coveredBy)
-                    ? `${getFolderBasename(entry.path)} is already in the list.`
-                    : `${getFolderBasename(entry.path)} is already included in ${getFolderBasename(entry.coveredBy)}.`}
+                  {skippedGrantMessage(entry)}
                 </li>
               ))}
             </ul>

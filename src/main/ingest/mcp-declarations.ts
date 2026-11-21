@@ -2,7 +2,11 @@ import type Database from 'better-sqlite3'
 import { join } from 'path'
 import { claudeConfig, isPathAllowed } from '../permissions'
 import type { ScanIssue, ScanTaskResult } from '../../shared/ipc'
-import { isWithinProjectPath, normalizeProjectPath } from '../../shared/project-path'
+import {
+  isHiddenProject,
+  isWithinProjectPath,
+  normalizeProjectPath
+} from '../../shared/project-path'
 import { isRecord, readJson, type JsonRead } from './claude-settings'
 import { mcpEndpointKey, summarizeMcpServer } from './mcp-server-config'
 
@@ -301,11 +305,18 @@ export interface McpDeclarationScanOptions {
   candidateProjects?: readonly string[]
   // `${installPath}\0${server}` -> endpoint key, from this Scan's plugin registry pass.
   pluginEndpoints?: ReadonlyMap<string, string>
+  // Folders the user hid (hidden-projects.ts). Their groups are skipped, but trust still reads
+  // every `projects` entry, since that is how Claude Code decides it.
+  hiddenProjects?: readonly string[]
 }
 
 export function scanMcpDeclarations(
   db: Database.Database,
-  { candidateProjects = [], pluginEndpoints = new Map() }: McpDeclarationScanOptions = {}
+  {
+    candidateProjects = [],
+    pluginEndpoints = new Map(),
+    hiddenProjects = []
+  }: McpDeclarationScanOptions = {}
 ): ScanTaskResult {
   const { claudeJson, settings } = claudeConfig()
   const root = readJson(claudeJson)
@@ -334,6 +345,7 @@ export function scanMcpDeclarations(
   const toggles: [string, string, 'disabled' | 'enabled'][] = []
   const keptProjects: string[] = []
   for (const group of groupProjects(projects, candidateProjects)) {
+    if (isHiddenProject(group.path, hiddenProjects)) continue
     const scan = scanProject(group, projects, userSettings, issues, claudeJson)
     declarations.push(...scan.declarations)
     states.push([group.path, scan.state, scan.connectorsDisabled])

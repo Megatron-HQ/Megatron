@@ -1,7 +1,9 @@
+import { homedir } from 'os'
 import { parentPort, workerData } from 'worker_threads'
 import { assertConfigRootAvailable } from '../config-root'
 import Database from 'better-sqlite3'
-import { restoreGrantedPath, setClaudeConfig, type ConfigRoot } from '../permissions'
+import { goneRecordedFolders } from '../folder-existence'
+import { isPathAllowed, restoreGrantedPath, setClaudeConfig, type ConfigRoot } from '../permissions'
 import { scanSkills as runSkillScan } from './skills-scanner'
 import type { ProjectFolder } from '../../shared/ipc'
 import { readProjectIdentity, type ProjectIdentitySnapshot } from '../../shared/project-identity'
@@ -21,6 +23,7 @@ const {
   archivePath,
   configRoot,
   grantedPaths,
+  hiddenProjects = [],
   previousProjects = [],
   projectIdentity,
   scope = 'all'
@@ -29,6 +32,8 @@ const {
   archivePath: string
   configRoot: ConfigRoot
   grantedPaths: string[]
+  // Display-only (hidden-projects.ts): left out of the index, never out of access.
+  hiddenProjects?: string[]
   previousProjects?: ProjectFolder[]
   projectIdentity: ProjectIdentitySnapshot
   scope?: ScanScope
@@ -58,19 +63,20 @@ try {
       {
         name: 'scanSkills',
         run: (db: Database.Database) =>
-          runSkillScan(db, undefined, undefined, previousProjects, repos)
+          runSkillScan(db, undefined, undefined, previousProjects, repos, hiddenProjects)
       },
       {
         name: 'scanPluginRegistry',
         run: (db: Database.Database) =>
-          scanPluginRegistry(db, undefined, undefined, repos, pluginMcpEndpoints)
+          scanPluginRegistry(db, undefined, undefined, repos, pluginMcpEndpoints, hiddenProjects)
       },
       {
         name: 'scanMcpDeclarations',
         run: (db: Database.Database) =>
           scanMcpDeclarations(db, {
             candidateProjects: previousProjects.map((project) => project.path),
-            pluginEndpoints: pluginMcpEndpoints
+            pluginEndpoints: pluginMcpEndpoints,
+            hiddenProjects
           })
       },
       // Not gated on the registry scan's status: leftover index rows are still real sightings,
@@ -101,7 +107,13 @@ try {
       parentPort?.postMessage(progress)
     }
   )
-  parentPort?.postMessage(summary)
+  // Here rather than in main: a stat on an unreachable network share blocks until the OS gives up.
+  const goneFolders = goneRecordedFolders(
+    projectIdentity.locations.map((location) => location.path),
+    homedir(),
+    isPathAllowed
+  )
+  parentPort?.postMessage({ ...summary, goneFolders })
 } finally {
   archive?.close()
   database.close()

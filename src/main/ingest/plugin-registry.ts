@@ -18,6 +18,7 @@ import {
 } from './plugin-components'
 import { parseSkillDirectory } from './skill-parser'
 import { isSemanticVersion } from '../../shared/version'
+import { isHiddenProject } from '../../shared/project-path'
 import { createMissingProjectCheck } from './project-discovery'
 import { createGitRepos, type GitRepos } from './git-repos'
 
@@ -224,7 +225,8 @@ export function scanPluginRegistry(
   userSettingsPath?: string,
   repos: GitRepos = createGitRepos({ locations: [], claudeCodeFolders: [] }),
   // Filled with `${installPath}\0${server}` -> endpoint key for the MCP scan later in this Scan.
-  mcpEndpoints: Map<string, string> = new Map()
+  mcpEndpoints: Map<string, string> = new Map(),
+  hiddenProjects: readonly string[] = []
 ): ScanTaskResult {
   assertConfigRootAvailable()
   const pluginsDirectory = readAllowedDirectory(pluginsDir)
@@ -422,7 +424,8 @@ export function scanPluginRegistry(
         if (projectPath !== '') {
           let missing = missingProjects.get(projectPath)
           if (missing === undefined) {
-            missing = isMissingProject(projectPath)
+            // Hidden by the user (hidden-projects.ts): left out like a pruned worktree's install.
+            missing = isHiddenProject(projectPath, hiddenProjects) || isMissingProject(projectPath)
             missingProjects.set(projectPath, missing)
           }
           if (missing) continue

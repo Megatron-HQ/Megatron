@@ -1,4 +1,4 @@
-import { APP_SECTIONS, type AppSection } from './ipc'
+import { APP_SECTIONS, SETTINGS_PANES, type AppSection, type SettingsPane } from './ipc'
 import { compareSemver, isSemanticVersion } from './version'
 
 // Authored on staging under this key; the release PR renames it to the version it ships in.
@@ -20,7 +20,7 @@ const MAX_BODY_LENGTH = 160
 
 export type WhatsNewAction =
   | { kind: 'section'; section: AppSection; anchor?: WhatsNewAnchorId }
-  | { kind: 'settings'; anchor?: WhatsNewAnchorId }
+  | { kind: 'settings'; pane?: SettingsPane; anchor?: WhatsNewAnchorId }
   | { kind: 'palette' }
 
 export interface WhatsNewHighlight {
@@ -92,8 +92,14 @@ function parseAction(where: string, value: unknown): WhatsNewAction {
         ...parseAnchor(where, value)
       }
     case 'settings':
-      requireOnlyFields(where, value, ['kind', 'anchor'])
-      return { kind: 'settings', ...parseAnchor(where, value) }
+      requireOnlyFields(where, value, ['kind', 'pane', 'anchor'])
+      return {
+        kind: 'settings',
+        ...(value.pane === undefined
+          ? {}
+          : { pane: requireMember(`${where}.pane`, value.pane, SETTINGS_PANES) }),
+        ...parseAnchor(where, value)
+      }
     case 'palette':
       requireOnlyFields(where, value, ['kind'])
       return { kind: 'palette' }

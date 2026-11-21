@@ -15,6 +15,8 @@ export type ThemeStore = Store<{
   projectFolders?: ProjectFolder[]
   usageProjects?: UsageProjectLocation[]
   grantedFolders?: AllowedPathRow[]
+  // Folders the user hid from Megatron; see hidden-projects.ts.
+  hiddenProjects?: string[]
   autoUpdateCheck?: boolean
   onboardingDone?: boolean
   // The user read once what the MCP connection check starts (docs/mcp-servers.md, Live check).
