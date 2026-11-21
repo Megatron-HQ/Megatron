@@ -79,10 +79,17 @@ async function enableProjectHierarchy(window, app, mode = 'project-tree') {
   await window.getByRole('button', { name: 'Projects', exact: true }).waitFor()
 }
 
-async function openManageFolders(window) {
+// Settings remembers its pane only for the session, and every scenario starts from a reload, so
+// the gear lands on General unless an update notice sends it to Updates. Inactive panes stay
+// mounted but hidden, so a control on another pane can't be clicked until its tab is.
+async function openSettingsPane(window, pane) {
   await window.getByRole('button', { name: 'Settings', exact: true }).click()
-  await window.getByRole('button', { name: 'Manage…', exact: true }).click()
-  await window.getByRole('dialog', { name: 'Project Folders', exact: true }).waitFor()
+  await window.getByRole('tab', { name: pane }).click()
+}
+
+async function openManageFolders(window) {
+  await openSettingsPane(window, 'Claude Code')
+  await window.getByRole('heading', { name: 'Project folders', exact: true }).waitFor()
 }
 
 // Revoking is two-step: the trash button opens an inline confirm in that row.
@@ -250,7 +257,7 @@ async function openTokenDetails(window, app, { hourly = false, theme = 'light' }
   await app.evaluate(() =>
     globalThis.megatronVisualFixtures.set('usage:overview', 'usage-history-token-details')
   )
-  await window.getByRole('button', { name: 'Settings', exact: true }).click()
+  await openSettingsPane(window, 'General')
   await window
     .getByRole('radio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true })
     .click()
@@ -364,7 +371,7 @@ async function openResidentTax(window, app, mode = 'context-baseline') {
 async function setDarkTheme(window) {
   const isDark = await window.evaluate(() => document.documentElement.classList.contains('dark'))
   if (isDark) return
-  await window.getByRole('button', { name: 'Settings' }).click()
+  await openSettingsPane(window, 'General')
   await window.getByRole('radio', { name: 'Dark' }).click()
   await window.keyboard.press('Escape')
   await window.getByRole('dialog').waitFor({ state: 'detached' })
@@ -727,7 +734,7 @@ export const scenarios = [
     name: 'settings-rescan-outcome',
     screen: 'settings-dialog',
     async run(window) {
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'Claude Code')
       await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
       await window
         .getByRole('status')
@@ -755,7 +762,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('app:rescan', 'scan-missing')
       })
       await window.reload()
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'Claude Code')
       await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
       await window.getByText('Scan complete.', { exact: true }).waitFor()
       for (const [index, full] of [false, true].entries()) {
@@ -823,7 +830,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('skills:list', 'scan-manual-partial')
       )
       await window.reload()
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'Claude Code')
       await window.getByRole('button', { name: 'Manage folder access', exact: true }).waitFor()
     }
   },
@@ -833,7 +840,7 @@ export const scenarios = [
     async run(window, app) {
       await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'scan-manual'))
       await window.reload()
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'Claude Code')
       await window.getByText('Scanning Claude Code data…', { exact: true }).waitFor()
       await app.evaluate(({ BrowserWindow }) => {
         const contents = BrowserWindow.getAllWindows()[0].webContents
@@ -867,7 +874,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('app:rescan', 'scan-timeout')
       })
       await window.reload()
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'Claude Code')
       await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
       await window.getByText('This stage exceeded its time limit. Try rescanning.').waitFor()
     }
@@ -896,7 +903,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('app:rescan', 'pending')
       })
       await window.reload()
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'Claude Code')
       await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
       await window.getByRole('button', { name: 'Rescanning…', exact: true }).waitFor()
     }
@@ -942,7 +949,7 @@ export const scenarios = [
     async run(window, app) {
       await app.evaluate(() => globalThis.megatronVisualFixtures.set('skills:list', 'scan-missing'))
       await window.reload()
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'Claude Code')
       await window.getByText('Missing project folders', { exact: true }).waitFor()
       await window.getByText('C:\\Old Projects\\Megatron', { exact: true }).waitFor()
     }
@@ -956,7 +963,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('app:rescan', 'scan-missing')
       })
       await window.reload()
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'Claude Code')
       await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
       await window.getByText('Scan complete.', { exact: true }).waitFor()
       await window.getByText('Missing project folders', { exact: true }).waitFor()
@@ -971,8 +978,9 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('app:rescan', 'scan-missing')
       })
       await window.reload()
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'General')
       await window.getByRole('radio', { name: 'Dark', exact: true }).click()
+      await window.getByRole('tab', { name: 'Claude Code' }).click()
       await window.getByRole('button', { name: 'Rescan now', exact: true }).click()
       await window.getByText('Scan complete.', { exact: true }).waitFor()
       await window.getByText('Missing project folders', { exact: true }).waitFor()
@@ -1001,7 +1009,7 @@ export const scenarios = [
       await window.reload()
       await window.getByRole('button', { name: 'Scan details', exact: true }).click()
       await window.getByRole('button', { name: 'Manage folder access', exact: true }).click()
-      await window.getByRole('button', { name: 'Add Folder...', exact: true }).waitFor()
+      await window.getByRole('button', { name: 'Add folder…', exact: true }).waitFor()
     }
   },
   {
@@ -1064,7 +1072,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('folders:pickAndAdd', 'project-tree')
       )
       await openManageFolders(window)
-      await window.getByRole('button', { name: 'Add Folder...', exact: true }).click()
+      await window.getByRole('button', { name: 'Add folder…', exact: true }).click()
       await window.getByText('Megatron-site is already included in Megatron HQ.').waitFor()
     }
   },
@@ -1077,7 +1085,7 @@ export const scenarios = [
         globalThis.megatronVisualFixtures.set('folders:pickAndAdd', 'pending')
       )
       await openManageFolders(window)
-      await window.getByRole('button', { name: 'Add Folder...', exact: true }).click()
+      await window.getByRole('button', { name: 'Add folder…', exact: true }).click()
       await window.getByRole('status').filter({ hasText: 'Adding folders' }).waitFor()
     }
   },
@@ -1088,7 +1096,7 @@ export const scenarios = [
       await enableProjectHierarchy(window, app)
       await app.evaluate(() => globalThis.megatronVisualFixtures.set('folders:pickAndAdd', 'error'))
       await openManageFolders(window)
-      await window.getByRole('button', { name: 'Add Folder...', exact: true }).click()
+      await window.getByRole('button', { name: 'Add folder…', exact: true }).click()
       await window.getByRole('alert').filter({ hasText: 'Could not add folders' }).waitFor()
     }
   },
@@ -1249,13 +1257,54 @@ export const scenarios = [
     }
   },
   {
-    // The Cmd+, / rail-gear Settings dialog, which now owns the three-way appearance choice
-    // (segmented control, ink-fill active) plus rescan / folders / about.
+    // The Cmd+, / rail-gear Settings dialog on its General pane: the three-way appearance choice
+    // (segmented control, ink-fill active) beside the frame-toned pane nav.
     name: 'settings-dialog-open',
     screen: 'settings-dialog',
     async run(window) {
       await window.getByRole('button', { name: 'Settings' }).click()
       await window.getByRole('radio', { name: 'System' }).waitFor()
+    }
+  },
+  // Each Settings pane through its nav tab; Claude Code's folder rows are this machine's grants.
+  ...[
+    ['general', 'General', 'Theme'],
+    ['claude-code', 'Claude Code', 'Project folders'],
+    ['updates', 'Updates', 'Check for updates automatically'],
+    ['about', 'About', 'Data folder']
+  ].map(([slug, tab, landmark]) => ({
+    name: `settings-pane-${slug}`,
+    screen: 'settings-dialog',
+    async run(window) {
+      await openSettingsPane(window, tab)
+      await window.getByText(landmark, { exact: true }).waitFor()
+    }
+  })),
+  {
+    // Claude Code's tab carries a warning mark while its pane shows a scan needing attention.
+    name: 'settings-nav-warning-mark',
+    screen: 'settings-dialog',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('skills:list', 'scan-permission')
+      )
+      await window.reload()
+      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await window
+        .getByRole('tab', { name: 'Claude Code · Needs attention', exact: true })
+        .waitFor()
+    }
+  },
+  {
+    // A project filter's Manage Folders opens Settings on Claude Code, Project folders focused.
+    name: 'skills-manage-folders-deep-link',
+    screen: ['skill-inventory', 'settings-dialog'],
+    async run(window, app) {
+      await enableProjectHierarchy(window, app)
+      await window.getByRole('button', { name: /Megatron HQ.*6/ }).click()
+      await window.getByText('Project / Megatron HQ Skills').waitFor()
+      await window.getByRole('button', { name: 'Manage Folders', exact: true }).click()
+      await window.waitForFunction(() => document.activeElement?.id === 'settings-project-folders')
     }
   },
   {
@@ -1314,7 +1363,7 @@ export const scenarios = [
         `claude-folder-${state}`
       )
       await window.reload()
-      await window.getByRole('button', { name: 'Settings', exact: true }).click()
+      await openSettingsPane(window, 'Claude Code')
       await window.getByRole('list', { name: 'Claude Code folders' }).waitFor()
       await window.getByText('Switching restarts Megatron.', { exact: true }).waitFor()
     }
@@ -3577,7 +3626,7 @@ async function skipWithoutMcpServers(window) {
 }
 
 async function openOnboarding(window) {
-  await window.getByRole('button', { name: 'Settings', exact: true }).click()
+  await openSettingsPane(window, 'About')
   await window.getByRole('button', { name: 'Show welcome', exact: true }).click()
   await window.getByRole('dialog', { name: 'Welcome to Megatron', exact: true }).waitFor()
 }

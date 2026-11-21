@@ -42,7 +42,7 @@ files to screens:
 | `components/Sidebar.tsx`                                                              | `sidebar`                        |
 | `components/ContextBudgetDialog.tsx`                                                  | `context-budget-dialog`          |
 | `components/CommandPalette.tsx`                                                       | `command-palette`                |
-| `components/SettingsDialog.tsx`                                                       | `settings-dialog`                |
+| `components/settings/**`                                                              | `settings-dialog`                |
 | `views/PluginInventory.tsx`                                                           | `plugin-inventory`               |
 | `views/PluginDetail.tsx`                                                              | `plugin-detail`                  |
 | `components/PluginBadges.tsx`                                                         | `plugin-inventory,plugin-detail` |
@@ -51,9 +51,8 @@ files to screens:
 | `views/UsageView.tsx`, `components/usage/**`, `components/UsageSidebar.tsx`           | `usage`                          |
 | `components/onboarding/**`                                                            | `onboarding`                     |
 
-A changed file **not in this table → run the full sweep.** (`ManageFoldersDialog.tsx` and
-`PluginActionToasts.tsx` have no scenario at all — a pre-existing coverage gap, not something
-scoping introduced.) A scenario you added this change runs even if you don't name its screen (it
+A changed file **not in this table → run the full sweep.** (`PluginActionToasts.tsx` has no
+scenario at all — a pre-existing coverage gap, not something scoping introduced.) A scenario you added this change runs even if you don't name its screen (it
 has no baseline yet), but name its screen in `--only` anyway.
 
 The runner validates `--only` before it builds: an unknown screen name exits immediately with the

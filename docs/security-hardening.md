@@ -114,9 +114,9 @@ and never by path (the file viewer resolves `source_path` in main), and links ne
 target stay strict.
 
 A blocked repo link is reported as a `link_unapproved` scan issue that names its target, and the
-user grants through the normal folders dialog. The picker is deliberately not pre-pointed at the
-target: the target is the repo author's choice, and a one-click grant would let a repository ship
-`.claude/skills/x -> ~/.ssh` as a prompt to approve `~/.ssh`.
+user grants through Settings > Claude Code > Project folders. The picker is deliberately not
+pre-pointed at the target: the target is the repo author's choice, and a one-click grant would let
+a repository ship `.claude/skills/x -> ~/.ssh` as a prompt to approve `~/.ssh`.
 
 Repository discovery metadata in the private preferences cache is descriptive, not an access
 capability. Discovery and catalog restoration retain current grants and canonical target checks.

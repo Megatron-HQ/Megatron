@@ -25,7 +25,7 @@ const ISSUE_MESSAGES: Record<ScanIssue['code'], string> = {
     'This skill links to a folder outside your approved folders. Grant that folder to include it.'
 }
 
-// Both codes are resolved by a grant in the folders dialog.
+// Both codes are resolved by a grant in Settings › Claude Code › Project folders.
 function needsFolderAccess(issue: ScanIssue): boolean {
   return issue.code === 'permission_required' || issue.code === 'link_unapproved'
 }
@@ -75,14 +75,12 @@ export function ScanIssueDetails({
   const affectedSources = summary.sources.filter((source) => source.status !== 'complete')
   const needsAccess = affectedSources.some((source) => source.issues?.some(needsFolderAccess))
   return (
-    <section
-      aria-label="Scan details"
-      className="flex min-w-0 flex-col gap-2 border-t border-border py-3"
-    >
+    // A row of Settings' Index panel, which scrolls with its pane, so the list has no cap.
+    <section aria-label="Scan details" className="flex min-w-0 flex-col gap-2 px-4 py-3">
       <p className="text-sm font-medium">
         {isMissingProjectOnlyScan(summary) ? 'Missing project folders' : 'Scan needs attention'}
       </p>
-      <ul className="max-h-40 space-y-3 overflow-y-auto text-xs text-muted-foreground">
+      <ul className="space-y-3 text-xs text-muted-foreground">
         {affectedSources.map((source) => (
           <li key={source.name}>
             <p className="font-medium text-foreground">

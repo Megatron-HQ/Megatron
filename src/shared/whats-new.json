@@ -1,4 +1,17 @@
 {
+  "next": {
+    "title": "Settings",
+    "highlights": [
+      {
+        "title": "Settings, reorganized",
+        "body": "Settings opens larger, with General, Claude Code, Updates and About panes. Add or revoke project folders right in its Claude Code pane.",
+        "action": {
+          "kind": "settings",
+          "pane": "claude-code"
+        }
+      }
+    ]
+  },
   "0.4.0": {
     "title": "MCP servers",
     "highlights": [
@@ -44,7 +57,8 @@
         "title": "Read Claude Code from any folder",
         "body": "Megatron now follows CLAUDE_CONFIG_DIR, and Settings lets you choose the Claude Code folder yourself, with your profile folders suggested.",
         "action": {
-          "kind": "settings"
+          "kind": "settings",
+          "pane": "claude-code"
         }
       }
     ]

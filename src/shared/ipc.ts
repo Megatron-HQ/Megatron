@@ -657,6 +657,9 @@ export interface McpServerDetail {
 export const APP_SECTIONS = ['skills', 'plugins', 'mcp', 'usage'] as const
 export type AppSection = (typeof APP_SECTIONS)[number]
 
+export const SETTINGS_PANES = ['general', 'claude-code', 'updates', 'about'] as const
+export type SettingsPane = (typeof SETTINGS_PANES)[number]
+
 export interface ActivityProjectCount {
   project: string // raw cwd in reducers; primary project location in Usage IPC
   count: number

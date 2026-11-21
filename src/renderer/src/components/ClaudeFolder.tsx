@@ -184,17 +184,15 @@ export function ClaudeFolderSettings({
   status: ClaudeFolderStatus
   home: string
 }): React.JSX.Element {
+  // Settings' group caption names the folder, so this is only the panel's contents.
   return (
-    <section className="flex min-w-0 flex-col gap-2 border-t border-border py-3">
-      <div>
-        <p className="text-sm font-medium">Claude Code folder</p>
-        <p className="text-xs text-muted-foreground">
-          {SOURCE_LINES[status.source]} Megatron reads one folder at a time.
-        </p>
-      </div>
+    <div className="flex min-w-0 flex-col gap-2">
+      <p className="text-xs text-muted-foreground">
+        {SOURCE_LINES[status.source]} Megatron reads one folder at a time.
+      </p>
       <ClaudeFolderNotice status={status} home={home} />
       <ClaudeFolderChoices status={status} home={home} />
-    </section>
+    </div>
   )
 }
 
