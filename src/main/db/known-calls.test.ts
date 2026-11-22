@@ -116,6 +116,12 @@ describe('without an attached archive', () => {
     expect(calls()).toMatchObject([{ tool_use_id: 't1', is_error: 0, result_chars: 10 }])
   })
 
+  it("files a call under its own folder, else its session's", () => {
+    indexCall('t1')
+    index.prepare('UPDATE mcp_tool_calls SET cwd = NULL').run()
+    expect(calls()).toMatchObject([{ tool_use_id: 't1', cwd: null, project: '/repo' }])
+  })
+
   it('dates the history from the oldest retained transcript', () => {
     expect(usageHistorySince(index)).toBe('2026-11-10T08:00:00.000Z')
   })
@@ -165,8 +171,8 @@ describe('with the archive attached', () => {
     archivedCall('t1')
     indexCall('t1', 1)
     expect(calls()).toMatchObject([
-      { tool_use_id: 'old', is_error: null, cwd: null },
-      { tool_use_id: 't1', is_error: 1, cwd: '/repo', result_chars: 10 }
+      { tool_use_id: 'old', is_error: null, cwd: null, project: '/old-repo' },
+      { tool_use_id: 't1', is_error: 1, cwd: '/repo', project: '/repo', result_chars: 10 }
     ])
   })
 

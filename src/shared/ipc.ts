@@ -712,8 +712,8 @@ export interface McpUsageWindow {
 }
 
 export interface McpUsageStats {
-  // The oldest call the index holds, for the label naming how far back transcripts reach.
-  firstCallAt: string | null
+  // Since when every call is counted (usageHistorySince), as in the server list.
+  callsSince: string | null
   last24h: McpUsageWindow
   last7d: McpUsageWindow
   last30d: McpUsageWindow

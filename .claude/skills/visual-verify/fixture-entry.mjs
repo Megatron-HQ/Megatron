@@ -271,7 +271,7 @@ globalThis.megatronVisualFixtures = {
           byProject: []
         })
         return {
-          firstCallAt: null,
+          callsSince: null,
           last24h: empty(result.last24h),
           last7d: empty(result.last7d),
           last30d: empty(result.last30d)
@@ -281,7 +281,7 @@ globalThis.megatronVisualFixtures = {
         const ambiguousCalls = 3
         return {
           ...result,
-          firstCallAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+          callsSince: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
           last30d: {
             ...result.last30d,
             calls: result.last30d.calls + ambiguousCalls,

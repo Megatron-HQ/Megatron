@@ -1,6 +1,11 @@
 import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { applySchema } from './schema'
+import { openUsageArchive } from './usage-archive'
+import { attachUsageArchive } from './known-calls'
 import { getMcpUsageStats } from './mcp-usage'
 import { readProjectIdentity } from '../../shared/project-identity'
 
@@ -78,11 +83,11 @@ describe('getMcpUsageStats', () => {
     expect(stats.last7d.startAt).toBe('2026-11-12T12:00:00.000Z')
   })
 
-  it('names the oldest recorded call, even one before every window', () => {
-    call('github__search', { at: ago(40 * DAY_MS) })
+  it('names the date calls are counted from: the oldest retained transcript', () => {
+    db.prepare('UPDATE sessions_meta SET source_mtime_ms = ?').run(Date.parse(ago(25 * DAY_MS)))
     call('github__search', { at: ago(HOUR_MS) })
 
-    expect(getMcpUsageStats(db, noLinks, NOW).firstCallAt).toBe(ago(40 * DAY_MS))
+    expect(getMcpUsageStats(db, noLinks, NOW).callsSince).toBe(ago(25 * DAY_MS))
   })
 
   it('ranks servers by calls with their errors, refusals, and result weight', () => {
@@ -199,9 +204,10 @@ describe('getMcpUsageStats', () => {
   })
 
   it('reports empty windows when nothing was called', () => {
+    db.prepare('DELETE FROM sessions_meta').run()
     const stats = getMcpUsageStats(db, noLinks, NOW)
 
-    expect(stats.firstCallAt).toBeNull()
+    expect(stats.callsSince).toBeNull()
     expect(stats.last30d).toMatchObject({
       calls: 0,
       serverCount: 0,
@@ -209,5 +215,55 @@ describe('getMcpUsageStats', () => {
       byServer: [],
       byProject: []
     })
+  })
+})
+
+describe('getMcpUsageStats with the usage archive attached', () => {
+  let directory: string
+  let archive: Database.Database
+
+  beforeEach(() => {
+    directory = mkdtempSync(join(tmpdir(), 'megatron-mcp-usage-archive-'))
+    const path = join(directory, 'usage-history.db')
+    archive = openUsageArchive(path)
+    attachUsageArchive(db, path)
+  })
+  afterEach(() => {
+    archive.close()
+    db.close()
+    rmSync(directory, { recursive: true, force: true })
+  })
+
+  function prunedCall(id: string, at: string, cwd: string | null): void {
+    archive
+      .prepare(
+        `INSERT INTO history_mcp_calls (tool_use_id, session_id, cwd, project, qualified_name,
+           invoked_at, agent_id, is_error, is_denied, result_chars, result_images)
+         VALUES (?, 'gone', ?, '/pruned-repo', 'github__search', ?, NULL, 1, 0, 40, 0)`
+      )
+      .run(id, cwd, at)
+  }
+
+  it('counts calls whose transcript Claude Code pruned in the windows that hold them', () => {
+    call('github__search', { at: ago(HOUR_MS) })
+    prunedCall('old', ago(20 * DAY_MS), null)
+
+    const stats = getMcpUsageStats(db, noLinks, NOW)
+    expect([stats.last24h.calls, stats.last7d.calls, stats.last30d.calls]).toEqual([1, 1, 2])
+    expect(stats.last30d).toMatchObject({ errors: 1, byServer: [{ calls: 2, errors: 1 }] })
+  })
+
+  it("files a pruned call under its own folder, else its session's", () => {
+    prunedCall('own', ago(2 * DAY_MS), '/own-folder')
+    prunedCall('session', ago(2 * DAY_MS), null)
+
+    expect(
+      getMcpUsageStats(db, noLinks, NOW)
+        .last7d.byProject.map((row) => [row.project, row.count])
+        .sort()
+    ).toEqual([
+      ['/own-folder', 1],
+      ['/pruned-repo', 1]
+    ])
   })
 })

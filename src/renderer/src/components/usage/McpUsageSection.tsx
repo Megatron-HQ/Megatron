@@ -59,7 +59,7 @@ export function McpUsageSection({
   const emptyMessage = `No MCP tool calls in the last ${WINDOW_LABELS[windowKey]}`
   // Transcripts Claude Code has pruned take their calls with them (docs/mcp-servers.md, Retention).
   const truncatedSince =
-    stats.firstCallAt !== null && stats.firstCallAt > window.startAt ? stats.firstCallAt : null
+    stats.callsSince !== null && stats.callsSince > window.startAt ? stats.callsSince : null
 
   return (
     <section className="flex flex-col gap-6 py-8">
@@ -98,8 +98,8 @@ export function McpUsageSection({
       </div>
       {truncatedSince !== null && (
         <p className="-mt-3 text-[11px] text-muted-foreground">
-          Calls since {formatShortDate(truncatedSince)}, the oldest transcript Claude Code still
-          keeps.
+          Calls since {formatShortDate(truncatedSince)}, when Megatron&rsquo;s record of them
+          begins.
         </p>
       )}
 

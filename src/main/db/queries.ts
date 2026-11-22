@@ -635,15 +635,14 @@ export function getSkillInvocationSlice(
   const rows = db
     .prepare(
       `SELECT si.skill_name, si.invoked_at, si.trigger_type, si.agent_id,
-              COALESCE(si.preceding_user_text,
+              CASE WHEN si.transcript_pruned = 1 THEN '' ELSE COALESCE(si.preceding_user_text,
                 CASE WHEN si.args_text IS NOT NULL AND si.args_text != ''
                      THEN '/' || si.skill_name || ' ' || si.args_text
-                     ELSE '/' || si.skill_name END) AS preceding_user_text,
-              sm.cwd, sm.git_branch, 0 AS transcript_pruned
-       FROM skill_invocations si
-       JOIN sessions_meta sm ON sm.session_id = si.session_id
+                     ELSE '/' || si.skill_name END) END AS preceding_user_text,
+              si.cwd, si.git_branch, si.transcript_pruned
+       FROM ${knownSkillInvocationsSql(db)} si
        WHERE si.invoked_at >= @startAt AND si.invoked_at < @endAt ${skillClause}
-       ORDER BY si.invoked_at DESC, si.id DESC LIMIT @limit OFFSET @offset`
+       ORDER BY si.invoked_at DESC, si.index_id DESC LIMIT @limit OFFSET @offset`
     )
     .all({
       startAt: input.startAt,
@@ -1356,9 +1355,8 @@ export function getSkillStats(
   withProjectIdentity(db, identity)
   const rows = db
     .prepare(
-      `SELECT si.session_id, si.skill_name, si.invoked_at, si.trigger_type, sm.cwd
-       FROM skill_invocations si
-       JOIN sessions_meta sm ON sm.session_id = si.session_id
+      `SELECT si.session_id, si.skill_name, si.invoked_at, si.trigger_type, si.cwd
+       FROM ${knownSkillInvocationsSql(db)} si
        WHERE si.invoked_at >= ?`
     )
     .all(new Date(now.getTime() - 30 * DAY_MS).toISOString()) as SkillStatsInvocationRow[]
