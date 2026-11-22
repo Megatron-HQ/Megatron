@@ -1,7 +1,36 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createInventoryWatcher, type InventoryWatchRoot } from './inventory-watcher'
+import {
+  createInventoryWatcher,
+  inventoryWatchRoots,
+  type InventoryWatchRoot
+} from './inventory-watcher'
 
 afterEach(() => vi.useRealTimers())
+
+describe('inventoryWatchRoots', () => {
+  const config = {
+    directory: '/home/user/.claude',
+    claudeJson: '/home/user/.claude.json',
+    skills: '/home/user/.claude/skills',
+    plugins: '/home/user/.claude/plugins',
+    settings: '/home/user/.claude/settings.json'
+  }
+
+  it('watches every granted repo, then the skills, plugins and settings roots', () => {
+    expect(inventoryWatchRoots(config, ['/repos/a', '/repos/b'])).toEqual([
+      { path: '/repos/a', kind: 'project' },
+      { path: '/repos/b', kind: 'project' },
+      { path: '/home/user/.claude/skills', kind: 'inventory' },
+      { path: '/home/user/.claude/plugins', kind: 'inventory' },
+      { path: '/home/user/.claude/settings.json', kind: 'inventory' }
+    ])
+  })
+
+  it('leaves out .claude.json, which Claude Code rewrites for counters while it runs', () => {
+    const paths = inventoryWatchRoots(config, []).map((root) => root.path)
+    expect(paths).not.toContain(config.claudeJson)
+  })
+})
 
 function fixture(): {
   service: ReturnType<typeof createInventoryWatcher>

@@ -97,7 +97,7 @@ import {
   startScanWorker,
   type ScanScope
 } from './ingest/scan-all'
-import { createInventoryWatcher } from './inventory-watcher'
+import { createInventoryWatcher, inventoryWatchRoots } from './inventory-watcher'
 import { findNewestRecordedRequest } from './ingest/recorded-request'
 import { latestContextBaseline, mcpDefinitionTokens, measureContextBaseline } from './context-usage'
 import {
@@ -1026,15 +1026,7 @@ app.whenReady().then(() => {
     // After the grants: the catalog the owner reconciles against is limited to readable folders.
     reconcileProjectIdentity()
     inventoryWatcher = createInventoryWatcher({
-      getRoots: () => [
-        ...getGrantedPaths().map((path) => ({ path, kind: 'project' as const })),
-        ...[
-          claudeConfig().skills,
-          claudeConfig().plugins,
-          claudeConfig().settings,
-          claudeConfig().claudeJson
-        ].map((path) => ({ path, kind: 'inventory' as const }))
-      ],
+      getRoots: () => inventoryWatchRoots(claudeConfig(), getGrantedPaths()),
       refresh: () => scanAndNotify('quiet', true, 'inventory'),
       reportError: (error) => console.error('[inventory] watch or refresh failed', error)
     })
