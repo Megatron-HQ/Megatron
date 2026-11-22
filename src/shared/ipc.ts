@@ -31,6 +31,7 @@ export const IPC_CHANNELS = {
   getInitialMcpCheckConfirmed: 'mcp:getInitialCheckConfirmed',
   confirmMcpCheck: 'mcp:confirmCheck',
   removeMcpServer: 'mcp:remove',
+  addMcpServer: 'mcp:add',
   logoutMcpServer: 'mcp:logout',
   resetMcpProjectChoices: 'mcp:resetProjectChoices',
   getInitialSection: 'app:getInitialSection',
@@ -555,6 +556,32 @@ export interface McpProjectApprovals {
 export type McpActionResult =
   | { ok: true; message: string }
   | { ok: true; verificationError: string }
+  | { ok: false; error: string }
+
+// Adding a server (#50, docs/mcp-servers.md, Writes). Values may be credentials: main hands them
+// to `claude mcp add-json` on stdin and never stores or logs them.
+export type McpAddTransport = 'stdio' | 'http' | 'sse' | 'ws'
+
+export interface McpKeyValue {
+  name: string
+  value: string
+}
+
+export interface McpAddInput {
+  name: string
+  scope: McpConfiguredScope
+  projectPath: string | null // null exactly for user scope
+  transport: McpAddTransport
+  command: string // stdio only
+  args: string[] // stdio only
+  url: string // http, sse and ws only
+  env: McpKeyValue[] // stdio only
+  headers: McpKeyValue[] // http, sse and ws only
+}
+
+export type McpAddResult =
+  | { ok: true; serverId: string; message: string }
+  | { ok: true; serverId: string; verificationError: string }
   | { ok: false; error: string }
 
 export interface McpServerRow {

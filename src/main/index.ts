@@ -104,12 +104,15 @@ import { latestContextBaseline, mcpDefinitionTokens, measureContextBaseline } fr
 import {
   getMcpServerDetail,
   listMcpServers,
+  findMcpDeclaration,
   mcpActionTarget,
+  mcpAddConflict,
   mcpProjectApprovals,
   mcpResetTarget,
   revealableMcpSource
 } from './db/mcp-queries'
 import { mcpActionsIdle, runMcpAction } from './mcp-actions'
+import { parseMcpAddInput } from './mcp-add'
 import { createMcpActionService } from './mcp-action-service'
 import { getMcpUsageStats } from './db/mcp-usage'
 import {
@@ -139,6 +142,7 @@ import {
   INVOCATION_PAGE_SIZE,
   type AppSection,
   type GrantChangeResult,
+  type McpAddResult,
   type McpDeclarationRef,
   type OpenSkillMetaResult,
   type OpenSkillResult,
@@ -866,7 +870,17 @@ app.whenReady().then(() => {
         : scans.request({ scope: 'plugins', fresh: true }),
     serverStatus: checkMcpServer,
     forgetChecks: forgetMcpChecks,
-    reportError: (action, error) => console.error('[mcp] action verification failed', action, error)
+    reportError: (action, error) =>
+      console.error('[mcp] action verification failed', action, error),
+    addConflict: (name, scope, projectPath) => mcpAddConflict(getDb(), name, scope, projectPath),
+    findDeclaration: (name, scope, projectPath) =>
+      findMcpDeclaration(getDb(), name, scope, projectPath),
+    lookupCommand: (program) => mcpCommandLookup()(program)
+  })
+  // The input may hold credentials: it goes to the CLI's stdin and is never logged or stored.
+  secureIpc.handle(IPC_CHANNELS.addMcpServer, (_event, input: unknown): Promise<McpAddResult> => {
+    const parsed = parseMcpAddInput(input)
+    return parsed.ok ? mcpActions.add(parsed.value) : Promise.resolve(parsed)
   })
   secureIpc.handle(IPC_CHANNELS.removeMcpServer, (_event, ref: McpDeclarationRef) =>
     mcpActions.remove(ref)

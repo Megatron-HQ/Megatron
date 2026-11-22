@@ -9,6 +9,8 @@ import type {
   OpenSkillMetaResult,
   OpenSkillResult,
   McpActionResult,
+  McpAddInput,
+  McpAddResult,
   McpConnectionCheckResult,
   McpDeclarationRef,
   McpServerDetail,
@@ -67,6 +69,7 @@ export interface Api {
   getInitialMcpCheckConfirmed: () => boolean
   confirmMcpCheck: () => Promise<void>
   removeMcpServer: (ref: McpDeclarationRef) => Promise<McpActionResult>
+  addMcpServer: (input: McpAddInput) => Promise<McpAddResult>
   logoutMcpServer: (ref: McpDeclarationRef) => Promise<McpActionResult>
   resetMcpProjectChoices: (projectPath: string) => Promise<McpActionResult>
   enablePlugin: (input: PluginActionInput) => Promise<PluginActionResult>

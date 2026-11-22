@@ -661,6 +661,65 @@ export function mcpActionTarget(
   }
 }
 
+const SCOPE_NAMES: Record<McpConfiguredScope, string> = {
+  user: 'User scope',
+  local: "This project's local scope",
+  project: "This project's .mcp.json"
+}
+
+function declaresIn(
+  row: DeclarationRow,
+  scope: McpConfiguredScope,
+  projectPath: string | null
+): boolean {
+  return (
+    row.scope === scope &&
+    (projectPath === null
+      ? row.project_path === ''
+      : row.project_path !== '' && samePath(row.project_path, projectPath))
+  )
+}
+
+// Why a server can't be added under this name (#50, docs/mcp-servers.md, Writes), or null. The
+// same name in another scope or project is allowed: precedence decides which one loads. A tool
+// prefix another server already carries is refused, since calls on a shared prefix credit neither
+// (Prefix collision); a prefix only past calls carry is an Observed server the new one takes over.
+export function mcpAddConflict(
+  db: Database.Database,
+  name: string,
+  scope: McpConfiguredScope,
+  projectPath: string | null
+): string | null {
+  const snapshot = readSnapshot(db)
+  if (
+    snapshot.allDeclarations.some((row) => row.name === name && declaresIn(row, scope, projectPath))
+  )
+    return `${SCOPE_NAMES[scope]} already declares ${name}. Remove it first, or choose another name.`
+  const prefix = sanitizeMcpServerName(name)
+  const other = [...snapshot.identities.values()].find(
+    (identity) =>
+      identity.prefix === prefix &&
+      identity.kind !== 'observed' &&
+      identity.id !== `configured:${name}`
+  )
+  return other === undefined
+    ? null
+    : `Its tools would be named mcp__${prefix}__…, like ${other.name}'s, so neither server's calls could be told apart. Choose another name.`
+}
+
+// The configured Declaration an add should have left, or null when Claude Code didn't save it.
+export function findMcpDeclaration(
+  db: Database.Database,
+  name: string,
+  scope: McpConfiguredScope,
+  projectPath: string | null
+): { serverId: string; approval: DeclarationRow['approval'] } | null {
+  const row = readSnapshot(db).allDeclarations.find(
+    (declaration) => declaration.name === name && declaresIn(declaration, scope, projectPath)
+  )
+  return row === undefined ? null : { serverId: `configured:${name}`, approval: row.approval }
+}
+
 export type McpResetTarget =
   { ok: true; projectPath: string; approvals: McpProjectApprovals } | { ok: false; error: string }
 

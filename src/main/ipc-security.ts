@@ -148,6 +148,16 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
     case IPC_CHANNELS.logoutMcpServer:
       valid = args.length === 1 && isMcpDeclarationRef(value)
       break
+    // Shape and size only: main's handler parses every field (parseMcpAddInput) and answers a bad
+    // one with a message the form can show, rather than this generic refusal.
+    case IPC_CHANNELS.addMcpServer:
+      valid =
+        args.length === 1 &&
+        typeof value === 'object' &&
+        value !== null &&
+        !Array.isArray(value) &&
+        JSON.stringify(value).length <= MAX_MCP_ADD_PAYLOAD_LENGTH
+      break
     case IPC_CHANNELS.resetMcpProjectChoices:
     case IPC_CHANNELS.hideProject:
     case IPC_CHANNELS.showProject:
@@ -234,3 +244,6 @@ export function deniedPluginActionMessage(
 }
 
 const MAX_IPC_STRING_LENGTH = 8192
+// Caps an add request as a whole (256 KiB, far above any real server's config); parseMcpAddInput
+// caps each field.
+const MAX_MCP_ADD_PAYLOAD_LENGTH = 262_144

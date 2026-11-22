@@ -62,7 +62,7 @@ one shell, which Megatron cannot see.
 | Retention             | Tool calls are archived with Skill Invocations, metadata only, in `usage-history.db` (#51, `docs/data-model.md`). The server list and the Usage panel read the archive, so their call counts outlive Claude Code's transcript pruning (~30 days), and name the date they are complete from                                                    | Archiving MCP calls alone would make the two histories disagree                                                                                                                                               |
 | Cost                  | Context weight only, in tokens: resident tool-definition tokens per server from the existing `/context` measurement (never a new run; deferred tools marked), and estimated result tokens from result size. No dollar figure                                                                                                                  | Per-call dollars would need a new allocation model across the `cost-state` hazards in `docs/usage-analytics.md`                                                                                               |
 | Live check            | `claude mcp list` runs only when the user asks, after a one-time confirm, from an empty app-private folder (user scope and connectors) or a granted repo (that project). Only each line's leading name and trailing status are kept; the middle is dropped inside the CLI wrapper. Cached for the app session                                 | It is the only source for unused connectors and auth state, but it starts every approved stdio server, contacts every remote one, and prints commands, args, and URLs                                         |
-| Writes                | Only through the CLI: `claude mcp remove --scope <scope>`, `reset-project-choices`, and `logout` (#48). Never edit `.claude.json` or `.mcp.json` directly. No logout for claude.ai connectors: they read "Managed in claude.ai" (Connector logout below)                                                                                      | Claude Code rewrites `.claude.json` on every start; a second writer risks corrupting it. Enable/disable has no CLI command, so it waits for one                                                               |
+| Writes                | Only through the CLI: `claude mcp remove --scope <scope>`, `reset-project-choices`, `logout` (#48), and `add-json` (#50). Never edit `.claude.json` or `.mcp.json` directly. No logout for claude.ai connectors: they read "Managed in claude.ai" (Connector logout below)                                                                    | Claude Code rewrites `.claude.json` on every start; a second writer risks corrupting it. Enable/disable has no CLI command, so it waits for one                                                               |
 | Rescans               | No watch on `.claude.json` (#67). Declarations are reread whole on every inventory and plugin Scan; parsing the file is cheap. A change made in Claude Code reaches the index through the window-focus Scan (on switching back to Megatron, at most one per 10 s), the inventory watcher's 30 s reconcile, or the rescan each MCP action runs | Claude Code rewrites the file about once a minute while working, every write a counter or cache key. Watching it cost a full inventory Scan per write for no change; the worst case without it is a 30 s wait |
 
 ## Tool names
@@ -110,16 +110,17 @@ granted project at a time. A real run took about 10 seconds with seven connector
 
 ## Writes
 
-Three actions, each one `claude mcp` command (#48). The renderer names a Declaration by server id,
+Four actions, each one `claude mcp` command (#48, #50). The renderer names a Declaration by server id,
 scope, and project; main finds it in the index and takes the name from there, since names are free
 text. Plugin servers are changed from their plugin, connectors on claude.ai, and Observed servers
 have no Declaration to change, so all three are refused.
 
-| Action        | Command                                       | For                                   | Runs from                                                        |
-| ------------- | --------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------- |
-| Remove        | `claude mcp remove --scope <scope> -- <name>` | A local, project, or user Declaration | The granted project (local, project), an empty app folder (user) |
-| Reset choices | `claude mcp reset-project-choices`            | A project whose `.mcp.json` was read  | That granted project                                             |
-| Logout        | `claude mcp logout -- <name>`                 | A configured http, sse, or ws server  | As for Remove                                                    |
+| Action        | Command                                           | For                                   | Runs from                                                        |
+| ------------- | ------------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------- |
+| Remove        | `claude mcp remove --scope <scope> -- <name>`     | A local, project, or user Declaration | The granted project (local, project), an empty app folder (user) |
+| Reset choices | `claude mcp reset-project-choices`                | A project whose `.mcp.json` was read  | That granted project                                             |
+| Logout        | `claude mcp logout -- <name>`                     | A configured http, sse, or ws server  | As for Remove                                                    |
+| Add           | `claude mcp add-json --scope <scope> -- <name> -` | A new local, project, or user server  | As for Remove                                                    |
 
 Verified 2026-11-19 against Claude Code 2.1.328: `--` ends the options, so a name starting with `-`
 stays the name, and a name the scope doesn't hold exits 1 with `No MCP server named "<name>" in
@@ -134,6 +135,21 @@ spells differently, say); a reset rescans and reports how many `.mcp.json` serve
 approval and how many a settings file still approves or rejects; a logout reads `claude mcp get`
 and counts only "Needs authentication" as signed out. Every action drops the session's live
 connection statuses, which may no longer hold.
+
+### Adding a server
+
+Locked with the maintainer on 2026-11-22 (#50; the decisions are on the issue). Megatron builds the
+server's JSON from the form and hands it to `add-json` on **stdin**, never the command line, which
+other processes can read. Main checks every field again (`parseMcpAddInput`; a name uses only letters, numbers, `-` and `_`, Claude Code's own rule), refuses a name its
+scope already declares or whose tool prefix another server's tools carry (`mcpAddConflict`),
+and in project scope refuses a credential-looking literal, judged by the scanner's own check, since
+`.mcp.json` is shared through git; local and user scope keep one behind the form's warning. Values
+are never stored or logged. The add is judged by the Declaration it leaves (`findMcpDeclaration`),
+and the result notes a project server waiting for approval and a bare command not found on PATH.
+Verified 2026-11-22 against Claude Code 2.1.330: `add-json` refuses stdin from inside a Claude
+Code session (`CLAUDECODE` and related variables), so its permission prompt can't hide a server
+from the user. Megatron keeps that guard: started from a Claude Code terminal, an add shows the
+CLI's refusal.
 
 ## Connector logout
 
@@ -195,9 +211,9 @@ Plugin servers are not checked: their stored detail doesn't say whether the comm
 
 ## Non-goals
 
-| Non-goal                                    | Revisit when                                                                      |
-| ------------------------------------------- | --------------------------------------------------------------------------------- |
-| Reading org-managed MCP config (#53)        | The first report from a user on an org-managed install                            |
-| Add, login, and other full management (#50) | v2 (#48, #49) has shipped, and add can take secrets without Megatron holding them |
-| Enable/disable per project                  | Claude Code ships a CLI command for it                                            |
-| Dollar cost per server or tool              | A per-call allocation model is decided in `docs/usage-analytics.md`               |
+| Non-goal                             | Revisit when                                                                |
+| ------------------------------------ | --------------------------------------------------------------------------- |
+| Reading org-managed MCP config (#53) | The first report from a user on an org-managed install                      |
+| Login and editing a server (#50)     | Login: after its terminal spike. Editing: Claude Code ships an edit command |
+| Enable/disable per project           | Claude Code ships a CLI command for it                                      |
+| Dollar cost per server or tool       | A per-call allocation model is decided in `docs/usage-analytics.md`         |

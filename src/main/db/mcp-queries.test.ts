@@ -2,6 +2,8 @@ import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applySchema } from './schema'
 import {
+  findMcpDeclaration,
+  mcpAddConflict,
   getMcpServerDetail,
   knownMcpPrefixes,
   listMcpServers,
@@ -870,5 +872,53 @@ describe('live connection checks', () => {
     expect(getMcpServerDetail(db, 'configured:api', null, checks)?.projectStatuses).toEqual([
       { projectPath: '/repo', status: 'pending_approval', checkedAt }
     ])
+  })
+})
+
+describe('mcpAddConflict', () => {
+  it('refuses a name its scope already declares, here or in that project', () => {
+    declare({ scope: 'user', name: 'github' })
+    declare({ scope: 'local', project: '/a', name: 'db' })
+
+    expect(mcpAddConflict(db, 'github', 'user', null)).toMatch(/already declares github/)
+    expect(mcpAddConflict(db, 'db', 'local', '/a')).toMatch(/already declares db/)
+  })
+
+  it('allows the same name in another scope or project, where precedence decides', () => {
+    declare({ scope: 'user', name: 'github' })
+    declare({ scope: 'local', project: '/a', name: 'db' })
+
+    expect(mcpAddConflict(db, 'github', 'local', '/a')).toBeNull()
+    expect(mcpAddConflict(db, 'db', 'local', '/b')).toBeNull()
+  })
+
+  it("refuses a name whose tool prefix another server's tools already carry", () => {
+    declare({ scope: 'user', name: 'my.server' })
+    installPlugin('playwright', '/cache/a', { playwright: 'stdio · npx' })
+    call('claude_ai_Slack__post')
+
+    expect(mcpAddConflict(db, 'my_server', 'user', null)).toMatch(/mcp__my_server__.*my\.server/)
+    expect(mcpAddConflict(db, 'plugin:playwright:playwright', 'user', null)).toMatch(
+      /plugin:playwright:playwright/
+    )
+    expect(mcpAddConflict(db, 'claude.ai Slack', 'user', null)).toMatch(/claude\.ai Slack/)
+  })
+
+  it('allows a name only past calls carry, which the new server takes over', () => {
+    call('retired__tool')
+    expect(mcpAddConflict(db, 'retired', 'user', null)).toBeNull()
+  })
+})
+
+describe('findMcpDeclaration', () => {
+  it("finds an added server's declaration with its approval", () => {
+    declare({ scope: 'project', project: '/a', name: 'db', approval: 'pending' })
+
+    expect(findMcpDeclaration(db, 'db', 'project', '/a')).toEqual({
+      serverId: 'configured:db',
+      approval: 'pending'
+    })
+    expect(findMcpDeclaration(db, 'db', 'project', '/b')).toBeNull()
+    expect(findMcpDeclaration(db, 'db', 'user', null)).toBeNull()
   })
 })

@@ -110,7 +110,8 @@ describe('renderer trust boundary', () => {
       IPC_CHANNELS.logoutMcpServer,
       [{ serverId: 'configured:api', scope: 'local', projectPath: ABS }]
     ],
-    [IPC_CHANNELS.resetMcpProjectChoices, [ABS]]
+    [IPC_CHANNELS.resetMcpProjectChoices, [ABS]],
+    [IPC_CHANNELS.addMcpServer, [{ name: 'github', scope: 'user', projectPath: null }]]
   ])('accepts MCP requests for %s', (channel, args) => {
     expect(() => security.validateIpcArguments(channel, args)).not.toThrow()
   })
@@ -151,7 +152,12 @@ describe('renderer trust boundary', () => {
     [IPC_CHANNELS.resetMcpProjectChoices, []],
     [IPC_CHANNELS.resetMcpProjectChoices, ['relative/repo']],
     [IPC_CHANNELS.resetMcpProjectChoices, [`${ABS}\0`]],
-    [IPC_CHANNELS.resetMcpProjectChoices, [ABS, ABS]]
+    [IPC_CHANNELS.resetMcpProjectChoices, [ABS, ABS]],
+    [IPC_CHANNELS.addMcpServer, []],
+    [IPC_CHANNELS.addMcpServer, ['github']],
+    [IPC_CHANNELS.addMcpServer, [['github']]],
+    [IPC_CHANNELS.addMcpServer, [{ name: 'github' }, 'extra']],
+    [IPC_CHANNELS.addMcpServer, [{ name: 'x'.repeat(300_000) }]]
   ])('rejects malformed MCP requests for %s', (channel, args) => {
     expect(() => security.validateIpcArguments(channel, args)).toThrow()
   })
