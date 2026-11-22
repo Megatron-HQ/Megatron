@@ -598,6 +598,7 @@ export type McpLintRuleId =
   | 'mcp-shadowed'
   | 'mcp-prefix-collision'
   | 'mcp-server-skipped'
+  | 'mcp-command-not-found'
 
 // Derived from the index each time a server is read, so never stale and never stored.
 export interface McpLintFinding {
@@ -640,6 +641,8 @@ export interface McpDeclarationDetail {
   approval: McpApproval | null
   sourcePath: string | null
   shadowedIn: McpShadow[]
+  // A stdio command given as a bare program name, looked up on PATH (location holds it).
+  commandIsBare: boolean
 }
 
 export interface McpToolUsage {

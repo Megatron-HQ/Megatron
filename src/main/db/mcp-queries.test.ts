@@ -41,13 +41,15 @@ interface DeclarationFixture {
   credential?: boolean
   approval?: string | null
   env?: { name: string; literal: boolean }[]
+  bare?: boolean
 }
 
 function declare(fixture: DeclarationFixture): void {
   db.prepare(
     `INSERT INTO mcp_declarations (scope, project_path, name, transport, problem, location,
-       env_keys, header_keys, arg_count, has_literal_credential, approval, source_path)
-     VALUES (?, ?, ?, ?, ?, ?, ?, '[]', 2, ?, ?, ?)`
+       env_keys, header_keys, arg_count, has_literal_credential, approval, source_path,
+       command_is_bare)
+     VALUES (?, ?, ?, ?, ?, ?, ?, '[]', 2, ?, ?, ?, ?)`
   ).run(
     fixture.scope,
     fixture.project ?? '',
@@ -58,7 +60,8 @@ function declare(fixture: DeclarationFixture): void {
     JSON.stringify(fixture.env ?? []),
     fixture.credential ? 1 : 0,
     fixture.approval ?? (fixture.scope === 'project' ? 'approved' : null),
-    fixture.scope === 'project' ? `${fixture.project}/.mcp.json` : '/home/.claude.json'
+    fixture.scope === 'project' ? `${fixture.project}/.mcp.json` : '/home/.claude.json',
+    fixture.bare === undefined ? null : fixture.bare ? 1 : 0
   )
 }
 
@@ -354,6 +357,44 @@ describe('getMcpServerDetail', () => {
     expect(getMcpServerDetail(db, 'configured:nope', null)).toBeNull()
   })
 
+  describe('a stdio command missing from PATH', () => {
+    const missing = (): 'missing' => 'missing'
+    const ruleIds = (findings: { ruleId: string }[]): string[] =>
+      findings.map((finding) => finding.ruleId)
+
+    it('is a notice on the server, in its detail and its row', () => {
+      declare({ scope: 'user', name: 'tools', location: 'uvx', bare: true })
+
+      const result = getMcpServerDetail(db, 'configured:tools', null, undefined, missing)
+      expect(ruleIds(result?.findings ?? [])).toEqual(['mcp-command-not-found'])
+      expect(result?.declarations[0].commandIsBare).toBe(true)
+      expect(
+        listMcpServers(db, null, missing).servers.find((row) => row.id === 'configured:tools')
+      ).toMatchObject({ notices: 1, warnings: 0 })
+    })
+
+    it('is never raised for a server called in the last 30 days', () => {
+      declare({ scope: 'user', name: 'tools', location: 'uvx', bare: true })
+      call('tools__run', { at: new Date(Date.now() - 2 * 86_400_000).toISOString() })
+
+      const result = getMcpServerDetail(db, 'configured:tools', null, undefined, missing)
+      expect(ruleIds(result?.findings ?? [])).toEqual([])
+    })
+
+    it('is raised again once its last call is older than 30 days', () => {
+      declare({ scope: 'user', name: 'tools', location: 'uvx', bare: true })
+      call('tools__run', { at: new Date(Date.now() - 40 * 86_400_000).toISOString() })
+
+      const result = getMcpServerDetail(db, 'configured:tools', null, undefined, missing)
+      expect(ruleIds(result?.findings ?? [])).toEqual(['mcp-command-not-found'])
+    })
+
+    it('is never raised without a lookup', () => {
+      declare({ scope: 'user', name: 'tools', location: 'uvx', bare: true })
+      expect(ruleIds(detail('configured:tools').findings)).toEqual([])
+    })
+  })
+
   it('marks where each declaration loses by local > approved project > user', () => {
     declare({ scope: 'user', name: 'github' })
     declare({ scope: 'local', project: '/a', name: 'github' })
@@ -408,7 +449,8 @@ describe('getMcpServerDetail', () => {
         hasLiteralCredential: false,
         approval: null,
         sourcePath: '/cache/a/.mcp.json',
-        shadowedIn: [{ projectPath: null, byScope: 'user', byProjectPath: null }]
+        shadowedIn: [{ projectPath: null, byScope: 'user', byProjectPath: null }],
+        commandIsBare: false
       }
     ])
   })

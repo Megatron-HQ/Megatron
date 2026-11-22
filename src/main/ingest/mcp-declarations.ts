@@ -246,9 +246,10 @@ function writeScan(
 ): void {
   const insertDeclaration = db.prepare(
     `INSERT OR REPLACE INTO mcp_declarations (scope, project_path, name, transport, problem,
-       location, env_keys, header_keys, arg_count, has_literal_credential, approval, source_path)
+       location, env_keys, header_keys, arg_count, has_literal_credential, approval, source_path,
+       command_is_bare)
      VALUES (@scope, @projectPath, @name, @transport, @problem, @location, @envKeys, @headerKeys,
-       @argCount, @hasLiteralCredential, @approval, @sourcePath)`
+       @argCount, @hasLiteralCredential, @approval, @sourcePath, @commandIsBare)`
   )
   const insertState = db.prepare(
     'INSERT INTO mcp_project_state (project_path, mcp_json, connectors_disabled) VALUES (?, ?, ?)'
@@ -283,7 +284,8 @@ function writeScan(
         argCount: summary.argCount,
         hasLiteralCredential: summary.hasLiteralCredential ? 1 : 0,
         approval: declaration.approval,
-        sourcePath: declaration.sourcePath
+        sourcePath: declaration.sourcePath,
+        commandIsBare: summary.commandIsBare === null ? null : summary.commandIsBare ? 1 : 0
       })
     }
     for (const [path, state, disabled] of states) insertState.run(path, state, disabled ? 1 : 0)

@@ -172,13 +172,32 @@ there, so they can't go stale. A server Claude Code skips gets only that finding
 | `mcp-prefix-collision`   | warning  | Another server sanitizes to the same prefix, so neither is credited with its calls |
 | `mcp-pending-approval`   | info     | A `.mcp.json` server in a granted project is neither approved nor rejected         |
 | `mcp-shadowed`           | info     | A Declaration loses to a higher-precedence one somewhere                           |
+| `mcp-command-not-found`  | info     | A configured stdio Declaration's bare command is on no PATH folder Megatron sees   |
+
+### Command not found
+
+Megatron sees only its own PATH, never the shell `claude` runs in, so `mcp-command-not-found` (#52)
+speaks only when that PATH stands in for it, and every doubt is silence: a missing notice costs
+less than a false one. It considers a local, project, or user stdio Declaration whose command is a
+bare program name (`uvx`, not `./bin/uvx`, `${HOME}/uvx`, or `npx -y pkg`; recorded at scan time
+as `command_is_bare`, since only the basename is stored). It stays silent when:
+
+- the server has a recorded call in the last 30 days, which shows it starts;
+- the Declaration sets `PATH` in its own `env`;
+- Megatron's PATH is launchd's default (`/usr/bin:/bin:/usr/sbin:/sbin`), which a Mac app opened
+  from the Dock or Finder gets: it holds none of Homebrew, nvm, or uv. Windows apps inherit the
+  user's full PATH;
+- any folder could not be checked (permissions, a network share).
+
+Otherwise each absolute PATH folder is checked with one stat per candidate, with `PATHEXT` on
+Windows (`executableStatusSync` in `permissions.ts`). Nothing is executed and no file is read.
+Plugin servers are not checked: their stored detail doesn't say whether the command had a folder.
 
 ## Non-goals
 
-| Non-goal                                      | Revisit when                                                                      |
-| --------------------------------------------- | --------------------------------------------------------------------------------- |
-| Reading org-managed MCP config (#53)          | The first report from a user on an org-managed install                            |
-| Add, login, and other full management (#50)   | v2 (#48, #49) has shipped, and add can take secrets without Megatron holding them |
-| Enable/disable per project                    | Claude Code ships a CLI command for it                                            |
-| Dollar cost per server or tool                | A per-call allocation model is decided in `docs/usage-analytics.md`               |
-| Stdio command resolvable on `PATH` lint (#52) | Resolution is reliable across PATHEXT, shims, and version managers                |
+| Non-goal                                    | Revisit when                                                                      |
+| ------------------------------------------- | --------------------------------------------------------------------------------- |
+| Reading org-managed MCP config (#53)        | The first report from a user on an org-managed install                            |
+| Add, login, and other full management (#50) | v2 (#48, #49) has shipped, and add can take secrets without Megatron holding them |
+| Enable/disable per project                  | Claude Code ships a CLI command for it                                            |
+| Dollar cost per server or tool              | A per-call allocation model is decided in `docs/usage-analytics.md`               |

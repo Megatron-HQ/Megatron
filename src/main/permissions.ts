@@ -232,6 +232,25 @@ export function inspectCliCandidate(
   }
 }
 
+export type ExecutableStatus = 'present' | 'absent' | 'unknown'
+
+// The MCP not-found lint's PATH lookup (command-lookup.ts): one stat of a fixed candidate built
+// from a PATH entry and a bare program name, never a read and never an execution. A network share
+// is never touched (a stat there can block or prompt for credentials), and anything but "no such
+// file" is unknown, so the lint stays silent rather than guess.
+export function executableStatusSync(candidate: string): ExecutableStatus {
+  if (!isAbsolute(candidate) || candidate.startsWith('\\\\') || candidate.startsWith('//'))
+    return 'unknown'
+  try {
+    const stats = statSync(candidate)
+    if (!stats.isFile()) return 'absent'
+    return process.platform === 'win32' || (stats.mode & 0o111) !== 0 ? 'present' : 'absent'
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    return code === 'ENOENT' || code === 'ENOTDIR' ? 'absent' : 'unknown'
+  }
+}
+
 export function inspectCliDirectory(
   candidate: string,
   excludedDirectories: string[]

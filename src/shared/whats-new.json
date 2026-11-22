@@ -9,6 +9,14 @@
           "kind": "section",
           "section": "skills"
         }
+      },
+      {
+        "title": "Spot MCP servers that can't start",
+        "body": "An MCP server whose command, such as uvx, isn't installed on this computer now gets a notice in its details.",
+        "action": {
+          "kind": "section",
+          "section": "mcp"
+        }
       }
     ]
   },

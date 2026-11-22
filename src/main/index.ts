@@ -59,6 +59,7 @@ import {
   allowedLinkTargetSync,
   canonicalGrantPath,
   claudeConfig,
+  executableStatusSync,
   getGrantedPaths,
   isPathAllowed,
   isWithinGrant,
@@ -120,6 +121,7 @@ import {
 } from './mcp-status'
 import { findStaleSkillIds, usageDataTrusted } from './db/stale-skills'
 import { usageHistorySince } from './db/known-calls'
+import { createCommandLookup, type CommandLookup } from './command-lookup'
 import { sanitizeProjectFolders } from './ingest/project-discovery'
 import { readSkillFiles, readSkillMd } from './skill-files'
 import { openSafeExternal } from './shell'
@@ -348,6 +350,16 @@ const scans = createScanController((scope) =>
     }
   )
 )
+
+// The mcp-command-not-found lint's PATH lookup (docs/mcp-servers.md, Lint). Fresh for each read,
+// so a command installed since the last one is found; it memoizes within that read.
+function mcpCommandLookup(): (program: string) => CommandLookup {
+  return createCommandLookup({
+    environment: process.env,
+    platform: process.platform,
+    statusOf: executableStatusSync
+  })
+}
 
 async function scanAndNotify(
   urgency: ScanUrgency = 'announce',
@@ -769,7 +781,7 @@ app.whenReady().then(() => {
   )
 
   secureIpc.handle(IPC_CHANNELS.listMcpServers, () =>
-    listMcpServers(getDb(), latestMcpChecks().general)
+    listMcpServers(getDb(), latestMcpChecks().general, mcpCommandLookup())
   )
 
   // Starts the user's MCP servers, so it runs only on request (docs/mcp-servers.md, Live check).
@@ -800,7 +812,8 @@ app.whenReady().then(() => {
       baseline === null
         ? null
         : { byPrefix: mcpDefinitionTokens(baseline.usage), measuredAt: baseline.measuredAt },
-      latestMcpChecks()
+      latestMcpChecks(),
+      mcpCommandLookup()
     )
   })
 

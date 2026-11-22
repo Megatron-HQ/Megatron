@@ -26,6 +26,7 @@ import {
   sanitizeMcpServerName
 } from './mcp-identity'
 import { lintMcpServer } from './mcp-lint'
+import type { CommandLookup } from '../command-lookup'
 import { knownMcpCallsSql, usageHistorySince } from './known-calls'
 import { normalizeProjectPath } from '../../shared/project-path'
 import { isPathAllowed } from '../permissions'
@@ -46,6 +47,7 @@ interface DeclarationRow {
   has_literal_credential: number
   approval: 'approved' | 'rejected' | 'pending' | null
   source_path: string
+  command_is_bare: number | null
 }
 
 interface PluginServerRow {
@@ -372,7 +374,9 @@ function byName(first: { name: string }, second: { name: string }): number {
 
 export function listMcpServers(
   db: Database.Database,
-  general: McpConnectionCheck | null = null
+  general: McpConnectionCheck | null = null,
+  // Main's PATH lookup for the not-found rule; without it the rule is silent.
+  lookupCommand?: (program: string) => CommandLookup
 ): McpServerList {
   const snapshot = readSnapshot(db, general)
   const lastCallAt = db
@@ -383,7 +387,11 @@ export function listMcpServers(
     servers: [...snapshot.identities.values()]
       .map((identity) => {
         const declarations = declarationDetails(db, identity, snapshot)
-        return toRow(identity, findingsFor(identity, declarations, snapshot), snapshot)
+        return toRow(
+          identity,
+          findingsFor(identity, declarations, snapshot, lookupCommand),
+          snapshot
+        )
       })
       .sort(byName),
     callsSince: usageHistorySince(db),
@@ -453,7 +461,8 @@ function configuredDetail(
     hasLiteralCredential: declaration.has_literal_credential === 1,
     approval: declaration.approval,
     sourcePath: declaration.source_path,
-    shadowedIn: declarationShadows(declaration, sameName)
+    shadowedIn: declarationShadows(declaration, sameName),
+    commandIsBare: declaration.command_is_bare === 1
   }
 }
 
@@ -511,7 +520,10 @@ function pluginDetail(
     hasLiteralCredential: false,
     approval: null,
     sourcePath: plugin.source_path,
-    shadowedIn: pluginShadows(db, plugin, snapshot)
+    shadowedIn: pluginShadows(db, plugin, snapshot),
+    // A plugin's stored detail keeps only the program's basename, so whether it was given with a
+    // folder is unknown: the not-found rule stays silent for plugins.
+    commandIsBare: false
   }
 }
 
@@ -555,16 +567,34 @@ function declarationDetails(
   ]
 }
 
+// A call this recent shows the server starts, so the not-found rule trusts it over Megatron's PATH.
+const RECENT_CALL_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
+
+function calledSince(identity: ServerIdentity, cutoff: string): boolean {
+  return identity.tools.some((tool) => tool.group.last_used_at >= cutoff)
+}
+
 function findingsFor(
   identity: ServerIdentity,
   declarations: McpDeclarationDetail[],
-  snapshot: IndexSnapshot
+  snapshot: IndexSnapshot,
+  lookupCommand?: (program: string) => CommandLookup
 ): McpLintFinding[] {
   const sharedWith = [...snapshot.identities.values()]
     .filter((other) => other !== identity && other.prefix === identity.prefix)
     .map((other) => other.name)
     .sort()
-  return lintMcpServer({ name: identity.name, prefix: identity.prefix, declarations, sharedWith })
+  return lintMcpServer({
+    name: identity.name,
+    prefix: identity.prefix,
+    declarations,
+    sharedWith,
+    lookupCommand,
+    calledRecently: calledSince(
+      identity,
+      new Date(Date.now() - RECENT_CALL_WINDOW_MS).toISOString()
+    )
+  })
 }
 
 export type McpActionVerb = 'remove' | 'logout'
@@ -737,14 +767,15 @@ export function getMcpServerDetail(
   db: Database.Database,
   id: string,
   baseline: DefinitionTokenBaseline | null,
-  checks: McpChecks = NO_CHECKS
+  checks: McpChecks = NO_CHECKS,
+  lookupCommand?: (program: string) => CommandLookup
 ): McpServerDetail | null {
   const snapshot = readSnapshot(db, checks.general)
   const identity = snapshot.identities.get(id)
   if (identity === undefined) return null
 
   const declarations = declarationDetails(db, identity, snapshot)
-  const findings = findingsFor(identity, declarations, snapshot)
+  const findings = findingsFor(identity, declarations, snapshot, lookupCommand)
   const disabledIn = distinct(
     snapshot.disabledToggles
       .filter((toggle) => toggle.server_name === identity.name)
