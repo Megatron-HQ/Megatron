@@ -25,6 +25,34 @@ interface ArchivedTurn extends RecordedTokens {
   invoked_at: string
 }
 
+type CoverageTable = 'history_coverage' | 'history_transcript_coverage'
+
+// Coverage end is exclusive, one millisecond past the scan, so a row stamped at the scan is inside.
+function coverageEnd(now: Date): string {
+  return new Date(now.getTime() + 1).toISOString()
+}
+
+// Merges [start, end) with every range it overlaps or touches, so contiguous scans form one range
+// and only time no scan observed stays a gap.
+function recordCoverage(
+  archive: Database.Database,
+  table: CoverageTable,
+  start: string,
+  end: string
+): void {
+  let earliest = start
+  let latest = end
+  const ranges = archive
+    .prepare(`SELECT start_at, end_at FROM ${table} WHERE end_at >= ? AND start_at <= ?`)
+    .all(earliest, latest) as Array<{ start_at: string; end_at: string }>
+  for (const range of ranges) {
+    if (range.start_at < earliest) earliest = range.start_at
+    if (range.end_at > latest) latest = range.end_at
+  }
+  archive.prepare(`DELETE FROM ${table} WHERE end_at >= ? AND start_at <= ?`).run(earliest, latest)
+  archive.prepare(`INSERT INTO ${table} (start_at, end_at) VALUES (?, ?)`).run(earliest, latest)
+}
+
 function archivePrompts(index: Database.Database, archive: Database.Database, now: Date): void {
   const insert = archive.prepare(`INSERT INTO history_prompts VALUES
     (@session_id, @project, @typed_at, @is_slash_command, @copies)
@@ -46,18 +74,73 @@ function archivePrompts(index: Database.Database, archive: Database.Database, no
     insert.run(row)
     if (row.typed_at < earliest) earliest = row.typed_at
   }
-  let end = new Date(now.getTime() + 1).toISOString()
-  const ranges = archive
-    .prepare('SELECT start_at, end_at FROM history_coverage WHERE end_at >= ? AND start_at <= ?')
-    .all(earliest, end) as Array<{ start_at: string; end_at: string }>
-  for (const range of ranges) {
-    if (range.start_at < earliest) earliest = range.start_at
-    if (range.end_at > end) end = range.end_at
+  recordCoverage(archive, 'history_coverage', earliest, coverageEnd(now))
+}
+
+// Claude Code prunes transcript files by mtime, so every moment at or after the oldest retained
+// transcript's mtime belongs to a file that is still there: that span is complete whatever
+// cleanupPeriodDays is. Rows older than it may be partial.
+function transcriptCoverageStart(index: Database.Database, now: Date): string {
+  const oldest = index.prepare('SELECT MIN(source_mtime_ms) FROM sessions_meta').pluck().get() as
+    number | null
+  if (oldest === null || !Number.isFinite(oldest) || oldest > now.getTime())
+    return now.toISOString()
+  return new Date(oldest).toISOString()
+}
+
+// Explicit column lists, unlike the older copies above, so a column added to the archive later
+// can't break these inserts. While the index holds a row its reading wins (a parser fix can
+// reclassify it); a pruned row keeps what was archived. A call's result never regresses to
+// unrecorded, since a result can't leave a transcript that still holds the call.
+function archiveTranscriptCalls(
+  index: Database.Database,
+  archive: Database.Database,
+  now: Date
+): void {
+  const insertInvocation = archive.prepare(`INSERT INTO history_skill_invocations
+    (source_uuid, session_id, project, skill_name, invoked_at, trigger_type, agent_id)
+    VALUES (@source_uuid, @session_id, @project, @skill_name, @invoked_at, @trigger_type, @agent_id)
+    ON CONFLICT DO UPDATE SET session_id = excluded.session_id, project = excluded.project,
+      skill_name = excluded.skill_name, invoked_at = excluded.invoked_at,
+      trigger_type = excluded.trigger_type, agent_id = excluded.agent_id`)
+  for (const row of index
+    .prepare(
+      `SELECT si.source_uuid, si.session_id, sm.cwd AS project, si.skill_name, si.invoked_at,
+         si.trigger_type, si.agent_id
+       FROM skill_invocations si JOIN sessions_meta sm ON sm.session_id = si.session_id`
+    )
+    .iterate() as Iterable<{ invoked_at: string }>) {
+    if (Number.isFinite(Date.parse(row.invoked_at))) insertInvocation.run(row)
   }
-  archive
-    .prepare('DELETE FROM history_coverage WHERE end_at >= ? AND start_at <= ?')
-    .run(earliest, end)
-  archive.prepare('INSERT INTO history_coverage VALUES (?, ?)').run(earliest, end)
+
+  const insertCall = archive.prepare(`INSERT INTO history_mcp_calls
+    (tool_use_id, session_id, cwd, project, qualified_name, invoked_at, agent_id,
+     is_error, is_denied, result_chars, result_images)
+    VALUES (@tool_use_id, @session_id, @cwd, @project, @qualified_name, @invoked_at, @agent_id,
+      @is_error, @is_denied, @result_chars, @result_images)
+    ON CONFLICT DO UPDATE SET session_id = excluded.session_id, cwd = excluded.cwd,
+      project = excluded.project, qualified_name = excluded.qualified_name,
+      invoked_at = excluded.invoked_at, agent_id = excluded.agent_id,
+      is_error = COALESCE(excluded.is_error, is_error),
+      is_denied = COALESCE(excluded.is_denied, is_denied),
+      result_chars = COALESCE(excluded.result_chars, result_chars),
+      result_images = COALESCE(excluded.result_images, result_images)`)
+  for (const row of index
+    .prepare(
+      `SELECT c.tool_use_id, c.session_id, c.cwd, sm.cwd AS project, c.qualified_name,
+         c.invoked_at, c.agent_id, c.is_error, c.is_denied, c.result_chars, c.result_images
+       FROM mcp_tool_calls c JOIN sessions_meta sm ON sm.session_id = c.session_id`
+    )
+    .iterate() as Iterable<{ invoked_at: string }>) {
+    if (Number.isFinite(Date.parse(row.invoked_at))) insertCall.run(row)
+  }
+
+  recordCoverage(
+    archive,
+    'history_transcript_coverage',
+    transcriptCoverageStart(index, now),
+    coverageEnd(now)
+  )
 }
 
 // Fork lineages (cost-lineage.ts) reach the archive as plain continued-in links: every member
@@ -210,15 +293,16 @@ function rebuildTokenShares(archive: Database.Database): void {
 export function archiveUsageHistory(
   index: Database.Database,
   archive: Database.Database,
-  sources: { prompts: boolean; tokens: boolean },
+  sources: { prompts: boolean; transcripts: boolean },
   now: Date = new Date()
 ): void {
   archive.transaction(() => {
     assertConfigRootAvailable()
     if (sources.prompts) archivePrompts(index, archive, now)
-    if (sources.tokens) {
+    if (sources.transcripts) {
       copyTokenSources(index, archive)
       rebuildTokenShares(archive)
+      archiveTranscriptCalls(index, archive, now)
     }
     assertConfigRootAvailable()
   })()

@@ -46,6 +46,17 @@ const SHIPPED_ARCHIVE_DDL = `
     plugin_name TEXT NOT NULL, skill_name TEXT NOT NULL, first_seen_at TEXT NOT NULL,
     PRIMARY KEY(plugin_name, skill_name)
   );
+  CREATE TABLE history_skill_invocations (
+    source_uuid TEXT PRIMARY KEY, session_id TEXT NOT NULL, project TEXT NOT NULL,
+    skill_name TEXT NOT NULL, invoked_at TEXT NOT NULL, trigger_type TEXT NOT NULL,
+    agent_id TEXT
+  );
+  CREATE TABLE history_mcp_calls (
+    tool_use_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, cwd TEXT, project TEXT NOT NULL,
+    qualified_name TEXT NOT NULL, invoked_at TEXT NOT NULL, agent_id TEXT,
+    is_error INTEGER, is_denied INTEGER, result_chars INTEGER, result_images INTEGER
+  );
+  CREATE TABLE history_transcript_coverage (start_at TEXT PRIMARY KEY, end_at TEXT NOT NULL);
 `
 
 type Shape = Record<string, { name: string; type: string; notnull: number; pk: number }[]>
