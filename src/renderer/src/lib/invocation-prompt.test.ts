@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { parseInvocationPrompt } from './invocation-prompt'
+import { invocationPrompt, parseInvocationPrompt } from './invocation-prompt'
+
+describe('invocationPrompt', () => {
+  it('labels a use whose transcript was pruned, which kept no prompt', () => {
+    expect(invocationPrompt({ preceding_user_text: '', transcript_pruned: 1 })).toEqual({
+      kind: 'pruned',
+      label: 'Transcript pruned'
+    })
+  })
+
+  it('parses the prompt of a use whose transcript is still there', () => {
+    expect(invocationPrompt({ preceding_user_text: '/deploy prod', transcript_pruned: 0 })).toEqual(
+      { kind: 'text', label: '/deploy prod' }
+    )
+  })
+})
 
 describe('parseInvocationPrompt', () => {
   it('pulls the original dimensions out of an image-caption placeholder', () => {

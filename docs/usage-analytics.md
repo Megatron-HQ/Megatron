@@ -235,11 +235,14 @@ Every unknown resolves to no signal, because a missing icon costs less than a fa
      index left over from a previous launch is never trusted. Inventory-only rescans don't run these
      sources, so the flags carry over between them.
   2. Archived prompt coverage spans the whole window.
-  3. Every non-slash archived prompt in the window belongs to a session still in `sessions_meta`.
-     Invocations come only from transcripts, which Claude Code prunes at `cleanupPeriodDays`
-     (default 30, the same length as the window), so the archive's prompts supply the reach-back
-     evidence. This gate catches a shorter retention, deleted transcripts, and any change to
-     pruning. Bare slash commands never write a transcript, so they are left out.
+  3. Every non-slash archived prompt in the window belongs to a session still in `sessions_meta`,
+     or was typed inside a transcript coverage range (`history_transcript_coverage`). Invocations
+     come only from transcripts, which Claude Code prunes at `cleanupPeriodDays` (default 30, the
+     same length as the window), so the archive's prompts supply the reach-back evidence. A
+     covered prompt's transcript was read by a complete scan, which archived its invocations, and
+     Last used counts archived ones (`docs/data-model.md`), so its pruning loses nothing. This
+     gate catches a shorter retention before Megatron covered it, deleted transcripts, and any
+     change to pruning. Bare slash commands never write a transcript, so they are left out.
 - **Per skill.** A skill is stale only when all of these hold:
   - It is enabled and not shadowed. `Power` or the shadow warning already explains why such a skill
     doesn't run.

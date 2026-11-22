@@ -28,6 +28,7 @@ import { mcpFilterTitle, mcpSourceLabel, type McpFilter } from '@/lib/mcp-filter
 import { ENTER, mcpTitleGlideId, useSettle } from '@/lib/transitions'
 import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { formatRelativeTime } from '@/lib/relative-time'
+import { formatUsageSince } from '@/lib/usage-since'
 import { useProjectLabel } from '@/lib/use-project-label'
 import { cn } from '@/lib/utils'
 import type { McpLiveStatus, McpServerRow, ProjectFolder, SkippedGrant } from '../../../shared/ipc'
@@ -156,7 +157,8 @@ interface McpInventoryProps {
   servers: McpServerRow[]
   loading: boolean
   filter: McpFilter
-  firstCallAt: string | null
+  // Since when every call is counted (McpServerList.callsSince).
+  callsSince: string | null
   // The general connection check (docs/mcp-servers.md, Live check).
   lastCheckedAt: string | null
   checking: boolean
@@ -176,7 +178,7 @@ export function McpInventory({
   servers,
   loading,
   filter,
-  firstCallAt,
+  callsSince,
   lastCheckedAt,
   checking,
   checkError,
@@ -211,6 +213,7 @@ export function McpInventory({
       ? `Projects / ${resolveProjectLabel(filter.projectPath)} servers`
       : mcpFilterTitle(filter)
   const hasRows = rows.length > 0
+  const callsSinceLabel = formatUsageSince(callsSince)
   const safeFocusedIndex = Math.min(focusedIndex, Math.max(rows.length - 1, 0))
   const highlightIndex = hoveredId !== null ? rows.findIndex((row) => row.id === hoveredId) : -1
   const settle = useSettle(loading)
@@ -388,16 +391,12 @@ export function McpInventory({
               Checked {formatRelativeTime(lastCheckedAt)}
             </span>
           )}
-          {firstCallAt && (
+          {callsSinceLabel && (
             <span
-              title="Calls come from the transcripts Megatron still holds. Claude Code prunes them after about 30 days."
+              title={`Every call since ${callsSinceLabel}, including ones whose transcripts Claude Code has since deleted.`}
               className="text-[11px] text-muted-foreground max-[1000px]:hidden"
             >
-              Calls since{' '}
-              {new Date(firstCallAt).toLocaleDateString(undefined, {
-                month: 'short',
-                day: 'numeric'
-              })}
+              Calls since {callsSinceLabel}
             </span>
           )}
           <button

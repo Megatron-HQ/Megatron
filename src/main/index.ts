@@ -119,6 +119,7 @@ import {
   mcpCheckFolder
 } from './mcp-status'
 import { findStaleSkillIds, usageDataTrusted } from './db/stale-skills'
+import { usageHistorySince } from './db/known-calls'
 import { sanitizeProjectFolders } from './ingest/project-discovery'
 import { readSkillFiles, readSkillMd } from './skill-files'
 import { openSafeExternal } from './shell'
@@ -539,7 +540,8 @@ app.whenReady().then(() => {
       scanComplete,
       scanSummary,
       scanActivity: scanSession.current(),
-      contextBudget: getContextBudget(getDb())
+      contextBudget: getContextBudget(getDb()),
+      usesSince: usageHistorySince(getDb())
     }
   })
 

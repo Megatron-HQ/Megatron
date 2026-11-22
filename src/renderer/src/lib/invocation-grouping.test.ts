@@ -13,6 +13,7 @@ function makeEntry(overrides: Partial<SkillInvocationEntry> = {}): SkillInvocati
     cwd: '/repo',
     git_branch: null,
     agent_id: null,
+    transcript_pruned: 0,
     ...overrides
   }
 }

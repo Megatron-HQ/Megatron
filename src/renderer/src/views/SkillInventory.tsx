@@ -50,6 +50,7 @@ import {
 } from '@/lib/source-filter'
 import { SYNCED_ICON } from '@/lib/source-icon'
 import { useProjectLabel } from '@/lib/use-project-label'
+import { usesSinceTitle } from '@/lib/usage-since'
 import type { ProjectLabelResolver } from '@/lib/project-tree'
 import { ProjectName } from '@/components/ProjectName'
 import {
@@ -294,6 +295,8 @@ function buildColumns(
 interface SkillInventoryProps {
   availability?: import('../../../shared/ipc').ProjectFolder['status']
   skills: InventorySkillRow[]
+  // Since when Uses counts every use (SkillsListResult.usesSince), named in its header tooltip.
+  usesSince?: string | null
   loading: boolean
   filter: SourceFilter
   onSelect: (id: number) => void
@@ -308,6 +311,7 @@ interface SkillInventoryProps {
 
 export function SkillInventory({
   skills,
+  usesSince = null,
   loading,
   filter,
   availability,
@@ -473,6 +477,11 @@ export function SkillInventory({
                       COLUMN_WIDTH[header.column.id],
                       header.column.id === 'description' && NARROW_VIEWPORT_DESCRIPTION_CLASS
                     )}
+                    title={
+                      header.column.id === 'total_invocations'
+                        ? usesSinceTitle(usesSince)
+                        : undefined
+                    }
                   >
                     {header.column.getCanSort() ? (
                       <button

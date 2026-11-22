@@ -1726,6 +1726,21 @@ export const scenarios = [
     }
   },
   {
+    // #51: a use only the usage archive still holds reads "Transcript pruned" in muted italic,
+    // and its expanded details keep the project and time but no branch. Expanded so both the
+    // label and the details are in frame.
+    name: 'skill-detail-recent-activity-pruned',
+    screen: 'skill-detail',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set('skills:openMeta', 'skill-pruned-use')
+      )
+      await openSkillViaCommandPalette(window, 'grill-me', /^grill-me/)
+      await window.getByText('Transcript pruned', { exact: true }).click()
+      await window.locator('button:has(time)[aria-expanded="true"]').first().waitFor()
+    }
+  },
+  {
     // PR 1, item 5: a Recent-activity row expanded — full (unclamped) prompt plus the
     // Project / When / Subagent detail list. Expanding scrolls the trigger bar out of frame,
     // which is why it's a separate scenario from skill-detail-with-usage-history rather than

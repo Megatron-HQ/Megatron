@@ -1,4 +1,17 @@
 {
+  "next": {
+    "title": "Usage history",
+    "highlights": [
+      {
+        "title": "Uses outlive Claude Code's cleanup",
+        "body": "Uses, Last used and MCP call counts now keep counting after Claude Code deletes old transcripts, and name the date they count from.",
+        "action": {
+          "kind": "section",
+          "section": "skills"
+        }
+      }
+    ]
+  },
   "0.4.1": {
     "title": "Settings and folder access",
     "highlights": [

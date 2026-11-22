@@ -358,6 +358,7 @@ function App(): React.JSX.Element {
   // Latched: the card waits for the launch scan, but a later rescan must not hide it again.
   if (scanComplete && !firstScanSettled) setFirstScanSettled(true)
   const contextBudget = data?.contextBudget ?? DEFAULT_CONTEXT_BUDGET
+  const usesSince = data?.usesSince ?? null
   const {
     banner: scanBanner,
     summary: scanBannerSummary,
@@ -732,6 +733,7 @@ function App(): React.JSX.Element {
         <SkillDetail
           skillId={view.skillId}
           summary={skills.find((skill) => skill.id === view.skillId)}
+          usesSince={usesSince}
           onBack={leaveSkillDetail}
           onViewFiles={() => setView({ kind: 'files', skillId: view.skillId })}
           onNavigate={navigateSkillDetail}
@@ -764,6 +766,7 @@ function App(): React.JSX.Element {
             filter.kind === 'project' ? projectAvailability(filter.projectRoot) : undefined
           }
           skills={filteredSkills}
+          usesSince={usesSince}
           loading={!skills.length && !scanComplete}
           filter={filter}
           onSelect={openDetail}
@@ -870,7 +873,7 @@ function App(): React.JSX.Element {
           servers={filteredMcpServers}
           loading={mcpPending}
           filter={mcpFilter}
-          firstCallAt={mcpData?.firstCallAt ?? null}
+          callsSince={mcpData?.callsSince ?? null}
           lastCheckedAt={mcpData?.lastCheckedAt ?? null}
           checking={mcpCheckingPath === null}
           checkError={mcpCheckError?.projectPath === null ? mcpCheckError.message : null}

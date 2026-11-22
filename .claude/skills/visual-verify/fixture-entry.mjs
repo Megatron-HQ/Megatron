@@ -289,6 +289,22 @@ globalThis.megatronVisualFixtures = {
           }
         }
       }
+      // A fresh profile's archive matches the index, so no use is pruned yet: mark the oldest
+      // recent use as one whose transcript Claude Code deleted (#51).
+      if (channel === 'skills:openMeta' && mode === 'skill-pruned-use' && result) {
+        const recent = result.usage.recentTriggers
+        return {
+          ...result,
+          usage: {
+            ...result.usage,
+            recentTriggers: recent.map((entry, index) =>
+              index === recent.length - 1
+                ? { ...entry, preceding_user_text: '', git_branch: null, transcript_pruned: 1 }
+                : entry
+            )
+          }
+        }
+      }
       // Real staleness depends on this machine's history, so mark one row the rule could flag.
       if (channel === 'skills:list' && mode === 'skills-stale') {
         const target = result.skills.find(

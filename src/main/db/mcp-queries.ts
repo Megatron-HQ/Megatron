@@ -26,6 +26,7 @@ import {
   sanitizeMcpServerName
 } from './mcp-identity'
 import { lintMcpServer } from './mcp-lint'
+import { knownMcpCallsSql, usageHistorySince } from './known-calls'
 import { normalizeProjectPath } from '../../shared/project-path'
 import { isPathAllowed } from '../permissions'
 
@@ -162,7 +163,7 @@ function readCallGroups(db: Database.Database): CallGroupRow[] {
          SUM(COALESCE(result_chars, 0)) AS result_chars,
          SUM(COALESCE(result_images, 0)) AS result_images,
          MAX(invoked_at) AS last_used_at
-       FROM mcp_tool_calls GROUP BY qualified_name`
+       FROM ${knownMcpCallsSql(db)} c GROUP BY qualified_name`
     )
     .all() as CallGroupRow[]
 }
@@ -374,9 +375,10 @@ export function listMcpServers(
   general: McpConnectionCheck | null = null
 ): McpServerList {
   const snapshot = readSnapshot(db, general)
-  const window = db
-    .prepare('SELECT MIN(invoked_at) AS first, MAX(invoked_at) AS last FROM mcp_tool_calls')
-    .get() as { first: string | null; last: string | null }
+  const lastCallAt = db
+    .prepare(`SELECT MAX(invoked_at) FROM ${knownMcpCallsSql(db)} c`)
+    .pluck()
+    .get() as string | null
   return {
     servers: [...snapshot.identities.values()]
       .map((identity) => {
@@ -384,8 +386,8 @@ export function listMcpServers(
         return toRow(identity, findingsFor(identity, declarations, snapshot), snapshot)
       })
       .sort(byName),
-    firstCallAt: window.first,
-    lastCallAt: window.last,
+    callsSince: usageHistorySince(db),
+    lastCallAt,
     lastCheckedAt: general?.checkedAt ?? null
   }
 }

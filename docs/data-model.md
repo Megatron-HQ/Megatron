@@ -204,6 +204,15 @@ delete it, and nothing syncs off device.
   rows before it may be partial. Hidden projects are left out of the index, so their calls are
   archived only while visible. The archive grows only when Megatron scans; there is no
   background collector.
+- **Read back through an attachment.** Main attaches the archive to its index connection
+  (`known-calls.ts`), so Uses, Last used, a skill's trigger and project breakdown, its
+  invocation log, and MCP server call counts read every archived row plus any index row a partial
+  scan hasn't archived yet, each once. A row only the archive holds is marked pruned: its args,
+  prompt and branch went with the transcript. These counts are complete from the start of the
+  latest unbroken transcript coverage, which the UI names. The Usage section's rolling windows
+  and the MCP Usage panel still read the index, which matches the archive within the default
+  30-day retention (#72). Without the attachment (the scan worker, a damaged archive) every reader
+  falls back to the index.
 - **One archive per Claude Code config folder.** `~/.claude` keeps `usage-history.db`; any other
   `CLAUDE_CONFIG_DIR` folder gets `usage-history-<first 16 hex of sha256(canonical path)>.db`
   (`usageArchiveFilename()`). Coverage ranges describe one `history.jsonl`, so profiles never share

@@ -26,6 +26,7 @@ import { hasDisableModelInvocationFrontmatter, parseExtraFrontmatterFields } fro
 import { groupInvocationEntries } from '@/lib/invocation-grouping'
 import { getSkillDisplayName } from '@/lib/source-name'
 import { useProjectLabel } from '@/lib/use-project-label'
+import { usesSinceTitle } from '@/lib/usage-since'
 import { ProjectName } from '@/components/ProjectName'
 import { projectRootForSkill } from '@/lib/source-filter'
 import { TRIGGER_META } from '@/lib/trigger-meta'
@@ -38,6 +39,8 @@ interface SkillDetailProps {
   // The list's row for this skill. The header renders from it before the query returns, so the
   // title can glide in from the row (GlideTitle needs both ends in one commit).
   summary?: SkillRow
+  // Since when Uses counts every use (SkillsListResult.usesSince), named in its tooltip.
+  usesSince?: string | null
   onBack: () => void
   onViewFiles: () => void
   onNavigate: (id: number) => void
@@ -64,6 +67,7 @@ const PROJECT_ROW_CAP = 6
 export function SkillDetail({
   skillId,
   summary,
+  usesSince = null,
   onBack,
   onViewFiles,
   onNavigate
@@ -232,6 +236,7 @@ export function SkillDetail({
                 value={
                   skill.total_invocations === 0 ? 'Never' : skill.total_invocations.toLocaleString()
                 }
+                title={usesSinceTitle(usesSince)}
               />
               <StatCell
                 label="Listing tokens"

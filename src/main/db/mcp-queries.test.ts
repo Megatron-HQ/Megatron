@@ -11,6 +11,11 @@ import {
   revealableMcpSource
 } from './mcp-queries'
 import { grantPath, resetGrantedPaths } from '../permissions'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { openUsageArchive } from './usage-archive'
+import { attachUsageArchive } from './known-calls'
 import type { McpConnectionCheck, McpLiveStatus, McpServerRow } from '../../shared/ipc'
 
 let db: Database.Database
@@ -235,13 +240,74 @@ describe('listMcpServers', () => {
     })
   })
 
-  it('reports the call window', () => {
+  it('dates the calls from the oldest retained transcript, and reports the last call', () => {
+    db.prepare('UPDATE sessions_meta SET source_mtime_ms = ?').run(
+      Date.parse('2026-11-01T06:00:00.000Z')
+    )
     call('github__a', { at: '2026-11-03T00:00:00.000Z' })
     call('github__b', { at: '2026-11-09T00:00:00.000Z' })
 
     expect(listMcpServers(db)).toMatchObject({
-      firstCallAt: '2026-11-03T00:00:00.000Z',
+      callsSince: '2026-11-01T06:00:00.000Z',
       lastCallAt: '2026-11-09T00:00:00.000Z'
+    })
+  })
+
+  describe('with the usage archive attached', () => {
+    let archiveDirectory: string
+    let archive: Database.Database
+
+    beforeEach(() => {
+      archiveDirectory = mkdtempSync(join(tmpdir(), 'megatron-mcp-archive-'))
+      const path = join(archiveDirectory, 'usage-history.db')
+      archive = openUsageArchive(path)
+      attachUsageArchive(db, path)
+    })
+    afterEach(() => {
+      archive.close()
+      db.close()
+      rmSync(archiveDirectory, { recursive: true, force: true })
+    })
+
+    function archivedCall(id: string, qualified: string, at: string, isError: number | null): void {
+      archive
+        .prepare(
+          `INSERT INTO history_mcp_calls (tool_use_id, session_id, cwd, project, qualified_name,
+             invoked_at, agent_id, is_error, is_denied, result_chars, result_images)
+           VALUES (?, 'pruned', NULL, '/repo', ?, ?, NULL, ?, 0, 5, 0)`
+        )
+        .run(id, qualified, at, isError)
+    }
+
+    it('credits calls whose transcript Claude Code pruned to their server, once each', () => {
+      declare({ scope: 'user', name: 'github' })
+      archivedCall('old', 'github__list_issues', '2026-08-01T00:00:00.000Z', 1)
+      call('github__list_issues', { at: '2026-11-05T00:00:00.000Z' })
+      const indexed = db.prepare('SELECT tool_use_id FROM mcp_tool_calls').pluck().get() as string
+      archivedCall(indexed, 'github__list_issues', '2026-11-05T00:00:00.000Z', 0)
+
+      expect(server('configured:github')).toMatchObject({
+        calls: 2,
+        errors: 1,
+        lastUsedAt: '2026-11-05T00:00:00.000Z'
+      })
+    })
+
+    it('makes a server seen only in pruned transcripts an Observed one', () => {
+      archivedCall('old', 'retired__tool', '2026-08-01T00:00:00.000Z', 0)
+
+      expect(server('observed:retired')).toMatchObject({
+        calls: 1,
+        lastUsedAt: '2026-08-01T00:00:00.000Z'
+      })
+    })
+
+    it('dates the calls from the start of the latest unbroken transcript coverage', () => {
+      archive
+        .prepare('INSERT INTO history_transcript_coverage VALUES (?, ?)')
+        .run('2026-09-15T00:00:00.000Z', '2026-11-12T00:00:00.000Z')
+
+      expect(listMcpServers(db).callsSince).toBe('2026-09-15T00:00:00.000Z')
     })
   })
 
@@ -258,9 +324,10 @@ describe('listMcpServers', () => {
   })
 
   it('lists nothing for an empty index', () => {
+    db.prepare('DELETE FROM sessions_meta').run()
     expect(listMcpServers(db)).toEqual({
       servers: [],
-      firstCallAt: null,
+      callsSince: null,
       lastCallAt: null,
       lastCheckedAt: null
     })
