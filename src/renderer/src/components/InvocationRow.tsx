@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, Image as ImageIcon } from 'lucide-react'
-import { parseInvocationPrompt } from '@/lib/invocation-prompt'
+import { invocationPrompt, PRUNED_PROMPT_EXPLANATION } from '@/lib/invocation-prompt'
 import { formatRelativeTime } from '@/lib/relative-time'
 import { useProjectLabel } from '@/lib/use-project-label'
 import { ProjectName } from '@/components/ProjectName'
@@ -10,13 +10,13 @@ import type { SkillInvocationEntry } from '../../../shared/ipc'
 
 // One accordion row of a skill's invocation history. Rendered by both the Detail page's
 // recent-five list and SkillActivityDialog's full log. The stored prompt is routed through
-// parseInvocationPrompt so an image-caption placeholder shows as a labelled row rather than
-// its raw "[Image: original …]" string.
+// invocationPrompt so an image-caption placeholder shows as a labelled row rather than its raw
+// "[Image: original …]" string, and a use whose transcript is pruned says so.
 export function InvocationRow({ entry }: { entry: SkillInvocationEntry }): React.JSX.Element {
   const resolveProjectLabel = useProjectLabel()
   const [expanded, setExpanded] = useState(false)
   const { label: triggerLabel, Icon } = TRIGGER_META[entry.trigger_type]
-  const prompt = parseInvocationPrompt(entry.preceding_user_text)
+  const prompt = invocationPrompt(entry)
   const isCommand = prompt.kind === 'text' && prompt.label.startsWith('/')
   const Chevron = expanded ? ChevronDown : ChevronRight
 
@@ -39,6 +39,13 @@ export function InvocationRow({ entry }: { entry: SkillInvocationEntry }): React
             <span className="truncate">
               {prompt.label} · {prompt.dimensions}
             </span>
+          </span>
+        ) : prompt.kind === 'pruned' ? (
+          <span
+            title={PRUNED_PROMPT_EXPLANATION}
+            className="min-w-0 flex-1 truncate italic text-muted-foreground"
+          >
+            {prompt.label}
           </span>
         ) : (
           <span

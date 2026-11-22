@@ -59,6 +59,7 @@ import {
   allowedLinkTargetSync,
   canonicalGrantPath,
   claudeConfig,
+  executableStatusSync,
   getGrantedPaths,
   isPathAllowed,
   isWithinGrant,
@@ -97,7 +98,7 @@ import {
   startScanWorker,
   type ScanScope
 } from './ingest/scan-all'
-import { createInventoryWatcher } from './inventory-watcher'
+import { createInventoryWatcher, inventoryWatchRoots } from './inventory-watcher'
 import { findNewestRecordedRequest } from './ingest/recorded-request'
 import { latestContextBaseline, mcpDefinitionTokens, measureContextBaseline } from './context-usage'
 import {
@@ -119,6 +120,8 @@ import {
   mcpCheckFolder
 } from './mcp-status'
 import { findStaleSkillIds, usageDataTrusted } from './db/stale-skills'
+import { usageHistorySince } from './db/known-calls'
+import { createCommandLookup, type CommandLookup } from './command-lookup'
 import { sanitizeProjectFolders } from './ingest/project-discovery'
 import { readSkillFiles, readSkillMd } from './skill-files'
 import { openSafeExternal } from './shell'
@@ -348,6 +351,16 @@ const scans = createScanController((scope) =>
   )
 )
 
+// The mcp-command-not-found lint's PATH lookup (docs/mcp-servers.md, Lint). Fresh for each read,
+// so a command installed since the last one is found; it memoizes within that read.
+function mcpCommandLookup(): (program: string) => CommandLookup {
+  return createCommandLookup({
+    environment: process.env,
+    platform: process.platform,
+    statusOf: executableStatusSync
+  })
+}
+
 async function scanAndNotify(
   urgency: ScanUrgency = 'announce',
   fresh = false,
@@ -539,7 +552,8 @@ app.whenReady().then(() => {
       scanComplete,
       scanSummary,
       scanActivity: scanSession.current(),
-      contextBudget: getContextBudget(getDb())
+      contextBudget: getContextBudget(getDb()),
+      usesSince: usageHistorySince(getDb())
     }
   })
 
@@ -767,7 +781,7 @@ app.whenReady().then(() => {
   )
 
   secureIpc.handle(IPC_CHANNELS.listMcpServers, () =>
-    listMcpServers(getDb(), latestMcpChecks().general)
+    listMcpServers(getDb(), latestMcpChecks().general, mcpCommandLookup())
   )
 
   // Starts the user's MCP servers, so it runs only on request (docs/mcp-servers.md, Live check).
@@ -798,7 +812,8 @@ app.whenReady().then(() => {
       baseline === null
         ? null
         : { byPrefix: mcpDefinitionTokens(baseline.usage), measuredAt: baseline.measuredAt },
-      latestMcpChecks()
+      latestMcpChecks(),
+      mcpCommandLookup()
     )
   })
 
@@ -879,6 +894,14 @@ app.whenReady().then(() => {
   secureIpc.handle(IPC_CHANNELS.usageContextBaseline, () =>
     measureContextBaseline(app.getPath('userData'))
   )
+  // The run starts MCP servers and SessionStart hooks, so the panel's first one waits for a
+  // one-time confirmation (docs/usage-analytics.md, Resident tax).
+  secureIpc.on(IPC_CHANNELS.getInitialResidentTaxConfirmed, (event) => {
+    event.returnValue = themeStore.get('residentTaxConfirmed') === true
+  })
+  secureIpc.handle(IPC_CHANNELS.confirmResidentTax, () => {
+    themeStore.set('residentTaxConfirmed', true)
+  })
   secureIpc.handle(IPC_CHANNELS.usageRecordedRequest, () => findNewestRecordedRequest())
 
   secureIpc.handle(IPC_CHANNELS.usageCalendar, (_event, year: number) =>
@@ -1018,15 +1041,7 @@ app.whenReady().then(() => {
     // After the grants: the catalog the owner reconciles against is limited to readable folders.
     reconcileProjectIdentity()
     inventoryWatcher = createInventoryWatcher({
-      getRoots: () => [
-        ...getGrantedPaths().map((path) => ({ path, kind: 'project' as const })),
-        ...[
-          claudeConfig().skills,
-          claudeConfig().plugins,
-          claudeConfig().settings,
-          claudeConfig().claudeJson
-        ].map((path) => ({ path, kind: 'inventory' as const }))
-      ],
+      getRoots: () => inventoryWatchRoots(claudeConfig(), getGrantedPaths()),
       refresh: () => scanAndNotify('quiet', true, 'inventory'),
       reportError: (error) => console.error('[inventory] watch or refresh failed', error)
     })

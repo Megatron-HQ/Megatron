@@ -82,6 +82,8 @@ export interface Api {
   getUsageSkillInvocations: (input: SkillInvocationSliceInput) => Promise<SkillInvocationRecord[]>
   getUsageMcp: () => Promise<McpUsageStats>
   getContextBaseline: () => Promise<ContextBaselineResult>
+  getInitialResidentTaxConfirmed: () => boolean
+  confirmResidentTax: () => Promise<void>
   getRecordedRequest: () => Promise<RecordedRequest | null>
   getInitialSection: () => AppSection
   setLastSection: (section: AppSection) => Promise<void>

@@ -1,4 +1,25 @@
 {
+  "next": {
+    "title": "Usage history",
+    "highlights": [
+      {
+        "title": "Uses outlive Claude Code's cleanup",
+        "body": "Uses, Last used and MCP call counts now keep counting after Claude Code deletes old transcripts, and name the date they count from.",
+        "action": {
+          "kind": "section",
+          "section": "skills"
+        }
+      },
+      {
+        "title": "Spot MCP servers that can't start",
+        "body": "An MCP server whose command, such as uvx, isn't installed on this computer now gets a notice in its details.",
+        "action": {
+          "kind": "section",
+          "section": "mcp"
+        }
+      }
+    ]
+  },
   "0.4.1": {
     "title": "Settings and folder access",
     "highlights": [

@@ -26,6 +26,11 @@ Release and updates section here covers their security consequences.
   folder). The name follows `--`, so a name starting with `-` can't become an option. One MCP
   action runs at a time, since each can rewrite `.claude.json`. Threat: a renderer naming any
   string, or a crafted name, steering the CLI at a server or file the index never listed.
+- The MCP `mcp-command-not-found` lint stats `<PATH folder>/<program><PATHEXT>` candidates: absolute
+  PATH entries only, never a network share, the program a bare name with no separator or variable.
+  It reports present, absent or unknown and never reads or runs the file. Like CLI discovery, this is
+  a separate capability from `isPathAllowed()`. Threat: a crafted command name turning the lookup
+  into a probe of arbitrary paths, or a stat on a share blocking or prompting for credentials.
 - Cost aggregation uses objects without prototypes, including inner model buckets.
 
 ### Config root

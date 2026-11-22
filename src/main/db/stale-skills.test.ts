@@ -6,6 +6,10 @@ import { readProjectIdentity } from '../../shared/project-identity'
 import { applySchema } from './schema'
 import { findStaleSkillIds, recordPluginSkillSightings, usageDataTrusted } from './stale-skills'
 import { openUsageArchive } from './usage-archive'
+import { attachUsageArchive } from './known-calls'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
 // The window is anchored to the archive's last observation, so every literal below is relative
 // to AS_OF (the latest history_coverage end), never to the wall clock.
@@ -99,6 +103,10 @@ function prompt(
 
 function cover(start: string, end: string): void {
   archive.prepare('INSERT INTO history_coverage VALUES (?, ?)').run(start, end)
+}
+
+function coverTranscripts(start: string, end: string): void {
+  archive.prepare('INSERT INTO history_transcript_coverage VALUES (?, ?)').run(start, end)
 }
 
 function activeHistory(project = '/repo'): void {
@@ -263,6 +271,49 @@ describe('findStaleSkillIds', () => {
     prompt('/repo', '2026-09-15T00:00:00.000Z', { transcript: false })
     addSkill({ name: 'old-skill' })
     expect(staleSkills()).toEqual(['global/old-skill'])
+  })
+
+  it("trusts a prompt whose transcript is pruned once Megatron's transcript coverage spans it", () => {
+    activeHistory()
+    coverTranscripts('2026-10-01T00:00:00.000Z', AS_OF)
+    prompt('/repo', '2026-11-02T00:00:00.000Z', { transcript: false })
+    addSkill({ name: 'old-skill' })
+    expect(staleSkills()).toEqual(['global/old-skill'])
+  })
+
+  it('still distrusts a pruned prompt typed after the transcript coverage ends', () => {
+    activeHistory()
+    coverTranscripts('2026-10-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z')
+    prompt('/repo', '2026-11-02T00:00:00.000Z', { transcript: false })
+    addSkill({ name: 'old-skill' })
+    expect(staleSkills()).toEqual([])
+  })
+
+  it('keeps a skill whose only use in the window has a pruned transcript off the list', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'megatron-stale-archive-'))
+    try {
+      archive.close()
+      const path = join(directory, 'usage-history.db')
+      archive = openUsageArchive(path)
+      attachUsageArchive(index, path)
+      activeHistory()
+      coverTranscripts('2026-10-01T00:00:00.000Z', AS_OF)
+      prompt('/repo', '2026-11-02T00:00:00.000Z', { transcript: false })
+      addSkill({ name: 'used-skill' })
+      addSkill({ name: 'idle-skill' })
+      archive
+        .prepare(
+          `INSERT INTO history_skill_invocations (source_uuid, session_id, project, skill_name,
+             invoked_at, trigger_type, agent_id)
+           VALUES ('pruned-use', 'gone', '/repo', 'used-skill', ?, 'autonomous', NULL)`
+        )
+        .run(DURING)
+      expect(staleSkills()).toEqual(['global/idle-skill'])
+    } finally {
+      index.close()
+      archive.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   it('ignores a bare slash-command session, which never writes a transcript', () => {

@@ -28,6 +28,7 @@ interface DeclarationRow {
   has_literal_credential: number
   approval: string | null
   source_path: string
+  command_is_bare: number | null
 }
 
 beforeEach(() => {
@@ -81,6 +82,23 @@ function projectState(): {
 }
 
 describe('user and local scope', () => {
+  it('records whether a stdio command is a bare name Claude Code looks up on PATH', () => {
+    write(claudeJson, {
+      mcpServers: {
+        bare: { command: 'uvx', args: ['pkg'] },
+        pathed: { command: '/opt/tools/server' },
+        remote: { type: 'http', url: 'https://a.dev' }
+      }
+    })
+
+    scanMcpDeclarations(db)
+    expect(declarations().map((row) => [row.name, row.command_is_bare])).toEqual([
+      ['bare', 1],
+      ['pathed', 0],
+      ['remote', null]
+    ])
+  })
+
   it('reads user servers from top-level mcpServers', () => {
     write(claudeJson, {
       mcpServers: { github: { type: 'http', url: 'https://api.githubcopilot.com/mcp/' } }
@@ -100,7 +118,8 @@ describe('user and local scope', () => {
         arg_count: 0,
         has_literal_credential: 0,
         approval: null,
-        source_path: claudeJson
+        source_path: claudeJson,
+        command_is_bare: null
       }
     ])
   })

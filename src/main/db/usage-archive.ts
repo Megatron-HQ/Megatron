@@ -63,6 +63,30 @@ export function openUsageArchive(path: string): Database.Database {
         plugin_name TEXT NOT NULL, skill_name TEXT NOT NULL, first_seen_at TEXT NOT NULL,
         PRIMARY KEY(plugin_name, skill_name)
       );
+      -- Metadata only: args and the preceding prompt stay in the index, so they never outlive
+      -- their transcript. project is the session's cwd, which scopes a project skill's uses.
+      -- trigger_type has no CHECK so a future trigger type can never fail an archive write.
+      CREATE TABLE IF NOT EXISTS history_skill_invocations (
+        source_uuid TEXT PRIMARY KEY, session_id TEXT NOT NULL, project TEXT NOT NULL,
+        skill_name TEXT NOT NULL, invoked_at TEXT NOT NULL, trigger_type TEXT NOT NULL,
+        agent_id TEXT
+      );
+      CREATE INDEX IF NOT EXISTS history_skill_invocations_skill
+        ON history_skill_invocations(skill_name, invoked_at);
+      -- The raw qualified_name, never a resolved server: attribution moves when Declarations
+      -- change, so it is resolved when read. Never input or result content.
+      CREATE TABLE IF NOT EXISTS history_mcp_calls (
+        tool_use_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, cwd TEXT, project TEXT NOT NULL,
+        qualified_name TEXT NOT NULL, invoked_at TEXT NOT NULL, agent_id TEXT,
+        is_error INTEGER, is_denied INTEGER, result_chars INTEGER, result_images INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS history_mcp_calls_name
+        ON history_mcp_calls(qualified_name, invoked_at);
+      CREATE INDEX IF NOT EXISTS history_mcp_calls_time ON history_mcp_calls(invoked_at);
+      -- Time ranges in which every transcript was observed, so a gap reads as unavailable, not 0.
+      CREATE TABLE IF NOT EXISTS history_transcript_coverage (
+        start_at TEXT PRIMARY KEY, end_at TEXT NOT NULL
+      );
     `)
     return database
   } catch (error) {

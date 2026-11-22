@@ -22,6 +22,28 @@ export interface InventoryWatchRoot {
   kind: 'project' | 'inventory'
 }
 
+export interface InventoryWatchedPaths {
+  skills: string
+  plugins: string
+  settings: string
+}
+
+// .claude.json is deliberately not watched (#67): Claude Code rewrites it for counters and caches
+// about once a minute while it runs, and none of those writes change the index. Its MCP fields reach
+// the index through the window-focus Scan, the 30 s reconcile, and each MCP action's own rescan.
+export function inventoryWatchRoots(
+  config: InventoryWatchedPaths,
+  grantedPaths: readonly string[]
+): InventoryWatchRoot[] {
+  return [
+    ...grantedPaths.map((path) => ({ path, kind: 'project' as const })),
+    ...[config.skills, config.plugins, config.settings].map((path) => ({
+      path,
+      kind: 'inventory' as const
+    }))
+  ]
+}
+
 interface InventoryWatcherOptions {
   getRoots: () => InventoryWatchRoot[]
   refresh: () => Promise<unknown>

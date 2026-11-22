@@ -99,6 +99,8 @@ describe('renderer trust boundary', () => {
     [IPC_CHANNELS.checkMcpConnections, ['/repo']],
     [IPC_CHANNELS.confirmMcpCheck, []],
     [IPC_CHANNELS.getInitialMcpCheckConfirmed, []],
+    [IPC_CHANNELS.confirmResidentTax, []],
+    [IPC_CHANNELS.getInitialResidentTaxConfirmed, []],
     [IPC_CHANNELS.usageMcp, []],
     [
       IPC_CHANNELS.removeMcpServer,
@@ -129,6 +131,7 @@ describe('renderer trust boundary', () => {
     [IPC_CHANNELS.checkMcpConnections, [42]],
     [IPC_CHANNELS.checkMcpConnections, ['/repo', '/other']],
     [IPC_CHANNELS.confirmMcpCheck, [true]],
+    [IPC_CHANNELS.confirmResidentTax, [true]],
     [IPC_CHANNELS.usageMcp, ['24h']],
     [IPC_CHANNELS.removeMcpServer, []],
     [IPC_CHANNELS.removeMcpServer, ['configured:a']],

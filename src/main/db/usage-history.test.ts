@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { applySchema } from './schema'
@@ -64,7 +64,7 @@ function prompt(timestamp = at(3), owner = 'session', slash = 0): void {
 // The scan rebuilds lineages before archiving; these fixtures write the raw tables directly.
 function sync(): void {
   rebuildCostLineages(index)
-  archiveUsageHistory(index, archive, { prompts: true, tokens: true }, now)
+  archiveUsageHistory(index, archive, { prompts: true, transcripts: true }, now)
 }
 
 // p → a and p → b are CLI forks: shared startTime and first record, b under a on every field.
@@ -464,7 +464,12 @@ describe('persistent usage history', () => {
 
   it('keeps unavailable history distinct from known empty dates, with leap years and a shared scale', () => {
     prompt(new Date(2024, 1, 29, 10).toISOString())
-    archiveUsageHistory(index, archive, { prompts: true, tokens: false }, new Date(2024, 2, 2, 12))
+    archiveUsageHistory(
+      index,
+      archive,
+      { prompts: true, transcripts: false },
+      new Date(2024, 2, 2, 12)
+    )
     index.prepare('DELETE FROM prompt_history').run()
     prompt(at(3))
     prompt(at(3))
@@ -488,7 +493,7 @@ describe('persistent usage history', () => {
     session()
     totals()
     turn('one', 3, 1)
-    archiveUsageHistory(index, archive, { prompts: false, tokens: false }, now)
+    archiveUsageHistory(index, archive, { prompts: false, transcripts: false }, now)
     expect(getUsageCalendar(archive, 2026, now).prompts).toBe(0)
     expect(getUsageDay(archive, '2026-11-03', now).tokens).toBeNull()
   })
@@ -779,4 +784,263 @@ describe('token bucket details across daylight-saving changes', () => {
       })
     }
   )
+})
+
+describe('archived skill invocations and MCP calls', () => {
+  interface CallResult {
+    is_error: number | null
+    is_denied: number | null
+    result_chars: number | null
+    result_images: number | null
+  }
+  const NO_RESULT: CallResult = {
+    is_error: null,
+    is_denied: null,
+    result_chars: null,
+    result_images: null
+  }
+
+  function invocation(uuid: string, owner = 'session'): void {
+    index
+      .prepare(
+        `INSERT INTO skill_invocations (source_uuid, session_id, skill_name, args_text, invoked_at,
+           trigger_type, agent_id, preceding_user_text)
+         VALUES (?, ?, 'deploy', 'token=abc', ?, 'user_invoked', 'agent-1', 'deploy with my key')`
+      )
+      .run(uuid, owner, at(3))
+  }
+  function mcpCall(id: string, result: CallResult = NO_RESULT, owner = 'session'): void {
+    index
+      .prepare(
+        `INSERT INTO mcp_tool_calls (tool_use_id, session_id, cwd, qualified_name, invoked_at,
+           agent_id, is_error, is_denied, result_chars, result_images)
+         VALUES (@id, @owner, '/repo/packages/api', 'github__create_issue', @invokedAt, NULL,
+           @is_error, @is_denied, @result_chars, @result_images)`
+      )
+      .run({ id, owner, invokedAt: at(3, 11), ...result })
+  }
+  function lastTouched(id: string, day: number): void {
+    index
+      .prepare('UPDATE sessions_meta SET source_mtime_ms = ? WHERE session_id = ?')
+      .run(new Date(2026, 10, day, 9).getTime(), id)
+  }
+  function archiveTranscripts(at: Date): void {
+    archiveUsageHistory(index, archive, { prompts: false, transcripts: true }, at)
+  }
+  function pruneTranscripts(): void {
+    index.exec(
+      'DELETE FROM skill_invocations; DELETE FROM mcp_tool_calls; DELETE FROM sessions_meta'
+    )
+  }
+  const archivedInvocations = (): unknown[] =>
+    archive.prepare('SELECT * FROM history_skill_invocations').all()
+  const archivedCalls = (): unknown[] => archive.prepare('SELECT * FROM history_mcp_calls').all()
+  const coverage = (): unknown[] =>
+    archive
+      .prepare('SELECT start_at, end_at FROM history_transcript_coverage ORDER BY start_at')
+      .all()
+
+  it('archives what the real transcript scanner reads, and none of its content', () => {
+    grantPath(directory)
+    const projects = join(directory, 'projects')
+    const project = join(projects, 'repo')
+    mkdirSync(project, { recursive: true })
+    const line = (fields: Record<string, unknown>): Record<string, unknown> => ({
+      sessionId: 'real',
+      cwd: '/repo',
+      timestamp: at(3),
+      isSidechain: false,
+      ...fields
+    })
+    writeFileSync(
+      join(project, 'real.jsonl'),
+      [
+        line({ type: 'user', uuid: 'prompt', message: { content: 'use SECRET-PROMPT' } }),
+        line({
+          type: 'assistant',
+          uuid: 'skill-line',
+          message: {
+            content: [
+              {
+                type: 'tool_use',
+                id: 'skill-block',
+                name: 'Skill',
+                input: { skill: 'deploy', args: 'SECRET-ARGS' }
+              }
+            ]
+          }
+        }),
+        line({
+          type: 'assistant',
+          uuid: 'mcp-line',
+          message: {
+            content: [
+              {
+                type: 'tool_use',
+                id: 'mcp-block',
+                name: 'mcp__github__create_issue',
+                input: { body: 'SECRET-INPUT' }
+              }
+            ]
+          }
+        }),
+        line({
+          type: 'user',
+          uuid: 'mcp-result',
+          message: {
+            content: [{ type: 'tool_result', tool_use_id: 'mcp-block', content: 'SECRET-RESULT' }]
+          }
+        })
+      ]
+        .map((record) => JSON.stringify(record))
+        .join('\n')
+    )
+    expect(scanTranscripts(index, projects).status).toBe('complete')
+    sync()
+    rmSync(project, { recursive: true })
+    expect(scanTranscripts(index, projects).status).toBe('complete')
+    sync()
+
+    expect(archivedInvocations()).toMatchObject([
+      { source_uuid: 'skill-line', session_id: 'real', project: '/repo', skill_name: 'deploy' }
+    ])
+    expect(archivedCalls()).toMatchObject([
+      {
+        tool_use_id: 'mcp-block',
+        qualified_name: 'github__create_issue',
+        is_error: 0,
+        result_chars: 'SECRET-RESULT'.length
+      }
+    ])
+    archive.pragma('wal_checkpoint(TRUNCATE)')
+    const bytes = readFileSync(join(directory, 'usage-history.db')).toString('latin1')
+    expect(bytes).not.toMatch(/SECRET-/)
+  })
+
+  it("copies an invocation's metadata once, never its args or the prompt before it", () => {
+    session()
+    invocation('u1')
+    sync()
+    sync()
+    expect(archivedInvocations()).toEqual([
+      {
+        source_uuid: 'u1',
+        session_id: 'session',
+        project: '/repo',
+        skill_name: 'deploy',
+        invoked_at: at(3),
+        trigger_type: 'user_invoked',
+        agent_id: 'agent-1'
+      }
+    ])
+  })
+
+  it("copies an MCP call's metadata with its own folder and its session's", () => {
+    session()
+    mcpCall('t1', { is_error: 0, is_denied: 0, result_chars: 1200, result_images: 1 })
+    sync()
+    expect(archivedCalls()).toEqual([
+      {
+        tool_use_id: 't1',
+        session_id: 'session',
+        cwd: '/repo/packages/api',
+        project: '/repo',
+        qualified_name: 'github__create_issue',
+        invoked_at: at(3, 11),
+        agent_id: null,
+        is_error: 0,
+        is_denied: 0,
+        result_chars: 1200,
+        result_images: 1
+      }
+    ])
+  })
+
+  it('keeps both after Claude Code prunes their transcript', () => {
+    session()
+    invocation('u1')
+    mcpCall('t1')
+    sync()
+    pruneTranscripts()
+    sync()
+    expect(archivedInvocations()).toHaveLength(1)
+    expect(archivedCalls()).toHaveLength(1)
+  })
+
+  it("takes the index's current reading of a row it still holds", () => {
+    session()
+    invocation('u1')
+    sync()
+    index.prepare("UPDATE skill_invocations SET trigger_type = 'autonomous'").run()
+    sync()
+    expect(archivedInvocations()).toMatchObject([{ trigger_type: 'autonomous' }])
+  })
+
+  it('fills in a result recorded after the call was archived, and never clears one', () => {
+    session()
+    mcpCall('t1')
+    sync()
+    expect(archivedCalls()).toMatchObject([NO_RESULT])
+    const result = { is_error: 1, is_denied: 0, result_chars: 40, result_images: 0 }
+    index.prepare('DELETE FROM mcp_tool_calls').run()
+    mcpCall('t1', result)
+    sync()
+    expect(archivedCalls()).toMatchObject([result])
+    index.prepare('DELETE FROM mcp_tool_calls').run()
+    mcpCall('t1')
+    sync()
+    expect(archivedCalls()).toMatchObject([result])
+  })
+
+  it('leaves calls and transcript coverage alone when only prompts are archived', () => {
+    session()
+    invocation('u1')
+    mcpCall('t1')
+    archiveUsageHistory(index, archive, { prompts: true, transcripts: false }, now)
+    expect(archivedInvocations()).toEqual([])
+    expect(archivedCalls()).toEqual([])
+    expect(coverage()).toEqual([])
+  })
+
+  it('covers from the oldest retained transcript to now', () => {
+    session('older')
+    session('newer')
+    lastTouched('older', 1)
+    lastTouched('newer', 2)
+    archiveTranscripts(now)
+    expect(coverage()).toEqual([
+      {
+        start_at: new Date(2026, 10, 1, 9).toISOString(),
+        end_at: new Date(now.getTime() + 1).toISOString()
+      }
+    ])
+  })
+
+  it('covers only the moment of the scan when no transcript is retained', () => {
+    archiveTranscripts(now)
+    expect(coverage()).toEqual([
+      { start_at: now.toISOString(), end_at: new Date(now.getTime() + 1).toISOString() }
+    ])
+  })
+
+  it('merges overlapping coverage and keeps the gap left by transcripts pruned unseen', () => {
+    session()
+    lastTouched('session', 1)
+    archiveTranscripts(new Date(2026, 10, 3, 12))
+    // Megatron didn't run while Claude Code pruned everything up to the 10th.
+    lastTouched('session', 10)
+    archiveTranscripts(new Date(2026, 10, 12, 12))
+    lastTouched('session', 11)
+    archiveTranscripts(new Date(2026, 10, 14, 12))
+    expect(coverage()).toEqual([
+      {
+        start_at: new Date(2026, 10, 1, 9).toISOString(),
+        end_at: new Date(new Date(2026, 10, 3, 12).getTime() + 1).toISOString()
+      },
+      {
+        start_at: new Date(2026, 10, 10, 9).toISOString(),
+        end_at: new Date(new Date(2026, 10, 14, 12).getTime() + 1).toISOString()
+      }
+    ])
+  })
 })

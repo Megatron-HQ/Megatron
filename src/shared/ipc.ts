@@ -53,6 +53,8 @@ export const IPC_CHANNELS = {
   usageSkillInvocations: 'usage:skillInvocations',
   usageMcp: 'usage:mcp',
   usageContextBaseline: 'usage:contextBaseline',
+  getInitialResidentTaxConfirmed: 'usage:getInitialResidentTaxConfirmed',
+  confirmResidentTax: 'usage:confirmResidentTax',
   usageRecordedRequest: 'usage:recordedRequest',
   getUpdateState: 'updates:getState',
   checkForUpdates: 'updates:check',
@@ -277,6 +279,9 @@ export interface SkillsListResult {
   // Set while a scan is in progress so a renderer that missed scan:started can still time the banner.
   scanActivity: ScanActivity | null
   contextBudget: ContextBudget
+  // Since when Uses and Last used count every use (usageHistorySince in known-calls.ts); null
+  // before any transcript was seen.
+  usesSince: string | null
 }
 
 export interface ScanIssue {
@@ -339,9 +344,12 @@ export interface SkillInvocationEntry {
   preceding_user_text: string
   invoked_at: string
   trigger_type: TriggerType
-  cwd: string // from sessions_meta
-  git_branch: string | null // NULL when cwd isn't a git repo
+  cwd: string // the session's cwd
+  git_branch: string | null // NULL when cwd isn't a git repo, or its transcript is pruned
   agent_id: string | null // subagent filename stem; NULL for main-session invocations
+  // 1 when only the usage archive still holds this use: Claude Code pruned its transcript, and
+  // its prompt, args and branch went with it (preceding_user_text is then '').
+  transcript_pruned: 0 | 1
 }
 
 export interface SkillInvocationRecord extends SkillInvocationEntry {
@@ -590,6 +598,7 @@ export type McpLintRuleId =
   | 'mcp-shadowed'
   | 'mcp-prefix-collision'
   | 'mcp-server-skipped'
+  | 'mcp-command-not-found'
 
 // Derived from the index each time a server is read, so never stale and never stored.
 export interface McpLintFinding {
@@ -603,8 +612,9 @@ export interface McpLintFinding {
 
 export interface McpServerList {
   servers: McpServerRow[]
-  // Bounds of the calls the index still holds; transcripts age out after ~30 days.
-  firstCallAt: string | null
+  // Since when every call is counted: the start of the latest unbroken transcript coverage
+  // (known-calls.ts). Calls Megatron archived before then are still counted.
+  callsSince: string | null
   lastCallAt: string | null
   // When the general connection check last ran this session.
   lastCheckedAt: string | null
@@ -631,6 +641,8 @@ export interface McpDeclarationDetail {
   approval: McpApproval | null
   sourcePath: string | null
   shadowedIn: McpShadow[]
+  // A stdio command given as a bare program name, looked up on PATH (location holds it).
+  commandIsBare: boolean
 }
 
 export interface McpToolUsage {

@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input'
 import { InvocationGroupRow } from '@/components/InvocationGroupRow'
 import { InvocationRow } from '@/components/InvocationRow'
 import { groupInvocationEntries } from '@/lib/invocation-grouping'
-import { parseInvocationPrompt } from '@/lib/invocation-prompt'
+import { invocationPrompt } from '@/lib/invocation-prompt'
 import { useProjectLabel } from '@/lib/use-project-label'
 import type { ProjectLabelResolver } from '@/lib/project-tree'
 import { TRIGGER_META } from '@/lib/trigger-meta'
@@ -45,7 +45,7 @@ function matchesSearch(
   needle: string,
   resolveProjectLabel: ProjectLabelResolver
 ): boolean {
-  const label = parseInvocationPrompt(entry.preceding_user_text).label.toLowerCase()
+  const label = invocationPrompt(entry).label.toLowerCase()
   const project = resolveProjectLabel(entry.cwd).toLowerCase()
   return label.includes(needle) || project.includes(needle)
 }

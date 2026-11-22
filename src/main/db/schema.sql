@@ -157,6 +157,8 @@ CREATE TABLE IF NOT EXISTS mcp_declarations (
   has_literal_credential INTEGER NOT NULL,
   approval TEXT CHECK (approval IN ('approved', 'rejected', 'pending')), -- project scope only
   source_path TEXT NOT NULL,          -- the declaring file
+  command_is_bare INTEGER,            -- stdio with a command: 1 when it is a bare program name looked
+                                       -- up on PATH; NULL for remote servers (mcp-command-not-found)
   PRIMARY KEY (scope, project_path, name)
 );
 

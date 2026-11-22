@@ -28,6 +28,8 @@ import {
   writeSkillScanAuthoritative
 } from './queries'
 import { rebuildCostLineages } from '../ingest/cost-lineage'
+import { openUsageArchive } from './usage-archive'
+import { attachUsageArchive } from './known-calls'
 import { readProjectIdentity, type ProjectIdentity } from '../../shared/project-identity'
 import type { WorktreeLink } from '../../shared/ipc'
 
@@ -1256,7 +1258,8 @@ describe('getSkillUsageDetail', () => {
         trigger_type: 'user_invoked',
         cwd: '/repo',
         git_branch: null,
-        agent_id: null
+        agent_id: null,
+        transcript_pruned: 0
       }
     ])
   })
@@ -1371,6 +1374,123 @@ describe('getSkillUsageDetail', () => {
 
     expect(detail.byProject).toEqual([{ cwd: '/repo-a', count: 1 }])
     expect(detail.recentTriggers.map((t) => t.preceding_user_text)).toEqual(['from repo a'])
+  })
+})
+
+describe('skill usage past transcript pruning', () => {
+  let archiveDirectory: string
+  let archive: Database.Database
+
+  beforeEach(() => {
+    archiveDirectory = mkdtempSync(join(tmpdir(), 'megatron-queries-archive-'))
+    const path = join(archiveDirectory, 'usage-history.db')
+    archive = openUsageArchive(path)
+    attachUsageArchive(db, path)
+  })
+  afterEach(() => {
+    archive.close()
+    db.close()
+    rmSync(archiveDirectory, { recursive: true, force: true })
+  })
+
+  function archivedUse(
+    uuid: string,
+    project: string,
+    invokedAt: string,
+    trigger = 'autonomous'
+  ): void {
+    archive
+      .prepare(
+        `INSERT INTO history_skill_invocations (source_uuid, session_id, project, skill_name,
+           invoked_at, trigger_type, agent_id)
+         VALUES (?, ?, ?, 'deploy', ?, ?, NULL)`
+      )
+      .run(uuid, `session-${uuid}`, project, invokedAt, trigger)
+  }
+
+  it('counts a use whose transcript Claude Code pruned, and dates Last used by it', () => {
+    insertSkill('deploy')
+    archivedUse('old', '/repo', '2026-06-01T00:00:00.000Z')
+    expect(listSkills(db, identity)[0]).toMatchObject({
+      total_invocations: 1,
+      last_invoked_at: '2026-06-01T00:00:00.000Z'
+    })
+  })
+
+  it('counts a use both the index and the archive hold once', () => {
+    insertSkill('deploy')
+    insertSession('live')
+    insertInvocation({ source_uuid: 'both', session_id: 'live', skill_name: 'deploy' })
+    archivedUse('both', '/repo', '2026-08-14T00:00:00.000Z')
+    archivedUse('old', '/repo', '2026-06-01T00:00:00.000Z')
+    expect(listSkills(db, identity)[0].total_invocations).toBe(2)
+  })
+
+  it('credits a project skill only with archived uses from its own repository', () => {
+    insertSkill('deploy', {
+      source_type: 'project',
+      project_root: '/repo',
+      source_path: '/repo/.claude/skills/deploy'
+    })
+    archivedUse('mine', '/repo/packages/web', '2026-06-01T00:00:00.000Z')
+    archivedUse('theirs', '/other-repo', '2026-06-02T00:00:00.000Z')
+    expect(listSkills(db, identity)[0]).toMatchObject({
+      total_invocations: 1,
+      last_invoked_at: '2026-06-01T00:00:00.000Z'
+    })
+  })
+
+  it('keeps a shadowed project skill at no uses', () => {
+    insertSkill('deploy')
+    insertSkill('deploy', {
+      source_type: 'project',
+      project_root: '/repo',
+      source_path: '/repo/.claude/skills/deploy'
+    })
+    archivedUse('old', '/repo', '2026-06-01T00:00:00.000Z')
+    expect(listSkills(db, identity).map((skill) => skill.total_invocations)).toEqual([1, 0])
+  })
+
+  it("breaks a skill's archived uses down by trigger and project", () => {
+    const id = insertSkill('deploy')
+    archivedUse('a', '/repo', '2026-06-01T00:00:00.000Z', 'user_invoked')
+    archivedUse('b', '/other', '2026-06-02T00:00:00.000Z', 'autonomous')
+    const detail = getSkillUsageDetail(db, identity, getSkillById(db, identity, id)!)
+    expect(detail.byTriggerType).toEqual(
+      expect.arrayContaining([
+        { trigger_type: 'user_invoked', count: 1 },
+        { trigger_type: 'autonomous', count: 1 }
+      ])
+    )
+    expect(detail.byProject).toEqual(
+      expect.arrayContaining([
+        { cwd: '/repo', count: 1 },
+        { cwd: '/other', count: 1 }
+      ])
+    )
+  })
+
+  it('lists a pruned use in the log without the prompt or branch its transcript took along', () => {
+    const id = insertSkill('deploy')
+    insertSession('live', '/repo', { git_branch: 'main' })
+    insertInvocation({
+      source_uuid: 'new',
+      session_id: 'live',
+      skill_name: 'deploy',
+      invoked_at: '2026-08-14T00:00:00.000Z',
+      preceding_user_text: 'ship it'
+    })
+    archivedUse('old', '/repo', '2026-06-01T00:00:00.000Z')
+    expect(getSkillInvocationLog(db, identity, getSkillById(db, identity, id)!)).toMatchObject([
+      { preceding_user_text: 'ship it', git_branch: 'main', transcript_pruned: 0 },
+      {
+        preceding_user_text: '',
+        invoked_at: '2026-06-01T00:00:00.000Z',
+        cwd: '/repo',
+        git_branch: null,
+        transcript_pruned: 1
+      }
+    ])
   })
 })
 

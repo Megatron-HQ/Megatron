@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { McpDeclarationDetail, McpLintFinding } from '../../shared/ipc'
 import { lintMcpServer } from './mcp-lint'
+import type { CommandLookup } from '../command-lookup'
 
 function declaration(overrides: Partial<McpDeclarationDetail> = {}): McpDeclarationDetail {
   return {
@@ -17,6 +18,7 @@ function declaration(overrides: Partial<McpDeclarationDetail> = {}): McpDeclarat
     approval: null,
     sourcePath: '/home/.claude.json',
     shadowedIn: [],
+    commandIsBare: false,
     ...overrides
   }
 }
@@ -145,5 +147,70 @@ describe('lintMcpServer', () => {
         })
       ]).map((finding) => finding.ruleId)
     ).toEqual(['mcp-server-skipped'])
+  })
+})
+
+describe('mcp-command-not-found', () => {
+  const uvx = (overrides: Partial<McpDeclarationDetail> = {}): McpDeclarationDetail =>
+    declaration({ location: 'uvx', commandIsBare: true, ...overrides })
+
+  function lintCommand(
+    declarations: McpDeclarationDetail[],
+    answer: CommandLookup,
+    calledRecently = false
+  ): McpLintFinding[] {
+    return lintMcpServer({
+      name: 'github',
+      prefix: 'github',
+      declarations,
+      sharedWith: [],
+      lookupCommand: () => answer,
+      calledRecently
+    })
+  }
+
+  it('tells the user when a bare command is on no PATH folder Megatron can see', () => {
+    expect(lintCommand([uvx({ scope: 'local', projectPath: '/a' })], 'missing')).toEqual([
+      {
+        ruleId: 'mcp-command-not-found',
+        severity: 'info',
+        message:
+          "The local config for /a runs uvx, which Megatron can't find on PATH. If Claude Code can't either, the server won't start: install uvx, or give the command's full path.",
+        scope: 'local',
+        projectPath: '/a'
+      }
+    ])
+  })
+
+  it.each<CommandLookup>(['found', 'unknown'])(
+    'says nothing when the lookup answers %s',
+    (answer) => {
+      expect(lintCommand([uvx()], answer)).toEqual([])
+    }
+  )
+
+  it('says nothing for a server called in the last 30 days, which evidently starts', () => {
+    expect(lintCommand([uvx()], 'missing', true)).toEqual([])
+  })
+
+  it('says nothing when the declaration sets its own PATH', () => {
+    expect(lintCommand([uvx({ env: [{ name: 'Path', literal: true }] })], 'missing')).toEqual([])
+  })
+
+  it('says nothing for a command given with a folder, a remote server, or a skipped one', () => {
+    expect(
+      lintCommand(
+        [
+          uvx({ commandIsBare: false }),
+          uvx({ transport: 'http', location: 'a.dev', commandIsBare: false }),
+          uvx({ problem: 'no_endpoint' })
+        ],
+        'missing'
+      ).map((finding) => finding.ruleId)
+    ).toEqual(['mcp-server-skipped'])
+  })
+
+  it('says nothing without a lookup, as in the scan worker and older callers', () => {
+    expect(lint([uvx()])).toEqual([])
   })
 })

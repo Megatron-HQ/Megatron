@@ -218,10 +218,13 @@ async function captureAll(app, window, outDir, activeScenarios, scoped) {
       await app.evaluate(() => globalThis.megatronVisualFixtures.reset())
       // The throwaway profile has no folder grants, so first-run onboarding would open over
       // every scenario; the onboarding scenarios reopen it through Settings › Show welcome.
+      // Resident tax's one-time confirmation likewise; `usage-resident-tax-intro` reads it unset
+      // through a sync fixture.
       await window.evaluate(async () => {
         await window.api.setLastSection('skills')
         await window.api.setTheme('system')
         await window.api.setOnboardingDone()
+        await window.api.confirmResidentTax()
       })
       await window.reload()
       await waitForSettle(window)

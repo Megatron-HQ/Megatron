@@ -235,11 +235,14 @@ Every unknown resolves to no signal, because a missing icon costs less than a fa
      index left over from a previous launch is never trusted. Inventory-only rescans don't run these
      sources, so the flags carry over between them.
   2. Archived prompt coverage spans the whole window.
-  3. Every non-slash archived prompt in the window belongs to a session still in `sessions_meta`.
-     Invocations come only from transcripts, which Claude Code prunes at `cleanupPeriodDays`
-     (default 30, the same length as the window), so the archive's prompts supply the reach-back
-     evidence. This gate catches a shorter retention, deleted transcripts, and any change to
-     pruning. Bare slash commands never write a transcript, so they are left out.
+  3. Every non-slash archived prompt in the window belongs to a session still in `sessions_meta`,
+     or was typed inside a transcript coverage range (`history_transcript_coverage`). Invocations
+     come only from transcripts, which Claude Code prunes at `cleanupPeriodDays` (default 30, the
+     same length as the window), so the archive's prompts supply the reach-back evidence. A
+     covered prompt's transcript was read by a complete scan, which archived its invocations, and
+     Last used counts archived ones (`docs/data-model.md`), so its pruning loses nothing. This
+     gate catches a shorter retention before Megatron covered it, deleted transcripts, and any
+     change to pruning. Bare slash commands never write a transcript, so they are left out.
 - **Per skill.** A skill is stale only when all of these hold:
   - It is enabled and not shadowed. `Power` or the shadow warning already explains why such a skill
     doesn't run.
@@ -278,7 +281,10 @@ prompt, tool schemas, deferred tools) anyway. So the panel has two sources and s
   `<userData>/context-baseline/`, a fixed empty folder, so the figure is the **global baseline** (no
   project CLAUDE.md, skills, or MCP servers). `/context` is computed locally: verified $0,
   `duration_api_ms: 0`, no transcript written, ≈3.6 s. It does start MCP servers and run
-  SessionStart hooks. Run on the panel's first open per launch and on Refresh, held in memory.
+  SessionStart hooks, so the panel first shows what it starts and runs only after a one-time
+  confirmation (`residentTaxConfirmed` in `preferences.json`). Upgraders see it too, and the MCP
+  check's confirmation doesn't count: `claude mcp list` runs no hooks. After that, run on the
+  panel's first open per launch and on Refresh, held in memory.
   Parsed generically, so a category Claude Code adds later passes through. Rejected: `--bare`,
   which skips CLAUDE.md and hooks.
 - **Per-item detail:** the first `repl_main_thread` request of the newest interactive transcript,

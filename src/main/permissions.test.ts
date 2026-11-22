@@ -648,3 +648,35 @@ describe('visitAllowedUtf8LinesSync', () => {
     expect(lines).toEqual([])
   })
 })
+
+describe('executableStatusSync', () => {
+  let directory: string
+  beforeEach(() => {
+    directory = mkdtempSync(join(tmpdir(), 'megatron-executable-'))
+  })
+  afterEach(() => rmSync(directory, { recursive: true, force: true }))
+
+  it('finds an executable file', () => {
+    const file = join(directory, 'server')
+    writeFileSync(file, '', { mode: 0o755 })
+    expect(permissions.executableStatusSync(file)).toBe('present')
+  })
+
+  it('calls a missing file or a folder absent', () => {
+    mkdirSync(join(directory, 'folder'))
+    expect(permissions.executableStatusSync(join(directory, 'missing'))).toBe('absent')
+    expect(permissions.executableStatusSync(join(directory, 'folder'))).toBe('absent')
+  })
+
+  it.skipIf(process.platform === 'win32')('calls a file without an execute bit absent', () => {
+    const file = join(directory, 'script')
+    writeFileSync(file, '', { mode: 0o644 })
+    expect(permissions.executableStatusSync(file)).toBe('absent')
+  })
+
+  it('never looks up a relative path or a network share', () => {
+    expect(permissions.executableStatusSync('bin/server')).toBe('unknown')
+    expect(permissions.executableStatusSync('\\\\server\\share\\tool.exe')).toBe('unknown')
+    expect(permissions.executableStatusSync('//server/share/tool')).toBe('unknown')
+  })
+})

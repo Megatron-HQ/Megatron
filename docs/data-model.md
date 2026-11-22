@@ -182,7 +182,13 @@ delete it, and nothing syncs off device.
   lineage's tokens. A link to a head since pruned from the index is kept, so its surviving branches
   aren't counted a second time; rows archived before this rule are left as they are. Full scans also record
   when each plugin skill was first seen, keyed by plugin identity (`name@marketplace`) and the
-  namespaced skill name, never the version-addressed `source_path`. No prompt or response content.
+  namespaced skill name, never the version-addressed `source_path`. Complete transcript scans also
+  copy one row per Skill Invocation (`source_uuid`) and per MCP tool call (`tool_use_id`): skill or
+  raw `qualified_name`, session, the session's cwd (and the call's own), time, trigger type, agent
+  id, and a call's error, refusal and result size (#51). Never `args_text`, `preceding_user_text`,
+  tool input, or result content; MCP attribution is resolved when read, never stored. While the
+  index holds a row its reading wins; a pruned row keeps what was archived. No prompt or response
+  content.
   Failed or partial usage sources are not copied; archive writes and the recomputed token shares
   commit in one transaction. Plugin sightings are the exception: they are recorded from whatever
   plugin rows the index holds, because a late sighting only delays the stale signal
@@ -192,8 +198,21 @@ delete it, and nothing syncs off device.
   collapse distinct same-timestamp entries. Responses reuse the scanner's global turn identities.
 - **Coverage is explicit.** Only successfully observed `history.jsonl` ranges are recorded. Dates
   outside them are unavailable, incomplete days are partial, and history pruned before Megatron's
-  first observation is gone. The archive grows only when Megatron scans; there is no background
-  collector.
+  first observation is gone. Transcripts have their own ranges (`history_transcript_coverage`),
+  from the oldest retained transcript's mtime to the scan: Claude Code prunes transcripts by
+  mtime, so everything after that point is still on disk whatever `cleanupPeriodDays` is, while
+  rows before it may be partial. Hidden projects are left out of the index, so their calls are
+  archived only while visible. The archive grows only when Megatron scans; there is no
+  background collector.
+- **Read back through an attachment.** Main attaches the archive to its index connection
+  (`known-calls.ts`), so Uses, Last used, a skill's trigger and project breakdown, its
+  invocation log, and MCP server call counts read every archived row plus any index row a partial
+  scan hasn't archived yet, each once. A row only the archive holds is marked pruned: its args,
+  prompt and branch went with the transcript. These counts are complete from the start of the
+  latest unbroken transcript coverage, which the UI names. The Usage section's rolling windows
+  and the MCP Usage panel still read the index, which matches the archive within the default
+  30-day retention (#72). Without the attachment (the scan worker, a damaged archive) every reader
+  falls back to the index.
 - **One archive per Claude Code config folder.** `~/.claude` keeps `usage-history.db`; any other
   `CLAUDE_CONFIG_DIR` folder gets `usage-history-<first 16 hex of sha256(canonical path)>.db`
   (`usageArchiveFilename()`). Coverage ranges describe one `history.jsonl`, so profiles never share

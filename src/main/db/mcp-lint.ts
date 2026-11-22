@@ -4,6 +4,7 @@ import type {
   McpLintFinding,
   McpShadow
 } from '../../shared/ipc'
+import type { CommandLookup } from '../command-lookup'
 
 // MCP lint rules (docs/mcp-servers.md, Lint). Pure: every input is already in the index, so
 // findings are derived each time a server is read rather than stored.
@@ -14,7 +15,19 @@ export interface McpLintInput {
   declarations: McpDeclarationDetail[]
   // The other servers whose tool names carry the same prefix.
   sharedWith: string[]
+  // Main's PATH lookup (command-lookup.ts). Absent, as in the scan worker, the not-found rule is
+  // silent.
+  lookupCommand?: (program: string) => CommandLookup
+  // A call in the last 30 days shows the server starts, whatever Megatron's own PATH says.
+  calledRecently?: boolean
 }
+
+interface CommandCheck {
+  lookupCommand: (program: string) => CommandLookup
+  calledRecently: boolean
+}
+
+const UNKNOWN_COMMAND: CommandCheck = { lookupCommand: () => 'unknown', calledRecently: false }
 
 const SKIPPED_REASON: Record<McpConfigProblem, string> = {
   url_without_type:
@@ -46,7 +59,23 @@ function literalKeys(declaration: McpDeclarationDetail): string[] {
     .map((key) => key.name)
 }
 
-function declarationFindings(declaration: McpDeclarationDetail): McpLintFinding[] {
+// A server that sets PATH for itself is looked up on that PATH, which Megatron never sees.
+function setsOwnPath(declaration: McpDeclarationDetail): boolean {
+  return declaration.env.some((key) => key.name.toUpperCase() === 'PATH')
+}
+
+function commandNotFound(declaration: McpDeclarationDetail, check: CommandCheck): string | null {
+  const program = declaration.location
+  if (!declaration.commandIsBare || program === null || declaration.transport !== 'stdio')
+    return null
+  if (check.calledRecently || setsOwnPath(declaration)) return null
+  return check.lookupCommand(program) === 'missing' ? program : null
+}
+
+function declarationFindings(
+  declaration: McpDeclarationDetail,
+  check: CommandCheck
+): McpLintFinding[] {
   const label = declarationLabel(declaration)
   const at = { scope: declaration.scope, projectPath: declaration.projectPath }
   // A server Claude Code skips never loads, so whether it would win or wait for approval is moot.
@@ -78,6 +107,14 @@ function declarationFindings(declaration: McpDeclarationDetail): McpLintFinding[
       message: `${label} is waiting for approval: Claude Code asks before using a server from a project's .mcp.json.`,
       ...at
     })
+  const missingProgram = commandNotFound(declaration, check)
+  if (missingProgram !== null)
+    findings.push({
+      ruleId: 'mcp-command-not-found',
+      severity: 'info',
+      message: `${label} runs ${missingProgram}, which Megatron can't find on PATH. If Claude Code can't either, the server won't start: install ${missingProgram}, or give the command's full path.`,
+      ...at
+    })
   if (declaration.shadowedIn.length > 0)
     findings.push({
       ruleId: 'mcp-shadowed',
@@ -89,7 +126,13 @@ function declarationFindings(declaration: McpDeclarationDetail): McpLintFinding[
 }
 
 export function lintMcpServer(input: McpLintInput): McpLintFinding[] {
-  const findings = input.declarations.flatMap(declarationFindings)
+  const check: CommandCheck = {
+    lookupCommand: input.lookupCommand ?? UNKNOWN_COMMAND.lookupCommand,
+    calledRecently: input.calledRecently ?? UNKNOWN_COMMAND.calledRecently
+  }
+  const findings = input.declarations.flatMap((declaration) =>
+    declarationFindings(declaration, check)
+  )
   if (input.sharedWith.length > 0)
     findings.push({
       ruleId: 'mcp-prefix-collision',

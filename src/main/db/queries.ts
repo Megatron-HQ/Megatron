@@ -3,6 +3,7 @@ import { INVOCATION_PAGE_SIZE, MAX_INVOCATION_OFFSET } from '../../shared/ipc'
 import { dirname, join, resolve, sep } from 'path'
 import { CHARS_PER_TOKEN } from '../ingest/skill-parser'
 import { readPluginEnablement } from '../ingest/claude-settings'
+import { knownSkillInvocationsSql } from './known-calls'
 import { isWithinProjectPath, normalizeProjectPath } from '../../shared/project-path'
 import type { ProjectIdentity } from '../../shared/project-identity'
 import type {
@@ -77,13 +78,14 @@ function projectPathScopeSql(cwdExpression: string, rootExpression: string): str
   return `(${rootExpression} IS NOT NULL AND (${cwd} = ${root} OR substr(${cwd}, 1, length(${prefix})) = ${prefix}))`
 }
 
+// cwd is the known-invocations source's session cwd (known-calls.ts).
 function projectSkillScopeSql(root: string, name: string, synced: string): string {
-  return `(${projectPathScopeSql('sm.cwd', root)} AND NOT EXISTS (
+  return `(${projectPathScopeSql('si.cwd', root)} AND NOT EXISTS (
     SELECT 1 FROM skills nearer
     WHERE nearer.source_type = 'project' AND nearer.name = ${name}
       AND (nearer.is_synced = 0 OR ${synced} = 1)
       AND length(${canonicalPathSql('nearer.project_root')}) > length(${canonicalPathSql(root)})
-      AND ${projectPathScopeSql('sm.cwd', 'nearer.project_root')}
+      AND ${projectPathScopeSql('si.cwd', 'nearer.project_root')}
   ))`
 }
 
@@ -91,7 +93,8 @@ const SKILL_PROJECT_PATH_SCOPE = projectSkillScopeSql('s.project_root', 's.name'
 const PARAMETERIZED_PROJECT_PATH_SCOPE = projectSkillScopeSql('@root', '@skillName', '@synced')
 
 // Live aggregate, not a stored count — skill_invocations is append-only and joined by
-// skill_name (no FK, per the locked no-FK decision), so this can never fall out of sync.
+// skill_name (no FK, per the locked no-FK decision), so this can never fall out of sync. Reads
+// every known invocation, the archived ones whose transcripts are pruned included (#51).
 //
 // Precedence rule (verified against code.claude.com/docs/en/skills): non-synced personal/global
 // overrides a same-named project skill, everywhere, unconditionally — so a shadowed project
@@ -103,7 +106,9 @@ const PARAMETERIZED_PROJECT_PATH_SCOPE = projectSkillScopeSql('@root', '@skillNa
 // applicable project root wins when repositories are nested. Global/plugin
 // skills stay unscoped by name: global wins everywhere, and plugin skills are namespaced
 // (`plugin-name:skill-name`) so they structurally cannot collide with anything.
-const SKILLS_WITH_USAGE_SELECT = `
+function skillsWithUsageSelect(db: Database.Database): string {
+  const known = knownSkillInvocationsSql(db)
+  return `
   WITH s AS (
     SELECT
       skills.*,
@@ -139,31 +144,30 @@ const SKILLS_WITH_USAGE_SELECT = `
     CASE
       WHEN s.shadowed_by_skill_id IS NOT NULL THEN 0
       WHEN s.source_type = 'project' THEN (
-        SELECT COUNT(*) FROM skill_invocations si
-        JOIN sessions_meta sm ON sm.session_id = si.session_id
+        SELECT COUNT(*) FROM ${known} si
         WHERE si.skill_name = s.name
           AND ${SKILL_PROJECT_PATH_SCOPE}
       )
-      ELSE (SELECT COUNT(*) FROM skill_invocations si WHERE si.skill_name = s.name)
+      ELSE (SELECT COUNT(*) FROM ${known} si WHERE si.skill_name = s.name)
     END AS total_invocations,
     CASE
       WHEN s.shadowed_by_skill_id IS NOT NULL THEN NULL
       WHEN s.source_type = 'project' THEN (
-        SELECT MAX(si.invoked_at) FROM skill_invocations si
-        JOIN sessions_meta sm ON sm.session_id = si.session_id
+        SELECT MAX(si.invoked_at) FROM ${known} si
         WHERE si.skill_name = s.name
           AND ${SKILL_PROJECT_PATH_SCOPE}
       )
-      ELSE (SELECT MAX(si.invoked_at) FROM skill_invocations si WHERE si.skill_name = s.name)
+      ELSE (SELECT MAX(si.invoked_at) FROM ${known} si WHERE si.skill_name = s.name)
     END AS last_invoked_at
   FROM s
   LEFT JOIN lint_findings lf ON s.id = lf.skill_id
   GROUP BY s.id
 `
+}
 
 export function listSkills(db: Database.Database, identity: ProjectIdentity): SkillRow[] {
   withProjectIdentity(db, identity)
-  return db.prepare(SKILLS_WITH_USAGE_SELECT).all() as SkillRow[]
+  return db.prepare(skillsWithUsageSelect(db)).all() as SkillRow[]
 }
 
 export function getSkillById(
@@ -172,7 +176,7 @@ export function getSkillById(
   id: number
 ): SkillRow | null {
   withProjectIdentity(db, identity)
-  const row = db.prepare(`SELECT * FROM (${SKILLS_WITH_USAGE_SELECT}) WHERE id = ?`).get(id) as
+  const row = db.prepare(`SELECT * FROM (${skillsWithUsageSelect(db)}) WHERE id = ?`).get(id) as
     SkillRow | undefined
   return row ?? null
 }
@@ -431,7 +435,7 @@ export function getSkillUsageDetail(
   skill: SkillRow
 ): SkillUsageDetail {
   // A shadowed project skill can never actually have fired (see the precedence note on
-  // SKILLS_WITH_USAGE_SELECT above) — its detail view should agree with its forced-0 count
+  // skillsWithUsageSelect above) — its detail view should agree with its forced-0 count
   // rather than show whatever a bare name join happens to find.
   if (skill.shadowed_by_skill_id !== null) {
     return { byTriggerType: [], byProject: [], recentTriggers: [] }
@@ -447,8 +451,7 @@ export function getSkillUsageDetail(
   const byTriggerType = db
     .prepare(
       `SELECT si.trigger_type, COUNT(*) AS count
-       FROM skill_invocations si
-       JOIN sessions_meta sm ON sm.session_id = si.session_id
+       FROM ${knownSkillInvocationsSql(db)} si
        WHERE si.skill_name = @skillName ${scopeClause}
        GROUP BY si.trigger_type`
     )
@@ -456,11 +459,10 @@ export function getSkillUsageDetail(
 
   const byProject = db
     .prepare(
-      `SELECT sm.cwd AS cwd, COUNT(*) AS count
-       FROM skill_invocations si
-       JOIN sessions_meta sm ON sm.session_id = si.session_id
+      `SELECT si.cwd AS cwd, COUNT(*) AS count
+       FROM ${knownSkillInvocationsSql(db)} si
        WHERE si.skill_name = @skillName ${scopeClause}
-       GROUP BY sm.cwd`
+       GROUP BY si.cwd`
     )
     .all(params) as ProjectCount[]
 
@@ -475,10 +477,12 @@ export function getSkillUsageDetail(
 // lifetime log behind SkillActivityDialog (omit `limit`). One function, not two, so the three
 // correctness behaviours below can't drift apart between the two surfaces:
 //   1. a shadowed project skill has no history of its own — the global one ran (see the
-//      precedence note on SKILLS_WITH_USAGE_SELECT), so return [] to match its forced-0 count;
+//      precedence note on skillsWithUsageSelect), so return [] to match its forced-0 count;
 //   2. a non-shadowed project skill is scoped to sessions under its own project_root, so two
 //      repos with a same-named skill don't cross-contaminate;
-//   3. a null preceding_user_text falls back to the reconstructed slash command.
+//   3. a null preceding_user_text falls back to the reconstructed slash command, except for a
+//      use whose transcript is pruned (transcript_pruned): its prompt and args went with it, so
+//      it reads '' and the row says so rather than inventing a command nobody typed.
 //
 // preceding_user_text is returned verbatim — image-caption placeholders included. That string
 // ("[Image: original 2438x1460, ...]") is a coordinate-mapping note Claude Code writes into its
@@ -511,22 +515,22 @@ export function getSkillInvocationLog(
 
   return db
     .prepare(
-      `SELECT COALESCE(
+      `SELECT CASE WHEN si.transcript_pruned = 1 THEN '' ELSE COALESCE(
                 si.preceding_user_text,
                 CASE
                   WHEN si.args_text IS NOT NULL AND si.args_text != '' THEN '/' || si.skill_name || ' ' || si.args_text
                   ELSE '/' || si.skill_name
                 END
-              ) AS preceding_user_text,
+              ) END AS preceding_user_text,
               si.invoked_at,
               si.trigger_type,
-              sm.cwd,
-              sm.git_branch,
-              si.agent_id
-       FROM skill_invocations si
-       JOIN sessions_meta sm ON sm.session_id = si.session_id
+              si.cwd,
+              si.git_branch,
+              si.agent_id,
+              si.transcript_pruned
+       FROM ${knownSkillInvocationsSql(db)} si
        WHERE si.skill_name = @skillName ${scopeClause}
-       ORDER BY si.invoked_at DESC, si.id DESC
+       ORDER BY si.invoked_at DESC, si.index_id DESC
        ${limitClause}`
     )
     .all(params) as SkillInvocationEntry[]
@@ -635,7 +639,7 @@ export function getSkillInvocationSlice(
                 CASE WHEN si.args_text IS NOT NULL AND si.args_text != ''
                      THEN '/' || si.skill_name || ' ' || si.args_text
                      ELSE '/' || si.skill_name END) AS preceding_user_text,
-              sm.cwd, sm.git_branch
+              sm.cwd, sm.git_branch, 0 AS transcript_pruned
        FROM skill_invocations si
        JOIN sessions_meta sm ON sm.session_id = si.session_id
        WHERE si.invoked_at >= @startAt AND si.invoked_at < @endAt ${skillClause}
@@ -658,6 +662,7 @@ export function getSkillInvocationSlice(
       cwd: row.cwd,
       git_branch: row.git_branch,
       agent_id: row.agent_id,
+      transcript_pruned: row.transcript_pruned,
       skillName: row.skill_name,
       skillId: target?.id ?? null,
       sourceType: target?.source_type ?? null
@@ -1477,7 +1482,7 @@ export function getPluginDetail(
   withProjectIdentity(db, identity)
 
   const skills = db
-    .prepare(`SELECT * FROM (${SKILLS_WITH_USAGE_SELECT}) WHERE plugin_name = ?`)
+    .prepare(`SELECT * FROM (${skillsWithUsageSelect(db)}) WHERE plugin_name = ?`)
     .all(`${name}@${marketplace}`) as SkillRow[]
 
   const components = db

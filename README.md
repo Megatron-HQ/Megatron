@@ -202,7 +202,7 @@ decisions live in `docs/` (see [Development documentation](#development-document
   [Updates](#updates)); no skills, usage data, or paths are sent.
 - **The Claude CLI may use the network.** Plugin actions and Resident tax run Claude Code's own
   CLI. Resident tax's `/context` is computed locally, but it starts your MCP servers and
-  SessionStart hooks.
+  SessionStart hooks, so the panel asks once before its first run.
 - **The local index holds some prompt text.** It stores skill invocation arguments and excerpts of
   the prompt that preceded each invocation. Resident tax results stay in memory.
 - **The usage archive keeps metadata only.** `usage-history.db` records prompt counts, session and

@@ -22,6 +22,7 @@ function declaration(overrides: Partial<McpDeclarationDetail>): McpDeclarationDe
     approval: null,
     sourcePath: '/home/.claude.json',
     shadowedIn: [],
+    commandIsBare: false,
     ...overrides
   }
 }

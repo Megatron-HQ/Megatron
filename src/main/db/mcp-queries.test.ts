@@ -11,6 +11,11 @@ import {
   revealableMcpSource
 } from './mcp-queries'
 import { grantPath, resetGrantedPaths } from '../permissions'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { openUsageArchive } from './usage-archive'
+import { attachUsageArchive } from './known-calls'
 import type { McpConnectionCheck, McpLiveStatus, McpServerRow } from '../../shared/ipc'
 
 let db: Database.Database
@@ -36,13 +41,15 @@ interface DeclarationFixture {
   credential?: boolean
   approval?: string | null
   env?: { name: string; literal: boolean }[]
+  bare?: boolean
 }
 
 function declare(fixture: DeclarationFixture): void {
   db.prepare(
     `INSERT INTO mcp_declarations (scope, project_path, name, transport, problem, location,
-       env_keys, header_keys, arg_count, has_literal_credential, approval, source_path)
-     VALUES (?, ?, ?, ?, ?, ?, ?, '[]', 2, ?, ?, ?)`
+       env_keys, header_keys, arg_count, has_literal_credential, approval, source_path,
+       command_is_bare)
+     VALUES (?, ?, ?, ?, ?, ?, ?, '[]', 2, ?, ?, ?, ?)`
   ).run(
     fixture.scope,
     fixture.project ?? '',
@@ -53,7 +60,8 @@ function declare(fixture: DeclarationFixture): void {
     JSON.stringify(fixture.env ?? []),
     fixture.credential ? 1 : 0,
     fixture.approval ?? (fixture.scope === 'project' ? 'approved' : null),
-    fixture.scope === 'project' ? `${fixture.project}/.mcp.json` : '/home/.claude.json'
+    fixture.scope === 'project' ? `${fixture.project}/.mcp.json` : '/home/.claude.json',
+    fixture.bare === undefined ? null : fixture.bare ? 1 : 0
   )
 }
 
@@ -235,13 +243,74 @@ describe('listMcpServers', () => {
     })
   })
 
-  it('reports the call window', () => {
+  it('dates the calls from the oldest retained transcript, and reports the last call', () => {
+    db.prepare('UPDATE sessions_meta SET source_mtime_ms = ?').run(
+      Date.parse('2026-11-01T06:00:00.000Z')
+    )
     call('github__a', { at: '2026-11-03T00:00:00.000Z' })
     call('github__b', { at: '2026-11-09T00:00:00.000Z' })
 
     expect(listMcpServers(db)).toMatchObject({
-      firstCallAt: '2026-11-03T00:00:00.000Z',
+      callsSince: '2026-11-01T06:00:00.000Z',
       lastCallAt: '2026-11-09T00:00:00.000Z'
+    })
+  })
+
+  describe('with the usage archive attached', () => {
+    let archiveDirectory: string
+    let archive: Database.Database
+
+    beforeEach(() => {
+      archiveDirectory = mkdtempSync(join(tmpdir(), 'megatron-mcp-archive-'))
+      const path = join(archiveDirectory, 'usage-history.db')
+      archive = openUsageArchive(path)
+      attachUsageArchive(db, path)
+    })
+    afterEach(() => {
+      archive.close()
+      db.close()
+      rmSync(archiveDirectory, { recursive: true, force: true })
+    })
+
+    function archivedCall(id: string, qualified: string, at: string, isError: number | null): void {
+      archive
+        .prepare(
+          `INSERT INTO history_mcp_calls (tool_use_id, session_id, cwd, project, qualified_name,
+             invoked_at, agent_id, is_error, is_denied, result_chars, result_images)
+           VALUES (?, 'pruned', NULL, '/repo', ?, ?, NULL, ?, 0, 5, 0)`
+        )
+        .run(id, qualified, at, isError)
+    }
+
+    it('credits calls whose transcript Claude Code pruned to their server, once each', () => {
+      declare({ scope: 'user', name: 'github' })
+      archivedCall('old', 'github__list_issues', '2026-08-01T00:00:00.000Z', 1)
+      call('github__list_issues', { at: '2026-11-05T00:00:00.000Z' })
+      const indexed = db.prepare('SELECT tool_use_id FROM mcp_tool_calls').pluck().get() as string
+      archivedCall(indexed, 'github__list_issues', '2026-11-05T00:00:00.000Z', 0)
+
+      expect(server('configured:github')).toMatchObject({
+        calls: 2,
+        errors: 1,
+        lastUsedAt: '2026-11-05T00:00:00.000Z'
+      })
+    })
+
+    it('makes a server seen only in pruned transcripts an Observed one', () => {
+      archivedCall('old', 'retired__tool', '2026-08-01T00:00:00.000Z', 0)
+
+      expect(server('observed:retired')).toMatchObject({
+        calls: 1,
+        lastUsedAt: '2026-08-01T00:00:00.000Z'
+      })
+    })
+
+    it('dates the calls from the start of the latest unbroken transcript coverage', () => {
+      archive
+        .prepare('INSERT INTO history_transcript_coverage VALUES (?, ?)')
+        .run('2026-09-15T00:00:00.000Z', '2026-11-12T00:00:00.000Z')
+
+      expect(listMcpServers(db).callsSince).toBe('2026-09-15T00:00:00.000Z')
     })
   })
 
@@ -258,9 +327,10 @@ describe('listMcpServers', () => {
   })
 
   it('lists nothing for an empty index', () => {
+    db.prepare('DELETE FROM sessions_meta').run()
     expect(listMcpServers(db)).toEqual({
       servers: [],
-      firstCallAt: null,
+      callsSince: null,
       lastCallAt: null,
       lastCheckedAt: null
     })
@@ -285,6 +355,44 @@ describe('getMcpServerDetail', () => {
 
   it('returns null for an unknown server', () => {
     expect(getMcpServerDetail(db, 'configured:nope', null)).toBeNull()
+  })
+
+  describe('a stdio command missing from PATH', () => {
+    const missing = (): 'missing' => 'missing'
+    const ruleIds = (findings: { ruleId: string }[]): string[] =>
+      findings.map((finding) => finding.ruleId)
+
+    it('is a notice on the server, in its detail and its row', () => {
+      declare({ scope: 'user', name: 'tools', location: 'uvx', bare: true })
+
+      const result = getMcpServerDetail(db, 'configured:tools', null, undefined, missing)
+      expect(ruleIds(result?.findings ?? [])).toEqual(['mcp-command-not-found'])
+      expect(result?.declarations[0].commandIsBare).toBe(true)
+      expect(
+        listMcpServers(db, null, missing).servers.find((row) => row.id === 'configured:tools')
+      ).toMatchObject({ notices: 1, warnings: 0 })
+    })
+
+    it('is never raised for a server called in the last 30 days', () => {
+      declare({ scope: 'user', name: 'tools', location: 'uvx', bare: true })
+      call('tools__run', { at: new Date(Date.now() - 2 * 86_400_000).toISOString() })
+
+      const result = getMcpServerDetail(db, 'configured:tools', null, undefined, missing)
+      expect(ruleIds(result?.findings ?? [])).toEqual([])
+    })
+
+    it('is raised again once its last call is older than 30 days', () => {
+      declare({ scope: 'user', name: 'tools', location: 'uvx', bare: true })
+      call('tools__run', { at: new Date(Date.now() - 40 * 86_400_000).toISOString() })
+
+      const result = getMcpServerDetail(db, 'configured:tools', null, undefined, missing)
+      expect(ruleIds(result?.findings ?? [])).toEqual(['mcp-command-not-found'])
+    })
+
+    it('is never raised without a lookup', () => {
+      declare({ scope: 'user', name: 'tools', location: 'uvx', bare: true })
+      expect(ruleIds(detail('configured:tools').findings)).toEqual([])
+    })
   })
 
   it('marks where each declaration loses by local > approved project > user', () => {
@@ -341,7 +449,8 @@ describe('getMcpServerDetail', () => {
         hasLiteralCredential: false,
         approval: null,
         sourcePath: '/cache/a/.mcp.json',
-        shadowedIn: [{ projectPath: null, byScope: 'user', byProjectPath: null }]
+        shadowedIn: [{ projectPath: null, byScope: 'user', byProjectPath: null }],
+        commandIsBare: false
       }
     ])
   })

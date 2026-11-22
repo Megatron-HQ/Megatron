@@ -22,6 +22,9 @@ export interface McpServerSummary {
   headers: McpKeyName[]
   argCount: number
   hasLiteralCredential: boolean
+  // For a stdio server with a command: whether it is a bare program name that Claude Code looks up
+  // on PATH (no folder, no variable, no spaces). Null for remote servers and missing commands.
+  commandIsBare: boolean | null
 }
 
 const TRANSPORT_BY_TYPE: Record<string, McpTransport> = {
@@ -76,6 +79,15 @@ function urlHost(url: string): string | null {
 function commandName(command: string): string | null {
   const program = command.trim().split(/\s+/)[0]
   return program.split(/[\\/]/).pop() || null
+}
+
+// A folder separator, a $VAR / %VAR% reference or whitespace means the command isn't looked up
+// on PATH as written, so only a plain name qualifies for the not-found lint.
+const BARE_PROGRAM_NAME = /^[^\s/\\$%]+$/
+
+function isBareProgramName(command: string): boolean {
+  const program = command.trim()
+  return BARE_PROGRAM_NAME.test(program) && program !== '.' && program !== '..'
 }
 
 function withoutReferences(value: string): string {
@@ -165,7 +177,9 @@ export function summarizeMcpServer(config: Record<string, unknown>): McpServerSu
     env: keyNames(config.env),
     headers: keyNames(config.headers),
     argCount: Array.isArray(config.args) ? config.args.length : 0,
-    hasLiteralCredential: holdsLiteralCredential(config)
+    hasLiteralCredential: holdsLiteralCredential(config),
+    commandIsBare:
+      usesUrl || command === null || command.trim() === '' ? null : isBareProgramName(command)
   }
 }
 

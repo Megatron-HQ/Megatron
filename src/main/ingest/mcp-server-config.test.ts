@@ -51,6 +51,32 @@ describe('summarizeMcpServer location', () => {
   })
 })
 
+describe('summarizeMcpServer commandIsBare', () => {
+  it.each(['npx', 'uvx', 'node.exe', 'my-server_2'])('calls %s a bare program name', (command) => {
+    expect(summarizeMcpServer({ command }).commandIsBare).toBe(true)
+  })
+
+  it.each([
+    '/usr/local/bin/server',
+    './server',
+    'C:\\tools\\server.exe',
+    'bin/server',
+    '${HOME}/server',
+    '%APPDATA%\\server.cmd',
+    '$SERVER',
+    'npx -y pkg',
+    '.',
+    '..'
+  ])('does not call %s a bare program name', (command) => {
+    expect(summarizeMcpServer({ command }).commandIsBare).toBe(false)
+  })
+
+  it('has no answer for a remote server or one without a command', () => {
+    expect(summarizeMcpServer({ type: 'http', url: 'https://a.dev' }).commandIsBare).toBeNull()
+    expect(summarizeMcpServer({}).commandIsBare).toBeNull()
+  })
+})
+
 describe('summarizeMcpServer env, headers and args', () => {
   it('keeps env and header key names, marking which values are literal', () => {
     const summary = summarizeMcpServer({

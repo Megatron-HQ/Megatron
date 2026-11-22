@@ -19,7 +19,7 @@ export function createUsageScanTasks(dependencies: {
 
   function archiveTokens(database: Database.Database): ScanTaskResult {
     if (!transcriptsComplete) return { status: 'partial' }
-    archiveUsageHistory(database, dependencies.getArchive(), { prompts: false, tokens: true })
+    archiveUsageHistory(database, dependencies.getArchive(), { prompts: false, transcripts: true })
     return { status: 'complete' }
   }
 
@@ -31,7 +31,7 @@ export function createUsageScanTasks(dependencies: {
 
   function archivePrompts(database: Database.Database): ScanTaskResult {
     if (!promptsComplete) return { status: 'partial' }
-    archiveUsageHistory(database, dependencies.getArchive(), { prompts: true, tokens: false })
+    archiveUsageHistory(database, dependencies.getArchive(), { prompts: true, transcripts: false })
     return { status: 'complete' }
   }
 

@@ -49,16 +49,26 @@ export function findStaleSkillIds(
   const windowStart = new Date(asOf.getTime() - STALE_WINDOW_DAYS * DAY_MS)
   if (historyCoverage(windowStart, asOf, ranges, asOf) !== 'available') return stale
   // Transcripts are the only invocation source and Claude Code prunes them, so a typed prompt
-  // whose session has no transcript means invocations may be missing. Bare slash commands never
-  // write a transcript, so they prove nothing either way.
-  const windowSessions = archive
+  // whose session has no transcript means invocations may be missing, unless the prompt falls in
+  // a transcript coverage range: a complete scan then saw that session's transcript and archived
+  // its invocations, which listSkills counts (#51). Bare slash commands never write a
+  // transcript, so they prove nothing either way.
+  const windowPrompts = archive
     .prepare(
-      'SELECT DISTINCT session_id FROM history_prompts WHERE is_slash_command = 0 AND typed_at >= ?'
+      `SELECT DISTINCT session_id, typed_at FROM history_prompts
+       WHERE is_slash_command = 0 AND typed_at >= ?`
     )
-    .pluck()
-    .all(windowStart.toISOString()) as string[]
+    .all(windowStart.toISOString()) as { session_id: string; typed_at: string }[]
+  const transcriptRanges = archive
+    .prepare('SELECT start_at, end_at FROM history_transcript_coverage')
+    .all() as { start_at: string; end_at: string }[]
+  const transcriptsObserved = (at: string): boolean =>
+    transcriptRanges.some((range) => range.start_at <= at && at < range.end_at)
   const transcript = index.prepare('SELECT 1 FROM sessions_meta WHERE session_id = ?').pluck()
-  if (windowSessions.some((session) => transcript.get(session) === undefined)) return stale
+  const invocationsMayBeMissing = windowPrompts.some(
+    (row) => transcript.get(row.session_id) === undefined && !transcriptsObserved(row.typed_at)
+  )
+  if (invocationsMayBeMissing) return stale
   const createdAt = new Map(
     (index.prepare('SELECT id, created_at FROM skills').all() as SkillBirth[]).map((row) => [
       row.id,
