@@ -278,7 +278,10 @@ prompt, tool schemas, deferred tools) anyway. So the panel has two sources and s
   `<userData>/context-baseline/`, a fixed empty folder, so the figure is the **global baseline** (no
   project CLAUDE.md, skills, or MCP servers). `/context` is computed locally: verified $0,
   `duration_api_ms: 0`, no transcript written, ≈3.6 s. It does start MCP servers and run
-  SessionStart hooks. Run on the panel's first open per launch and on Refresh, held in memory.
+  SessionStart hooks, so the panel first shows what it starts and runs only after a one-time
+  confirmation (`residentTaxConfirmed` in `preferences.json`). Upgraders see it too, and the MCP
+  check's confirmation doesn't count: `claude mcp list` runs no hooks. After that, run on the
+  panel's first open per launch and on Refresh, held in memory.
   Parsed generically, so a category Claude Code adds later passes through. Rejected: `--bare`,
   which skips CLAUDE.md and hooks.
 - **Per-item detail:** the first `repl_main_thread` request of the newest interactive transcript,

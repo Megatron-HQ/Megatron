@@ -53,6 +53,8 @@ export const IPC_CHANNELS = {
   usageSkillInvocations: 'usage:skillInvocations',
   usageMcp: 'usage:mcp',
   usageContextBaseline: 'usage:contextBaseline',
+  getInitialResidentTaxConfirmed: 'usage:getInitialResidentTaxConfirmed',
+  confirmResidentTax: 'usage:confirmResidentTax',
   usageRecordedRequest: 'usage:recordedRequest',
   getUpdateState: 'updates:getState',
   checkForUpdates: 'updates:check',

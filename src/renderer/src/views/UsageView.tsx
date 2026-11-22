@@ -103,6 +103,14 @@ export function UsageView({
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const reduceMotion = useReducedMotion() === true
   const projects = useUsageProjects()
+  // Here because the header's Refresh and the panel body both wait on it.
+  const [residentTaxConfirmed, setResidentTaxConfirmed] = useState(() =>
+    window.api.getInitialResidentTaxConfirmed()
+  )
+  function confirmResidentTax(): void {
+    setResidentTaxConfirmed(true)
+    void window.api.confirmResidentTax()
+  }
 
   const { data, isPending, isFetching, isError, refetch } = useQuery(usageOverviewQuery)
   const calendar = useQuery({
@@ -170,7 +178,7 @@ export function UsageView({
           {/* Resident tax reads Claude Code's /context, not the index, so it never waits on a scan
             and its freshness is its own measurement, not the overview's. */}
           {panel === 'resident-tax' ? (
-            <ResidentTaxRefresh />
+            <ResidentTaxRefresh confirmed={residentTaxConfirmed} />
           ) : (
             !loading && (
               <div className="flex min-w-0 items-center gap-3">
@@ -245,7 +253,10 @@ export function UsageView({
               transition={{ duration: reduceMotion ? 0 : 0.15, ease: 'easeOut' }}
             >
               {panel === 'resident-tax' ? (
-                <ResidentTaxSection />
+                <ResidentTaxSection
+                  confirmed={residentTaxConfirmed}
+                  onConfirm={confirmResidentTax}
+                />
               ) : isError || projects.isError || mcpError ? (
                 <div role="alert" className="py-6 text-sm text-muted-foreground">
                   <p>Could not load usage data.</p>

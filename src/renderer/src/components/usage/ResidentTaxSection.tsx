@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { queryOptions, useQuery } from '@tanstack/react-query'
 import { Layers3, RefreshCw } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/relative-time'
@@ -11,8 +12,9 @@ import { ResidentDrillDialog } from './ResidentDrillDialog'
 import { resolveDrillTarget, type DrillTarget } from './resident-drill'
 
 // Measured once per app launch (the CLI run takes seconds and starts MCP servers and hooks),
-// then only on Refresh. Kept in memory; never written to the index. `always`: this is local IPC,
-// so an offline machine must not park it as a paused network request.
+// then only on Refresh, and never before the one-time confirmation. Kept in memory; never written
+// to the index. `always`: this is local IPC, so an offline machine must not park it as a paused
+// network request.
 const contextBaselineQuery = queryOptions({
   queryKey: ['context-baseline'],
   queryFn: () => window.api.getContextBaseline(),
@@ -22,8 +24,18 @@ const contextBaselineQuery = queryOptions({
   networkMode: 'always'
 })
 
-export function ResidentTaxRefresh(): React.JSX.Element {
-  const { isFetching: fetching, refetch } = useQuery(contextBaselineQuery)
+// Every observer carries `enabled`: any one left enabled would start the run on mount, before
+// the user confirmed.
+export function ResidentTaxRefresh({
+  confirmed
+}: {
+  confirmed: boolean
+}): React.JSX.Element | null {
+  const { isFetching: fetching, refetch } = useQuery({
+    ...contextBaselineQuery,
+    enabled: confirmed
+  })
+  if (!confirmed) return null
   return (
     <button
       type="button"
@@ -40,9 +52,19 @@ export function ResidentTaxRefresh(): React.JSX.Element {
   )
 }
 
-export function ResidentTaxSection(): React.JSX.Element {
-  const { data, isPending, isError, isFetching, refetch } = useQuery(contextBaselineQuery)
+export function ResidentTaxSection({
+  confirmed,
+  onConfirm
+}: {
+  confirmed: boolean
+  onConfirm: () => void
+}): React.JSX.Element {
+  const { data, isPending, isError, isFetching, refetch } = useQuery({
+    ...contextBaselineQuery,
+    enabled: confirmed
+  })
   const retry = { retrying: isFetching, onRetry: () => void refetch() }
+  if (!confirmed) return <ResidentTaxIntro onRun={onConfirm} />
   if (isPending) return <ResidentTaxSkeleton />
   if (isError) {
     return <ResidentTaxError message="Megatron couldn't run Claude Code's /context." {...retry} />
@@ -106,6 +128,28 @@ function ResidentTaxBreakdown({
         onRestoreFocus={() => triggerRef.current?.focus()}
       />
     </section>
+  )
+}
+
+function ResidentTaxIntro({ onRun }: { onRun: () => void }): React.JSX.Element {
+  return (
+    <div className="flex flex-col items-center gap-2 py-24 text-center">
+      <Layers3 className="size-8 text-muted-foreground" />
+      <p className="text-[13px] font-medium">Measure resident context</p>
+      <p className="max-w-[430px] text-[13px] text-muted-foreground">
+        Megatron runs Claude Code&apos;s /context from an empty folder to see what&apos;s in context
+        before your first message. That starts your user-level MCP servers and runs your
+        SessionStart hooks, so it can take a few seconds. It makes no API call, costs nothing, and
+        the result stays in memory.
+      </p>
+      <Button
+        type="button"
+        onClick={onRun}
+        className="mt-2 bg-accent-lime text-accent-lime-foreground hover:bg-accent-lime hover:opacity-90"
+      >
+        Run /context
+      </Button>
+    </div>
   )
 }
 

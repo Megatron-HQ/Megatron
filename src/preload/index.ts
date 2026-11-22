@@ -116,6 +116,9 @@ const api = {
   getUsageMcp: (): Promise<McpUsageStats> => ipcRenderer.invoke(IPC_CHANNELS.usageMcp),
   getContextBaseline: (): Promise<ContextBaselineResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.usageContextBaseline),
+  getInitialResidentTaxConfirmed: (): boolean =>
+    ipcRenderer.sendSync(IPC_CHANNELS.getInitialResidentTaxConfirmed),
+  confirmResidentTax: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.confirmResidentTax),
   getRecordedRequest: (): Promise<RecordedRequest | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.usageRecordedRequest),
   getInitialSection: (): AppSection => ipcRenderer.sendSync(IPC_CHANNELS.getInitialSection),

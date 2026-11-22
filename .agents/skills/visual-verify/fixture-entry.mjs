@@ -117,6 +117,16 @@ ipcMain.handle = (channel, handler) => {
   registeredHandlers.set(channel, handler)
   registerHandler(channel, handler)
 }
+// Sync channels (`sendSync`) read persisted state at mount. A scenario can't unset that state in
+// the shared profile, so it overrides the read instead.
+const registeredListeners = new Map()
+const overriddenListeners = new Map()
+const SYNC_FIXTURES = { 'resident-tax-unconfirmed': false }
+const listen = ipcMain.on.bind(ipcMain)
+ipcMain.on = (channel, listener) => {
+  registeredListeners.set(channel, listener)
+  return listen(channel, listener)
+}
 
 app.on('web-contents-created', (_event, contents) => {
   const send = contents.send.bind(contents)
@@ -136,9 +146,27 @@ globalThis.megatronVisualFixtures = {
       registerHandler(channel, registeredHandlers.get(channel))
     }
     overriddenChannels.clear()
+    for (const [channel, fixture] of overriddenListeners) {
+      ipcMain.removeListener(channel, fixture)
+      listen(channel, registeredListeners.get(channel))
+    }
+    overriddenListeners.clear()
     projectScanCompletedAt = undefined
   },
   set(channel, mode) {
+    if (registeredListeners.has(channel)) {
+      if (!(mode in SYNC_FIXTURES)) throw new Error(`Unknown sync fixture: ${mode}`)
+      ipcMain.removeListener(
+        channel,
+        overriddenListeners.get(channel) ?? registeredListeners.get(channel)
+      )
+      const fixture = (event) => {
+        event.returnValue = SYNC_FIXTURES[mode]
+      }
+      overriddenListeners.set(channel, fixture)
+      listen(channel, fixture)
+      return
+    }
     if (channel !== 'usage:projects' && mode.startsWith('usage-history'))
       globalThis.megatronVisualFixtures.set('usage:projects', mode)
     const original = registeredHandlers.get(channel)

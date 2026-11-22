@@ -879,6 +879,14 @@ app.whenReady().then(() => {
   secureIpc.handle(IPC_CHANNELS.usageContextBaseline, () =>
     measureContextBaseline(app.getPath('userData'))
   )
+  // The run starts MCP servers and SessionStart hooks, so the panel's first one waits for a
+  // one-time confirmation (docs/usage-analytics.md, Resident tax).
+  secureIpc.on(IPC_CHANNELS.getInitialResidentTaxConfirmed, (event) => {
+    event.returnValue = themeStore.get('residentTaxConfirmed') === true
+  })
+  secureIpc.handle(IPC_CHANNELS.confirmResidentTax, () => {
+    themeStore.set('residentTaxConfirmed', true)
+  })
   secureIpc.handle(IPC_CHANNELS.usageRecordedRequest, () => findNewestRecordedRequest())
 
   secureIpc.handle(IPC_CHANNELS.usageCalendar, (_event, year: number) =>

@@ -21,6 +21,8 @@ export type ThemeStore = Store<{
   onboardingDone?: boolean
   // The user read once what the MCP connection check starts (docs/mcp-servers.md, Live check).
   mcpCheckConfirmed?: boolean
+  // The user read once what Resident tax's /context run starts (docs/usage-analytics.md).
+  residentTaxConfirmed?: boolean
   whatsNewSeenVersion?: string
   whatsNewDots?: { anchors: string[]; expiresAt: string }
   // A path, or null for Claude Code's default (~/.claude); absent when never chosen.

@@ -3188,6 +3188,39 @@ export const scenarios = [
     }
   },
   {
+    // Unconfirmed: the one-time intro, no Refresh. `pending` backs the gate: were it broken, the
+    // skeleton would show instead of Run /context and this wait would fail, with no CLI spawned.
+    name: 'usage-resident-tax-intro',
+    screen: 'usage',
+    async run(window, app) {
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set(
+          'usage:getInitialResidentTaxConfirmed',
+          'resident-tax-unconfirmed'
+        )
+      )
+      await openResidentTax(window, app, 'pending')
+      await window.getByRole('button', { name: 'Run /context', exact: true }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'usage-resident-tax-intro-dark',
+    screen: 'usage',
+    async run(window, app) {
+      await setDarkTheme(window)
+      await app.evaluate(() =>
+        globalThis.megatronVisualFixtures.set(
+          'usage:getInitialResidentTaxConfirmed',
+          'resident-tax-unconfirmed'
+        )
+      )
+      await openResidentTax(window, app, 'pending')
+      await window.getByRole('button', { name: 'Run /context', exact: true }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
     name: 'usage-resident-tax-loading',
     screen: 'usage',
     async run(window, app) {
