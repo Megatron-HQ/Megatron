@@ -1470,6 +1470,32 @@ describe('skill usage past transcript pruning', () => {
     )
   })
 
+  it('counts a pruned use in the Usage windows that hold it, as one with no cost to split', () => {
+    insertSkill('deploy')
+    archivedUse('old', '/repo', '2026-06-10T00:00:00.000Z')
+    const stats = getSkillStats(db, identity, new Date('2026-06-15T00:00:00.000Z'))
+    expect([stats.last24h, stats.last7d, stats.last30d].map((w) => w.invocationCount)).toEqual([
+      0, 1, 1
+    ])
+    expect(stats.last7d).toMatchObject({
+      unpricedInvocationCount: 1,
+      bySkill: [expect.objectContaining({ skillName: 'deploy', resolution: 'installed' })]
+    })
+  })
+
+  it("lists a pruned use in a Usage bucket's invocations, marked pruned", () => {
+    insertSkill('deploy')
+    archivedUse('old', '/repo', '2026-06-10T00:00:00.000Z')
+    expect(
+      getSkillInvocationSlice(db, identity, {
+        startAt: '2026-06-10T00:00:00.000Z',
+        endAt: '2026-06-11T00:00:00.000Z'
+      })
+    ).toMatchObject([
+      { skillName: 'deploy', preceding_user_text: '', cwd: '/repo', transcript_pruned: 1 }
+    ])
+  })
+
   it('lists a pruned use in the log without the prompt or branch its transcript took along', () => {
     const id = insertSkill('deploy')
     insertSession('live', '/repo', { git_branch: 'main' })

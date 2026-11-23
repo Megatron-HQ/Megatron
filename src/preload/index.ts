@@ -13,6 +13,8 @@ import {
   type OpenSkillResult,
   type McpActionResult,
   type McpConnectionCheckResult,
+  type McpAddInput,
+  type McpAddResult,
   type McpDeclarationRef,
   type McpServerDetail,
   type McpServerList,
@@ -86,6 +88,8 @@ const api = {
   confirmMcpCheck: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.confirmMcpCheck),
   removeMcpServer: (ref: McpDeclarationRef): Promise<McpActionResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.removeMcpServer, ref),
+  addMcpServer: (input: McpAddInput): Promise<McpAddResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.addMcpServer, input),
   logoutMcpServer: (ref: McpDeclarationRef): Promise<McpActionResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.logoutMcpServer, ref),
   resetMcpProjectChoices: (projectPath: string): Promise<McpActionResult> =>

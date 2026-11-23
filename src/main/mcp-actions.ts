@@ -50,14 +50,19 @@ export function mcpActionsIdle(): Promise<void> {
 }
 
 // One at a time across every server: each command can rewrite the same .claude.json.
-export async function runMcpAction(args: string[], cwd: string): Promise<RunClaudeResult> {
+export async function runMcpAction(
+  args: string[],
+  cwd: string,
+  stdin?: string
+): Promise<RunClaudeResult> {
   if (running) return { ok: false, error: ACTION_IN_PROGRESS_MESSAGE }
   running = true
   try {
     return await runClaude(args, {
       cwd,
       timeoutMs: COMMAND_TIMEOUT_MS,
-      timeoutMessage: COMMAND_TIMEOUT_MESSAGE
+      timeoutMessage: COMMAND_TIMEOUT_MESSAGE,
+      ...(stdin === undefined ? {} : { stdin })
     })
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : LAUNCH_FAILED_MESSAGE }

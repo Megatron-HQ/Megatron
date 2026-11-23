@@ -57,6 +57,24 @@ describe('runClaude', () => {
     )
   })
 
+  it("writes the caller's input to the CLI's stdin and closes it", async () => {
+    const end = vi.fn()
+    const on = vi.fn()
+    mockedExecFile.mockImplementation(((...args: unknown[]) => {
+      const callback = args[args.length - 1] as NodeCallback
+      setImmediate(() => callback(null, 'added', ''))
+      return { stdin: { end, on } }
+    }) as unknown as typeof execFile)
+
+    await expect(runClaude(['mcp', 'add-json'], { ...options, stdin: '{"a":1}' })).resolves.toEqual(
+      { ok: true, stdout: 'added' }
+    )
+    expect(end).toHaveBeenCalledWith('{"a":1}')
+    // A CLI that exits before reading its input makes stdin emit EPIPE, which must not crash
+    // main; the run's own result reports the failure.
+    expect(on).toHaveBeenCalledWith('error', expect.any(Function))
+  })
+
   it("reports the caller's timeout message when the run is killed", async () => {
     respond(Object.assign(new Error('killed'), { killed: true }))
     await expect(runClaude(['-p', '/context'], options)).resolves.toEqual({

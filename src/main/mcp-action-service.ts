@@ -1,5 +1,7 @@
 import type {
   McpActionResult,
+  McpAddInput,
+  McpAddResult,
   McpConfiguredScope,
   McpDeclarationRef,
   McpProjectApprovals,
@@ -9,22 +11,43 @@ import type { RunClaudeResult } from './claude-process'
 import type { McpActionTarget, McpActionVerb, McpResetTarget } from './db/mcp-queries'
 import { MCP_RESET_ARGS, mcpLogoutArgs, mcpRemoveArgs } from './mcp-actions'
 import type { McpCheckFolder, McpServerCheck } from './mcp-status'
+import type { CommandLookup } from './command-lookup'
+import { mcpAddArgs, mcpAddRefusal, mcpServerConfig } from './mcp-add'
+import { summarizeMcpServer } from './ingest/mcp-server-config'
 
 // Each action is judged by the state it leaves, never the CLI's exit code: Claude Code refuses
 // some requests with exit 0 (docs/mcp-servers.md, Connector logout and Writes).
 
-type McpActionName = McpActionVerb | 'reset'
+type McpActionName = McpActionVerb | 'reset' | 'add'
 
 export interface McpActionDependencies {
   target: (ref: McpDeclarationRef, verb: McpActionVerb) => McpActionTarget
   resetTarget: (projectPath: string) => McpResetTarget
   approvals: (projectPath: string) => McpProjectApprovals
   folder: (projectPath: string | null) => McpCheckFolder
-  run: (args: string[], cwd: string) => Promise<RunClaudeResult>
+  // stdin carries an added server's config, which may hold credentials, off the command line.
+  run: (args: string[], cwd: string, stdin?: string) => Promise<RunClaudeResult>
   refresh: () => Promise<ScanSummary>
   serverStatus: (name: string, cwd: string) => Promise<McpServerCheck>
   forgetChecks: () => void
   reportError: (action: McpActionName, error: unknown) => void
+  addConflict: (
+    name: string,
+    scope: McpConfiguredScope,
+    projectPath: string | null
+  ) => string | null
+  findDeclaration: (
+    name: string,
+    scope: McpConfiguredScope,
+    projectPath: string | null
+  ) => { serverId: string; approval: 'approved' | 'rejected' | 'pending' | null } | null
+  lookupCommand: (program: string) => CommandLookup
+  // Which same-name Declaration wins in each project, after an add (mcpAddPrecedenceNote).
+  precedenceNote: (
+    name: string,
+    scope: McpConfiguredScope,
+    projectPath: string | null
+  ) => string | null
 }
 
 const SCOPE_LABELS: Record<McpConfiguredScope, string> = {
@@ -68,10 +91,27 @@ function resetMessage({ approved, pending, rejected }: McpProjectApprovals): str
     : `Reset the .mcp.json choices: ${parts.join(', ')}.`
 }
 
+const PENDING_APPROVAL_NOTE =
+  " It waits for approval: Claude Code asks before using a server from a project's .mcp.json."
+
+// A bare command Megatron can't find (mcp-command-not-found) is worth saying at once, since the
+// server would otherwise fail on its first use.
+function commandNote(
+  input: McpAddInput,
+  lookupCommand: (program: string) => CommandLookup
+): string {
+  const summary = summarizeMcpServer(mcpServerConfig(input))
+  if (summary.commandIsBare !== true || summary.location === null) return ''
+  return lookupCommand(summary.location) === 'missing'
+    ? ` Megatron can't find ${summary.location} on PATH, so the server may not start until it's installed.`
+    : ''
+}
+
 export function createMcpActionService(deps: McpActionDependencies): {
   remove: (ref: McpDeclarationRef) => Promise<McpActionResult>
   resetProjectChoices: (projectPath: string) => Promise<McpActionResult>
   logout: (ref: McpDeclarationRef) => Promise<McpActionResult>
+  add: (input: McpAddInput) => Promise<McpAddResult>
 } {
   async function reread(action: McpActionName): Promise<boolean> {
     try {
@@ -141,6 +181,38 @@ export function createMcpActionService(deps: McpActionDependencies): {
       return {
         ok: true,
         verificationError: `Logout ran, but Megatron couldn't confirm it: Claude Code couldn't reach ${target.name} to check.`
+      }
+    },
+
+    async add(input) {
+      const refusal =
+        mcpAddRefusal(input) ?? deps.addConflict(input.name, input.scope, input.projectPath)
+      if (refusal !== null) return { ok: false, error: refusal }
+      const folder = deps.folder(input.projectPath)
+      if (!folder.ok) return folder
+      const run = await deps.run(
+        mcpAddArgs(input.name, input.scope),
+        folder.cwd,
+        JSON.stringify(mcpServerConfig(input))
+      )
+      if (!run.ok) return run
+      deps.forgetChecks()
+      const serverId = `configured:${input.name}`
+      if (!(await reread('add'))) return { ok: true, serverId, verificationError: UNREREAD_MESSAGE }
+      const where = SCOPE_LABELS[input.scope]
+      const found = deps.findDeclaration(input.name, input.scope, input.projectPath)
+      if (found === null)
+        return {
+          ok: true,
+          serverId,
+          verificationError: `Claude Code reported success, but Megatron doesn't find ${input.name} in ${where}. Rescan to check.`
+        }
+      const approval = found.approval === 'pending' ? PENDING_APPROVAL_NOTE : ''
+      const precedence = deps.precedenceNote(input.name, input.scope, input.projectPath)
+      return {
+        ok: true,
+        serverId: found.serverId,
+        message: `Added ${input.name} to ${where}.${approval}${precedence === null ? '' : ` ${precedence}`}${commandNote(input, deps.lookupCommand)}`
       }
     }
   }

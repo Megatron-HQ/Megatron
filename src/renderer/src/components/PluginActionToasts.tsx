@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 export interface PluginActionToast {
   id: number
   message: string
+  action?: { label: string; run: () => void }
 }
 
 interface PluginActionToastsProps {
@@ -26,6 +27,19 @@ export function PluginActionToasts({
         >
           <CircleCheck className="size-4 shrink-0 text-success" />
           <p className="min-w-0 flex-1 text-sm leading-5 font-medium">{toast.message}</p>
+          {toast.action && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                toast.action?.run()
+                onDismiss(toast.id)
+              }}
+            >
+              {toast.action.label}
+            </Button>
+          )}
           <Button
             type="button"
             variant="ghost"

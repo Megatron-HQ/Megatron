@@ -10,6 +10,7 @@ import type {
 } from '../../shared/ipc'
 import { mcpCallOwners, type McpCallOwner } from './mcp-queries'
 import { buildSkillTrend } from './queries'
+import { knownMcpCallsSql, usageHistorySince } from './known-calls'
 
 // Usage → MCP servers: calls in rolling windows, credited exactly as the MCP section credits them
 // (docs/mcp-servers.md, Usage panel).
@@ -47,10 +48,10 @@ const estimatedTokens = (chars: number): number => Math.round(chars / CHARS_PER_
 function readCalls(db: Database.Database, since: string): CallRow[] {
   return db
     .prepare(
-      `SELECT c.qualified_name, c.session_id, COALESCE(c.cwd, sm.cwd) AS project, c.invoked_at,
-         c.is_error, c.is_denied, c.result_chars
-       FROM mcp_tool_calls c JOIN sessions_meta sm ON sm.session_id = c.session_id
-       WHERE c.invoked_at >= ?`
+      `SELECT c.qualified_name, c.session_id, c.project, c.invoked_at, c.is_error, c.is_denied,
+         c.result_chars
+       FROM ${knownMcpCallsSql(db)} c
+       WHERE c.invoked_at >= ? AND c.project IS NOT NULL`
     )
     .all(since) as CallRow[]
 }
@@ -134,8 +135,5 @@ export function getMcpUsageStats(
   const [last24h, last7d, last30d] = WINDOWS.map(({ key, days }) =>
     reduceWindow(calls, owners, identity, now, key, days)
   )
-  const first = db.prepare('SELECT MIN(invoked_at) AS first FROM mcp_tool_calls').get() as {
-    first: string | null
-  }
-  return { firstCallAt: first.first, last24h, last7d, last30d }
+  return { callsSince: usageHistorySince(db), last24h, last7d, last30d }
 }

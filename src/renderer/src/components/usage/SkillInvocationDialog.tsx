@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TextLink } from '@/components/TextLink'
 import { InvocationRow } from '@/components/InvocationRow'
-import { parseInvocationPrompt } from '@/lib/invocation-prompt'
+import { invocationPrompt } from '@/lib/invocation-prompt'
 import { getSkillDisplayName } from '@/lib/source-name'
 import { useUsageProjects } from '@/lib/use-usage-projects'
 import { matchesUsageProjectSearch } from '../../../../shared/usage-projects'
@@ -45,7 +45,7 @@ function matchesSearch(
   needle: string,
   resolveProjectLabel: ProjectLabelResolver
 ): boolean {
-  const prompt = parseInvocationPrompt(entry.preceding_user_text).label.toLowerCase()
+  const prompt = invocationPrompt(entry).label.toLowerCase()
   const project = resolveProjectLabel(entry.cwd).toLowerCase()
   return (
     prompt.includes(needle) ||

@@ -59,10 +59,10 @@ one shell, which Megatron cannot see.
 | Tool-call attribution | A transcript `tool_use` named `mcp__<prefix>__<tool>` belongs to the server whose sanitized name is the longest matching `<prefix>`, within the session's project and its precedence. Unmatched prefixes become Observed servers                                                                                                              | Names are sanitized (below), so the split cannot be done by a fixed separator. Longest match against known identities is the only reading that survives `_` in names                                          |
 | Prefix collision      | Two identities that sanitize to the same prefix mark their calls ambiguous and raise a lint finding. Calls are never counted twice                                                                                                                                                                                                            | The transcript alone cannot tell them apart                                                                                                                                                                   |
 | Call data             | Per call: `tool_use.id` (global dedup), session, project, prefix, tool, time, agent id, `is_error`, whether the user refused it (`is_denied`), and result size. Never input or result content                                                                                                                                                 | Inputs and results hold SQL, mail, file contents, and page text. Size alone answers "which tools flood the context"                                                                                           |
-| Retention             | Tool calls are archived with Skill Invocations, metadata only, in `usage-history.db` (#51, `docs/data-model.md`). The server list's call counts read the archive, so they outlive Claude Code's transcript pruning (~30 days), and name the date they are complete from. The Usage panel's rolling windows read the index                     | Archiving MCP calls alone would make the two histories disagree                                                                                                                                               |
+| Retention             | Tool calls are archived with Skill Invocations, metadata only, in `usage-history.db` (#51, `docs/data-model.md`). The server list and the Usage panel read the archive, so their call counts outlive Claude Code's transcript pruning (~30 days), and name the date they are complete from                                                    | Archiving MCP calls alone would make the two histories disagree                                                                                                                                               |
 | Cost                  | Context weight only, in tokens: resident tool-definition tokens per server from the existing `/context` measurement (never a new run; deferred tools marked), and estimated result tokens from result size. No dollar figure                                                                                                                  | Per-call dollars would need a new allocation model across the `cost-state` hazards in `docs/usage-analytics.md`                                                                                               |
 | Live check            | `claude mcp list` runs only when the user asks, after a one-time confirm, from an empty app-private folder (user scope and connectors) or a granted repo (that project). Only each line's leading name and trailing status are kept; the middle is dropped inside the CLI wrapper. Cached for the app session                                 | It is the only source for unused connectors and auth state, but it starts every approved stdio server, contacts every remote one, and prints commands, args, and URLs                                         |
-| Writes                | Only through the CLI: `claude mcp remove --scope <scope>`, `reset-project-choices`, and `logout` (#48). Never edit `.claude.json` or `.mcp.json` directly. No logout for claude.ai connectors: they read "Managed in claude.ai" (Connector logout below)                                                                                      | Claude Code rewrites `.claude.json` on every start; a second writer risks corrupting it. Enable/disable has no CLI command, so it waits for one                                                               |
+| Writes                | Only through the CLI: `claude mcp remove --scope <scope>`, `reset-project-choices`, `logout` (#48), and `add-json` (#50). Never edit `.claude.json` or `.mcp.json` directly. No logout for claude.ai connectors: they read "Managed in claude.ai" (Connector logout below)                                                                    | Claude Code rewrites `.claude.json` on every start; a second writer risks corrupting it. Enable/disable has no CLI command, so it waits for one                                                               |
 | Rescans               | No watch on `.claude.json` (#67). Declarations are reread whole on every inventory and plugin Scan; parsing the file is cheap. A change made in Claude Code reaches the index through the window-focus Scan (on switching back to Megatron, at most one per 10 s), the inventory watcher's 30 s reconcile, or the rescan each MCP action runs | Claude Code rewrites the file about once a minute while working, every write a counter or cache key. Watching it cost a full inventory Scan per write for no change; the worst case without it is a 30 s wait |
 
 ## Tool names
@@ -110,16 +110,17 @@ granted project at a time. A real run took about 10 seconds with seven connector
 
 ## Writes
 
-Three actions, each one `claude mcp` command (#48). The renderer names a Declaration by server id,
+Four actions, each one `claude mcp` command (#48, #50). The renderer names a Declaration by server id,
 scope, and project; main finds it in the index and takes the name from there, since names are free
 text. Plugin servers are changed from their plugin, connectors on claude.ai, and Observed servers
 have no Declaration to change, so all three are refused.
 
-| Action        | Command                                       | For                                   | Runs from                                                        |
-| ------------- | --------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------- |
-| Remove        | `claude mcp remove --scope <scope> -- <name>` | A local, project, or user Declaration | The granted project (local, project), an empty app folder (user) |
-| Reset choices | `claude mcp reset-project-choices`            | A project whose `.mcp.json` was read  | That granted project                                             |
-| Logout        | `claude mcp logout -- <name>`                 | A configured http, sse, or ws server  | As for Remove                                                    |
+| Action        | Command                                           | For                                   | Runs from                                                        |
+| ------------- | ------------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------- |
+| Remove        | `claude mcp remove --scope <scope> -- <name>`     | A local, project, or user Declaration | The granted project (local, project), an empty app folder (user) |
+| Reset choices | `claude mcp reset-project-choices`                | A project whose `.mcp.json` was read  | That granted project                                             |
+| Logout        | `claude mcp logout -- <name>`                     | A configured http, sse, or ws server  | As for Remove                                                    |
+| Add           | `claude mcp add-json --scope <scope> -- <name> -` | A new local, project, or user server  | As for Remove                                                    |
 
 Verified 2026-11-19 against Claude Code 2.1.328: `--` ends the options, so a name starting with `-`
 stays the name, and a name the scope doesn't hold exits 1 with `No MCP server named "<name>" in
@@ -135,6 +136,31 @@ approval and how many a settings file still approves or rejects; a logout reads 
 and counts only "Needs authentication" as signed out. Every action drops the session's live
 connection statuses, which may no longer hold.
 
+### Adding a server
+
+Locked with the maintainer on 2026-11-22 (#50; the decisions are on the issue). Megatron builds the
+server's JSON from the form and hands it to `add-json` on **stdin**, never the command line, which
+other processes can read. Main checks every field again (`parseMcpAddInput`; a name uses only letters, numbers, `-` and `_`, Claude Code's own rule), refuses a name its
+scope already declares or whose tool prefix another server's tools carry (`mcpAddConflict`),
+and in project scope refuses a credential-looking literal, judged by the scanner's own check, since
+`.mcp.json` is shared through git; local and user scope keep one behind the form's warning. Values
+are never stored or logged. The add is judged by the Declaration it leaves (`findMcpDeclaration`),
+and the result notes a project server waiting for approval, which same-name Declaration takes
+precedence in each project (`mcpAddPrecedenceNote`), and a bare command not found on PATH.
+Verified 2026-11-22 against Claude Code 2.1.330: `add-json` refuses stdin from inside a Claude
+Code session (`CLAUDECODE` and related variables), so its permission prompt can't hide a server
+from the user. Megatron keeps that guard: started from a Claude Code terminal, an add shows the
+CLI's refusal.
+
+### Signing in to a server
+
+Verified 2026-11-22 on Windows against Claude Code 2.1.330 with a disposable HTTP MCP server
+and OAuth provider. With piped standard streams, `claude mcp login` discovered the OAuth provider
+and registered a client, then exited with “this isn't an interactive terminal.” No authorization
+code reached the token endpoint, and `claude mcp get` still reported `Needs authentication`.
+Megatron's CLI runner uses piped streams, so offering Login depends on a supported way to
+complete the browser flow from that runner.
+
 ## Connector logout
 
 Verified 2026-11-19 against Claude Code 2.1.328 (#47), with a throwaway connector. `claude mcp
@@ -149,15 +175,15 @@ refusal also exits 0, its success is judged by the server's state afterwards, ne
 
 ## Usage panel
 
-Usage → MCP servers reads the same `mcp_tool_calls` rows over rolling 24-hour, 7-day, and 30-day
+Usage → MCP servers reads the same known calls as the server list (`knownMcpCallsSql`) over rolling 24-hour, 7-day, and 30-day
 windows, through its own `usage:mcp` channel rather than the polled overview. A call is credited to
 the server the MCP section credits it to (`mcpCallOwners`), so the panel and the server list never
 disagree; a call on a shared prefix counts in the totals and credits no server. A call's project is
 its own `cwd`, else its session's, grouped by Usage project. Error rate is errors over calls that
 weren't refused; refusals are counted apart, and a call with no recorded result is not an error.
-Result tokens are estimated from returned characters (`CHARS_PER_TOKEN`). When the oldest call
-the index holds is newer than the window's start, the panel names that date, since pruned
-transcripts take their calls with them (Retention above). The panel refreshes after inventory
+Result tokens are estimated from returned characters (`CHARS_PER_TOKEN`). When the date calls are
+counted from (`usageHistorySince`, the start of the latest unbroken transcript coverage) is newer than
+the window's start, the panel names it. The panel refreshes after inventory
 scans too, because a changed Declaration can move calls to another server.
 
 ## Lint
@@ -195,9 +221,10 @@ Plugin servers are not checked: their stored detail doesn't say whether the comm
 
 ## Non-goals
 
-| Non-goal                                    | Revisit when                                                                      |
-| ------------------------------------------- | --------------------------------------------------------------------------------- |
-| Reading org-managed MCP config (#53)        | The first report from a user on an org-managed install                            |
-| Add, login, and other full management (#50) | v2 (#48, #49) has shipped, and add can take secrets without Megatron holding them |
-| Enable/disable per project                  | Claude Code ships a CLI command for it                                            |
-| Dollar cost per server or tool              | A per-call allocation model is decided in `docs/usage-analytics.md`               |
+| Non-goal                             | Revisit when                                                        |
+| ------------------------------------ | ------------------------------------------------------------------- |
+| Reading org-managed MCP config (#53) | The first report from a user on an org-managed install              |
+| Login to a server (#50)              | The browser flow can complete through Megatron's CLI runner         |
+| Editing a server (#50)               | Claude Code ships an edit command                                   |
+| Enable/disable per project           | Claude Code ships a CLI command for it                              |
+| Dollar cost per server or tool       | A per-call allocation model is decided in `docs/usage-analytics.md` |

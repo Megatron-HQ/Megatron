@@ -206,13 +206,14 @@ delete it, and nothing syncs off device.
   background collector.
 - **Read back through an attachment.** Main attaches the archive to its index connection
   (`known-calls.ts`), so Uses, Last used, a skill's trigger and project breakdown, its
-  invocation log, and MCP server call counts read every archived row plus any index row a partial
-  scan hasn't archived yet, each once. A row only the archive holds is marked pruned: its args,
-  prompt and branch went with the transcript. These counts are complete from the start of the
-  latest unbroken transcript coverage, which the UI names. The Usage section's rolling windows
-  and the MCP Usage panel still read the index, which matches the archive within the default
-  30-day retention (#72). Without the attachment (the scan worker, a damaged archive) every reader
-  falls back to the index.
+  invocation log, the Usage section's Skills windows and invocation lists, and MCP call counts
+  (server list and Usage panel) read every archived row plus any index row a partial scan hasn't
+  archived yet, each once. A row only the archive holds is marked pruned: its args, prompt and
+  branch went with the transcript. These counts are complete from the start of the latest unbroken
+  transcript coverage, which the UI names. Skill cost attribution still prices only sessions the
+  index holds: a pruned use counts toward a window's uses but, like any use without a session
+  cost, is left out of the cost split (#72). Without the attachment (the scan worker, a damaged
+  archive) every reader falls back to the index.
 - **One archive per Claude Code config folder.** `~/.claude` keeps `usage-history.db`; any other
   `CLAUDE_CONFIG_DIR` folder gets `usage-history-<first 16 hex of sha256(canonical path)>.db`
   (`usageArchiveFilename()`). Coverage ranges describe one `history.jsonl`, so profiles never share

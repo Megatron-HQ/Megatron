@@ -9,6 +9,9 @@ export interface RunClaudeOptions {
   timeoutMs: number
   timeoutMessage: string
   maxBuffer?: number
+  // Written to the CLI's stdin, then closed: how a value too sensitive for the command line (an
+  // MCP server's config) reaches it, since other processes can read a command line.
+  stdin?: string
 }
 
 export type RunClaudeResult = { ok: true; stdout: string } | { ok: false; error: string }
@@ -45,7 +48,7 @@ export function runClaude(args: string[], options: RunClaudeOptions): Promise<Ru
   const command = resolveClaudeCommand(options.cwd)
   if (command === null) return Promise.resolve({ ok: false, error: CLAUDE_NOT_FOUND_MESSAGE })
   return new Promise((resolve) => {
-    execFile(
+    const child = execFile(
       command.executable,
       [...command.prefixArguments, ...args],
       {
@@ -67,5 +70,11 @@ export function runClaude(args: string[], options: RunClaudeOptions): Promise<Ru
         )
       }
     )
+    if (options.stdin !== undefined) {
+      // A CLI that exits before reading its input makes stdin emit EPIPE; unhandled, that error
+      // would crash main. The run's own exit code and output already report the failure.
+      child?.stdin?.on('error', () => {})
+      child?.stdin?.end(options.stdin)
+    }
   })
 }

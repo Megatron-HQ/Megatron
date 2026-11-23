@@ -25,6 +25,7 @@ import {
   TableRow
 } from '@/components/ui/table'
 import { mcpFilterTitle, mcpSourceLabel, type McpFilter } from '@/lib/mcp-filter'
+import { McpAddDialog } from '@/components/McpAddDialog'
 import { ENTER, mcpTitleGlideId, useSettle } from '@/lib/transitions'
 import { useGlideHighlight } from '@/lib/use-glide-highlight'
 import { formatRelativeTime } from '@/lib/relative-time'
@@ -154,6 +155,7 @@ function emptyDetail(filter: McpFilter): string {
 }
 
 interface McpInventoryProps {
+  addDialog: React.ComponentProps<typeof McpAddDialog>
   servers: McpServerRow[]
   loading: boolean
   filter: McpFilter
@@ -175,6 +177,7 @@ interface McpInventoryProps {
 }
 
 export function McpInventory({
+  addDialog,
   servers,
   loading,
   filter,
@@ -412,6 +415,7 @@ export function McpInventory({
             )}
             {checking ? 'Checking…' : 'Check connections'}
           </button>
+          <McpAddDialog {...addDialog} />
           {filter.kind === 'projects' && <ManageFoldersButton onClick={onManageFolders} />}
           <button
             type="button"

@@ -67,10 +67,12 @@ export function knownSkillInvocationsSql(db: Database.Database): string {
                       WHERE a.source_uuid = si.source_uuid))`
 }
 
+// project: the call's own folder, else its session's (a session can move folders).
 const INDEX_CALLS = `
   SELECT c.tool_use_id, c.session_id, c.cwd, c.qualified_name, c.invoked_at, c.agent_id,
-    c.is_error, c.is_denied, c.result_chars, c.result_images
-  FROM mcp_tool_calls c`
+    c.is_error, c.is_denied, c.result_chars, c.result_images,
+    COALESCE(c.cwd, sm.cwd) AS project
+  FROM mcp_tool_calls c LEFT JOIN sessions_meta sm ON sm.session_id = c.session_id`
 
 const ARCHIVED_CALLS = `
   SELECT a.tool_use_id, a.session_id,
@@ -79,11 +81,15 @@ const ARCHIVED_CALLS = `
     CASE WHEN c.tool_use_id IS NULL THEN a.agent_id ELSE c.agent_id END AS agent_id,
     COALESCE(c.is_error, a.is_error) AS is_error, COALESCE(c.is_denied, a.is_denied) AS is_denied,
     COALESCE(c.result_chars, a.result_chars) AS result_chars,
-    COALESCE(c.result_images, a.result_images) AS result_images
+    COALESCE(c.result_images, a.result_images) AS result_images,
+    CASE WHEN c.tool_use_id IS NULL THEN COALESCE(a.cwd, a.project)
+         ELSE COALESCE(c.cwd, sm.cwd, a.project) END AS project
   FROM ${ARCHIVE_SCHEMA}.history_mcp_calls a
-  LEFT JOIN mcp_tool_calls c ON c.tool_use_id = a.tool_use_id`
+  LEFT JOIN mcp_tool_calls c ON c.tool_use_id = a.tool_use_id
+  LEFT JOIN sessions_meta sm ON sm.session_id = c.session_id`
 
-// A parenthesized subquery with mcp_tool_calls' columns: every MCP call Megatron knows of, once.
+// A parenthesized subquery with mcp_tool_calls' columns plus project: every MCP call Megatron knows
+// of, once.
 export function knownMcpCallsSql(db: Database.Database): string {
   if (!hasUsageArchive(db)) return `(${INDEX_CALLS})`
   return `(${ARCHIVED_CALLS}

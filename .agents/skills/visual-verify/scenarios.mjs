@@ -3698,6 +3698,56 @@ export const scenarios = [
     }
   },
   {
+    name: 'mcp-add-dialog',
+    screen: 'mcp-inventory',
+    async run(window) {
+      await openMcpSection(window)
+      await window.getByRole('button', { name: 'Add server', exact: true }).click()
+      await window.getByRole('dialog', { name: 'Add MCP server' }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'mcp-add-pasted-header',
+    screen: 'mcp-inventory',
+    async run(window) {
+      await openMcpSection(window)
+      await window.getByRole('button', { name: 'Add server', exact: true }).click()
+      const dialog = window.getByRole('dialog', { name: 'Add MCP server' })
+      await pasteMcpServer(dialog, {
+        mcpServers: {
+          'fixture-api': {
+            type: 'http',
+            url: 'https://example.test/mcp',
+            headers: { Authorization: 'Bearer ${MCP_TOKEN}' }
+          }
+        }
+      })
+      await dialog.getByRole('textbox', { name: 'Variable reference' }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
+    name: 'mcp-add-project-confirm',
+    screen: 'mcp-inventory',
+    async run(window, app) {
+      await enableProjectHierarchy(window, app)
+      await openMcpSection(window)
+      await window.getByRole('button', { name: 'Add server', exact: true }).click()
+      const dialog = window.getByRole('dialog', { name: 'Add MCP server' })
+      await pasteMcpServer(dialog, {
+        'fixture-api': { type: 'http', url: 'https://example.test/mcp' }
+      })
+      await dialog.getByRole('combobox', { name: 'Scope' }).selectOption('project')
+      await dialog
+        .getByRole('combobox', { name: 'Granted project folder' })
+        .selectOption({ index: 1 })
+      await dialog.getByRole('button', { name: 'Add server', exact: true }).click()
+      await window.getByRole('dialog', { name: 'Confirm server addition' }).waitFor()
+      await window.waitForTimeout(MOTION_SETTLE_MS)
+    }
+  },
+  {
     name: 'mcp-inventory-checked',
     screen: 'mcp-inventory',
     shouldSkip: skipWithoutMcpServers,
@@ -3858,6 +3908,12 @@ async function openFixtureMcpServer(window, app, actionMode = null) {
 async function requestMcpAction(window, label, index = 0) {
   await window.getByRole('button', { name: label, exact: true }).nth(index).click()
   await window.getByRole('dialog').waitFor()
+}
+
+async function pasteMcpServer(dialog, config) {
+  await dialog.getByRole('button', { name: 'Paste JSON', exact: true }).click()
+  await dialog.getByRole('textbox', { name: 'Server JSON' }).fill(JSON.stringify(config))
+  await dialog.getByRole('button', { name: 'Fill form', exact: true }).click()
 }
 
 // The heading's "· N" count renders only once the list has loaded; skeleton rows are rows too.

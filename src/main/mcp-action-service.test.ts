@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, type Mocked } from 'vitest'
-import type { McpDeclarationRef, McpLiveStatus, ScanSummary } from '../shared/ipc'
+import type { McpAddInput, McpDeclarationRef, McpLiveStatus, ScanSummary } from '../shared/ipc'
 import type { McpActionTarget, McpResetTarget } from './db/mcp-queries'
 import { createMcpActionService, type McpActionDependencies } from './mcp-action-service'
 
@@ -38,6 +38,10 @@ function fakes(
     run?: { ok: true; stdout: string } | { ok: false; error: string }
     scan?: ScanSummary | Error
     status?: { ok: true; status: McpLiveStatus } | { ok: false; error: string }
+    conflict?: string | null
+    found?: { serverId: string; approval: 'approved' | 'rejected' | 'pending' | null } | null
+    lookup?: 'found' | 'missing' | 'unknown'
+    precedence?: string | null
   } = {}
 ): Fakes {
   const targets = [...(overrides.targets ?? [TARGET, GONE])]
@@ -62,7 +66,15 @@ function fakes(
       async () => overrides.status ?? { ok: true as const, status: 'needs_auth' as const }
     ),
     forgetChecks: vi.fn(),
-    reportError: vi.fn()
+    reportError: vi.fn(),
+    addConflict: vi.fn(() => overrides.conflict ?? null),
+    findDeclaration: vi.fn(() =>
+      overrides.found === undefined
+        ? { serverId: 'configured:github', approval: null }
+        : overrides.found
+    ),
+    lookupCommand: vi.fn(() => overrides.lookup ?? 'found'),
+    precedenceNote: vi.fn(() => overrides.precedence ?? null)
   }
   return { deps, service: createMcpActionService(deps) }
 }
@@ -213,5 +225,120 @@ describe('logout', () => {
     expect(await unreadable.service.logout(REF)).toMatchObject({
       verificationError: expect.stringMatching(/timed out/)
     })
+  })
+})
+
+describe('add', () => {
+  const INPUT: McpAddInput = {
+    name: 'github',
+    scope: 'user',
+    projectPath: null,
+    transport: 'stdio',
+    command: 'uvx',
+    args: ['mcp-server-github'],
+    url: '',
+    env: [{ name: 'GITHUB_TOKEN', value: 'ghp_abcdefghijklmnopqrstuvwxyz0123456789' }],
+    headers: []
+  }
+
+  it('runs add-json from the scope folder with the config on stdin, never in the arguments', async () => {
+    const { deps, service } = fakes({ folder: { ok: true, cwd: '/app/empty' } })
+
+    await expect(service.add(INPUT)).resolves.toEqual({
+      ok: true,
+      serverId: 'configured:github',
+      message: 'Added github to user scope.'
+    })
+    expect(deps.folder).toHaveBeenCalledWith(null)
+    const [args, cwd, stdin] = deps.run.mock.calls[0]
+    expect(args).toEqual(['mcp', 'add-json', '--scope', 'user', '--', 'github', '-'])
+    expect(args.join(' ')).not.toContain('ghp_')
+    expect(cwd).toBe('/app/empty')
+    expect(JSON.parse(stdin as string)).toEqual({
+      type: 'stdio',
+      command: 'uvx',
+      args: ['mcp-server-github'],
+      env: { GITHUB_TOKEN: 'ghp_abcdefghijklmnopqrstuvwxyz0123456789' }
+    })
+    expect(deps.forgetChecks).toHaveBeenCalled()
+  })
+
+  it('refuses a credential literal in a project .mcp.json without running anything', async () => {
+    const { deps, service } = fakes()
+    const result = await service.add({ ...INPUT, scope: 'project', projectPath: '/repo' })
+    expect(result).toMatchObject({ ok: false, error: expect.stringContaining('GITHUB_TOKEN') })
+    expect(deps.run).not.toHaveBeenCalled()
+  })
+
+  it('refuses a name the index says conflicts, without running anything', async () => {
+    const { deps, service } = fakes({ conflict: 'User scope already declares github.' })
+    await expect(service.add(INPUT)).resolves.toEqual({
+      ok: false,
+      error: 'User scope already declares github.'
+    })
+    expect(deps.run).not.toHaveBeenCalled()
+  })
+
+  it("refuses a project folder Megatron can't run in", async () => {
+    const { deps, service } = fakes({ folder: { ok: false, error: 'Grant the folder first.' } })
+    await expect(service.add({ ...INPUT, scope: 'local', projectPath: '/repo' })).resolves.toEqual({
+      ok: false,
+      error: 'Grant the folder first.'
+    })
+    expect(deps.run).not.toHaveBeenCalled()
+  })
+
+  it("passes Claude Code's refusal through", async () => {
+    const { service } = fakes({ run: { ok: false, error: 'MCP server github already exists' } })
+    await expect(service.add(INPUT)).resolves.toEqual({
+      ok: false,
+      error: 'MCP server github already exists'
+    })
+  })
+
+  it("says so when Claude Code reported success but the server isn't declared", async () => {
+    const { service } = fakes({ found: null })
+    await expect(service.add(INPUT)).resolves.toMatchObject({
+      ok: true,
+      serverId: 'configured:github',
+      verificationError: expect.stringContaining("doesn't find github")
+    })
+  })
+
+  it("says so when the configuration couldn't be reread", async () => {
+    const { service } = fakes({ scan: new Error('worker died') })
+    await expect(service.add(INPUT)).resolves.toMatchObject({
+      ok: true,
+      verificationError: expect.stringContaining('reread')
+    })
+  })
+
+  it('notes that a project server waits for approval', async () => {
+    const { service } = fakes({ found: { serverId: 'configured:github', approval: 'pending' } })
+    const result = await service.add({
+      ...INPUT,
+      env: [{ name: 'GITHUB_TOKEN', value: '${GITHUB_TOKEN}' }],
+      scope: 'project',
+      projectPath: '/repo'
+    })
+    expect(result).toMatchObject({
+      ok: true,
+      message: expect.stringContaining('waits for approval')
+    })
+  })
+
+  it('notes which declaration of the same name takes precedence', async () => {
+    const note = 'In this project it takes precedence over the user-scope github.'
+    const { deps, service } = fakes({ precedence: note })
+    const result = await service.add({ ...INPUT, scope: 'local', projectPath: '/repo' })
+    expect(deps.precedenceNote).toHaveBeenCalledWith('github', 'local', '/repo')
+    expect(result).toMatchObject({ ok: true, message: expect.stringContaining(note) })
+  })
+
+  it("notes a bare command Megatron can't find on PATH", async () => {
+    const { deps, service } = fakes({ lookup: 'missing' })
+    const result = await service.add(INPUT)
+    expect(deps.lookupCommand).toHaveBeenCalledWith('uvx')
+    expect(result).toMatchObject({ ok: true, message: expect.stringContaining("can't find uvx") })
   })
 })

@@ -86,6 +86,7 @@ const DEFAULT_CONTEXT_BUDGET: ContextBudget = {
   userInvocableOnlyCount: 0
 }
 const SUCCESS_TOAST_DURATION_MS = 3_000
+const ACTION_TOAST_DURATION_MS = 12_000
 const MAX_SUCCESS_TOASTS = 3
 
 function App(): React.JSX.Element {
@@ -104,6 +105,7 @@ function App(): React.JSX.Element {
   const [pluginExpandedProjects, setPluginExpandedProjects] = useState(() => new Set(['$projects']))
   const [mcpView, setMcpView] = useState<McpView>({ kind: 'list' })
   const [mcpFilter, setMcpFilter] = useState<McpFilter>({ kind: 'all' })
+  const [mcpAddOpen, setMcpAddOpen] = useState(false)
   const [mcpExpandedProjects, setMcpExpandedProjects] = useState(() => new Set(['$projects']))
   const [mcpCheckConfirmed, setMcpCheckConfirmed] = useState(() =>
     window.api.getInitialMcpCheckConfirmed()
@@ -291,8 +293,8 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
-      // The palette or Settings would stack over onboarding's modal and fight it for focus.
-      if (onboardingOpen) return
+      // The palette or Settings would stack over the active modal and compete for focus.
+      if (onboardingOpen || mcpAddOpen) return
       // `!event.repeat` — a held Cmd+K otherwise toggles the palette on every
       // key-repeat, landing it open or closed at random depending on parity.
       if (event.key === 'k' && (event.metaKey || event.ctrlKey) && !event.repeat) {
@@ -312,7 +314,7 @@ function App(): React.JSX.Element {
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onboardingOpen])
+  }, [onboardingOpen, mcpAddOpen])
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
@@ -334,6 +336,25 @@ function App(): React.JSX.Element {
     () => createProjectAvailabilityResolver(projectCatalog, folders),
     [projectCatalog, folders]
   )
+  const selectedMcpProject = mcpFilter.kind === 'projects' ? (mcpFilter.projectPath ?? null) : null
+  const mcpAddProjects = useMemo(() => {
+    const paths = new Map<string, string>()
+    const candidates = [
+      ...folders.map((folder) => folder.path),
+      ...projectCatalog.map((project) => project.path),
+      ...(selectedMcpProject ? [selectedMcpProject] : [])
+    ]
+    for (const path of candidates) {
+      const status = projectAvailability(path)
+      if (
+        (status === undefined || status === 'available') &&
+        folders.some((folder) => isWithinProjectPath(path, folder.path))
+      ) {
+        paths.set(normalizeProjectPath(path), path)
+      }
+    }
+    return [...paths.values()].sort((first, second) => first.localeCompare(second))
+  }, [folders, projectCatalog, projectAvailability, selectedMcpProject])
   const plugins = useMemo(() => pluginsData ?? [], [pluginsData])
   const mcpServers = useMemo(() => mcpData?.servers ?? [], [mcpData])
   const projectLabels = useMemo(
@@ -441,6 +462,19 @@ function App(): React.JSX.Element {
     setMcpView({ kind: 'detail', id })
   }
 
+  function handleMcpAdded(
+    { serverId, message }: { serverId: string; message: string },
+    projectPath: string | null
+  ): void {
+    void queryClient.invalidateQueries({ queryKey: ['mcp-servers'] })
+    void queryClient.invalidateQueries({ queryKey: ['mcp-detail', serverId] })
+    openMcpDetail(serverId, 'inventory')
+    showPluginActionToast(message, {
+      label: 'Check connection',
+      run: () => requestMcpCheck(projectPath)
+    })
+  }
+
   function leaveMcpDetail(): void {
     setMcpView({ kind: 'list' })
     if (mcpBackTarget === 'usage-mcp') {
@@ -534,6 +568,7 @@ function App(): React.JSX.Element {
     setReturnSkillId(null)
     setReturnPluginKey(null)
     setReturnMcpId(null)
+    setMcpAddOpen(false)
     setSection(next)
     void window.api.setLastSection(next)
   }
@@ -672,16 +707,20 @@ function App(): React.JSX.Element {
     !onboardingOpen &&
     !settingsOpen &&
     !paletteOpen &&
+    !(section === 'mcp' && mcpView.kind === 'list' && mcpAddOpen) &&
     mcpCheckTarget === undefined &&
     !(section === 'usage' && skillInvocationOpen) &&
     pluginActionToasts.length === 0
 
-  function showPluginActionToast(message: string): void {
+  function showPluginActionToast(message: string, action?: PluginActionToast['action']): void {
     const id = nextToastId.current++
-    setPluginActionToasts((toasts) => [...toasts, { id, message }].slice(-MAX_SUCCESS_TOASTS))
-    window.setTimeout(() => {
-      setPluginActionToasts((toasts) => toasts.filter((toast) => toast.id !== id))
-    }, SUCCESS_TOAST_DURATION_MS)
+    setPluginActionToasts((toasts) =>
+      [...toasts, { id, message, action }].slice(-MAX_SUCCESS_TOASTS)
+    )
+    window.setTimeout(
+      () => setPluginActionToasts((toasts) => toasts.filter((toast) => toast.id !== id)),
+      action ? ACTION_TOAST_DURATION_MS : SUCCESS_TOAST_DURATION_MS
+    )
   }
 
   const sidebar =
@@ -865,6 +904,13 @@ function App(): React.JSX.Element {
         </div>
       ) : (
         <McpInventory
+          addDialog={{
+            projectPath: selectedMcpProject,
+            projects: mcpAddProjects,
+            onOpenChange: setMcpAddOpen,
+            onAdd: (input) => window.api.addMcpServer(input),
+            onAdded: handleMcpAdded
+          }}
           availability={
             mcpFilter.kind === 'projects' && mcpFilter.projectPath
               ? projectAvailability(mcpFilter.projectPath)
