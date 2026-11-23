@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applySchema } from './schema'
 import {
   findMcpDeclaration,
+  mcpLoginTarget,
   mcpAddConflict,
   mcpAddPrecedenceNote,
   getMcpServerDetail,
@@ -958,5 +959,49 @@ describe('mcpAddPrecedenceNote', () => {
     declare({ scope: 'local', project: '/b', name: 'github' })
     expect(mcpAddPrecedenceNote(db, 'github', 'local', '/a')).toBeNull()
     expect(mcpAddPrecedenceNote(db, 'new-one', 'user', null)).toBeNull()
+  })
+})
+
+describe('mcpLoginTarget', () => {
+  it("names a configured remote server's Declaration and the project it runs from", () => {
+    declare({
+      scope: 'local',
+      project: '/a',
+      name: 'sentry',
+      transport: 'http',
+      location: 'sentry.io'
+    })
+    expect(
+      mcpLoginTarget(db, { serverId: 'configured:sentry', scope: 'local', projectPath: '/a' })
+    ).toEqual({ ok: true, name: 'sentry', projectPath: '/a' })
+  })
+
+  it('signs a connector in account-wide, by the name Claude Code shows', () => {
+    call('claude_ai_Linear__list_issues')
+    expect(
+      mcpLoginTarget(db, { serverId: 'connector:claude_ai_Linear', scope: null, projectPath: null })
+    ).toEqual({ ok: true, name: 'claude.ai Linear', projectPath: null })
+  })
+
+  it.each([
+    [
+      'a stdio server, which has no sign-in',
+      { serverId: 'configured:tools', scope: 'user', projectPath: null }
+    ],
+    [
+      'a configured server named without its scope',
+      { serverId: 'configured:tools', scope: null, projectPath: null }
+    ],
+    [
+      'a connector named with a scope',
+      { serverId: 'connector:claude_ai_Linear', scope: 'user', projectPath: null }
+    ],
+    ['an observed server', { serverId: 'observed:retired', scope: null, projectPath: null }],
+    ['an unknown server', { serverId: 'configured:nope', scope: 'user', projectPath: null }]
+  ] as const)('refuses %s', (_label, ref) => {
+    declare({ scope: 'user', name: 'tools' })
+    call('claude_ai_Linear__list_issues')
+    call('retired__tool')
+    expect(mcpLoginTarget(db, ref)).toMatchObject({ ok: false, error: expect.any(String) })
   })
 })

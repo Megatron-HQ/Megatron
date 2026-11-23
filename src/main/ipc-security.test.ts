@@ -111,7 +111,19 @@ describe('renderer trust boundary', () => {
       [{ serverId: 'configured:api', scope: 'local', projectPath: ABS }]
     ],
     [IPC_CHANNELS.resetMcpProjectChoices, [ABS]],
-    [IPC_CHANNELS.addMcpServer, [{ name: 'github', scope: 'user', projectPath: null }]]
+    [IPC_CHANNELS.addMcpServer, [{ name: 'github', scope: 'user', projectPath: null }]],
+    [
+      IPC_CHANNELS.loginMcpServer,
+      [{ serverId: 'configured:api', scope: 'local', projectPath: ABS }]
+    ],
+    [
+      IPC_CHANNELS.loginMcpServer,
+      [{ serverId: 'connector:claude_ai_Linear', scope: null, projectPath: null }]
+    ],
+    [
+      IPC_CHANNELS.checkMcpSignIn,
+      [{ serverId: 'configured:api', scope: 'user', projectPath: null }]
+    ]
   ])('accepts MCP requests for %s', (channel, args) => {
     expect(() => security.validateIpcArguments(channel, args)).not.toThrow()
   })
@@ -157,7 +169,23 @@ describe('renderer trust boundary', () => {
     [IPC_CHANNELS.addMcpServer, ['github']],
     [IPC_CHANNELS.addMcpServer, [['github']]],
     [IPC_CHANNELS.addMcpServer, [{ name: 'github' }, 'extra']],
-    [IPC_CHANNELS.addMcpServer, [{ name: 'x'.repeat(300_000) }]]
+    [IPC_CHANNELS.addMcpServer, [{ name: 'x'.repeat(300_000) }]],
+    [IPC_CHANNELS.loginMcpServer, []],
+    [IPC_CHANNELS.loginMcpServer, ['connector:claude_ai_Linear']],
+    [IPC_CHANNELS.loginMcpServer, [{ serverId: 'connector:x', scope: null, projectPath: ABS }]],
+    [IPC_CHANNELS.loginMcpServer, [{ serverId: '', scope: null, projectPath: null }]],
+    [
+      IPC_CHANNELS.loginMcpServer,
+      [{ serverId: 'configured:a', scope: 'local', projectPath: 'rel' }]
+    ],
+    [
+      IPC_CHANNELS.checkMcpSignIn,
+      [{ serverId: 'configured:a', scope: 'plugin', projectPath: null }]
+    ],
+    [
+      IPC_CHANNELS.checkMcpSignIn,
+      [{ serverId: 'connector:x', scope: null, projectPath: null }, 'x']
+    ]
   ])('rejects malformed MCP requests for %s', (channel, args) => {
     expect(() => security.validateIpcArguments(channel, args)).toThrow()
   })

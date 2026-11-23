@@ -1,5 +1,7 @@
 import { app, shell, BrowserWindow, dialog, ipcMain, net, protocol, session } from 'electron'
-import { watchFile } from 'fs'
+import { watchFile, writeFileSync } from 'fs'
+import { spawn } from 'child_process'
+import { randomBytes } from 'crypto'
 import { basename, join, resolve } from 'path'
 import { homedir } from 'os'
 import { pathToFileURL } from 'url'
@@ -70,7 +72,9 @@ import {
   setClaudeConfig
 } from './permissions'
 import { createClaudeFolder } from './claude-folder'
-import { gateClaude } from './claude-process'
+import { CLAUDE_NOT_FOUND_MESSAGE, gateClaude } from './claude-process'
+import { resolveClaudeCommand } from './claude-cli'
+import { openLoginTerminal } from './mcp-login'
 import {
   markOnboardingDone,
   resolveInitialSection,
@@ -108,6 +112,7 @@ import {
   mcpActionTarget,
   mcpAddConflict,
   mcpAddPrecedenceNote,
+  mcpLoginTarget,
   mcpProjectApprovals,
   mcpResetTarget,
   revealableMcpSource
@@ -145,6 +150,7 @@ import {
   type GrantChangeResult,
   type McpAddResult,
   type McpDeclarationRef,
+  type McpLoginRef,
   type OpenSkillMetaResult,
   type OpenSkillResult,
   type PluginActionInput,
@@ -878,13 +884,34 @@ app.whenReady().then(() => {
       findMcpDeclaration(getDb(), name, scope, projectPath),
     lookupCommand: (program) => mcpCommandLookup()(program),
     precedenceNote: (name, scope, projectPath) =>
-      mcpAddPrecedenceNote(getDb(), name, scope, projectPath)
+      mcpAddPrecedenceNote(getDb(), name, scope, projectPath),
+    loginTarget: (ref) => mcpLoginTarget(getDb(), ref),
+    openLoginTerminal: (name, cwd) => {
+      // The same gate every CLI run passes (claude-process.ts): never a missing or switching folder.
+      const refusal = claudeFolder.cliRefusal()
+      if (refusal !== null) return Promise.resolve({ ok: false, error: refusal })
+      const command = resolveClaudeCommand(cwd)
+      if (command === null) return Promise.resolve({ ok: false, error: CLAUDE_NOT_FOUND_MESSAGE })
+      return openLoginTerminal(name, cwd, {
+        platform: process.platform,
+        command,
+        systemRoot: process.env.SystemRoot ?? 'C:\\Windows',
+        scriptFolder: app.getPath('userData'),
+        spawn: (file, args, options) => spawn(file, args, options),
+        writeFile: (path, text, mode) => writeFileSync(path, text, { mode }),
+        randomName: () => randomBytes(8).toString('hex')
+      })
+    }
   })
   // The input may hold credentials: it goes to the CLI's stdin and is never logged or stored.
   secureIpc.handle(IPC_CHANNELS.addMcpServer, (_event, input: unknown): Promise<McpAddResult> => {
     const parsed = parseMcpAddInput(input)
     return parsed.ok ? mcpActions.add(parsed.value) : Promise.resolve(parsed)
   })
+  secureIpc.handle(IPC_CHANNELS.loginMcpServer, (_event, ref: McpLoginRef) => mcpActions.login(ref))
+  secureIpc.handle(IPC_CHANNELS.checkMcpSignIn, (_event, ref: McpLoginRef) =>
+    mcpActions.checkSignIn(ref)
+  )
   secureIpc.handle(IPC_CHANNELS.removeMcpServer, (_event, ref: McpDeclarationRef) =>
     mcpActions.remove(ref)
   )

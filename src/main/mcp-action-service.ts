@@ -4,6 +4,7 @@ import type {
   McpAddResult,
   McpConfiguredScope,
   McpDeclarationRef,
+  McpLoginRef,
   McpProjectApprovals,
   ScanSummary
 } from '../shared/ipc'
@@ -48,6 +49,14 @@ export interface McpActionDependencies {
     scope: McpConfiguredScope,
     projectPath: string | null
   ) => string | null
+  loginTarget: (
+    ref: McpLoginRef
+  ) => { ok: true; name: string; projectPath: string | null } | { ok: false; error: string }
+  // Opens a terminal running Claude Code's own login (mcp-login.ts): it needs an interactive one.
+  openLoginTerminal: (
+    name: string,
+    cwd: string
+  ) => Promise<{ ok: true } | { ok: false; error: string }>
 }
 
 const SCOPE_LABELS: Record<McpConfiguredScope, string> = {
@@ -112,6 +121,8 @@ export function createMcpActionService(deps: McpActionDependencies): {
   resetProjectChoices: (projectPath: string) => Promise<McpActionResult>
   logout: (ref: McpDeclarationRef) => Promise<McpActionResult>
   add: (input: McpAddInput) => Promise<McpAddResult>
+  login: (ref: McpLoginRef) => Promise<McpActionResult>
+  checkSignIn: (ref: McpLoginRef) => Promise<McpActionResult>
 } {
   async function reread(action: McpActionName): Promise<boolean> {
     try {
@@ -213,6 +224,48 @@ export function createMcpActionService(deps: McpActionDependencies): {
         ok: true,
         serverId: found.serverId,
         message: `Added ${input.name} to ${where}.${approval}${precedence === null ? '' : ` ${precedence}`}${commandNote(input, deps.lookupCommand)}`
+      }
+    },
+
+    // Outside the one-at-a-time lock: the login runs in the user's terminal, which Megatron can't
+    // wait on, and Check sign-in reads the outcome back.
+    async login(ref) {
+      const target = deps.loginTarget(ref)
+      if (!target.ok) return target
+      const folder = deps.folder(target.projectPath)
+      if (!folder.ok) return folder
+      const opened = await deps.openLoginTerminal(target.name, folder.cwd)
+      if (!opened.ok) return opened
+      return {
+        ok: true,
+        message: `Finish signing in to ${target.name} in the terminal window and your browser, then click Check sign-in.`
+      }
+    },
+
+    // Judged by the server's state, never the login's exit, which Megatron can't see.
+    async checkSignIn(ref) {
+      const target = deps.loginTarget(ref)
+      if (!target.ok) return target
+      const folder = deps.folder(target.projectPath)
+      if (!folder.ok) return folder
+      const check = await deps.serverStatus(target.name, folder.cwd)
+      if (!check.ok)
+        return {
+          ok: true,
+          verificationError: `Megatron couldn't check ${target.name}: ${check.error}`
+        }
+      if (check.status === 'connected' || check.status === 'degraded') {
+        deps.forgetChecks()
+        return { ok: true, message: `Signed in to ${target.name}.` }
+      }
+      if (check.status === 'needs_auth')
+        return {
+          ok: true,
+          verificationError: `${target.name} still needs authentication. Finish signing in in the terminal window, then check again.`
+        }
+      return {
+        ok: true,
+        verificationError: `Claude Code couldn't reach ${target.name} to confirm the sign-in. Check its connection and try again.`
       }
     }
   }

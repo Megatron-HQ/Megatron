@@ -3,6 +3,7 @@ import { CHARS_PER_TOKEN } from '../ingest/skill-parser'
 import type {
   McpConfigProblem,
   McpConfiguredScope,
+  McpLoginRef,
   McpDeclarationRef,
   McpProjectApprovals,
   McpDeclarationDetail,
@@ -625,6 +626,39 @@ function managedElsewhere(identity: ServerIdentity): string {
   if (identity.kind === 'connector')
     return `Managed in claude.ai. Disconnect it at ${CONNECTORS_PAGE}.`
   return OBSERVED_SERVER_MESSAGE
+}
+
+const NOTHING_TO_SIGN_IN_MESSAGE =
+  'Only remote servers (HTTP, SSE, WebSocket) and claude.ai connectors sign in.'
+
+export type McpLoginTarget =
+  { ok: true; name: string; projectPath: string | null } | { ok: false; error: string }
+
+// What `claude mcp login` signs in to (#50): a configured remote Declaration, run from its project
+// as the other actions are, or a claude.ai connector, whose sign-in is account-wide. The name comes
+// from the index, never the renderer.
+export function mcpLoginTarget(db: Database.Database, ref: McpLoginRef): McpLoginTarget {
+  if (ref.scope === null) {
+    const identity = readSnapshot(db).identities.get(ref.serverId)
+    if (identity === undefined) return { ok: false, error: UNKNOWN_SERVER_MESSAGE }
+    if (identity.kind !== 'connector')
+      return {
+        ok: false,
+        error: identity.kind === 'configured' ? UNKNOWN_SERVER_MESSAGE : managedElsewhere(identity)
+      }
+    return { ok: true, name: identity.name, projectPath: null }
+  }
+  const target = mcpActionTarget(
+    db,
+    { serverId: ref.serverId, scope: ref.scope, projectPath: ref.projectPath },
+    'logout'
+  )
+  if (!target.ok)
+    return {
+      ok: false,
+      error: target.error === NOTHING_TO_LOG_OUT_MESSAGE ? NOTHING_TO_SIGN_IN_MESSAGE : target.error
+    }
+  return { ok: true, name: target.name, projectPath: target.projectPath }
 }
 
 // The one Declaration an action may change, checked against the index rather than trusted from the

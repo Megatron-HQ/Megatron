@@ -32,6 +32,8 @@ export const IPC_CHANNELS = {
   confirmMcpCheck: 'mcp:confirmCheck',
   removeMcpServer: 'mcp:remove',
   addMcpServer: 'mcp:add',
+  loginMcpServer: 'mcp:login',
+  checkMcpSignIn: 'mcp:checkSignIn',
   logoutMcpServer: 'mcp:logout',
   resetMcpProjectChoices: 'mcp:resetProjectChoices',
   getInitialSection: 'app:getInitialSection',
@@ -577,6 +579,14 @@ export interface McpAddInput {
   url: string // http, sse and ws only
   env: McpKeyValue[] // stdio only
   headers: McpKeyValue[] // http, sse and ws only
+}
+
+// Signing in (#50): a configured Declaration (scope and project, as for the other actions) or a
+// claude.ai connector (scope null), whose sign-in is account-wide.
+export interface McpLoginRef {
+  serverId: string
+  scope: McpConfiguredScope | null
+  projectPath: string | null
 }
 
 export type McpAddResult =

@@ -116,13 +116,32 @@ const registerHandler = ipcMain.handle.bind(ipcMain)
 // The harness scans the real ~/.claude, so adding a server must never reach Claude Code's CLI: a
 // scenario that submits the add dialog, by mistake or after a change to its confirm step, gets a
 // refusal instead of a server written into the user's own configuration.
-const WRITES_NEVER_RUN = new Set(['mcp:add'])
-const refuseWrite = async () => ({
-  ok: false,
-  error: 'Visual fixture: adding MCP servers is disabled.'
-})
+// Signing in opens a real terminal window and a browser, so those channels answer from fixtures too:
+// Log in reports the waiting state, Check sign-in a server still waiting for its sign-in.
+const NEVER_RUN = new Map([
+  [
+    'mcp:add',
+    async () => ({ ok: false, error: 'Visual fixture: adding MCP servers is disabled.' })
+  ],
+  [
+    'mcp:login',
+    async () => ({
+      ok: true,
+      message:
+        'Finish signing in to the server in the terminal window and your browser, then click Check sign-in.'
+    })
+  ],
+  [
+    'mcp:checkSignIn',
+    async () => ({
+      ok: true,
+      verificationError:
+        'The server still needs authentication. Finish signing in in the terminal window, then check again.'
+    })
+  ]
+])
 ipcMain.handle = (channel, handler) => {
-  const safeHandler = WRITES_NEVER_RUN.has(channel) ? refuseWrite : handler
+  const safeHandler = NEVER_RUN.get(channel) ?? handler
   registeredHandlers.set(channel, safeHandler)
   registerHandler(channel, safeHandler)
 }

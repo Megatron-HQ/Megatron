@@ -26,6 +26,15 @@ Release and updates section here covers their security consequences.
   folder). The name follows `--`, so a name starting with `-` can't become an option. One MCP
   action runs at a time, since each can rewrite `.claude.json`. Threat: a renderer naming any
   string, or a crafted name, steering the CLI at a server or file the index never listed.
+- MCP Log in (#50) opens a terminal window running Claude Code's own `claude mcp login -- <name>`,
+  which needs an interactive terminal. Windows uses a hidden System32 PowerShell launcher to
+  start a second PowerShell with a real console. Both use the absolute System32 path and
+  `-EncodedCommand`. macOS writes a one-shot `.command` script (mode 700, it
+  deletes itself) into Megatron's private data folder and opens it with `/usr/bin/open -a Terminal`.
+  Every value is quoted as a literal, the name comes from the index, and the executable, folder and
+  `CLAUDE_CONFIG_DIR` are the ones every other CLI action uses, behind the same folder gate.
+  Threat: a server name or path turned into shell syntax, or a project's own `powershell.exe` or PATH
+  standing in for the system one.
 - The MCP `mcp-command-not-found` lint stats `<PATH folder>/<program><PATHEXT>` candidates: absolute
   PATH entries only, never a network share, the program a bare name with no separator or variable.
   It reports present, absent or unknown and never reads or runs the file. Like CLI discovery, this is

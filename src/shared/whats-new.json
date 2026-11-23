@@ -25,6 +25,14 @@
           "kind": "section",
           "section": "mcp"
         }
+      },
+      {
+        "title": "Sign in to MCP servers",
+        "body": "Log in on a remote server or a claude.ai connector opens Claude Code's sign-in in a terminal window; Megatron then checks it worked.",
+        "action": {
+          "kind": "section",
+          "section": "mcp"
+        }
       }
     ]
   },

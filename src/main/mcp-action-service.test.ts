@@ -1,5 +1,11 @@
 import { describe, expect, it, vi, type Mocked } from 'vitest'
-import type { McpAddInput, McpDeclarationRef, McpLiveStatus, ScanSummary } from '../shared/ipc'
+import type {
+  McpAddInput,
+  McpDeclarationRef,
+  McpLiveStatus,
+  McpLoginRef,
+  ScanSummary
+} from '../shared/ipc'
 import type { McpActionTarget, McpResetTarget } from './db/mcp-queries'
 import { createMcpActionService, type McpActionDependencies } from './mcp-action-service'
 
@@ -42,6 +48,9 @@ function fakes(
     found?: { serverId: string; approval: 'approved' | 'rejected' | 'pending' | null } | null
     lookup?: 'found' | 'missing' | 'unknown'
     precedence?: string | null
+    loginTarget?:
+      { ok: true; name: string; projectPath: string | null } | { ok: false; error: string }
+    terminal?: { ok: true } | { ok: false; error: string }
   } = {}
 ): Fakes {
   const targets = [...(overrides.targets ?? [TARGET, GONE])]
@@ -74,7 +83,11 @@ function fakes(
         : overrides.found
     ),
     lookupCommand: vi.fn(() => overrides.lookup ?? 'found'),
-    precedenceNote: vi.fn(() => overrides.precedence ?? null)
+    precedenceNote: vi.fn(() => overrides.precedence ?? null),
+    loginTarget: vi.fn(
+      () => overrides.loginTarget ?? { ok: true as const, name: 'sentry', projectPath: '/repo' }
+    ),
+    openLoginTerminal: vi.fn(async () => overrides.terminal ?? { ok: true as const })
   }
   return { deps, service: createMcpActionService(deps) }
 }
@@ -340,5 +353,97 @@ describe('add', () => {
     const result = await service.add(INPUT)
     expect(deps.lookupCommand).toHaveBeenCalledWith('uvx')
     expect(result).toMatchObject({ ok: true, message: expect.stringContaining("can't find uvx") })
+  })
+})
+
+describe('login', () => {
+  const LOGIN: McpLoginRef = { serverId: 'configured:sentry', scope: 'local', projectPath: '/repo' }
+
+  it("opens Claude Code's login in a terminal from the Declaration's folder", async () => {
+    const { deps, service } = fakes({ folder: { ok: true, cwd: '/repo' } })
+    await expect(service.login(LOGIN)).resolves.toEqual({
+      ok: true,
+      message:
+        'Finish signing in to sentry in the terminal window and your browser, then click Check sign-in.'
+    })
+    expect(deps.folder).toHaveBeenCalledWith('/repo')
+    expect(deps.openLoginTerminal).toHaveBeenCalledWith('sentry', '/repo')
+  })
+
+  it('refuses a server that has nothing to sign in to, without opening anything', async () => {
+    const { deps, service } = fakes({
+      loginTarget: { ok: false, error: 'Only remote servers sign in.' }
+    })
+    await expect(service.login(LOGIN)).resolves.toEqual({
+      ok: false,
+      error: 'Only remote servers sign in.'
+    })
+    expect(deps.openLoginTerminal).not.toHaveBeenCalled()
+  })
+
+  it("refuses a project folder Megatron can't run in", async () => {
+    const { deps, service } = fakes({ folder: { ok: false, error: 'Grant the folder first.' } })
+    await expect(service.login(LOGIN)).resolves.toEqual({
+      ok: false,
+      error: 'Grant the folder first.'
+    })
+    expect(deps.openLoginTerminal).not.toHaveBeenCalled()
+  })
+
+  it("passes on a terminal that wouldn't open, with the command to run instead", async () => {
+    const { service } = fakes({ terminal: { ok: false, error: 'Run claude mcp login yourself.' } })
+    await expect(service.login(LOGIN)).resolves.toEqual({
+      ok: false,
+      error: 'Run claude mcp login yourself.'
+    })
+  })
+})
+
+describe('checkSignIn', () => {
+  const LOGIN: McpLoginRef = {
+    serverId: 'connector:claude_ai_Linear',
+    scope: null,
+    projectPath: null
+  }
+
+  it.each<McpLiveStatus>(['connected', 'degraded'])(
+    'counts %s as signed in and drops the stale statuses',
+    async (status) => {
+      const { deps, service } = fakes({
+        loginTarget: { ok: true, name: 'claude.ai Linear', projectPath: null },
+        folder: { ok: true, cwd: '/app/empty' },
+        status: { ok: true, status }
+      })
+      await expect(service.checkSignIn(LOGIN)).resolves.toEqual({
+        ok: true,
+        message: 'Signed in to claude.ai Linear.'
+      })
+      expect(deps.serverStatus).toHaveBeenCalledWith('claude.ai Linear', '/app/empty')
+      expect(deps.forgetChecks).toHaveBeenCalled()
+    }
+  )
+
+  it('says a server still waiting for sign-in is not signed in yet', async () => {
+    const { service } = fakes({ status: { ok: true, status: 'needs_auth' } })
+    await expect(service.checkSignIn(LOGIN)).resolves.toMatchObject({
+      ok: true,
+      verificationError: expect.stringContaining('still needs authentication')
+    })
+  })
+
+  it("says so when Claude Code couldn't be asked", async () => {
+    const { service } = fakes({ status: { ok: false, error: 'claude mcp get did not finish.' } })
+    await expect(service.checkSignIn(LOGIN)).resolves.toMatchObject({
+      ok: true,
+      verificationError: expect.stringContaining('claude mcp get did not finish.')
+    })
+  })
+
+  it("says so when the server can't be reached at all", async () => {
+    const { service } = fakes({ status: { ok: true, status: 'failed' } })
+    await expect(service.checkSignIn(LOGIN)).resolves.toMatchObject({
+      ok: true,
+      verificationError: expect.stringContaining("couldn't reach")
+    })
   })
 })

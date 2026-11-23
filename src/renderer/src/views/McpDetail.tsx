@@ -35,8 +35,11 @@ import {
   McpActionError,
   mcpActionMessage,
   mcpDeclarationActions,
-  mcpDeclarationRef
+  mcpDeclarationRef,
+  connectorOffersLogin,
+  mcpLoginRef
 } from '@/lib/mcp-action'
+import { McpSignIn } from '@/components/McpSignIn'
 import { MCP_USAGE_QUERY_KEY } from '@/lib/mcp-usage-query'
 import { mcpSourceLabel } from '@/lib/mcp-filter'
 import { formatRelativeTime } from '@/lib/relative-time'
@@ -261,6 +264,16 @@ export function McpDetail({
     }
   })
 
+  // A sign-in changes the server's status and possibly its tools, so its views refetch.
+  function signedIn(message: string): void {
+    onActionSuccess(message)
+    void Promise.all(
+      [['mcp-servers'], ['mcp-detail']].map((queryKey) =>
+        queryClient.invalidateQueries({ queryKey })
+      )
+    )
+  }
+
   function runAction({ kind, declaration }: McpActionRequest): void {
     // Synchronous, and it survives an unmount: a quick back and reopen can't start a second run.
     if (queryClient.isMutating({ mutationKey: MCP_ACTION_KEY, exact: true }) > 0) return
@@ -363,8 +376,16 @@ export function McpDetail({
             failure={failure}
             onRequest={setConfirming}
             onOpenPlugin={onOpenPlugin}
+            onSignedIn={signedIn}
           />
-          {data.server.kind === 'connector' && <ConnectorChanges />}
+          {data.server.kind === 'connector' && (
+            <ConnectorChanges
+              serverId={id}
+              live={data.server.liveStatus}
+              disabled={anyPending}
+              onSignedIn={signedIn}
+            />
+          )}
           <SwitchedOff detail={data} />
           <Tools tools={data.tools} />
         </div>
@@ -383,14 +404,30 @@ export function McpDetail({
   )
 }
 
-// Connectors live on the user's claude.ai account; the CLI won't change them (docs/mcp-servers.md,
-// Connector logout).
-function ConnectorChanges(): React.JSX.Element {
+// Connectors live on the user's claude.ai account: Claude Code can sign one in (#50), but only claude.ai
+// disconnects it (docs/mcp-servers.md, Connector logout).
+function ConnectorChanges({
+  serverId,
+  live,
+  disabled,
+  onSignedIn
+}: {
+  serverId: string
+  live: McpServerRow['liveStatus']
+  disabled: boolean
+  onSignedIn: (message: string) => void
+}): React.JSX.Element {
+  const loginRef = connectorOffersLogin(live) ? mcpLoginRef(serverId, null) : null
   return (
     <section className="flex flex-col gap-2">
       <Caption label="Changes" />
+      {loginRef && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <McpSignIn loginRef={loginRef} disabled={disabled} onSignedIn={onSignedIn} />
+        </div>
+      )}
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground">
-        Managed in claude.ai, where its sign-in lives.
+        Disconnect it in claude.ai.
         <TextLink
           onClick={() => void window.api.openExternal(CONNECTORS_PAGE)}
           className="flex items-center gap-1 text-[13px] text-foreground"
@@ -454,7 +491,7 @@ function McpActionDialog({
             <DialogTitle className="break-words">Log out of {name}?</DialogTitle>
             <DialogDescription>
               Claude Code forgets this server&apos;s sign-in on this computer, and the next session
-              asks you to sign in again. Sign back in from Claude Code with /mcp.
+              asks you to sign in again. Sign back in with Log in, or from Claude Code with /mcp.
             </DialogDescription>
           </DialogHeader>
         ) : (
@@ -727,6 +764,7 @@ interface DeclarationActionState {
   failure: { cardKey: string; message: string; unconfirmed: boolean } | null
   onRequest: (request: McpActionRequest) => void
   onOpenPlugin: (name: string, marketplace: string) => void
+  onSignedIn: (message: string) => void
 }
 
 function Declarations({
@@ -822,7 +860,7 @@ function Declarations({
                     .join(', ')}
                 </p>
               )}
-              <DeclarationActions declaration={declaration} {...actionState} />
+              <DeclarationActions serverId={serverId} declaration={declaration} {...actionState} />
             </li>
           )
         })}
@@ -832,6 +870,7 @@ function Declarations({
 }
 
 function DeclarationActions({
+  serverId,
   declaration,
   projectAvailability,
   onManageFolders,
@@ -839,8 +878,12 @@ function DeclarationActions({
   pending,
   failure,
   onRequest,
-  onOpenPlugin
-}: { declaration: McpDeclarationDetail } & DeclarationActionState): React.JSX.Element | null {
+  onOpenPlugin,
+  onSignedIn
+}: {
+  serverId: string
+  declaration: McpDeclarationDetail
+} & DeclarationActionState): React.JSX.Element | null {
   const plugin = declaration.plugin
   if (plugin !== null)
     return (
@@ -865,6 +908,7 @@ function DeclarationActions({
   const icon = (kind: McpActionKind, Idle: typeof Trash2): React.JSX.Element =>
     pendingKind === kind ? <Loader2 className="animate-spin" /> : <Idle />
   const ownFailure = failure?.cardKey === key ? failure : null
+  const loginRef = actions.login && changeable ? mcpLoginRef(serverId, declaration) : null
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex flex-wrap items-center gap-1.5">
@@ -879,6 +923,9 @@ function DeclarationActions({
           {icon('remove', Trash2)}
           {pendingKind === 'remove' ? PENDING_LABEL.remove : 'Remove'}
         </Button>
+        {loginRef && (
+          <McpSignIn loginRef={loginRef} disabled={anyPending} onSignedIn={onSignedIn} />
+        )}
         {actions.logout && (
           <Button
             type="button"
