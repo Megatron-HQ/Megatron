@@ -42,6 +42,12 @@ export interface McpActionDependencies {
     projectPath: string | null
   ) => { serverId: string; approval: 'approved' | 'rejected' | 'pending' | null } | null
   lookupCommand: (program: string) => CommandLookup
+  // Which same-name Declaration wins in each project, after an add (mcpAddPrecedenceNote).
+  precedenceNote: (
+    name: string,
+    scope: McpConfiguredScope,
+    projectPath: string | null
+  ) => string | null
 }
 
 const SCOPE_LABELS: Record<McpConfiguredScope, string> = {
@@ -202,10 +208,11 @@ export function createMcpActionService(deps: McpActionDependencies): {
           verificationError: `Claude Code reported success, but Megatron doesn't find ${input.name} in ${where}. Rescan to check.`
         }
       const approval = found.approval === 'pending' ? PENDING_APPROVAL_NOTE : ''
+      const precedence = deps.precedenceNote(input.name, input.scope, input.projectPath)
       return {
         ok: true,
         serverId: found.serverId,
-        message: `Added ${input.name} to ${where}.${approval}${commandNote(input, deps.lookupCommand)}`
+        message: `Added ${input.name} to ${where}.${approval}${precedence === null ? '' : ` ${precedence}`}${commandNote(input, deps.lookupCommand)}`
       }
     }
   }

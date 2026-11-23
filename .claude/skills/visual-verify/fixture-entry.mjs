@@ -113,9 +113,18 @@ function claudeFolderFixture(result, mode) {
 }
 let projectScanCompletedAt
 const registerHandler = ipcMain.handle.bind(ipcMain)
+// The harness scans the real ~/.claude, so adding a server must never reach Claude Code's CLI: a
+// scenario that submits the add dialog, by mistake or after a change to its confirm step, gets a
+// refusal instead of a server written into the user's own configuration.
+const WRITES_NEVER_RUN = new Set(['mcp:add'])
+const refuseWrite = async () => ({
+  ok: false,
+  error: 'Visual fixture: adding MCP servers is disabled.'
+})
 ipcMain.handle = (channel, handler) => {
-  registeredHandlers.set(channel, handler)
-  registerHandler(channel, handler)
+  const safeHandler = WRITES_NEVER_RUN.has(channel) ? refuseWrite : handler
+  registeredHandlers.set(channel, safeHandler)
+  registerHandler(channel, safeHandler)
 }
 // Sync channels (`sendSync`) read persisted state at mount. A scenario can't unset that state in
 // the shared profile, so it overrides the read instead.

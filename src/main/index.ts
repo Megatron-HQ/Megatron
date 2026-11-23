@@ -107,6 +107,7 @@ import {
   findMcpDeclaration,
   mcpActionTarget,
   mcpAddConflict,
+  mcpAddPrecedenceNote,
   mcpProjectApprovals,
   mcpResetTarget,
   revealableMcpSource
@@ -875,7 +876,9 @@ app.whenReady().then(() => {
     addConflict: (name, scope, projectPath) => mcpAddConflict(getDb(), name, scope, projectPath),
     findDeclaration: (name, scope, projectPath) =>
       findMcpDeclaration(getDb(), name, scope, projectPath),
-    lookupCommand: (program) => mcpCommandLookup()(program)
+    lookupCommand: (program) => mcpCommandLookup()(program),
+    precedenceNote: (name, scope, projectPath) =>
+      mcpAddPrecedenceNote(getDb(), name, scope, projectPath)
   })
   // The input may hold credentials: it goes to the CLI's stdin and is never logged or stored.
   secureIpc.handle(IPC_CHANNELS.addMcpServer, (_event, input: unknown): Promise<McpAddResult> => {

@@ -145,7 +145,8 @@ scope already declares or whose tool prefix another server's tools carry (`mcpAd
 and in project scope refuses a credential-looking literal, judged by the scanner's own check, since
 `.mcp.json` is shared through git; local and user scope keep one behind the form's warning. Values
 are never stored or logged. The add is judged by the Declaration it leaves (`findMcpDeclaration`),
-and the result notes a project server waiting for approval and a bare command not found on PATH.
+and the result notes a project server waiting for approval, which same-name Declaration takes
+precedence in each project (`mcpAddPrecedenceNote`), and a bare command not found on PATH.
 Verified 2026-11-22 against Claude Code 2.1.330: `add-json` refuses stdin from inside a Claude
 Code session (`CLAUDECODE` and related variables), so its permission prompt can't hide a server
 from the user. Megatron keeps that guard: started from a Claude Code terminal, an add shows the

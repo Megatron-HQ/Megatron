@@ -41,6 +41,7 @@ function fakes(
     conflict?: string | null
     found?: { serverId: string; approval: 'approved' | 'rejected' | 'pending' | null } | null
     lookup?: 'found' | 'missing' | 'unknown'
+    precedence?: string | null
   } = {}
 ): Fakes {
   const targets = [...(overrides.targets ?? [TARGET, GONE])]
@@ -72,7 +73,8 @@ function fakes(
         ? { serverId: 'configured:github', approval: null }
         : overrides.found
     ),
-    lookupCommand: vi.fn(() => overrides.lookup ?? 'found')
+    lookupCommand: vi.fn(() => overrides.lookup ?? 'found'),
+    precedenceNote: vi.fn(() => overrides.precedence ?? null)
   }
   return { deps, service: createMcpActionService(deps) }
 }
@@ -323,6 +325,14 @@ describe('add', () => {
       ok: true,
       message: expect.stringContaining('waits for approval')
     })
+  })
+
+  it('notes which declaration of the same name takes precedence', async () => {
+    const note = 'In this project it takes precedence over the user-scope github.'
+    const { deps, service } = fakes({ precedence: note })
+    const result = await service.add({ ...INPUT, scope: 'local', projectPath: '/repo' })
+    expect(deps.precedenceNote).toHaveBeenCalledWith('github', 'local', '/repo')
+    expect(result).toMatchObject({ ok: true, message: expect.stringContaining(note) })
   })
 
   it("notes a bare command Megatron can't find on PATH", async () => {

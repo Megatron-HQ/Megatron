@@ -720,6 +720,58 @@ export function findMcpDeclaration(
   return row === undefined ? null : { serverId: `configured:${name}`, approval: row.approval }
 }
 
+// Claude Code's precedence within one project (Precedence above): local, then project, then user.
+const SCOPE_RANK: Record<McpConfiguredScope, number> = { local: 3, project: 2, user: 1 }
+const OUTRANKED_LABEL: Record<McpConfiguredScope, string> = {
+  local: 'local',
+  project: '.mcp.json',
+  user: 'user-scope'
+}
+
+// What an add changes about which declaration loads (#50): the same name elsewhere is allowed,
+// and precedence decides. Null when no other declaration of the name meets the new one.
+export function mcpAddPrecedenceNote(
+  db: Database.Database,
+  name: string,
+  scope: McpConfiguredScope,
+  projectPath: string | null
+): string | null {
+  const others = readSnapshot(db).allDeclarations.filter(
+    (row) => row.name === name && !declaresIn(row, scope, projectPath)
+  )
+  if (scope === 'user' || projectPath === null) {
+    const projects = new Set(
+      others
+        .filter((row) => row.scope !== 'user')
+        .map((row) => normalizeProjectPath(row.project_path))
+    )
+    if (projects.size === 0) return null
+    return projects.size === 1
+      ? `In 1 project that declares ${name} itself, its declaration takes precedence over this one.`
+      : `In ${projects.size} projects that declare ${name} themselves, theirs takes precedence over this one.`
+  }
+  const met = others.filter(
+    (row) =>
+      row.scope === 'user' || (row.project_path !== '' && samePath(row.project_path, projectPath))
+  )
+  const winners = met.filter((row) => SCOPE_RANK[row.scope] > SCOPE_RANK[scope])
+  const losers = met
+    .filter((row) => SCOPE_RANK[row.scope] < SCOPE_RANK[scope])
+    .sort((first, second) => SCOPE_RANK[second.scope] - SCOPE_RANK[first.scope])
+  const notes = [
+    ...winners.map(
+      (row) =>
+        `In this project the ${OUTRANKED_LABEL[row.scope]} ${name} takes precedence over this one.`
+    ),
+    ...(losers.length > 0
+      ? [
+          `In this project it takes precedence over the ${losers.map((row) => OUTRANKED_LABEL[row.scope]).join(' and ')} ${name}.`
+        ]
+      : [])
+  ]
+  return notes.length > 0 ? notes.join(' ') : null
+}
+
 export type McpResetTarget =
   { ok: true; projectPath: string; approvals: McpProjectApprovals } | { ok: false; error: string }
 

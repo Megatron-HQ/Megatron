@@ -4,6 +4,7 @@ import { applySchema } from './schema'
 import {
   findMcpDeclaration,
   mcpAddConflict,
+  mcpAddPrecedenceNote,
   getMcpServerDetail,
   knownMcpPrefixes,
   listMcpServers,
@@ -920,5 +921,42 @@ describe('findMcpDeclaration', () => {
     })
     expect(findMcpDeclaration(db, 'db', 'project', '/b')).toBeNull()
     expect(findMcpDeclaration(db, 'db', 'user', null)).toBeNull()
+  })
+})
+
+describe('mcpAddPrecedenceNote', () => {
+  it('says a new local or project server wins over the user one in its project', () => {
+    declare({ scope: 'user', name: 'github' })
+    expect(mcpAddPrecedenceNote(db, 'github', 'local', '/a')).toBe(
+      'In this project it takes precedence over the user-scope github.'
+    )
+    expect(mcpAddPrecedenceNote(db, 'github', 'project', '/a')).toBe(
+      'In this project it takes precedence over the user-scope github.'
+    )
+  })
+
+  it("says a local server wins over its project's .mcp.json one", () => {
+    declare({ scope: 'project', project: '/a', name: 'db' })
+    expect(mcpAddPrecedenceNote(db, 'db', 'local', '/a')).toBe(
+      'In this project it takes precedence over the .mcp.json db.'
+    )
+  })
+
+  it('says which declarations win over a new one', () => {
+    declare({ scope: 'local', project: '/a', name: 'github' })
+    declare({ scope: 'project', project: '/b', name: 'github' })
+    expect(mcpAddPrecedenceNote(db, 'github', 'user', null)).toBe(
+      'In 2 projects that declare github themselves, theirs takes precedence over this one.'
+    )
+    declare({ scope: 'local', project: '/c', name: 'api' })
+    expect(mcpAddPrecedenceNote(db, 'api', 'project', '/c')).toBe(
+      'In this project the local api takes precedence over this one.'
+    )
+  })
+
+  it('has nothing to say about another project, or when no other declaration exists', () => {
+    declare({ scope: 'local', project: '/b', name: 'github' })
+    expect(mcpAddPrecedenceNote(db, 'github', 'local', '/a')).toBeNull()
+    expect(mcpAddPrecedenceNote(db, 'new-one', 'user', null)).toBeNull()
   })
 })
