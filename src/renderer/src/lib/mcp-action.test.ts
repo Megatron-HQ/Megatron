@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { McpDeclarationDetail } from '../../../shared/ipc'
 import {
+  connectorOffersLogin,
+  mcpLoginRef,
   McpActionError,
   mcpActionMessage,
   mcpDeclarationActions,
@@ -32,10 +34,14 @@ describe('mcpDeclarationActions', () => {
     expect(mcpDeclarationActions(declaration({ transport: 'stdio' }))).toEqual({
       remove: true,
       logout: false,
+      login: false,
       reset: false
     })
     for (const transport of ['http', 'sse', 'ws'] as const)
-      expect(mcpDeclarationActions(declaration({ transport })).logout).toBe(true)
+      expect(mcpDeclarationActions(declaration({ transport }))).toMatchObject({
+        logout: true,
+        login: true
+      })
   })
 
   it('offers a reset only on a project declaration', () => {
@@ -48,17 +54,17 @@ describe('mcpDeclarationActions', () => {
           approval: 'pending'
         })
       )
-    ).toEqual({ remove: true, logout: true, reset: true })
+    ).toEqual({ remove: true, logout: true, login: true, reset: true })
     expect(mcpDeclarationActions(declaration({ scope: 'local', projectPath: '/repo' })).reset).toBe(
       false
     )
   })
 
   // A skipped declaration (url without type) still loads nowhere, but it can still be removed.
-  it('offers no logout on a declaration Claude Code skips', () => {
+  it('offers no logout or login on a declaration Claude Code skips', () => {
     expect(
       mcpDeclarationActions(declaration({ transport: null, problem: 'url_without_type' }))
-    ).toEqual({ remove: true, logout: false, reset: false })
+    ).toEqual({ remove: true, logout: false, login: false, reset: false })
   })
 
   it('offers nothing on a plugin declaration', () => {
@@ -66,7 +72,7 @@ describe('mcpDeclarationActions', () => {
       mcpDeclarationActions(
         declaration({ scope: 'plugin', plugin: { name: 'p', marketplace: 'm' }, transport: 'http' })
       )
-    ).toEqual({ remove: false, logout: false, reset: false })
+    ).toEqual({ remove: false, logout: false, login: false, reset: false })
   })
 })
 
@@ -112,5 +118,44 @@ describe('mcpActionMessage', () => {
       message: "couldn't reach api",
       unconfirmed: true
     })
+  })
+})
+
+describe('mcpLoginRef', () => {
+  it('names a configured Declaration by its scope and project, and a connector by its id alone', () => {
+    expect(
+      mcpLoginRef('configured:api', declaration({ scope: 'local', projectPath: '/repo' }))
+    ).toEqual({
+      serverId: 'configured:api',
+      scope: 'local',
+      projectPath: '/repo'
+    })
+    expect(mcpLoginRef('connector:claude_ai_Linear', null)).toEqual({
+      serverId: 'connector:claude_ai_Linear',
+      scope: null,
+      projectPath: null
+    })
+  })
+
+  it('has no ref for a plugin Declaration, which its plugin manages', () => {
+    expect(mcpLoginRef('plugin:p:s', declaration({ scope: 'plugin' }))).toBeNull()
+  })
+})
+
+describe('connectorOffersLogin', () => {
+  it('offers sign-in unless the last check found the connector connected', () => {
+    expect(connectorOffersLogin(null)).toBe(true)
+    expect(
+      connectorOffersLogin({ status: 'needs_auth', checkedAt: '2026-11-22T00:00:00.000Z' })
+    ).toBe(true)
+    expect(connectorOffersLogin({ status: 'failed', checkedAt: '2026-11-22T00:00:00.000Z' })).toBe(
+      true
+    )
+    expect(
+      connectorOffersLogin({ status: 'connected', checkedAt: '2026-11-22T00:00:00.000Z' })
+    ).toBe(false)
+    expect(
+      connectorOffersLogin({ status: 'degraded', checkedAt: '2026-11-22T00:00:00.000Z' })
+    ).toBe(false)
   })
 })

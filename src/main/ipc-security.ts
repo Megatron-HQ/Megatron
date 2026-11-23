@@ -158,6 +158,10 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
         !Array.isArray(value) &&
         JSON.stringify(value).length <= MAX_MCP_ADD_PAYLOAD_LENGTH
       break
+    case IPC_CHANNELS.loginMcpServer:
+    case IPC_CHANNELS.checkMcpSignIn:
+      valid = args.length === 1 && isMcpLoginRef(value)
+      break
     case IPC_CHANNELS.resetMcpProjectChoices:
     case IPC_CHANNELS.hideProject:
     case IPC_CHANNELS.showProject:
@@ -216,7 +220,7 @@ import {
 import { missingProjectInstallMessage } from '../shared/missing-project'
 import { WHATS_NEW_ANCHOR_IDS } from '../shared/whats-new'
 import { isPluginActionInput } from './plugin-actions'
-import { isMcpDeclarationRef } from './mcp-actions'
+import { isMcpDeclarationRef, isMcpLoginRef } from './mcp-actions'
 
 const PLUGIN_ACTION_UNAVAILABLE =
   'Plugin installation is unavailable or its settings are unknown. Refresh the plugin list.'

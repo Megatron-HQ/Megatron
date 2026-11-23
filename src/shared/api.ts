@@ -11,6 +11,7 @@ import type {
   McpActionResult,
   McpAddInput,
   McpAddResult,
+  McpLoginRef,
   McpConnectionCheckResult,
   McpDeclarationRef,
   McpServerDetail,
@@ -70,6 +71,8 @@ export interface Api {
   confirmMcpCheck: () => Promise<void>
   removeMcpServer: (ref: McpDeclarationRef) => Promise<McpActionResult>
   addMcpServer: (input: McpAddInput) => Promise<McpAddResult>
+  loginMcpServer: (ref: McpLoginRef) => Promise<McpActionResult>
+  checkMcpSignIn: (ref: McpLoginRef) => Promise<McpActionResult>
   logoutMcpServer: (ref: McpDeclarationRef) => Promise<McpActionResult>
   resetMcpProjectChoices: (projectPath: string) => Promise<McpActionResult>
   enablePlugin: (input: PluginActionInput) => Promise<PluginActionResult>

@@ -15,6 +15,7 @@ import {
   type McpConnectionCheckResult,
   type McpAddInput,
   type McpAddResult,
+  type McpLoginRef,
   type McpDeclarationRef,
   type McpServerDetail,
   type McpServerList,
@@ -90,6 +91,10 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.removeMcpServer, ref),
   addMcpServer: (input: McpAddInput): Promise<McpAddResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.addMcpServer, input),
+  loginMcpServer: (ref: McpLoginRef): Promise<McpActionResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.loginMcpServer, ref),
+  checkMcpSignIn: (ref: McpLoginRef): Promise<McpActionResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.checkMcpSignIn, ref),
   logoutMcpServer: (ref: McpDeclarationRef): Promise<McpActionResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.logoutMcpServer, ref),
   resetMcpProjectChoices: (projectPath: string): Promise<McpActionResult> =>

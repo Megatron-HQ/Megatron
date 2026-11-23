@@ -1,5 +1,5 @@
 import { isAbsolute } from 'path'
-import { MAX_MCP_SERVER_ID_LENGTH, type McpDeclarationRef } from '../shared/ipc'
+import { MAX_MCP_SERVER_ID_LENGTH, type McpDeclarationRef, type McpLoginRef } from '../shared/ipc'
 import { runClaude, type RunClaudeResult } from './claude-process'
 
 // MCP actions run only through Claude Code's own `claude mcp` commands (docs/mcp-servers.md,
@@ -40,6 +40,19 @@ export function isMcpDeclarationRef(input: unknown): input is McpDeclarationRef 
   )
 }
 
+// A connector signs in account-wide, so its ref names no scope or project (#50).
+export function isMcpLoginRef(input: unknown): input is McpLoginRef {
+  if (typeof input !== 'object' || input === null) return false
+  const value = input as Record<string, unknown>
+  if (value.scope !== null) return isMcpDeclarationRef(input)
+  return (
+    typeof value.serverId === 'string' &&
+    value.serverId.length > 0 &&
+    value.serverId.length <= MAX_MCP_SERVER_ID_LENGTH &&
+    !value.serverId.includes('\0') &&
+    value.projectPath === null
+  )
+}
 let running = false
 const idleWaiters: (() => void)[] = []
 

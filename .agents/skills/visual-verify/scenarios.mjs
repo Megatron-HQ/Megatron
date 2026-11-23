@@ -3882,7 +3882,26 @@ export const scenarios = [
       await openMcpSection(window)
       await window.getByRole('button', { name: /^claude\.ai\s*\d+$/ }).click()
       await window.locator('tbody tr').first().click()
-      await window.getByText(/^Managed in claude\.ai/).waitFor()
+      await window.getByText(/^Disconnect it in claude\.ai/).waitFor()
+    }
+  },
+  {
+    // #50: after Log in, the card waits for the terminal sign-in with Check sign-in. The fixture
+    // layer answers mcp:login itself, so no terminal or browser ever opens during a run.
+    name: 'mcp-detail-connector-sign-in-waiting',
+    screen: 'mcp-detail',
+    async shouldSkip(window) {
+      const servers = await window.evaluate(() => window.api.listMcpServers())
+      return servers.servers.some((server) => server.kind === 'connector')
+        ? null
+        : 'no claude.ai connector here'
+    },
+    async run(window) {
+      await openMcpSection(window)
+      await window.getByRole('button', { name: /^claude\.ai\s*\d+$/ }).click()
+      await window.locator('tbody tr').first().click()
+      await window.getByRole('button', { name: 'Log in', exact: true }).click()
+      await window.getByRole('button', { name: 'Check sign-in', exact: true }).waitFor()
     }
   }
 ]
