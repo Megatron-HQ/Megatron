@@ -151,6 +151,15 @@ Code session (`CLAUDECODE` and related variables), so its permission prompt can'
 from the user. Megatron keeps that guard: started from a Claude Code terminal, an add shows the
 CLI's refusal.
 
+### Signing in to a server
+
+Verified 2026-11-22 on Windows against Claude Code 2.1.330 with a disposable HTTP MCP server
+and OAuth provider. With piped standard streams, `claude mcp login` discovered the OAuth provider
+and registered a client, then exited with “this isn't an interactive terminal.” No authorization
+code reached the token endpoint, and `claude mcp get` still reported `Needs authentication`.
+Megatron's CLI runner uses piped streams, so offering Login depends on a supported way to
+complete the browser flow from that runner.
+
 ## Connector logout
 
 Verified 2026-11-19 against Claude Code 2.1.328 (#47), with a throwaway connector. `claude mcp
@@ -211,9 +220,10 @@ Plugin servers are not checked: their stored detail doesn't say whether the comm
 
 ## Non-goals
 
-| Non-goal                             | Revisit when                                                                |
-| ------------------------------------ | --------------------------------------------------------------------------- |
-| Reading org-managed MCP config (#53) | The first report from a user on an org-managed install                      |
-| Login and editing a server (#50)     | Login: after its terminal spike. Editing: Claude Code ships an edit command |
-| Enable/disable per project           | Claude Code ships a CLI command for it                                      |
-| Dollar cost per server or tool       | A per-call allocation model is decided in `docs/usage-analytics.md`         |
+| Non-goal                             | Revisit when                                                        |
+| ------------------------------------ | ------------------------------------------------------------------- |
+| Reading org-managed MCP config (#53) | The first report from a user on an org-managed install              |
+| Login to a server (#50)              | The browser flow can complete through Megatron's CLI runner         |
+| Editing a server (#50)               | Claude Code ships an edit command                                   |
+| Enable/disable per project           | Claude Code ships a CLI command for it                              |
+| Dollar cost per server or tool       | A per-call allocation model is decided in `docs/usage-analytics.md` |
