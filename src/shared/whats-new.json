@@ -17,6 +17,14 @@
           "kind": "section",
           "section": "mcp"
         }
+      },
+      {
+        "title": "Add MCP servers in Megatron",
+        "body": "Fill in a server's configuration or paste its JSON, then choose where Claude Code saves it.",
+        "action": {
+          "kind": "section",
+          "section": "mcp"
+        }
       }
     ]
   },

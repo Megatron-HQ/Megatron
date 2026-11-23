@@ -1,27 +1,21 @@
 import { isAbsolute } from 'path'
 import type { McpAddInput, McpAddTransport, McpConfiguredScope, McpKeyValue } from '../shared/ipc'
 import { summarizeMcpServer } from './ingest/mcp-server-config'
+import {
+  MCP_ENV_NAME,
+  MCP_HEADER_NAME,
+  mcpServerNameError,
+  mcpUrlError
+} from '../shared/mcp-add-rules'
 
 // Adding an MCP server (#50, docs/mcp-servers.md, Writes). The input crosses IPC from the
 // renderer, so everything is checked here; the config reaches the CLI only on stdin.
 
-const MAX_NAME_LENGTH = 100
 const MAX_TEXT_LENGTH = 8192
 const MAX_ARGS = 100
 const MAX_ENTRIES = 50
 const SCOPES = new Set<McpConfiguredScope>(['local', 'project', 'user'])
 const TRANSPORTS = new Set<McpAddTransport>(['stdio', 'http', 'sse', 'ws'])
-const URL_PROTOCOLS: Record<Exclude<McpAddTransport, 'stdio'>, string[]> = {
-  http: ['https:', 'http:'],
-  sse: ['https:', 'http:'],
-  ws: ['wss:', 'ws:']
-}
-// What a shell or Claude Code expands as ${NAME}, and an HTTP header's token characters.
-const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
-const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
-// Claude Code's own rule for a server name (verified 2026-11-22, 2.1.330: add-json refuses any
-// other character), checked here so the form says so before the CLI runs.
-const SERVER_NAME = /^[A-Za-z0-9_-]+$/
 
 type Parsed<T> = { ok: true; value: T } | { ok: false; error: string }
 
@@ -55,13 +49,8 @@ function parseEntries(value: unknown, label: string, namePattern: RegExp): Parse
 
 function parseName(value: unknown): Parsed<string> {
   if (typeof value !== 'string') return { ok: false, error: 'Give the server a name.' }
-  const name = value.trim()
-  if (name === '') return { ok: false, error: 'Give the server a name.' }
-  if (name.length > MAX_NAME_LENGTH)
-    return { ok: false, error: `Keep the name to ${MAX_NAME_LENGTH} characters.` }
-  if (!SERVER_NAME.test(name))
-    return { ok: false, error: 'Use only letters, numbers, hyphens and underscores in the name.' }
-  return { ok: true, value: name }
+  const error = mcpServerNameError(value)
+  return error === null ? { ok: true, value: value.trim() } : { ok: false, error }
 }
 
 function scopeFolderError(scope: McpConfiguredScope, projectPath: unknown): string | null {
@@ -73,14 +62,7 @@ function scopeFolderError(scope: McpConfiguredScope, projectPath: unknown): stri
 }
 
 function urlError(transport: Exclude<McpAddTransport, 'stdio'>, url: unknown): string | null {
-  if (!boundedText(url) || url.trim() === '') return 'Give the server its URL.'
-  try {
-    return URL_PROTOCOLS[transport].includes(new URL(url.trim()).protocol)
-      ? null
-      : `A ${transport === 'ws' ? 'WebSocket' : 'web'} server's URL starts with ${URL_PROTOCOLS[transport].map((protocol) => `${protocol}//`).join(' or ')}.`
-  } catch {
-    return "That URL can't be read."
-  }
+  return boundedText(url) ? mcpUrlError(transport, url) : 'Give the server its URL.'
 }
 
 export function parseMcpAddInput(input: unknown): Parsed<McpAddInput> {
@@ -110,7 +92,7 @@ export function parseMcpAddInput(input: unknown): Parsed<McpAddInput> {
       !input.args.every((arg) => boundedText(arg))
     )
       return { ok: false, error: `Give at most ${MAX_ARGS} arguments, each one line of text.` }
-    const env = parseEntries(input.env, 'environment variables', ENV_NAME)
+    const env = parseEntries(input.env, 'environment variables', MCP_ENV_NAME)
     if (!env.ok) return env
     return {
       ok: true,
@@ -126,7 +108,7 @@ export function parseMcpAddInput(input: unknown): Parsed<McpAddInput> {
   }
   const error = urlError(transport, input.url)
   if (error !== null) return { ok: false, error }
-  const headers = parseEntries(input.headers, 'headers', HEADER_NAME)
+  const headers = parseEntries(input.headers, 'headers', MCP_HEADER_NAME)
   if (!headers.ok) return headers
   return {
     ok: true,
