@@ -113,17 +113,17 @@ export interface LoginTerminalDependencies {
     }
   ) => SpawnedChild
   writeFile: (path: string, text: string, mode: number) => void
+  // Deletes the macOS script when Terminal never got it; otherwise it deletes itself as it runs.
+  removeFile: (path: string) => void
   randomName: () => string
 }
 
-function terminalLaunched(child: SpawnedChild, platform: NodeJS.Platform): Promise<boolean> {
+// Both launchers exit once the terminal is up (Windows' hidden PowerShell after Start-Process,
+// macOS's open once Terminal has the script), so their exit code says whether it opened.
+function terminalLaunched(child: SpawnedChild): Promise<boolean> {
   return new Promise((resolve) => {
     child.once('error', () => resolve(false))
-    if (platform === 'win32') {
-      child.once('exit', (code) => resolve(code === 0))
-    } else {
-      child.once('spawn', () => resolve(true))
-    }
+    child.once('exit', (code) => resolve(code === 0))
   })
 }
 
@@ -134,6 +134,7 @@ export async function openLoginTerminal(
 ): Promise<LoginTerminalResult> {
   const fallback = `Megatron couldn't open a terminal. Run ${manualCommand(name)} in a terminal in ${cwd} instead.`
   let child: SpawnedChild
+  let script: string | null = null
   try {
     if (deps.platform === 'win32') {
       const launch = windowsLoginLaunch(deps.command, name, deps.systemRoot)
@@ -145,7 +146,7 @@ export async function openLoginTerminal(
         env: deps.command.environment
       })
     } else if (deps.platform === 'darwin') {
-      const script = posix.join(deps.scriptFolder, `${SCRIPT_PREFIX}${deps.randomName()}.command`)
+      script = posix.join(deps.scriptFolder, `${SCRIPT_PREFIX}${deps.randomName()}.command`)
       deps.writeFile(
         script,
         macosLoginScript(deps.command, name, cwd, deps.command.environment.CLAUDE_CONFIG_DIR),
@@ -163,9 +164,13 @@ export async function openLoginTerminal(
       }
     }
   } catch {
+    if (script !== null) deps.removeFile(script)
     return { ok: false, error: fallback }
   }
-  if (!(await terminalLaunched(child, deps.platform))) return { ok: false, error: fallback }
+  if (!(await terminalLaunched(child))) {
+    if (script !== null) deps.removeFile(script)
+    return { ok: false, error: fallback }
+  }
   child.unref()
   return { ok: true }
 }
