@@ -164,10 +164,10 @@ console of its own, the same login keeps running and waits for the browser.
 So Log in (#50, decided with the maintainer 2026-11-22) opens a terminal window that runs Claude
 Code's own `claude mcp login -- <name>`. On Windows, a hidden System32 PowerShell uses
 `Start-Process` to give the login console standard handles, which a detached Node spawn lacks.
-Both PowerShell invocations use an absolute path and `-EncodedCommand`. Megatron waits for the
-launcher to exit successfully before showing Check sign-in. On macOS, `/usr/bin/open -a Terminal`
-opens a one-shot `.command` script that deletes itself from Megatron's private data folder
-(`mcp-login.ts`). It runs the same resolved `claude` and Claude Code folder as every other action
+Both PowerShell invocations use an absolute path and `-EncodedCommand`. On macOS, `/usr/bin/open -a Terminal` opens a one-shot `.command`
+script that deletes itself from Megatron's private data folder (`mcp-login.ts`), or that Megatron
+deletes when `open` fails. On both, Megatron waits for the launcher to exit successfully before
+showing Check sign-in. It runs the same resolved `claude` and Claude Code folder as every other action
 (on macOS the script sets or unsets `CLAUDE_CONFIG_DIR` itself, since Terminal's shell carries
 none of Megatron's environment), from the folder Remove would use, and the name comes from the
 index. Megatron can't watch that terminal, so Check sign-in reads `claude mcp get` and counts only

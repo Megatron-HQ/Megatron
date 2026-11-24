@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, dialog, ipcMain, net, protocol, session } from 'electron'
-import { watchFile, writeFileSync } from 'fs'
+import { rmSync, watchFile, writeFileSync } from 'fs'
 import { spawn } from 'child_process'
 import { randomBytes } from 'crypto'
 import { basename, join, resolve } from 'path'
@@ -899,6 +899,7 @@ app.whenReady().then(() => {
         scriptFolder: app.getPath('userData'),
         spawn: (file, args, options) => spawn(file, args, options),
         writeFile: (path, text, mode) => writeFileSync(path, text, { mode }),
+        removeFile: (path) => rmSync(path, { force: true }),
         randomName: () => randomBytes(8).toString('hex')
       })
     }

@@ -80,6 +80,7 @@ function dependencies(
 ): LoginTerminalDependencies & {
   spawn: Mock<LoginTerminalDependencies['spawn']>
   writeFile: Mock<LoginTerminalDependencies['writeFile']>
+  removeFile: Mock<LoginTerminalDependencies['removeFile']>
 } {
   const child = Object.assign(new EventEmitter(), { unref: vi.fn() })
   return {
@@ -99,6 +100,7 @@ function dependencies(
       return child
     }),
     writeFile: vi.fn<LoginTerminalDependencies['writeFile']>(),
+    removeFile: vi.fn<LoginTerminalDependencies['removeFile']>(),
     randomName: () => 'abc123'
   }
 }
@@ -126,6 +128,21 @@ describe('openLoginTerminal', () => {
     )
     expect(result).toMatchObject({ ok: false, error: expect.stringContaining('claude mcp login') })
   })
+
+  it.each(['exit-failure', 'error'] as const)(
+    'reports a macOS open that %s and removes the script nobody will run',
+    async (outcome) => {
+      const deps = dependencies('darwin', outcome)
+      const result = await openLoginTerminal('github', '/Users/me/repo', deps)
+      expect(result).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('claude mcp login')
+      })
+      expect(deps.removeFile).toHaveBeenCalledWith(
+        '/private/megatron/megatron-mcp-login-abc123.command'
+      )
+    }
+  )
 
   it('writes a private one-shot script on macOS and opens it in Terminal', async () => {
     const deps = dependencies('darwin')
