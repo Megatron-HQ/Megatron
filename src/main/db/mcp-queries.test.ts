@@ -972,15 +972,35 @@ describe('mcpLoginTarget', () => {
       location: 'sentry.io'
     })
     expect(
-      mcpLoginTarget(db, { serverId: 'configured:sentry', scope: 'local', projectPath: '/a' })
+      mcpLoginTarget(db, { serverId: 'configured:sentry', scope: 'local', projectPath: '/a' }, null)
     ).toEqual({ ok: true, name: 'sentry', projectPath: '/a' })
   })
 
   it('signs a connector in account-wide, by the name Claude Code shows', () => {
     call('claude_ai_Linear__list_issues')
     expect(
-      mcpLoginTarget(db, { serverId: 'connector:claude_ai_Linear', scope: null, projectPath: null })
+      mcpLoginTarget(
+        db,
+        { serverId: 'connector:claude_ai_Linear', scope: null, projectPath: null },
+        null
+      )
     ).toEqual({ ok: true, name: 'claude.ai Linear', projectPath: null })
+  })
+
+  // A connector waiting for its first sign-in has never been called, so only the live check names it.
+  it('signs in a connector only the live check has seen', () => {
+    const ref = { serverId: 'connector:claude_ai_Slack', scope: null, projectPath: null }
+    const check: McpConnectionCheck = {
+      projectPath: null,
+      checkedAt: '2026-11-24T12:00:00.000Z',
+      servers: [{ name: 'claude.ai Slack', status: 'needs_auth' }]
+    }
+    expect(mcpLoginTarget(db, ref, check)).toEqual({
+      ok: true,
+      name: 'claude.ai Slack',
+      projectPath: null
+    })
+    expect(mcpLoginTarget(db, ref, null)).toMatchObject({ ok: false })
   })
 
   it.each([
@@ -1002,6 +1022,6 @@ describe('mcpLoginTarget', () => {
     declare({ scope: 'user', name: 'tools' })
     call('claude_ai_Linear__list_issues')
     call('retired__tool')
-    expect(mcpLoginTarget(db, ref)).toMatchObject({ ok: false, error: expect.any(String) })
+    expect(mcpLoginTarget(db, ref, null)).toMatchObject({ ok: false, error: expect.any(String) })
   })
 })
