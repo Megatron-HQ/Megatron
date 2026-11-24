@@ -1,6 +1,6 @@
 {
   "0.5.0": {
-    "title": "Usage history",
+    "title": "Manage MCP servers",
     "highlights": [
       {
         "title": "Uses outlive Claude Code's cleanup",
