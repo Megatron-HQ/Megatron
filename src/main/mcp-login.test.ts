@@ -1,3 +1,7 @@
+import { execFileSync } from 'child_process'
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { describe, expect, it, vi, type Mock } from 'vitest'
 import { EventEmitter } from 'node:events'
 import {
@@ -169,5 +173,53 @@ describe('openLoginTerminal', () => {
     const result = await openLoginTerminal('github', '/repo', deps)
     expect(result).toMatchObject({ ok: false, error: expect.stringContaining('claude mcp login') })
     expect(deps.spawn).not.toHaveBeenCalled()
+  })
+})
+
+// The macOS script, run by a real POSIX shell (the macOS CI job; skipped on Windows). A stand-in for
+// claude prints the folder it runs in, its arguments and the Claude Code folder it sees, so quoting,
+// the folder switch, the CLAUDE_CONFIG_DIR handling and the self-delete are all checked for real.
+describe.skipIf(process.platform === 'win32')('macosLoginScript in a real shell', () => {
+  const STAND_IN = {
+    executable: '/bin/sh',
+    prefixArguments: [
+      '-c',
+      'pwd; printf "%s|" "$@"; echo; echo "cfg=${CLAUDE_CONFIG_DIR-unset}"',
+      'claude'
+    ]
+  }
+
+  function run(configDirectory: string | undefined): {
+    output: string
+    script: string
+    cwd: string
+  } {
+    const folder = mkdtempSync(join(tmpdir(), "megatron login's "))
+    const cwd = join(folder, "repo with 'quote")
+    mkdirSync(cwd)
+    const script = join(folder, 'megatron-mcp-login-test.command')
+    writeFileSync(
+      script,
+      macosLoginScript(STAND_IN, "claude.ai Notion (work's)", cwd, configDirectory),
+      { mode: 0o700 }
+    )
+    const output = execFileSync('/bin/sh', [script], {
+      encoding: 'utf8',
+      // A shell profile pointing somewhere else must never win over Megatron's folder.
+      env: { ...process.env, CLAUDE_CONFIG_DIR: '/from/the/profile' }
+    })
+    return { output, script, cwd }
+  }
+
+  it('runs the login in the folder with every argument intact, then removes itself', () => {
+    const { output, script, cwd } = run("/Users/me/claude's folder")
+    expect(output.split('\n')[0]).toBe(cwd)
+    expect(output).toContain("mcp|login|--|claude.ai Notion (work's)|")
+    expect(output).toContain("cfg=/Users/me/claude's folder")
+    expect(existsSync(script)).toBe(false)
+  })
+
+  it("clears a profile's CLAUDE_CONFIG_DIR when Megatron reads the default folder", () => {
+    expect(run(undefined).output).toContain('cfg=unset')
   })
 })
