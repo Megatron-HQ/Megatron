@@ -885,7 +885,7 @@ app.whenReady().then(() => {
     lookupCommand: (program) => mcpCommandLookup()(program),
     precedenceNote: (name, scope, projectPath) =>
       mcpAddPrecedenceNote(getDb(), name, scope, projectPath),
-    loginTarget: (ref) => mcpLoginTarget(getDb(), ref),
+    loginTarget: (ref) => mcpLoginTarget(getDb(), ref, latestMcpChecks().general),
     openLoginTerminal: (name, cwd) => {
       // The same gate every CLI run passes (claude-process.ts): never a missing or switching folder.
       const refusal = claudeFolder.cliRefusal()

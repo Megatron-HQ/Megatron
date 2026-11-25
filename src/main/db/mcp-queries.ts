@@ -636,10 +636,15 @@ export type McpLoginTarget =
 
 // What `claude mcp login` signs in to (#50): a configured remote Declaration, run from its project
 // as the other actions are, or a claude.ai connector, whose sign-in is account-wide. The name comes
-// from the index, never the renderer.
-export function mcpLoginTarget(db: Database.Database, ref: McpLoginRef): McpLoginTarget {
+// from the index, never the renderer. A connector awaiting its first sign-in has never been called,
+// so only the live check names it: the lookup must see what the server list saw.
+export function mcpLoginTarget(
+  db: Database.Database,
+  ref: McpLoginRef,
+  general: McpConnectionCheck | null
+): McpLoginTarget {
   if (ref.scope === null) {
-    const identity = readSnapshot(db).identities.get(ref.serverId)
+    const identity = readSnapshot(db, general).identities.get(ref.serverId)
     if (identity === undefined) return { ok: false, error: UNKNOWN_SERVER_MESSAGE }
     if (identity.kind !== 'connector')
       return {
